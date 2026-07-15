@@ -8,7 +8,7 @@ Define canonical navigation, authority ordering, and dependency sequencing for t
 
 1. Constitution and governance
 2. Immutable foundation layer 000 through 020
-3. Volume I Product Foundations
+3. Volume I Product Specification Set
 4. Downstream domain specifications
 5. Derived implementation and operations artifacts
 
@@ -18,7 +18,7 @@ Define canonical navigation, authority ordering, and dependency sequencing for t
 000-020 Immutable Foundation
             |
             v
-Volume I Product Foundations
+Volume I Product Specification Set
             |
             v
 Experience and Interaction
@@ -84,9 +84,11 @@ Foundation Version: 1.0
 
 ### Volume I Product Foundations
 
+- [volume-i/INDEX.md](volume-i/INDEX.md)
 - [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md)
 - Status: Active
 - Gate: MUST complete before Volume II and all downstream domain layers
+- Canonical Rule: The decomposed Volume I set under [volume-i/INDEX.md](volume-i/INDEX.md) is canonical for implementation-ready product specification details. [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md) remains the strategic umbrella and entry point.
 
 ### Volume II And Beyond
 

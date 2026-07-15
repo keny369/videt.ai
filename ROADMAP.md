@@ -79,8 +79,9 @@ Implementation
 
 - Status: Active
 - Deliverables:
-  - market and business architecture completion
-  - score model and prioritization architecture completion
+  - canonical Volume I specification set under specification/volume-i
+  - implementation-ready capability, workflow, rule, score-evidence, acceptance, and traceability definitions
+  - owner decision register for unresolved policy and threshold choices
   - foundation 1.0 dependency compliance verification
 
 ### M5 Experience and Interaction

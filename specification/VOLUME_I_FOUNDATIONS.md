@@ -2,10 +2,10 @@
 
 ## Document Control
 
-- Status: In progress
+- Status: Active strategic umbrella
 - Foundation Version: 1.0
 - Owner: Chief Architect
-- Last updated: 2026-07-15
+- Last updated: 2026-07-16
 - Depends on: [000 OVERVIEW.md](000%20OVERVIEW.md), [001 PRODUCT_ARCHITECTURE_MANUAL.md](001%20PRODUCT_ARCHITECTURE_MANUAL.md), [002 GLOSSARY.md](002%20GLOSSARY.md), [003 TERMINOLOGY.md](003%20TERMINOLOGY.md), [004 DESIGN_PRINCIPLES.md](004%20DESIGN_PRINCIPLES.md), [005 PRODUCT_PRINCIPLES.md](005%20PRODUCT_PRINCIPLES.md), [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md), [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md), [008 AI_PRINCIPLES.md](008%20AI_PRINCIPLES.md), [009 DECISION_FRAMEWORK.md](009%20DECISION_FRAMEWORK.md), [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md), [011 DOMAIN_MODEL.md](011%20DOMAIN_MODEL.md), [012 SYSTEM_BOUNDARIES.md](012%20SYSTEM_BOUNDARIES.md), [013 QUALITY_ATTRIBUTES.md](013%20QUALITY_ATTRIBUTES.md), [014 SECURITY_MODEL.md](014%20SECURITY_MODEL.md), [015 DATA_LIFECYCLE.md](015%20DATA_LIFECYCLE.md), [016 STATE_MODEL.md](016%20STATE_MODEL.md), [017 ERROR_MODEL.md](017%20ERROR_MODEL.md), [018 OBSERVABILITY.md](018%20OBSERVABILITY.md), [019 VERSIONING.md](019%20VERSIONING.md), [020 EXTENSIBILITY.md](020%20EXTENSIBILITY.md), [../CLAUDE.md](../CLAUDE.md), [../governance/PROJECT_CONSTITUTION.md](../governance/PROJECT_CONSTITUTION.md), [../DECISIONS.md](../DECISIONS.md), [../research/000-initial-concept.md](../research/000-initial-concept.md)
 
 ## Purpose
@@ -22,6 +22,19 @@ This volume defines:
 - Discoverability Score conceptual model
 - pricing and commercial model baseline
 - strategic non-goals and constraints
+
+Canonical implementation-ready detail for Volume I is defined in the decomposed specification set:
+
+- [volume-i/INDEX.md](volume-i/INDEX.md)
+- [volume-i/PRODUCT_DEFINITION.md](volume-i/PRODUCT_DEFINITION.md)
+- [volume-i/CAPABILITY_MODEL.md](volume-i/CAPABILITY_MODEL.md)
+- [volume-i/WORKFLOW_SPECIFICATIONS.md](volume-i/WORKFLOW_SPECIFICATIONS.md)
+- [volume-i/PRODUCT_RULES.md](volume-i/PRODUCT_RULES.md)
+- [volume-i/SCORE_EVIDENCE_MODEL.md](volume-i/SCORE_EVIDENCE_MODEL.md)
+- [volume-i/ACCEPTANCE_AND_TEST_MAPPING.md](volume-i/ACCEPTANCE_AND_TEST_MAPPING.md)
+- [volume-i/TRACEABILITY_MATRIX.md](volume-i/TRACEABILITY_MATRIX.md)
+- [volume-i/OWNER_DECISION_REGISTER.md](volume-i/OWNER_DECISION_REGISTER.md)
+- [volume-i/INDEPENDENT_REVIEW.md](volume-i/INDEPENDENT_REVIEW.md)
 
 This volume does not define:
 
@@ -226,10 +239,13 @@ Volume I is accepted when all criteria below are true:
 4. pricing baseline and value logic are documented
 5. strategic non-goals and boundaries are explicit
 6. cross-references to constitution, governance and ADRs are complete
+7. decomposed Volume I documents under [volume-i/INDEX.md](volume-i/INDEX.md) are synchronized and traceable
+8. unresolved owner-level decisions are explicitly recorded in [volume-i/OWNER_DECISION_REGISTER.md](volume-i/OWNER_DECISION_REGISTER.md)
 
 ## Dependencies
 
 - [INDEX.md](INDEX.md)
+- [volume-i/INDEX.md](volume-i/INDEX.md)
 - [../ROADMAP.md](../ROADMAP.md)
 - [../PROJECT_STATE.md](../PROJECT_STATE.md)
 - [../governance/QUALITY_STANDARD.md](../governance/QUALITY_STANDARD.md)

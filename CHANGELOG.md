@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-16
+
+- decomposed Volume I into canonical implementation-ready specification set under specification/volume-i
+- added product definition with stable PR-REQ identifiers and foundation-aligned boundaries
+- added capability model with CAP-001 through CAP-025 and explicit dependency/acceptance mapping
+- added workflow specifications WF-001 through WF-018 with primary, alternate, failure, and recovery paths
+- added product rule catalog PRULE-001 through PRULE-042 with source references and verification intent
+- added conceptual score and evidence chain model from evidence through reassessment without invented numeric formulas
+- added acceptance and planned test-type mapping across capabilities, workflows, and score model criteria
+- added Volume I traceability matrix linking requirements, capabilities, workflows, rules, acceptance, and verification
+- added canonical owner decision register OD-001 through OD-006 including unresolved 011 domain decisions and provisional 013 quality threshold handling
+- added independent multi-role review record with findings, resolutions, and residual risks
+- updated control-plane docs to treat specification/volume-i/INDEX.md as canonical Volume I detail set while preserving Volume II pause gate
+
 ## 2026-07-15
 
 - upgraded repository control documents: README, ROADMAP, PROJECT_STATE, DECISIONS
