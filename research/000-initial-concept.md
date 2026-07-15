@@ -1,12 +1,17 @@
-# AI Discoverability Platform – Business Case, Product Strategy & Technical Specification
+# Research 000 - Initial Concept Baseline
+
+Status: Informational research input.
+
+Canonical architecture requirements live in [../specification/INDEX.md](../specification/INDEX.md) and manual volumes.
 
 ## Executive Summary
 
-This document consolidates the strategy discussed throughout the conversation.
+This document captures the initial strategy baseline that informed the architecture manual.
 
-The opportunity is **not another SEO audit**. It is a platform that continuously measures, explains and improves a business's discoverability across traditional search engines and AI assistants.
+The opportunity is not another SEO audit. It is a platform that continuously measures, explains and improves a business's discoverability across traditional search engines and AI assistants.
 
 Target users:
+
 - Small and medium businesses
 - Agencies
 - Consultants
@@ -18,13 +23,12 @@ Core positioning:
 
 The platform measures visibility across Google, Bing, Google AI Overviews, ChatGPT, Claude, Gemini, Perplexity and other emerging AI search surfaces.
 
----
+## Market Opportunity
 
-# Market Opportunity
-
-Search is shifting from ranked links toward AI-generated answers and zero-click experiences. Businesses increasingly need optimization for both search engines and AI systems rather than Google alone. Industry analysis refers to this as AI Search Optimization (AISO), Answer Engine Optimization (AEO) and Generative Engine Optimization (GEO). citeturn0search3turn0search1turn0news12
+Search is shifting from ranked links toward AI-generated answers and zero-click experiences. Businesses increasingly need optimization for both search engines and AI systems rather than Google alone. Industry language often refers to this landscape as AI Search Optimization (AISO), Answer Engine Optimization (AEO) and Generative Engine Optimization (GEO).
 
 Existing SEO tools largely:
+
 - report problems
 - overwhelm users
 - require expertise
@@ -33,15 +37,14 @@ Existing SEO tools largely:
 Gap in market:
 
 Businesses want to know:
+
 1. Why am I not being found?
 2. What should I fix first?
 3. Exactly how do I fix it?
 
----
+## Product Vision
 
-# Product Vision
-
-An AI-powered Discoverability Platform.
+A Discoverability Intelligence Platform.
 
 Not an SEO tool.
 
@@ -65,21 +68,17 @@ Produces:
 - Developer-ready patches
 - Weekly monitoring
 
----
+## Product Workflow
 
-# Product Workflow
+- User enters website.
+- Crawl completes.
+- Site analyzed.
+- Score generated.
+- Issues prioritized.
+- AI generates implementation guidance.
+- Weekly monitoring continues.
 
-1. User enters website
-2. Crawl completes
-3. Site analysed
-4. Score generated
-5. Issues prioritised
-6. AI generates implementation guidance
-7. Weekly monitoring continues
-
----
-
-# Discoverability Score
+## Discoverability Score
 
 Suggested dimensions:
 
@@ -93,9 +92,7 @@ Suggested dimensions:
 
 Each category scored independently.
 
----
-
-# Audit Categories
+## Audit Categories
 
 - HTTPS
 - Mobile
@@ -128,9 +125,7 @@ Each category scored independently.
 - Entity consistency
 - Semantic clarity
 
----
-
-# Killer Features
+## Killer Features
 
 ## 1. AI Remediation
 
@@ -161,9 +156,7 @@ Weekly reports showing:
 
 Compare against businesses in same industry.
 
----
-
-# Security Model
+## Security Model
 
 Do NOT request GitHub access.
 
@@ -178,9 +171,7 @@ Advantages:
 - no deployment risk
 - compatible with any CMS
 
----
-
-# Pricing
+## Pricing
 
 Free
 
@@ -205,9 +196,7 @@ Enterprise
 
 - custom
 
----
-
-# Rails Technology Stack
+## Rails Technology Stack
 
 - Ruby on Rails 8
 - PostgreSQL
@@ -235,9 +224,7 @@ Optional APIs:
 - Google Search Console
 - Bing Webmaster
 
----
-
-# AI
+## AI
 
 LLM used to:
 
@@ -247,9 +234,7 @@ LLM used to:
 - generate developer prompts
 - generate business summaries
 
----
-
-# Claude Code Initial Prompt
+## Claude Code Initial Prompt
 
 Implement a complete Search + AI Discoverability audit.
 
@@ -275,9 +260,7 @@ Run tests.
 
 Do not introduce regressions.
 
----
-
-# Manual Tasks
+## Manual Tasks
 
 - Connect Google Search Console
 - Connect Bing Webmaster
@@ -291,9 +274,7 @@ Do not introduce regressions.
 - Publish comparison pages
 - Publish original research
 
----
-
-# Marketing Positioning
+## Marketing Positioning
 
 Primary promise:
 
@@ -305,47 +286,24 @@ Alternative messaging:
 - Search. AI. Maps.
 - Your website may exist. Can anyone actually find it?
 
----
-
-# Viral Mechanics
+## Viral Mechanics
 
 Every report contains:
 
-Overall score
-
-Industry percentile
-
-Top improvements
-
-Shareable badge
-
-Weekly progress
+- Overall score
+- Industry percentile
+- Top improvements
+- Shareable badge
+- Weekly progress
 
 Agencies distribute reports.
 
 Business owners share scores.
 
----
+## Future Roadmap
 
-# Future Roadmap
-
-Phase 1
-
-Technical audit
-
-Phase 2
-
-AI visibility
-
-Phase 3
-
-Competitor intelligence
-
-Phase 4
-
-Automated remediation
-
-Phase 5
-
-Predictive discoverability
-
+- Phase 1: Technical audit
+- Phase 2: AI visibility
+- Phase 3: Competitor intelligence
+- Phase 4: Automated remediation
+- Phase 5: Predictive discoverability
