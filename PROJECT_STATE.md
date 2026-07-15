@@ -9,7 +9,14 @@
 
 ## Current Objective
 
-Complete owner review and decision closure for the decomposed Volume I specification set under immutable foundation 1.0 governance before any downstream specification work.
+Reach Volume I specification completeness such that an experienced engineering team can implement without asking the product owner any functional clarification questions.
+
+## Operating Constraints
+
+- No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
+- Prioritize eliminating implementation disagreement risks in existing Volume I product-spec documents.
+- Do not begin Volume II or downstream specifications until Volume I acceptance passes.
+- Do not implement software, commit, or push during specification-completeness passes.
 
 ## Baseline Summary
 
@@ -34,14 +41,18 @@ Complete owner review and decision closure for the decomposed Volume I specifica
 
 ## Active Workstream
 
-1. Resolve open owner decisions in specification/volume-i/OWNER_DECISION_REGISTER.md.
-2. Maintain Volume I traceability and foundation alignment.
-3. Enforce review gates that block premature downstream expansion.
+1. Run adversarial specification passes across capabilities, workflows, rules, scoring, and acceptance criteria to identify where implementation teams could diverge.
+2. Resolve ambiguity directly in existing Volume I specification files with deterministic behavior, edge-case handling, and testable acceptance criteria.
+3. Close remaining owner decisions only where they block deterministic functional behavior.
+4. Keep traceability and acceptance mapping synchronized as a byproduct of specification corrections.
 
 ## Risks
 
 - Risk: downstream work starts before Volume I acceptance.
   Mitigation: roadmap gates and review policy MUST block downstream starts.
+
+- Risk: governance artifacts proliferate faster than product specification quality.
+  Mitigation: reject new process artifacts unless they remove demonstrated product ambiguity.
 
 - Risk: foundation drift through uncontrolled edits.
   Mitigation: ADR-backed controlled change policy MUST be enforced.
@@ -51,6 +62,7 @@ Complete owner review and decision closure for the decomposed Volume I specifica
 
 ## Next Checkpoints
 
-- Verify decomposed Volume I documents remain internally synchronized and foundation-aligned.
-- Resolve OD-001 through OD-006 by declared deadlines and create ADRs when trigger conditions are met.
+- Execute an adversarial disagreement sweep: for each capability and workflow, identify missing information, ambiguity, conflicting interpretations, undefined transitions, missing permissions, unhandled failures, and non-testable acceptance criteria.
+- Convert highest-severity disagreement defects into deterministic specification text in existing Volume I files.
+- Resolve only the owner decisions that are direct blockers to deterministic behavior.
 - Reconfirm downstream pause status in roadmap and index before each merge.
