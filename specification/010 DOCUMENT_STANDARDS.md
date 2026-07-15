@@ -56,9 +56,9 @@ This document applies to:
 
 ### Canonical Structure And Required Sections
 
-DOC-REQ-001: Every foundation document MUST include Title, Status, Authority, Purpose, Scope, Dependencies, Definitions, Assumptions, Constraints, Normative Requirements, Decisions, Non-goals, Risks, Verification, Open Questions, Related Documents, and Change Control.
+DOC-REQ-001: Every foundation document MUST include Title, Status, Authority, Purpose, Scope, Dependencies, Definitions, Assumptions, Constraints, Normative Requirements, Decisions, Non-goals, Risks, Verification, Open Questions, Related Documents, and Change Control. A document MAY satisfy this through stricter equivalent sections with an explicit section mapping.
 
-DOC-REQ-002: Any stricter canonical structure MUST include explicit mapping to these required sections.
+DOC-REQ-002: Section mappings for stricter canonical structures MUST be explicit and MUST be declared inline or in [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md).
 
 DOC-REQ-003: Empty ceremonial sections MUST NOT be included. Non-applicable sections MUST state rationale.
 
@@ -146,6 +146,8 @@ DOC-REQ-033: Foundation changes MUST include ADR references and compatibility an
 
 DOC-REQ-034: Roadmap and project state updates MUST accompany sequencing changes.
 
+DOC-REQ-035: Any foundation document change that relies on centralized section mapping MUST update [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md) in the same change set.
+
 ## Decisions
 
 - DEC-010-01: Documentation-as-code is constitutional policy.
@@ -181,6 +183,7 @@ DOC-REQ-034: Roadmap and project state updates MUST accompany sequencing changes
 
 - [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
 - [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
+- [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md)
 - [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
 - [../diagrams/INDEX.md](../diagrams/INDEX.md)
 

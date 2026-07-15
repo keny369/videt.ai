@@ -186,7 +186,8 @@ Volume II and downstream specification work MUST remain paused until this volume
 
 ### Data Boundaries
 
-- canonical entities include Account, Domain, Crawl, CheckResult, Issue, ScoreSnapshot and RecommendationArtifact
+- canonical entities include Account, Project, Source, Document, Crawl, Evaluation, Issue, ScoreSnapshot and RecommendationArtifact
+- check results are evaluation outputs, not top-level canonical entities in the foundation domain model
 - score and recommendation generations must be traceable to source evidence
 - every model that affects scoring must be versioned
 

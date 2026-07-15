@@ -163,23 +163,23 @@ DM-REQ-012: Invariant checks MUST be represented in automated tests before imple
 
 ### Domain Events
 
-The canonical domain event set includes:
+The minimum canonical cross-context domain event set includes:
 
 - OrganizationCreated
+- OrganizationActivated
 - OrganizationPolicyUpdated
-- AccountProvisioned
+- AccountProvisionRequested
+- AccountActivated
 - ProjectCreated
 - SourceRegistered
 - CrawlStarted
 - CrawlCompleted
-- IngestionJobFailed
-- ParsingJobFailed
-- IndexingJobCompleted
 - EvaluationCompleted
 - IssueCreated
 - RecommendationArtifactGenerated
 - AIResponseGenerated
-- CitationValidated
+- AIResponseValidated
+- CitationVerified
 - ExportGenerated
 - IntegrationConnected
 - CredentialRotated
@@ -187,7 +187,7 @@ The canonical domain event set includes:
 
 DM-REQ-013: Each domain event MUST include event_id, event_type, occurred_at_utc, actor_id, organization_id, and affected_entity_id.
 
-DM-REQ-014: Event payload schemas MUST be versioned under [019 VERSIONING.md](019%20VERSIONING.md).
+DM-REQ-014: Event payload schemas MUST be versioned under [019 VERSIONING.md](019%20VERSIONING.md). Additional workflow-specific lifecycle and failure events MAY be defined in [016 STATE_MODEL.md](016%20STATE_MODEL.md) and [017 ERROR_MODEL.md](017%20ERROR_MODEL.md), and MUST follow event naming rules in [003 TERMINOLOGY.md](003%20TERMINOLOGY.md).
 
 ### Cross-Domain References
 

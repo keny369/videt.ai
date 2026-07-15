@@ -31,6 +31,7 @@ flowchart TB
     AI[AI Provider Services]
     BILL[Billing Provider]
     NOTIF[Notification Provider]
+    OBS[Monitoring Provider]
 
     USER --> WEB
     WEB <--> DB
@@ -44,6 +45,8 @@ flowchart TB
     WORKER --> AI
     WEB --> BILL
     WORKER --> NOTIF
+    WEB --> OBS
+    WORKER --> OBS
 ```
 
 ## Related Documents

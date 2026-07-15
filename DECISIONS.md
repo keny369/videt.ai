@@ -218,3 +218,54 @@ Consequences:
 - one authoritative source exists for each required architecture view
 - duplicate boundary diagrams are prohibited
 - diagram updates require linked specification updates in same change set
+
+## ADR-014: Foundation Section Mapping Registry
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Foundation documents that use stricter or legacy section structures are governed through a centralized section mapping registry in `specification/FOUNDATION_SECTION_MAPPINGS.md`.
+
+Context:
+Foundation policy requires 17 required sections or equivalent mapping. Several accepted baseline documents use equivalent structures that were not explicitly mapped.
+
+Consequences:
+
+- section conformance is auditable without forcing stylistic rewrites
+- mapped documents must provide rationale where sections are non-applicable
+- mapping registry must be updated in the same change set as mapped document changes
+
+## ADR-015: Canonical Event Naming Alignment
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Canonical domain and observability event names follow PascalCase and the domain event list in `specification/011 DOMAIN_MODEL.md` is treated as minimum cross-context coverage, with additional lifecycle and failure events defined by state and error models.
+
+Context:
+Event naming drift appeared across domain, state, and observability documents through mixed naming styles and incompatible event vocabularies.
+
+Consequences:
+
+- event terminology is normalized across domain, state, and observability docs
+- observability coverage tables can reference canonical event vocabulary consistently
+- downstream contracts and tests inherit a stable naming rule
+
+## ADR-016: Intra-Foundation Dependency Precedence
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Bidirectional cross-references among foundation documents are permitted as semantic links, but authority precedence remains fixed by the manual hierarchy and MUST NOT be inferred from dependency direction.
+
+Context:
+Architecture review identified dense cross-reference cycles within the foundation layer that could be misread as precedence inversion.
+
+Consequences:
+
+- dependency cycles do not redefine constitutional authority ordering
+- contradiction resolution remains ADR-governed and hierarchy-governed
+- review checks must assess contradictions instead of assuming topological dependency order

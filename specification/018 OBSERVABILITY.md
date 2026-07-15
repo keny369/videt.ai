@@ -111,14 +111,14 @@ OBS-REQ-021: Dashboard ownership MUST be explicit per domain.
 
 | Workflow | Success Condition | Failure Condition | Owner |
 | --- | --- | --- | --- |
-| Domain Onboarding | onboarding_completed event with project_id and source_id | onboarding_failed event with error class | Chief Product |
+| Domain Onboarding | ProjectActivated event with project_id and source_id | activation_failed state transition with error class | Chief Product |
 | Crawl Execution | CrawlCompleted event and successful URL coverage metrics | CrawlFailed event or timeout | Chief Rails |
-| Ingestion and Parsing | parse_success_rate above release threshold and job state succeeded | dead_letter event or repeated parse failure | Chief Rails |
+| Ingestion and Parsing | ParsingSucceeded event and parse_success_rate above release threshold | ParsingDeadLettered event or repeated ParsingFailed events | Chief Rails |
 | Evaluation | EvaluationCompleted with score snapshot persisted | EvaluationFailed event | Chief Architect |
-| Recommendation Generation | RecommendationArtifactGenerated event with issue linkage | artifact_generation_failed event | Chief Product |
-| AI Response Generation | AIResponseValidated with citation coverage metric | AIResponseRejected or generation_failed | Chief AI |
+| Recommendation Generation | RecommendationArtifactGenerated event with issue linkage | recommendation generation failure state with correlation_id | Chief Product |
+| AI Response Generation | AIResponseValidated event with citation coverage metric | AIResponseRejected event or generation_failed state | Chief AI |
 | Citation Validation | CitationVerified event and validity metric | CitationInvalidated event | Chief AI |
-| Export Delivery | ExportAvailable event | ExportFailed or export_revoked event | Chief Rails |
+| Export Delivery | ExportAvailable event | ExportFailed or ExportRevoked event | Chief Rails |
 
 OBS-REQ-022: Coverage table workflows MUST remain synchronized with state and error models.
 

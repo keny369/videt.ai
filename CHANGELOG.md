@@ -13,3 +13,8 @@
 - added constitutional TDD and documentation-as-code policies
 - added foundation traceability matrix and dependency graph governance
 - declared foundation baseline version 1.0 with controlled change policy
+- completed architecture review consistency corrections across governance, terminology, and traceability
+- added centralized foundation section mapping registry for structural conformance
+- added ADR-014 and ADR-015 for mapping governance and canonical event naming alignment
+- added ADR-016 to preserve authority precedence under intra-foundation dependency cycles
+- synchronized volume, domain, observability, and container diagram terminology

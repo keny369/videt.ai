@@ -74,7 +74,7 @@ PM-REQ-005: No new downstream domain chapter MAY start until required upstream d
 
 PM-REQ-006: Every architecture-impacting change MUST include ADR traceability.
 
-PM-REQ-007: Every foundation document MUST include these sections or an explicitly stricter canonical equivalent with a section mapping:
+PM-REQ-007: Every foundation document MUST include these sections or an explicitly stricter canonical equivalent with a section mapping declared inline or in [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md):
 
 1. Title
 2. Status
@@ -140,6 +140,10 @@ PM-REQ-011: The dependency graph MUST be represented in [INDEX.md](INDEX.md) and
 
 PM-REQ-012: Upstream constitutional documents MUST NOT silently depend on downstream implementation choices.
 
+PM-REQ-013: Any foundation document that relies on centralized section mapping MUST include non-applicable section rationale in [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md).
+
+PM-REQ-014: Intra-foundation cross-references MAY be bidirectional for consistency, but they MUST NOT alter authority precedence defined by PM-REQ-003. Contradictions MUST be resolved through ADR-governed updates.
+
 ## Decisions
 
 - DEC-001-01: Foundation layer scope is extended to 000 through 020 and declared baseline 1.0.
@@ -165,6 +169,8 @@ PM-REQ-012: Upstream constitutional documents MUST NOT silently depend on downst
 | Foundation completeness 000 to 020 | Index and file inventory review | Chief Architect | Architecture review |
 | Dependency and sequencing compliance | Roadmap and state gate review | Chief Architect | Planning gate |
 | Controlled change governance | ADR and traceability matrix checks | Chief Architect | PR review |
+| Foundation section conformance mappings | Mapping registry and structure review | Chief Architect | PR review |
+| Intra-foundation dependency precedence | Cross-reference and contradiction review | Chief Architect | PR review |
 
 ## Open Questions
 
@@ -177,6 +183,7 @@ PM-REQ-012: Upstream constitutional documents MUST NOT silently depend on downst
 - [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
 - [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
 - [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md)
 - [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
 
 ## Change Control

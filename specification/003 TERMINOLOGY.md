@@ -44,11 +44,24 @@ Use the exact seven pillar names:
 
 ### Rule 5: Role Naming
 
-Use consistent role labels:
+Use consistent role labels and authorization role identifiers.
+
+Display role labels:
 
 - Executive Buyer
 - Marketing Operator
 - Technical Implementer
+- Security Operator
+- Billing Operator
+- Organization Administrator
+
+Authorization role identifiers:
+
+- OrganizationAdmin
+- MarketingOperator
+- TechnicalImplementer
+- SecurityOperator
+- BillingOperator
 
 ### Rule 6: Document Naming
 
@@ -69,6 +82,10 @@ Use explicit units and windows, for example ms, seconds, percent over 7 days.
 ### Rule 10: Avoid Ambiguity
 
 Avoid vague words such as fast, robust, scalable, soon, intuitive, and enterprise-grade unless followed by measurable criteria.
+
+### Rule 11: Event Naming
+
+Canonical domain events in specifications MUST use PascalCase naming, for example EvaluationCompleted and CitationVerified.
 
 ## Canonical Terms And Disallowed Variants
 
@@ -97,7 +114,7 @@ Avoid vague words such as fast, robust, scalable, soon, intuitive, and enterpris
 
 ## API And Data Terminology Rules
 
-- Entities in prose use singular nouns, for example Domain, Issue, ScoreSnapshot.
+- Entities in prose use singular nouns, for example Project, Source, Issue, ScoreSnapshot.
 - Table names and endpoints should be pluralized in technical specs unless constrained by framework conventions.
 - IDs should be unambiguous about scope, for example account_id, domain_id.
 

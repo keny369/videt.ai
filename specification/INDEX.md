@@ -78,6 +78,7 @@ Foundation Version: 1.0
 - Foundation documents are immutable except through controlled change.
 - Any normative foundation change MUST include ADR reference and impact mapping.
 - All downstream specs MUST declare the referenced foundation version.
+- Foundation documents that use stricter equivalent section structures MUST maintain mappings in [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md).
 
 ## Volume Layer
 
@@ -99,6 +100,10 @@ Foundation Version: 1.0
 ## Foundation Traceability
 
 - [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
+
+## Foundation Section Mapping Registry
+
+- [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md)
 
 ## Dependencies
 
