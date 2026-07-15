@@ -56,7 +56,7 @@ Foundation files are prefixed with three-digit numbers. Volumes use VOLUME_[ROMA
 
 ### Rule 7: Normative Language
 
-Use must for mandatory requirements, should for strong recommendations and may for optional behavior.
+Use MUST for mandatory requirements, SHOULD for strong recommendations, and MAY for optional behavior.
 
 ### Rule 8: Time Expressions
 
@@ -91,7 +91,7 @@ Avoid vague words such as fast, robust, scalable, soon, intuitive, and enterpris
 
 ## Numbering And Identifier Policy
 
-- Foundation documents: 000 to 010.
+- Foundation documents: 000 to 020.
 - ADR entries: ADR-XXX sequential format.
 - Versions: semantic style plus architecture phase qualifier where needed.
 

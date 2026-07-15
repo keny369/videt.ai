@@ -1,114 +1,166 @@
 # 006 ENGINEERING_PRINCIPLES
 
-## Document Control
+## Status
 
-- Status: Accepted baseline
-- Version: 1.0.0
-- Last updated: 2026-07-15
-- Owner: Chief Rails
-- Reviewer: Chief Architect
-- Classification: Canonical
+- Status: Accepted
+- Foundation Version: 1.0
+- Last Updated: 2026-07-15
+
+## Authority
+
+This document defines constitutional engineering policy for F1.
+
+All implementation specifications MUST comply with these requirements.
 
 ## Purpose
 
-Define engineering principles for implementation quality, reliability, maintainability and delivery discipline.
+Define enforceable engineering principles, delivery controls, and the mandatory TDD discipline.
 
 ## Scope
 
-Applies to:
+This document governs:
 
-- application code architecture
-- testing strategy
-- integration behavior
-- operational quality controls
-- delivery workflow
+- implementation quality and reliability principles
+- test strategy and deterministic execution controls
+- merge and release engineering gates
+- defect handling policy
+- TDD default workflow
 
-## Principle 1: Clarity Over Cleverness
+## Dependencies
 
-Code and architecture should be obvious to future maintainers.
+- [001 PRODUCT_ARCHITECTURE_MANUAL.md](001%20PRODUCT_ARCHITECTURE_MANUAL.md)
+- [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
+- [008 AI_PRINCIPLES.md](008%20AI_PRINCIPLES.md)
+- [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [013 QUALITY_ATTRIBUTES.md](013%20QUALITY_ATTRIBUTES.md)
+- [017 ERROR_MODEL.md](017%20ERROR_MODEL.md)
 
-Implications:
+## Definitions
 
-- favor explicit design over abstraction for its own sake
-- keep modules focused and responsibilities narrow
+- TDD: Test-driven development cycle with Red, Green, Refactor steps.
+- Architecture Test: Automated test that validates dependency and module rules.
+- Contract Test: Automated test that validates interface behavior across boundary.
 
-## Principle 2: Convention With Intentional Deviation
+## Assumptions
 
-Default to framework conventions. Deviations require explicit rationale and ADR traceability.
+- Critical workflows include synchronous and asynchronous components.
+- External dependencies require boundary isolation for deterministic tests.
+- Engineering gates enforce merge quality.
 
-## Principle 3: Correctness Before Optimization
+## Constraints
 
-Correct, testable behavior is a prerequisite for performance optimization.
+- Production behavior changes MUST be test-backed.
+- Tests MUST remain deterministic unless controlled probabilistic evaluation is explicitly specified.
+- Engineering quality controls MUST be measurable.
 
-## Principle 4: Testability Is A Design Constraint
+## Normative Requirements
 
-Design components so behavior can be validated at the correct scope with deterministic tests.
+### Core Engineering Principles
 
-## Principle 5: Reliability By Default
+ENG-REQ-001: Engineering decisions MUST prioritize clarity, correctness, and maintainability.
 
-Background processing, retries and external integration behavior must be idempotent and observable.
+ENG-REQ-002: Service boundaries and adapters MUST follow canonical architecture boundaries.
 
-## Principle 6: Secure Defaults
+ENG-REQ-003: Reliability controls MUST include idempotency, retry policy, timeout policy, and observable outcomes.
 
-Security controls must be embedded into standard implementation patterns.
+ENG-REQ-004: Security and privacy controls MUST be embedded into implementation defaults.
 
-## Principle 7: Observability Built In
+ENG-REQ-005: Every change MUST reference governing specification requirements.
 
-Critical flows must emit logs, metrics and traces that support diagnosis without code changes.
+### Mandatory TDD Policy
 
-## Principle 8: Backward-Compatible Evolution
+ENG-REQ-006: Production behavior MUST be introduced through a failing automated test.
 
-Data contracts and APIs should evolve with compatibility windows and explicit deprecation plans.
+ENG-REQ-007: The implementation cycle MUST follow Red, Green, Refactor.
 
-## Principle 9: Small, Reversible Changes
+ENG-REQ-008: Defects MUST first be reproduced with a failing test.
 
-Prefer incremental, reversible changes over large irreversible rewrites.
+ENG-REQ-009: Tests MUST verify behavior instead of implementation detail.
 
-## Principle 10: Cost-Aware Engineering
+ENG-REQ-010: Tests MUST remain deterministic unless a specification defines controlled probabilistic evaluation.
 
-Design choices should consider run cost, maintenance cost and support burden.
+ENG-REQ-011: External dependencies MUST be isolated behind testable boundaries.
 
-## Baseline Engineering Practices
+ENG-REQ-012: Time, randomness, network access, model responses, and external services MUST be controllable in tests.
 
-- use service objects and POROs for non-trivial business logic
-- separate orchestration concerns from pure domain logic
-- keep controller and UI layers thin
-- use background jobs for long-running or retry-prone operations
+ENG-REQ-013: Unit tests MUST protect domain invariants.
 
-## Testing Principles
+ENG-REQ-014: Integration tests MUST protect boundary contracts.
 
-- unit tests validate domain logic behavior
-- integration tests validate contracts between components
-- end-to-end tests validate critical user workflows
-- test suites must include both success and failure paths
+ENG-REQ-015: Contract tests MUST protect external interfaces.
 
-## Delivery Principles
+ENG-REQ-016: End-to-end tests MUST cover critical user journeys.
 
-- every change references the governing specification chapter
-- high-impact changes include ADR updates
-- pull requests must document behavior change and risk profile
+ENG-REQ-017: Architecture tests MUST protect dependency and module rules.
 
-## Failure Handling Principles
+ENG-REQ-018: Security tests MUST protect authorization and tenant isolation boundaries.
 
-- transient failures use bounded retries with jitter
-- permanent failures must produce actionable error states
-- user-visible failures require clear recovery guidance
+ENG-REQ-019: AI evaluation tests MUST protect retrieval, grounding, citation, safety, latency, and cost behavior.
 
-## Data Handling Principles
+ENG-REQ-020: A passing test suite MUST be required before merge.
 
-- data integrity constraints belong in both application and database design
-- write operations must be traceable to actor and context
-- migrations should be safe for production-scale data evolution
+ENG-REQ-021: Tests MUST NOT be deleted or weakened only to make a change pass.
 
-## Acceptance Criteria
+ENG-REQ-022: Any changed requirement MUST update tests and documentation in the same change set.
 
-1. principles provide concrete engineering guidance
-2. reliability, testing and security are first-class constraints
-3. baseline practices align with project constitution
+### Exception Policy
 
-## References
+ENG-REQ-023: TDD exceptions MUST be narrow, time-bounded, and documented with written justification.
 
-- [../CLAUDE.md](../CLAUDE.md)
-- [007 ARCHITECTURE_PRINCIPLES.md](007 ARCHITECTURE_PRINCIPLES.md)
-- [008 AI_PRINCIPLES.md](008 AI_PRINCIPLES.md)
-- [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
+ENG-REQ-024: Every exception MUST include owner, risk statement, compensating controls, and expiration date.
+
+ENG-REQ-025: Expired exceptions MUST fail merge gate until resolved.
+
+### Merge And Release Gates
+
+ENG-REQ-026: Merge gates MUST include test pass, lint pass, formatting pass, and security scan pass.
+
+ENG-REQ-027: Release gates MUST include compatibility and migration verification when interfaces or schemas change.
+
+ENG-REQ-028: Documentation and traceability checks MUST pass before merge.
+
+## Decisions
+
+- DEC-006-01: TDD is the default implementation discipline.
+- DEC-006-02: Deterministic testability is a constitutional quality gate.
+- DEC-006-03: Exceptions are constrained by explicit governance.
+
+## Non-goals
+
+- This document does not prescribe a specific testing framework.
+- This document does not define product roadmap priority.
+
+## Risks
+
+- Risk: teams bypass TDD under schedule pressure.
+  Mitigation: merge gates MUST enforce failing-test-first evidence and exception policy.
+- Risk: flaky tests reduce trust in gates.
+  Mitigation: deterministic-control requirements and flake monitoring MUST be enforced.
+
+## Verification
+
+| Requirement Scope | Verification Method | Owner | Stage |
+| --- | --- | --- | --- |
+| TDD cycle compliance | PR template evidence and CI metadata checks | Chief Rails | PR and CI |
+| Test coverage by type | Test inventory and architecture fitness functions | Chief Architect | CI |
+| Exception policy compliance | Exception registry audit | Chief Architect | Release gate |
+
+## Open Questions
+
+- Which workflows require mutation testing in baseline release gates?
+- Which deterministic-control helpers require shared tooling first?
+
+## Related Documents
+
+- [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
+- [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
+
+## Change Control
+
+Any normative change to this document MUST:
+
+1. Include ADR reference.
+2. Include merge gate impact and migration impact.
+3. Include update plan for affected tests and documentation.
+4. Update traceability matrix mappings.

@@ -1,154 +1,194 @@
 # 010 DOCUMENT_STANDARDS
 
-## Document Control
+## Status
 
-- Status: Accepted baseline
-- Version: 1.0.0
-- Last updated: 2026-07-15
-- Owner: Chief Architect
-- Classification: Canonical
+- Status: Accepted
+- Foundation Version: 1.0
+- Last Updated: 2026-07-15
+
+## Authority
+
+This document defines constitutional documentation standards for all canonical artifacts.
+
+All specification documents MUST comply with these standards.
 
 ## Purpose
 
-Define writing, structure, referencing and quality standards for all architecture documents in this repository.
+Define writing, structure, traceability, documentation-as-code rules, and governance requirements.
 
 ## Scope
 
-Applies to all canonical artifacts, including:
+This document applies to:
 
 - foundation documents
-- volume chapters
-- ADR registry entries
-- supporting architecture specifications
+- volume specifications
+- ADR entries
+- canonical diagrams
+- generated and source documentation artifacts
 
-## Required Front Matter
+## Dependencies
 
-Every canonical document must include:
+- [001 PRODUCT_ARCHITECTURE_MANUAL.md](001%20PRODUCT_ARCHITECTURE_MANUAL.md)
+- [002 GLOSSARY.md](002%20GLOSSARY.md)
+- [003 TERMINOLOGY.md](003%20TERMINOLOGY.md)
+- [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
+- [009 DECISION_FRAMEWORK.md](009%20DECISION_FRAMEWORK.md)
 
-- status
-- version
-- last updated date
-- owner
-- classification
+## Definitions
 
-## Required Section Structure
+- Canonical Document: Authoritative artifact controlling a concept.
+- Generated Documentation: Documentation output produced from source definitions.
+- Documentation Drift: Mismatch between requirements, code, tests, and documentation.
 
-At minimum, each architecture chapter must include:
+## Assumptions
 
-1. purpose
-2. scope
-3. business rationale
-4. functional specification
-5. technical specification
-6. acceptance criteria
-7. risks
-8. future evolution
-9. references
+- Canonical requirements remain in version control.
+- Documentation and architecture reviews are enforced through merge gates.
+- Generated documentation reproducibility is required.
 
-If a section is not applicable, explain why it is not applicable.
+## Constraints
 
-## Canonical Reference Rules
+- Canonical terms MUST follow glossary and terminology controls.
+- Normative requirements MUST be testable, reviewable, or measurable.
+- Contradictions MUST be resolved at canonical source.
 
-- Do not redefine terms defined in [002 GLOSSARY.md](002 GLOSSARY.md).
-- Do not rename canonical terms defined in [003 TERMINOLOGY.md](003 TERMINOLOGY.md).
-- Do not introduce new principles that conflict with 004 to 008.
-- Use [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md) for architecture-impacting decisions.
+## Normative Requirements
 
-## Cross-Reference Requirements
+### Canonical Structure And Required Sections
 
-Every chapter must reference:
+DOC-REQ-001: Every foundation document MUST include Title, Status, Authority, Purpose, Scope, Dependencies, Definitions, Assumptions, Constraints, Normative Requirements, Decisions, Non-goals, Risks, Verification, Open Questions, Related Documents, and Change Control.
 
-- upstream dependencies
-- relevant ADRs
-- related downstream chapters where applicable
+DOC-REQ-002: Any stricter canonical structure MUST include explicit mapping to these required sections.
 
-## Contradiction Handling
+DOC-REQ-003: Empty ceremonial sections MUST NOT be included. Non-applicable sections MUST state rationale.
 
-When contradictions are found:
+### Canonical Reference And Terminology Rules
 
-1. stop introducing new content
-2. resolve contradiction at canonical source
-3. update dependent documents in same change set
-4. document decision impact in ADR registry
+DOC-REQ-004: Documents MUST reference canonical definitions rather than redefining them.
 
-## Writing Standards
+DOC-REQ-005: Terms defined in [002 GLOSSARY.md](002%20GLOSSARY.md) MUST preserve canonical meaning.
 
-- use clear, declarative sentences
-- use normative language intentionally: must, should, may
-- avoid filler, hype and vague adjectives
-- prefer measurable statements over qualitative claims
+DOC-REQ-006: Language conventions from [003 TERMINOLOGY.md](003%20TERMINOLOGY.md) MUST be enforced.
 
-## Naming Standards
+### Writing And Normative Language Rules
 
-- use canonical file names and numbering conventions
-- maintain stable headings for linkability
-- avoid ad hoc abbreviations not defined in terminology
+DOC-REQ-007: Normative language MUST use RFC-style keywords MUST, MUST NOT, SHOULD, SHOULD NOT, MAY.
 
-## Diagram Standards
+DOC-REQ-008: Ambiguous normative wording MUST NOT be used.
 
-If diagrams are used:
+DOC-REQ-009: Requirements MUST be testable, reviewable, or measurable.
 
-- include source file where possible
-- include textual explanation of assumptions and limits
-- ensure diagram labels match glossary and terminology
+### Documentation-As-Code Policy
 
-## Change Set Standards
+DOC-REQ-010: Documentation MUST live beside the versioned system artifacts it describes for each domain boundary.
 
-A complete architecture change set should include:
+DOC-REQ-011: Public interfaces MUST have structured documentation.
 
-- updated canonical chapter content
-- ADR update when threshold is met
-- project state and roadmap updates when sequencing changes
-- validation of references and consistency
+DOC-REQ-012: Domain behavior MUST be documented through canonical specifications, executable tests, meaningful type or interface definitions, and concise code-level documentation.
 
-## Review Standards
+DOC-REQ-013: Code comments MUST explain rationale, constraints, invariants, non-obvious tradeoffs, and failure behavior.
 
-Reviewers must verify:
+DOC-REQ-014: Code comments MUST NOT restate obvious code semantics.
 
-- terminology consistency
-- principle compliance
-- traceability to decisions
-- absence of unresolved placeholders
-- acceptance criteria testability
+DOC-REQ-015: Public modules, classes, functions, APIs, events, schemas, configuration, and extension points MUST be documented.
 
-## Status Model
+DOC-REQ-016: Documentation generation MUST be deterministic and reproducible.
 
-Allowed status values:
+DOC-REQ-017: Generated documentation MUST NOT be edited manually.
 
-- Draft
-- Review-ready
-- Accepted
-- Superseded
+DOC-REQ-018: Source documentation MUST identify canonical ownership.
 
-Only Accepted documents are normative.
+DOC-REQ-019: Examples SHOULD be executable or test-backed.
 
-## Versioning Standards
+DOC-REQ-020: API documentation MUST be generated from canonical interface definitions for each API surface.
 
-- use semantic-style versioning for major canonical chapters
-- increment minor version for substantive content expansion
-- increment patch version for non-semantic edits
+DOC-REQ-021: Schema documentation MUST be generated from canonical schema definitions for each schema surface.
 
-## Quality Checklist
+DOC-REQ-022: State diagrams SHOULD be generated from canonical state definitions.
 
-Before marking a chapter Accepted, confirm:
+DOC-REQ-023: Test names and structure MUST communicate behavioral intent.
 
-1. all required sections are present and complete
-2. claims are evidence-backed or explicitly marked assumptions
-3. references resolve to current canonical documents
-4. no contradictions remain
-5. acceptance criteria are verifiable
+DOC-REQ-024: Architectural decisions MUST reference affected code, tests, diagrams, and specifications.
 
-## Acceptance Criteria
+DOC-REQ-025: Documentation drift MUST be treated as build or review failure.
 
-1. standards are complete and enforceable
-2. canonical reference and contradiction policies are explicit
-3. review and change set expectations are unambiguous
+DOC-REQ-026: A change is incomplete when code, tests, and documentation disagree.
 
-## References
+### Traceability Chain
 
-- [000 OVERVIEW.md](000 OVERVIEW.md)
-- [001 PRODUCT_ARCHITECTURE_MANUAL.md](001 PRODUCT_ARCHITECTURE_MANUAL.md)
-- [002 GLOSSARY.md](002 GLOSSARY.md)
-- [003 TERMINOLOGY.md](003 TERMINOLOGY.md)
-- [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
-- [../governance/QUALITY_STANDARD.md](../governance/QUALITY_STANDARD.md)
+DOC-REQ-027: The following traceability chain MUST be maintained and auditable:
+
+```text
+Requirement
+    -> Decision
+    -> Design
+    -> Code
+    -> Test
+    -> Generated Documentation
+    -> Operational Evidence
+```
+
+DOC-REQ-028: Traceability gaps MUST fail review gate unless approved exception is present.
+
+### Diagram Standards
+
+DOC-REQ-029: Each canonical architecture view MUST have one source-controlled diagram file.
+
+DOC-REQ-030: Diagram labels MUST follow canonical terminology.
+
+DOC-REQ-031: Diagram changes MUST update related specification references in the same change set.
+
+### Review And Change Set Standards
+
+DOC-REQ-032: Every architecture change set MUST include dependency impact and contradiction checks.
+
+DOC-REQ-033: Foundation changes MUST include ADR references and compatibility analysis.
+
+DOC-REQ-034: Roadmap and project state updates MUST accompany sequencing changes.
+
+## Decisions
+
+- DEC-010-01: Documentation-as-code is constitutional policy.
+- DEC-010-02: Traceability chain is mandatory governance control.
+- DEC-010-03: Documentation drift is a release-blocking quality issue.
+
+## Non-goals
+
+- This document does not prescribe one documentation generation tool.
+- This document does not replace detailed code style guides.
+
+## Risks
+
+- Risk: duplicate narrative sources create contradictions.
+  Mitigation: canonical reference requirements and review gates.
+- Risk: generated and source docs diverge.
+  Mitigation: deterministic generation and drift-failure policy.
+
+## Verification
+
+| Requirement Scope | Verification Method | Owner | Stage |
+| --- | --- | --- | --- |
+| Structure and terminology compliance | Documentation lint and review checklist | Chief Architect | PR review |
+| Traceability chain coverage | Traceability matrix and link checks | Chief Architect | Review gate |
+| Documentation-as-code controls | Build checks for generated artifacts and source ownership | Chief Rails | CI |
+
+## Open Questions
+
+- Which documentation classes require immediate generation automation in the next cycle?
+- Which legacy docs need section-mapping upgrades first for full policy alignment?
+
+## Related Documents
+
+- [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
+- [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
+- [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
+- [../diagrams/INDEX.md](../diagrams/INDEX.md)
+
+## Change Control
+
+Any normative change MUST:
+
+1. Include ADR reference.
+2. Include impact analysis for traceability and generated documentation.
+3. Include affected document and automation updates.
+4. Update related verification gates.

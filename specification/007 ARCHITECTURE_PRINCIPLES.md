@@ -1,114 +1,160 @@
 # 007 ARCHITECTURE_PRINCIPLES
 
-## Document Control
+## Status
 
-- Status: Accepted baseline
-- Version: 1.0.0
-- Last updated: 2026-07-15
-- Owner: Chief Architect
-- Reviewer: Chief Rails
-- Classification: Canonical
+- Status: Accepted
+- Foundation Version: 1.0
+- Last Updated: 2026-07-15
+
+## Authority
+
+This document defines constitutional architecture principles and fitness-function policy for F1.
+
+All downstream architecture and implementation specifications MUST comply with these requirements.
 
 ## Purpose
 
-Define system architecture principles that govern service boundaries, data ownership, reliability and scalability.
+Define architecture boundary principles and convert them into measurable fitness functions.
 
 ## Scope
 
-Applies to:
+This document governs:
 
-- domain decomposition
-- service and module boundaries
-- persistence architecture
-- asynchronous workflows
-- integration architecture
-- infrastructure topology decisions
+- domain and module boundaries
+- contract discipline
+- reliability and consistency expectations
+- architecture evolution controls
+- architecture fitness-function framework
 
-## Principle 1: Domain-Centered Boundaries
+## Dependencies
 
-Architecture boundaries follow business capabilities, not implementation convenience.
+- [001 PRODUCT_ARCHITECTURE_MANUAL.md](001%20PRODUCT_ARCHITECTURE_MANUAL.md)
+- [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
+- [008 AI_PRINCIPLES.md](008%20AI_PRINCIPLES.md)
+- [009 DECISION_FRAMEWORK.md](009%20DECISION_FRAMEWORK.md)
+- [013 QUALITY_ATTRIBUTES.md](013%20QUALITY_ATTRIBUTES.md)
+- [018 OBSERVABILITY.md](018%20OBSERVABILITY.md)
+- [019 VERSIONING.md](019%20VERSIONING.md)
 
-## Principle 2: Explicit Ownership
+## Definitions
 
-Each data object and workflow has a clear owning component responsible for correctness and lifecycle.
+- Architecture Fitness Function: Measurable rule that continuously validates architectural intent.
+- Boundary Violation: Unauthorized dependency or access across defined architecture boundaries.
+- Enforcement Stage: Development stage where a fitness function is evaluated.
 
-## Principle 3: Modular Monolith First
+## Assumptions
 
-Default architecture is a modular monolith unless explicit scale or isolation requirements justify service decomposition.
+- F1 evolves through modular architecture with explicit boundaries.
+- CI gate automation is available for static and dynamic checks.
+- Some quantitative thresholds remain provisional and require owner decisions.
 
-## Principle 4: Contracts Before Coupling
+## Constraints
 
-Interactions between modules use explicit contracts and stable interfaces.
+- Architecture rules MUST be measurable and enforceable.
+- Fitness functions MUST have ownership and exception process.
+- Fitness-function exceptions MUST be explicit and time-bounded.
 
-## Principle 5: Asynchronous Where It Reduces Risk
+## Normative Requirements
 
-Use asynchronous processing for long-running, retry-prone or fan-out workflows.
+### Core Architecture Principles
 
-## Principle 6: Idempotent Side Effects
+ARC-REQ-001: Architecture boundaries MUST align with domain ownership.
 
-Operations that can be retried must be idempotent to avoid duplicate state transitions.
+ARC-REQ-002: Cross-boundary interactions MUST use published interfaces.
 
-## Principle 7: Data Integrity Above Throughput
+ARC-REQ-003: Unpublished internal interfaces MUST NOT be used by external modules.
 
-No scaling decision may compromise data correctness without explicit, accepted trade-off documentation.
+ARC-REQ-004: State transitions and side effects MUST be observable and auditable.
 
-## Principle 8: Event Traceability
+ARC-REQ-005: Consistency and integrity constraints MUST be preserved under retries and failures.
 
-State transitions in critical workflows must be reconstructable from logs and durable records.
+ARC-REQ-006: Architecture evolution MUST preserve compatibility policy from [019 VERSIONING.md](019%20VERSIONING.md).
 
-## Principle 9: Reliability Budgets
+ARC-REQ-007: Architecture policy compliance MUST be validated by fitness functions at defined enforcement stages.
 
-Architectural choices must be evaluated against latency, error budget and recovery targets.
+### Fitness-Function Governance
 
-## Principle 10: Cost-Scalable Design
+ARC-REQ-008: Every fitness function MUST include identifier, principle enforced, rationale, measurement method, pass condition, failure condition, enforcement stage, automation status, owner, and exception process.
 
-Architecture should scale predictably in both performance and cost as customer volume increases.
+ARC-REQ-009: Fitness functions with unresolved numeric thresholds MUST include provisional gate, owner, and decision deadline.
 
-## Principle 11: Secure Isolation
+ARC-REQ-010: Release gates MUST fail for unmet mandatory fitness functions unless an approved exception exists.
 
-Tenant data boundaries and privilege boundaries are explicit and testable.
+### Fitness-Function Catalog
 
-## Principle 12: Evolution Without Rewrite Bias
+| Identifier | Principle Enforced | Rationale | Measurement Method | Pass Condition | Failure Condition | Enforcement Stage | Automation Status | Owner | Exception Process |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| FF-001 | Boundary integrity | Prevent dependency cycles | Dependency graph analysis | No prohibited cycles | Any prohibited cycle detected | CI | Planned | Chief Architect | FF-EXC-001 |
+| FF-002 | Module boundary integrity | Protect module contracts | Import and namespace rules test | No boundary violation | Unauthorized module dependency | CI | Planned | Chief Architect | FF-EXC-001 |
+| FF-003 | Layering integrity | Preserve architecture layering | Layer rule static analysis | No upward-layer violations | Layer violation found | CI | Planned | Chief Architect | FF-EXC-001 |
+| FF-004 | Interface discipline | Prevent unpublished interface access | Public surface allowlist checks | Only published interfaces used | Internal interface imported externally | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-005 | Test posture | Protect behavioral coverage | Test inventory checks by workflow | Required test types exist for critical workflows | Missing required test type | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-006 | Mutation quality posture | Detect weak assertions | Mutation testing in scoped modules | Mutation score meets approved threshold by 2026-09-01 | Mutation score below threshold after deadline | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-007 | Static correctness | Prevent avoidable defects | Static analysis run | No blocking findings | Blocking findings present | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-008 | Type safety | Prevent type contract drift | Type checking run | No blocking type errors | Blocking type errors | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-009 | Lint consistency | Enforce style and risk rules | Lint run | No blocking lint violations | Blocking lint violations | CI | Automated | Chief Rails | FF-EXC-001 |
+| FF-010 | Formatting consistency | Prevent formatting drift | Formatting check | No formatting drift | Formatting drift present | CI | Automated | Chief Rails | FF-EXC-001 |
+| FF-011 | Documentation coverage | Prevent undocumented public behavior | Documentation coverage checks | Public surfaces documented | Missing required documentation | CI and PR | Planned | Chief Architect | FF-EXC-001 |
+| FF-012 | API compatibility | Protect consumer stability | API compatibility diff checks | No unauthorized breaking change | Unauthorized breaking change | CI and release | Planned | Chief Architect | FF-EXC-001 |
+| FF-013 | Schema compatibility | Protect data contract stability | Schema compatibility checks | Schema changes satisfy policy | Policy-violating schema change | CI and release | Planned | Chief Rails | FF-EXC-001 |
+| FF-014 | Migration reversibility | Reduce migration risk | Migration review and test harness | Reversibility classification and rollback plan exist | Missing reversibility evidence | CI and release | Planned | Chief Rails | FF-EXC-001 |
+| FF-015 | Performance regression | Prevent latency regressions | Performance benchmark comparison | No regression beyond approved envelope by 2026-08-20 | Regression beyond envelope after deadline | CI and release | Planned | Chief Rails | FF-EXC-001 |
+| FF-016 | Query performance | Prevent inefficient data access | Query analysis and benchmark | Query budgets remain within approved envelope by 2026-08-25 | Query budget violation after deadline | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-017 | Error-rate regression | Protect reliability | Error rate trend analysis | Error rate remains within quality envelope from QA-REQ table | Envelope breach | Release | Planned | Chief Architect | FF-EXC-001 |
+| FF-018 | Observability coverage | Ensure diagnosability | Workflow telemetry coverage checks | Success and failure signals exist for critical workflows | Missing required signals | CI and release | Planned | Chief Security | FF-EXC-001 |
+| FF-019 | Security scanning | Detect security flaws early | Security scan suite | No blocking security findings | Blocking findings present | CI | Planned | Chief Security | FF-EXC-001 |
+| FF-020 | Secret detection | Prevent credential leaks | Secret scanning checks | No detected secrets in versioned artifacts | Secret detected | CI | Automated | Chief Security | FF-EXC-001 |
+| FF-021 | Dependency vulnerability posture | Reduce supply chain risk | Vulnerability scan and policy threshold | No unapproved high-severity vulnerabilities | Unapproved high-severity vulnerability | CI and release | Planned | Chief Security | FF-EXC-001 |
+| FF-022 | AI evaluation regression | Protect AI quality | AI evaluation suite comparison | AI quality metrics remain within approved envelope by 2026-08-30 | Envelope breach after deadline | CI and release | Planned | Chief AI | FF-EXC-001 |
+| FF-023 | Citation validity | Protect evidence trust | Citation validation checks | Citation validity meets approved gate from [013 QUALITY_ATTRIBUTES.md](013%20QUALITY_ATTRIBUTES.md) | Citation validity below gate | CI and release | Planned | Chief AI | FF-EXC-001 |
+| FF-024 | Retrieval quality | Protect relevance quality | Retrieval benchmark suite | Retrieval quality remains within approved envelope by 2026-08-30 | Envelope breach after deadline | CI and release | Planned | Chief AI | FF-EXC-001 |
+| FF-025 | Cost-budget regression | Protect unit economics | Cost telemetry regression checks | Workflow cost remains within approved budget envelope | Budget envelope breach | Release | Planned | Chief Product | FF-EXC-001 |
+| FF-026 | Accessibility checks | Protect accessibility baseline | Automated accessibility checks plus manual audit gate | Accessibility checks pass required gate | Required accessibility gate fails | CI and release | Planned | Chief UX | FF-EXC-001 |
 
-Architecture should support extension and change through stable seams, not frequent wholesale replacement.
+FF-EXC-001: Exception process MUST require written justification, owner, bounded duration, compensating controls, and ADR reference. Exceptions MUST expire on or before declared date.
 
-## Architecture Decision Heuristics
+## Decisions
 
-When evaluating options, prefer options that maximize:
+- DEC-007-01: Architecture policy is enforced through fitness functions, not review narrative alone.
+- DEC-007-02: Quantitative thresholds without evidence use provisional gates with explicit decision deadlines.
 
-- correctness
-- explainability
-- operational simplicity
-- reversibility
+## Non-goals
 
-Prefer options that minimize:
+- This document does not define tool-specific configuration syntax.
+- This document does not define team staffing models.
 
-- hidden coupling
-- unclear ownership
-- brittle migration paths
-- unmanaged run cost
+## Risks
 
-## Integration Principles
+- Risk: automation coverage lag leaves architecture drift undetected.
+  Mitigation: planned fitness functions MUST include delivery deadlines in roadmap and state tracking.
+- Risk: exception abuse weakens architecture policy.
+  Mitigation: FF-EXC-001 governance and expiration controls.
 
-- external dependencies require timeout, retry and fallback strategy
-- integration contracts require versioning strategy
-- failure modes must be classified and observable
+## Verification
 
-## Data And Consistency Principles
+| Requirement Scope | Verification Method | Owner | Stage |
+| --- | --- | --- | --- |
+| Principle compliance | Architecture review with fitness-function evidence | Chief Architect | Release gate |
+| Fitness-function completeness | Catalog audit against ARC-REQ-008 | Chief Architect | PR review |
+| Exception governance | Exception registry audit | Chief Architect | Release gate |
 
-- transactional boundaries must be explicit
-- eventual consistency is acceptable only with visible reconciliation strategy
-- data schema evolution must preserve backward-read compatibility during migration windows
+## Open Questions
 
-## Acceptance Criteria
+- Which planned fitness functions require first-wave automation before Volume IV work?
+- Which retrieval quality benchmarks provide stable baseline for FF-024 threshold resolution?
 
-1. principles constrain architecture decisions in a concrete way
-2. boundary, ownership and reliability rules are explicit
-3. integration and consistency rules are operationally testable
+## Related Documents
 
-## References
+- [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
+- [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [013 QUALITY_ATTRIBUTES.md](013%20QUALITY_ATTRIBUTES.md)
+- [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
 
-- [005 PRODUCT_PRINCIPLES.md](005 PRODUCT_PRINCIPLES.md)
-- [006 ENGINEERING_PRINCIPLES.md](006 ENGINEERING_PRINCIPLES.md)
-- [008 AI_PRINCIPLES.md](008 AI_PRINCIPLES.md)
-- [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
+## Change Control
+
+Any normative change MUST:
+
+1. Update affected fitness-function rows and owners.
+2. Update verification and release gate expectations.
+3. Include ADR reference and compatibility assessment.
+4. Update traceability mappings.

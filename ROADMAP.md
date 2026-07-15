@@ -2,147 +2,134 @@
 
 ## Objective
 
-Deliver a complete Product Architecture Manual before implementation, with one canonical specification path from strategy to execution.
+Deliver a complete Product Architecture Manual before implementation with constitutional dependency sequencing.
 
-## Planning Horizon
+## Baseline Date
 
-Baseline date: 2026-07-15
+2026-07-15
 
 ## Execution Gates
 
-- Gate A: Foundation layer (000 to 010) must be completed before Product, UX, Database or API specifications begin.
-- Gate B: Volume I must be accepted before Volume II starts.
-- Gate C: Architecture-impacting changes must update [DECISIONS.md](DECISIONS.md).
+- Gate A: Foundation layer 000 through 020 MUST be accepted at version 1.0 before any downstream domain specification work proceeds.
+- Gate B: Volume I MUST be accepted before Experience and Interaction specifications start.
+- Gate C: Product, UX, Database, Search, AI, API, and implementation specifications MUST remain paused until Gates A and B pass.
+- Gate D: Normative foundation changes MUST include ADR governance and impact mapping.
+
+## Canonical Dependency Sequence
+
+```text
+000-020 Immutable Foundation
+            |
+            v
+Volume I Product Foundations
+            |
+            v
+Experience and Interaction
+            |
+            v
+Domain and State
+            |
+            v
+Data and Persistence
+            |
+            v
+Search and Retrieval
+            |
+            v
+AI and Evaluation
+            |
+            v
+API and Integration
+            |
+            v
+Implementation
+```
 
 ## Milestones
 
-### M0 - Repository Normalization (2026-07-15 to 2026-07-16)
+### M0 Repository Normalization
 
-Status: Complete
+- Status: Complete
+- Deliverables: control docs baseline, ADR baseline, Volume I kickoff
 
-Deliverables:
+### M1 Foundation 000-010
 
-- upgraded index, state and roadmap control documents
-- initial ADR baseline in [DECISIONS.md](DECISIONS.md)
-- Volume I kickoff draft
+- Status: Complete
+- Deliverables: initial immutable foundation layer
 
-Exit criteria:
+### M2 Foundation Extension 011-020
 
-- all control documents cross-reference consistently
-- no contradictions between constitution, workflow and manual index
+- Status: Complete
+- Deliverables:
+  - domain model, system boundaries, quality attributes
+  - security model, data lifecycle, state model
+  - error model, observability, versioning, extensibility
+  - canonical diagrams and dependency graph
+  - fitness-function governance, TDD policy, documentation-as-code policy
 
-### M1 - Immutable Foundation Layer (2026-07-15 to 2026-07-15)
+### M3 Foundation Governance Finalization
 
-Status: Complete
+- Status: Complete
+- Deliverables:
+  - foundation baseline version declaration 1.0
+  - traceability matrix
+  - ADR set for dependency model and governance policies
 
-Deliverables:
+### M4 Volume I Product Foundations
 
-- authored and accepted foundation documents 000 to 010 under `specification/`
-- established canonical glossary, terminology, principles and decision framework
-- enforced reference-first rule for all future chapters
+- Status: Active
+- Deliverables:
+  - market and business architecture completion
+  - score model and prioritization architecture completion
+  - foundation 1.0 dependency compliance verification
 
-Exit criteria:
+### M5 Experience and Interaction
 
-- all foundation files exist and are cross-referenced in [specification/INDEX.md](specification/INDEX.md)
-- [DECISIONS.md](DECISIONS.md) records the foundation baseline as architecture policy
-- project state and roadmap reflect sequencing gates
+- Status: Paused
+- Start Condition: M4 accepted
 
-### M2 - Volume I Strategic Foundations (2026-07-15 to 2026-07-22)
+### M6 Domain and State Deepening
 
-Status: Active
+- Status: Paused
+- Start Condition: M5 accepted
 
-Deliverables:
+### M7 Data and Persistence
 
-- market definition, segment architecture and positioning
-- business model, pricing architecture and value metric
-- product operating model and Discoverability Score framework
-- foundational glossary and non-goals
+- Status: Paused
+- Start Condition: M6 accepted
 
-Exit criteria:
+### M8 Search and Retrieval
 
-- each section includes rationale, acceptance criteria, risks and references
-- terminology is stable across README, INDEX, ROADMAP and Volume I
-- Volume I references foundation documents instead of redefining shared concepts
+- Status: Paused
+- Start Condition: M7 accepted
 
-### M3 - Volume II Product And UX Architecture (2026-07-22 to 2026-08-05)
+### M9 AI and Evaluation
 
-Status: Not started
+- Status: Paused
+- Start Condition: M8 accepted
 
-Start condition: Volume I accepted
+### M10 API and Integration
 
-Deliverables:
+- Status: Paused
+- Start Condition: M9 accepted
 
-- information architecture
-- primary user journeys and task models
-- interaction design system requirements and accessibility constraints
-- reporting and dashboard behavior specification
+### M11 Implementation Planning
 
-Exit criteria:
+- Status: Paused
+- Start Condition: M10 accepted and implementation gate approval
 
-- all core workflows are specification-complete and testable
-- wireframe and UX requirements map to explicit product capabilities
+## Cross-Cutting Governance
 
-### M4 - Volume III Platform Architecture (2026-08-05 to 2026-08-19)
-
-Status: Not started
-
-Deliverables:
-
-- bounded context map and domain decomposition
-- service architecture, background job model and event contracts
-- environment strategy and deployment topology baseline
-
-Exit criteria:
-
-- architecture supports throughput, reliability and cost targets
-- non-functional requirements are measurable
-
-### M5 - Volume IV Data, AI And API Architecture (2026-08-19 to 2026-09-09)
-
-Status: Not started
-
-Deliverables:
-
-- database architecture and schema governance
-- scoring engine and AI orchestration architecture
-- external and internal API contracts
-
-Exit criteria:
-
-- traceable mapping from product capabilities to data and API contracts
-- AI safety and evaluation requirements are explicit
-
-### M6 - Volume V Engineering, Security, Operations And Finance (2026-09-09 to 2026-09-30)
-
-Status: Not started
-
-Deliverables:
-
-- engineering standards, test strategy and delivery workflow
-- security architecture, privacy model and controls
-- operational runbooks and SLO design
-- financial model architecture and planning mechanics
-
-Exit criteria:
-
-- implementation can begin without unresolved architecture blockers
-- every critical decision has rationale and owner
-
-## Cross-Cutting Governance Track
-
-Applies to every milestone:
-
-- update [DECISIONS.md](DECISIONS.md) for architectural decisions
-- keep [PROJECT_STATE.md](PROJECT_STATE.md) current after each major merge
-- verify quality sections defined in [governance/QUALITY_STANDARD.md](governance/QUALITY_STANDARD.md)
-- reject duplicate definitions; refactor to canonical source
-- enforce foundation reference-first policy from `specification/000` through `specification/010`
+- [DECISIONS.md](DECISIONS.md) MUST be updated for architecture-impacting changes.
+- [PROJECT_STATE.md](PROJECT_STATE.md) MUST reflect gate and milestone status.
+- [specification/FOUNDATION_TRACEABILITY_MATRIX.md](specification/FOUNDATION_TRACEABILITY_MATRIX.md) MUST remain current.
+- [specification/INDEX.md](specification/INDEX.md) and [specification/001 PRODUCT_ARCHITECTURE_MANUAL.md](specification/001%20PRODUCT_ARCHITECTURE_MANUAL.md) MUST remain aligned.
 
 ## Done Definition For Manual Completion
 
-The manual is complete only when:
+Manual completion requires:
 
-1. All required domains are fully specified: business, market, product, UX, architecture, database, AI, APIs, engineering, operations, finance, security, infrastructure and implementation.
-2. Every volume is internally consistent and cross-referenced.
-3. ADR log captures all major trade-offs.
-4. No section contains placeholders, unresolved contradictions or undefined terminology.
+1. Full domain coverage across required architecture domains.
+2. Sequenced dependency compliance across all layers.
+3. Traceability from requirement through operational evidence.
+4. Zero unresolved contradictions in accepted documents.

@@ -44,7 +44,7 @@ Implications:
 
 ## Principle 3: Progressive Disclosure
 
-Complexity is revealed in layers so users can start with essentials and drill down only when needed.
+Complexity is revealed in layers so users start with essentials and drill down only when needed.
 
 Implications:
 

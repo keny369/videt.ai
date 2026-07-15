@@ -38,7 +38,7 @@ This repository is not:
 - a brainstorming scratchpad
 - a duplicate of external documentation systems
 
-Research and notes can inform decisions, but canonical architecture is defined only by manual and governance documents in this repository.
+Research and notes inform decisions, but canonical architecture is defined only by manual and governance documents in this repository.
 
 ## Foundational Hierarchy
 
@@ -64,6 +64,16 @@ Layer 1: Immutable foundation documents
 - [008 AI_PRINCIPLES.md](008 AI_PRINCIPLES.md)
 - [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
 - [010 DOCUMENT_STANDARDS.md](010 DOCUMENT_STANDARDS.md)
+- [011 DOMAIN_MODEL.md](011 DOMAIN_MODEL.md)
+- [012 SYSTEM_BOUNDARIES.md](012 SYSTEM_BOUNDARIES.md)
+- [013 QUALITY_ATTRIBUTES.md](013 QUALITY_ATTRIBUTES.md)
+- [014 SECURITY_MODEL.md](014 SECURITY_MODEL.md)
+- [015 DATA_LIFECYCLE.md](015 DATA_LIFECYCLE.md)
+- [016 STATE_MODEL.md](016 STATE_MODEL.md)
+- [017 ERROR_MODEL.md](017 ERROR_MODEL.md)
+- [018 OBSERVABILITY.md](018 OBSERVABILITY.md)
+- [019 VERSIONING.md](019 VERSIONING.md)
+- [020 EXTENSIBILITY.md](020 EXTENSIBILITY.md)
 
 Layer 2: Product Architecture Manual volumes
 
@@ -115,7 +125,7 @@ A document is considered architecture-complete only when it is:
 Recommended read order:
 
 1. Constitution and governance files
-2. Foundation set 000 through 010
+2. Foundation set 000 through 020
 3. [INDEX.md](INDEX.md)
 4. active volume documents
 5. ADR registry in [../DECISIONS.md](../DECISIONS.md)
@@ -127,6 +137,7 @@ Changes to Layer 1 foundation documents require:
 - explicit rationale
 - ADR update in [../DECISIONS.md](../DECISIONS.md)
 - dependent chapter updates in the same pass
+- compatibility and migration impact assessment when applicable
 
 ## Acceptance Criteria
 

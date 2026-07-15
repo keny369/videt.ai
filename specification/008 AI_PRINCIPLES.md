@@ -83,7 +83,7 @@ All production AI workflows must define:
 
 ## AI Release Gate
 
-An AI workflow can ship only when:
+An AI workflow MUST ship only when:
 
 1. benchmark quality threshold is met
 2. safety checks are validated

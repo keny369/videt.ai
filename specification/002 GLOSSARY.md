@@ -68,7 +68,7 @@ Bounded limit for how many URLs and resources are fetched in a run.
 
 ### Discoverability
 
-The probability that a business can be found and selected across search and AI answer surfaces for relevant intent.
+The probability that a business is found and selected across search and AI answer surfaces for relevant intent.
 
 ### Discoverability Intelligence Platform
 
@@ -92,7 +92,7 @@ A detected issue or opportunity derived from evidence evaluation.
 
 ### Foundation Documents
 
-The immutable baseline documents numbered 000 to 010 that define shared rules, terms and principles for all later chapters.
+The immutable baseline documents numbered 000 to 020 that define shared rules, terms and principles for all later chapters.
 
 ### Implementation Artifact
 

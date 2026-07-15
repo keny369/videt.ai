@@ -2,57 +2,54 @@
 
 ## Snapshot
 
-Date: 2026-07-15
+- Date: 2026-07-15
+- Status: Active architecture phase
+- Foundation Baseline: 1.0
+- Current Gate: Volume II and downstream specifications paused
 
-Status: Active architecture phase.
+## Current Objective
 
-Current objective: Build the definitive Product Architecture Manual before implementation.
+Complete Volume I under immutable foundation 1.0 governance before any downstream specification work.
 
-Current gate: Foundation-first sequencing enforced. Volume II and later volumes are blocked until Volume I acceptance.
+## Baseline Summary
 
-## Current Baseline
+- Constitution and governance documents are accepted.
+- Foundation layer 000 through 020 is authored and integrated.
+- Canonical dependency graph is established in manual control documents.
+- Canonical diagrams are created and source-controlled.
+- TDD, documentation-as-code, and fitness-function policy are established.
 
-- Constitution and governance are defined.
-- Immutable foundation layer 000 to 010 is now authored under [specification/](specification/).
-- Repository structure and control documents are normalized.
-- Core strategy is present in [research/000-initial-concept.md](research/000-initial-concept.md), but not yet normalized into full architecture volumes.
+## Domain Progress
 
-## Progress By Domain
-
-- Foundation governance: complete (000 to 010 accepted baseline).
-- Business and market: Volume I active.
-- Product: Volume I active, detailed product architecture not started.
-- UX: blocked pending Volume I acceptance.
-- Platform architecture: not started.
-- Database: blocked pending earlier volume sequencing.
-- AI: principles complete; detailed architecture pending Volume IV.
-- API: blocked pending earlier volume sequencing.
-- Engineering: principles complete; detailed architecture pending Volume V.
-- Operations: not started.
-- Finance: baseline present in Volume I, detailed architecture pending Volume V.
-- Security and infrastructure: principles and constraints established; detailed controls pending Volume V.
+- Foundation governance: complete and active
+- Volume I Product Foundations: active
+- Experience and Interaction: paused
+- Domain and State downstream detail: paused
+- Data and Persistence downstream detail: paused
+- Search and Retrieval downstream detail: paused
+- AI and Evaluation downstream detail: paused
+- API and Integration downstream detail: paused
+- Implementation planning: paused
 
 ## Active Workstream
 
-1. Keep foundation documents immutable and canonical.
-2. Complete Volume I under foundation reference constraints.
-3. Defer Volume II and later until Volume I acceptance criteria are met.
+1. Complete Volume I under foundation 1.0 dependency constraints.
+2. Maintain traceability matrix and ADR alignment.
+3. Enforce review gates that block premature downstream expansion.
 
 ## Risks
 
-- Risk: terminology drift across documents as volume count increases.
-  Mitigation: enforce [specification/002 GLOSSARY.md](specification/002%20GLOSSARY.md) and [specification/003 TERMINOLOGY.md](specification/003%20TERMINOLOGY.md) as mandatory references.
+- Risk: downstream work starts before Volume I acceptance.
+  Mitigation: roadmap gates and review policy MUST block downstream starts.
 
-- Risk: implementation pressure before architecture readiness.
-  Mitigation: maintain documentation-first gate in [governance/PROJECT_CONSTITUTION.md](governance/PROJECT_CONSTITUTION.md).
+- Risk: foundation drift through uncontrolled edits.
+  Mitigation: ADR-backed controlled change policy MUST be enforced.
 
-- Risk: incomplete cross-references leading to contradictory decisions.
-  Mitigation: mandatory reference and contradiction checks on every update using [specification/010 DOCUMENT_STANDARDS.md](specification/010%20DOCUMENT_STANDARDS.md).
+- Risk: quality thresholds remain unresolved at gate deadlines.
+  Mitigation: quality attribute owners MUST resolve provisional ranges before gate closure.
 
-- Risk: premature expansion into later volumes before foundation coherence is proven.
-  Mitigation: enforce roadmap gates and block Product, UX, Database and API specification expansion until Volume I acceptance.
+## Next Checkpoints
 
-## Next Checkpoint
-
-- Complete and review Volume I acceptance criteria against foundation standards.
-- Reconfirm gate compliance in [ROADMAP.md](ROADMAP.md) before any Volume II work.
+- Verify Volume I references foundation version 1.0 across all sections.
+- Resolve open quality and fitness-function threshold decisions by declared deadlines.
+- Reconfirm downstream pause status in roadmap and index before each merge.

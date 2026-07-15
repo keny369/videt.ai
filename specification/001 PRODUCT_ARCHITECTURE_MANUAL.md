@@ -1,177 +1,189 @@
 # 001 PRODUCT_ARCHITECTURE_MANUAL
 
-## Document Control
+## Status
 
-- Status: Accepted baseline
-- Version: 1.0.0
-- Last updated: 2026-07-15
-- Owner: Chief Architect
-- Classification: Canonical
+- Status: Accepted
+- Foundation Version: 1.0
+- Last Updated: 2026-07-15
+
+## Authority
+
+This document defines the constitutional operating model for the Product Architecture Manual.
+
+All specification work MUST follow this model.
 
 ## Purpose
 
-Define the structure, authority model, lifecycle and quality gates of the Product Architecture Manual.
+Define manual structure, authority precedence, dependency model, sequencing rules, and controlled change governance.
 
 ## Scope
 
 This document governs:
 
-- the role of the manual inside the company architecture system
-- manual structure and chapter hierarchy
-- ownership and decision rights
-- acceptance and release gates
-- change control expectations
+- architecture manual structure and ownership
+- immutable foundation layer policy
+- dependency and sequencing model
+- acceptance and review gates
+- implementation gate policy
+- foundation change governance
 
-This document does not replace detailed domain standards; it orchestrates them.
+## Dependencies
 
-## Manual Definition
+- [000 OVERVIEW.md](000%20OVERVIEW.md)
+- [002 GLOSSARY.md](002%20GLOSSARY.md)
+- [003 TERMINOLOGY.md](003%20TERMINOLOGY.md)
+- [009 DECISION_FRAMEWORK.md](009%20DECISION_FRAMEWORK.md)
+- [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [../DECISIONS.md](../DECISIONS.md)
 
-The Product Architecture Manual is the definitive architecture corpus for Project F1. It captures decisions and specifications that govern business strategy, product behavior, technical implementation intent and operational controls.
+## Definitions
 
-## Manual Architecture
+- Foundation Layer: Constitutional documents 000 through 020.
+- Downstream Specification: Volume and implementation-facing specification that depends on the foundation layer.
+- Controlled Change: Normative change with ADR, impact mapping, and compatibility assessment.
 
-The manual is organized in four levels:
+## Assumptions
 
-1. Governance
-2. Immutable foundation documents (000 to 010)
-3. Domain volumes (Volume I to Volume V)
-4. Derived implementation specifications
+- Documentation-first delivery remains mandatory.
+- Repository artifacts remain canonical source of truth.
+- Volume II and later work remains paused until required upstream gates pass.
 
-## Domain Coverage Requirement
+## Constraints
 
-The complete manual must cover all mandatory domains:
+- Upstream constitutional documents MUST NOT depend on downstream implementation choices.
+- Downstream specifications MAY depend on upstream specifications.
+- Normative foundation changes MUST use controlled change governance.
 
-- business
-- market
-- product
-- UX
-- architecture
-- database
-- AI
-- APIs
-- engineering
-- operations
-- finance
-- security
-- infrastructure
-- implementation
+## Normative Requirements
 
-No domain may be omitted. Domain coverage is complete only when acceptance criteria are satisfied and cross-references are resolved.
+PM-REQ-001: The immutable foundation layer MUST include [000 OVERVIEW.md](000%20OVERVIEW.md) through [020 EXTENSIBILITY.md](020%20EXTENSIBILITY.md).
 
-## Authority Model
+PM-REQ-002: All downstream specifications MUST reference foundation definitions, principles, and policies instead of redefining them.
 
-Authority precedence is:
+PM-REQ-003: Manual authority precedence MUST be:
 
 1. Constitution and governance
-2. Foundation documents 000 to 010
+2. Foundation layer 000 through 020
 3. ADR registry
-4. Domain volumes
-5. Derived design artifacts
+4. Volume specifications
+5. Derived implementation artifacts
 
-If two documents conflict, the higher-precedence source controls.
+PM-REQ-004: Domain coverage MUST include business, market, product, UX, architecture, database, AI, APIs, engineering, operations, finance, security, infrastructure, and implementation.
 
-## Normative Reference Rule
+PM-REQ-005: No new downstream domain chapter MAY start until required upstream dependency gates are met.
 
-All domain chapters must reference, and never silently override, the following foundations:
+PM-REQ-006: Every architecture-impacting change MUST include ADR traceability.
 
-- [002 GLOSSARY.md](002 GLOSSARY.md)
-- [003 TERMINOLOGY.md](003 TERMINOLOGY.md)
-- [004 DESIGN_PRINCIPLES.md](004 DESIGN_PRINCIPLES.md)
-- [005 PRODUCT_PRINCIPLES.md](005 PRODUCT_PRINCIPLES.md)
-- [006 ENGINEERING_PRINCIPLES.md](006 ENGINEERING_PRINCIPLES.md)
-- [007 ARCHITECTURE_PRINCIPLES.md](007 ARCHITECTURE_PRINCIPLES.md)
-- [008 AI_PRINCIPLES.md](008 AI_PRINCIPLES.md)
-- [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
-- [010 DOCUMENT_STANDARDS.md](010 DOCUMENT_STANDARDS.md)
+PM-REQ-007: Every foundation document MUST include these sections or an explicitly stricter canonical equivalent with a section mapping:
 
-## Ownership And Decision Rights
+1. Title
+2. Status
+3. Authority
+4. Purpose
+5. Scope
+6. Dependencies
+7. Definitions
+8. Assumptions
+9. Constraints
+10. Normative Requirements
+11. Decisions
+12. Non-goals
+13. Risks
+14. Verification
+15. Open Questions
+16. Related Documents
+17. Change Control
 
-Primary owner: Chief Architect.
+PM-REQ-008: Foundation baseline version MUST be declared as 1.0 and treated as immutable except by controlled change.
 
-Contributing owners by domain:
+PM-REQ-009: Controlled change for foundation documents MUST include:
 
-- product: Chief Product
-- UX: Chief UX
-- engineering and platform: Chief Rails
-- AI: Chief AI
-- security and privacy: Chief Security
-- market and messaging: Chief Marketing
+- ADR reference
+- affected downstream document list
+- affected tests, diagrams, schemas, and contracts
+- compatibility assessment
+- migration assessment when applicable
 
-The Chief Architect resolves cross-domain conflicts and owns final architecture coherence.
+PM-REQ-010: Implementation work MUST NOT begin until foundation and required volume gates are accepted.
 
-## Manual Lifecycle
+### Canonical Dependency Graph
 
-The manual lifecycle is:
+```text
+000-020 Immutable Foundation
+            |
+            v
+Volume I Product Foundations
+            |
+            v
+Experience and Interaction
+            |
+            v
+Domain and State
+            |
+            v
+Data and Persistence
+            |
+            v
+Search and Retrieval
+            |
+            v
+AI and Evaluation
+            |
+            v
+API and Integration
+            |
+            v
+Implementation
+```
 
-1. Draft
-2. Review-ready
-3. Accepted
-4. Superseded
+PM-REQ-011: The dependency graph MUST be represented in [INDEX.md](INDEX.md) and MUST govern roadmap sequencing.
 
-Only Accepted sections are normative.
+PM-REQ-012: Upstream constitutional documents MUST NOT silently depend on downstream implementation choices.
 
-## Quality Gates
+## Decisions
 
-A chapter can move to Accepted only when:
+- DEC-001-01: Foundation layer scope is extended to 000 through 020 and declared baseline 1.0.
+- DEC-001-02: Dependency sequencing is constitutional and enforced through roadmap and review gates.
+- DEC-001-03: Controlled change is mandatory for all normative foundation updates.
 
-- purpose and scope are explicit
-- business rationale is documented
-- functional and technical specifications are testable
-- dependencies and references are complete
-- risks and future evolution are defined
-- contradictions with existing accepted docs are resolved
+## Non-goals
 
-## Change Management
+- This document does not define detailed product behavior.
+- This document does not define implementation tasks.
 
-Every material architecture change requires:
+## Risks
 
-- updated chapter content
-- ADR update in [../DECISIONS.md](../DECISIONS.md)
-- dependent chapter updates in the same change set
-- roadmap and state updates when sequencing or status changes
+- Risk: downstream chapters diverge from foundation requirements.
+  Mitigation: review gates MUST enforce reference and traceability checks.
+- Risk: uncontrolled foundation edits.
+  Mitigation: ADR and impact mapping requirements MUST block ungoverned changes.
 
-## Release Cadence
+## Verification
 
-Manual releases are milestone-based, not calendar-only.
+| Requirement Scope | Verification Method | Owner | Stage |
+| --- | --- | --- | --- |
+| Foundation completeness 000 to 020 | Index and file inventory review | Chief Architect | Architecture review |
+| Dependency and sequencing compliance | Roadmap and state gate review | Chief Architect | Planning gate |
+| Controlled change governance | ADR and traceability matrix checks | Chief Architect | PR review |
 
-Release labels should communicate architecture readiness, for example:
+## Open Questions
 
-- foundation-complete
-- volume-i-accepted
-- platform-architecture-ready
+- Which future domains require additional constitutional foundations after 020?
+- Which governance checks require automation priority in the next planning cycle?
 
-## Traceability Requirements
+## Related Documents
 
-Each chapter must include:
-
-- upstream dependencies
-- decision references
-- measurable acceptance criteria
-- explicit non-goals where relevant
-
-Traceability must support downstream implementation planning without reinterpretation.
-
-## Implementation Gate
-
-Software implementation may begin only when:
-
-1. foundation layer is accepted
-2. required domain volumes are accepted for scope being implemented
-3. unresolved architecture blockers are zero
-
-## Acceptance Criteria
-
-This document is accepted when:
-
-1. manual authority and precedence are explicit
-2. lifecycle states and quality gates are complete
-3. ownership and decision rights are clear
-4. implementation gate is enforceable
-
-## References
-
-- [000 OVERVIEW.md](000 OVERVIEW.md)
 - [INDEX.md](INDEX.md)
-- [009 DECISION_FRAMEWORK.md](009 DECISION_FRAMEWORK.md)
-- [010 DOCUMENT_STANDARDS.md](010 DOCUMENT_STANDARDS.md)
-- [../DECISIONS.md](../DECISIONS.md)
+- [006 ENGINEERING_PRINCIPLES.md](006%20ENGINEERING_PRINCIPLES.md)
+- [007 ARCHITECTURE_PRINCIPLES.md](007%20ARCHITECTURE_PRINCIPLES.md)
+- [010 DOCUMENT_STANDARDS.md](010%20DOCUMENT_STANDARDS.md)
+- [FOUNDATION_TRACEABILITY_MATRIX.md](FOUNDATION_TRACEABILITY_MATRIX.md)
+
+## Change Control
+
+Any normative change to this document MUST:
+
+1. Include ADR reference.
+2. Include dependency model impact analysis.
+3. Include roadmap and project state impact updates.
+4. Update related governance and traceability documents.

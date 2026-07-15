@@ -1,3 +1,3 @@
 # Version
 
-0.1.0-volume-i-kickoff
+1.0.0-foundation-baseline

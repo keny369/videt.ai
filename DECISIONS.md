@@ -89,7 +89,7 @@ Status: Accepted
 Date: 2026-07-15
 
 Decision:
-Documents `specification/000` through `specification/010` are established as the immutable foundation layer of the Product Architecture Manual.
+Documents `specification/000` through `specification/020` are established as the immutable foundation layer of the Product Architecture Manual.
 
 Context:
 Later volumes require stable, shared definitions and principles to avoid drift and contradictory architecture.
@@ -116,3 +116,105 @@ Consequences:
 - roadmap milestones include explicit start gates for later volumes
 - project state tracks gate compliance as an active control
 - any exception requires explicit ADR with rationale and risk plan
+
+## ADR-008: Foundation Dependency Model
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+The canonical dependency model is established from foundation layer 000-020 through implementation, and upstream constitutional documents MUST NOT silently depend on downstream implementation choices.
+
+Context:
+Dependency ambiguity creates contradictory specifications and rework.
+
+Consequences:
+
+- dependency graph is mandatory in manual control documents
+- downstream layers MAY depend on upstream layers only
+- sequencing gates are enforced through roadmap and review controls
+
+## ADR-009: Test-Driven Development Policy
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+TDD is the default implementation discipline, with failing-test-first behavior required for production changes.
+
+Context:
+Behavior-first verification is required to preserve correctness and prevent regression drift.
+
+Consequences:
+
+- engineering principles include mandatory Red, Green, Refactor policy
+- defect fixes require reproducing failing tests before code changes
+- merge gates require passing test suite with exception governance for rare cases
+
+## ADR-010: Documentation-As-Code Policy
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Documentation is treated as governed system artifact with deterministic generation and mandatory traceability.
+
+Context:
+Separate narrative and implementation truths create operational and governance failure.
+
+Consequences:
+
+- documentation standards include mandatory documentation-as-code rules
+- documentation drift is treated as build or review failure
+- generated documentation is source-controlled through canonical generators
+
+## ADR-011: Architecture Fitness-Function Policy
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Architecture principles are enforced through a canonical fitness-function catalog with owners, gates, and exception process.
+
+Context:
+Unmeasured principles degrade over time and fail to protect architecture boundaries.
+
+Consequences:
+
+- fitness functions become release-governing controls
+- unresolved numeric thresholds use provisional gates with deadlines
+- exception handling requires bounded ADR-backed governance
+
+## ADR-012: Foundation Baseline Version 1.0 And Controlled Change
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Foundation 000-020 is declared baseline version 1.0 and immutable except through controlled change.
+
+Context:
+Foundational stability is required before downstream domain elaboration.
+
+Consequences:
+
+- normative foundation changes require ADR and impact mapping
+- downstream affected specifications, tests, diagrams, schemas, and contracts must be identified
+- compatibility and migration assessments are mandatory when applicable
+
+## ADR-013: Canonical Diagram Authority Model
+
+Status: Accepted
+Date: 2026-07-15
+
+Decision:
+Each required architecture view has one canonical source diagram file in `diagrams/`, linked by foundation documents.
+
+Context:
+Conflicting diagram sources undermine architecture consistency.
+
+Consequences:
+
+- one authoritative source exists for each required architecture view
+- duplicate boundary diagrams are prohibited
+- diagram updates require linked specification updates in same change set
