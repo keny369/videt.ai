@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: Accepted; acceptance change set pending commit and tag
+- Status: Accepted and frozen; ADR-017 controlled correction validated and pending commit plus successor frozen tag
 - Foundation Version Dependency: 1.0
 - Last Updated: 2026-07-16
 - Owner: Chief Architect
-- Prior Implementation-Ready Tag: `v1.1-implementation-ready`
+- Frozen Baseline Tag: `v1.2-volume-i-frozen`
 
 ## Authority
 
@@ -71,7 +71,7 @@ This review gate is distinct from the Volume I acceptance gate below.
 
 Volume I acceptance MUST NOT be marked passed unless every blocking item below is in Pass state.
 
-| Checklist Item | Status | Evidence |
+| Checklist Item | Status | Verification Basis |
 | --- | --- | --- |
 | Product definition completeness | Pass | [PRODUCT_DEFINITION.md](PRODUCT_DEFINITION.md) covers PR-REQ-001 through PR-REQ-030. |
 | Capability coverage | Pass | [CAPABILITY_MODEL.md](CAPABILITY_MODEL.md) covers CAP-001 through CAP-025; onboarding, source, seven-Check ownership, scoring, recommendation, deterministic structured dashboard/history output with no AI narrative, delivery, entitlement, and tenant-lifecycle behavior each resolve to a named normative contract and acceptance oracle. |
@@ -79,15 +79,15 @@ Volume I acceptance MUST NOT be marked passed unless every blocking item below i
 | Rule coverage | Pass | [PRODUCT_RULES.md](PRODUCT_RULES.md) covers PRULE-001 through PRULE-046; every rule has Capability, Workflow, same-numbered AC-PRULE, trace, test-type, and decision-dependency coverage, and identifier/source/cross-reference validation passes. |
 | Acceptance criteria coverage | Pass | Every AC-CAP-001 through AC-CAP-025, AC-WF-001 through AC-WF-018, AC-SM-001 through AC-SM-008, and AC-PRULE-001 through AC-PRULE-046 identifier has one conjunctive measurable assertion; active Checks are covered through their owning CAP/WF/Score/PRULE assertions, and AC-CAP-018, AC-WF-012 and AC-PRULE-030 prohibit AI dashboard/history narrative, placeholders and provider calls while requiring complete success without narrative. |
 | Traceability completeness | Pass | [TRACEABILITY_MATRIX.md](TRACEABILITY_MATRIX.md) covers every PR-REQ, CAP, WF, PRULE, and Acceptance ID; expanded-range, planned test-type, and Product Rule owner-decision dependency validation passes. |
-| Security alignment | Pass | Bootstrap, invitation, Session, Access Policy, effective-permission resolution, anti-SSRF/XML, support scope, redaction, legal hold, high-risk approvals, and platform-managed Integration/Credential authority, rotation, expiry, revocation, checkpoint, and secret-nonpersistence behavior are explicit. |
-| Data lifecycle alignment | Pass | [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md) defines `retention-interim-v1`, exact classes/windows, legal hold, deletion jobs, backup tombstones, evidence expiry, recovery, and completion evidence; Volume I workflows and assertions reference the same contract. |
-| State alignment | Pass | Named Volume I paths match [../016 STATE_MODEL.md](../016%20STATE_MODEL.md), including Project activation, Evaluation retry/supersession, RecommendationArtifact, LegalHold, LifecycleDeletionJob, Integration reconnect/degradation/retirement, and Credential rotation/expiry/revocation. |
+| Security alignment | Pass | Bootstrap, invitation, purpose-bound existing-Account sign-in, concurrent Session behavior, Access Policy, effective-permission resolution, anti-SSRF/XML, support scope, redaction, legal hold, high-risk approvals, and platform-managed Integration/Credential authority, rotation, expiry, revocation, checkpoint, and secret-nonpersistence behavior are explicit. |
+| Data lifecycle alignment | Pass | [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md) defines `retention-interim-v1`, exact classes/windows, BillingEntity retention, the canonical Evidence/Payload/Audit Evidence split, legal hold, deletion jobs, backup tombstones, Evidence expiry, recovery, and completion evidence; Volume I workflows and assertions reference the same contract. |
+| State alignment | Pass | Named Volume I paths match [../016 STATE_MODEL.md](../016%20STATE_MODEL.md), including Session creation/expiry, BillingEntity bootstrap/closure, policy-scheduled reassessment, explicit Mailgun acceptance uncertainty, Project activation, Evaluation retry/supersession, RecommendationArtifact, LegalHold, LifecycleDeletionJob, Integration reconnect/degradation/retirement, and Credential rotation/expiry/revocation. |
 | Error alignment | Pass | The shared envelope fixes first-match subsystem/class precedence, code, severity, retry default, recovery action, safe unmapped behavior, and support reference; workflow contracts supply bounded timeout/retry/terminal behavior and exact narrower overrides. |
-| Observability alignment | Pass | The event envelope fixes actor/service attribution, profile-specific required fields, related-entity/version ordering, transition/attempt/decision/policy/projection/failure/recovery payloads, schema compatibility, redelivery, notification context, correlation, escalation, and secret/redaction rules. |
+| Observability alignment | Pass | The event envelope fixes actor/service attribution, sign-in outcomes, reassessment schedule decisions, BillingEntity lifecycle, Mailgun attempts/uncertainty/reconciliation/replay, profile-specific required fields, related-entity/version ordering, transition/decision/policy/projection/failure/recovery payloads, schema compatibility, redelivery, correlation, escalation, and secret/redaction rules. |
 | Owner decisions resolved or decision-ready | Pass | [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) gives every pending decision deterministic interim behavior and exact blocking impact. None blocks Volume II; OD-010 blocks complete customer-facing numeric scoring and OD-011 blocks production customer-data use until their approval packages are complete. |
-| ADR completeness for accepted architecture-impacting decisions | Pass | No currently approved Volume I outcome has an unmet ADR trigger; each pending owner decision states the exact threshold that would require an ADR if that option is approved. |
-| Terminology consistency | Pass | Canonical Issue terminology is used as the sole deficiency entity across the canonical Volume I files; no Finding domain entity remains. |
-| Volume II pause preserved | Pass | Volume II remains paused in [../../ROADMAP.md](../../ROADMAP.md) and [../../PROJECT_STATE.md](../../PROJECT_STATE.md). |
+| ADR completeness for accepted architecture-impacting decisions | Pass | ADR-017 governs the six demonstrated post-freeze corrections; no currently approved Volume I outcome has an unmet ADR trigger, and each pending owner decision states the exact threshold that would require another ADR if that option is approved. |
+| Terminology consistency | Pass | Canonical Issue terminology is the sole deficiency entity, and canonical Evidence vocabulary distinguishes Evidence, Type, Source, Payload, Provenance, Classification, Measurement Evidence, Verification Evidence, and Audit Evidence without duplicate concepts. |
+| Volume II pause preserved | Pass | Further Volume II expansion remains paused in [../../ROADMAP.md](../../ROADMAP.md) and [../../PROJECT_STATE.md](../../PROJECT_STATE.md); only the two pre-existing drafts are retained and aligned to corrected Volume I behavior. |
 
 Current Acceptance Gate Outcome: Pass. Volume I is accepted as the behavioural baseline. Pending owner decisions remain only the precise feature, contractual, implementation-stage, or production gates stated in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md); they do not reopen defined interim behaviour and do not block Volume II.
 
@@ -114,7 +114,7 @@ Current Acceptance Gate Outcome: Pass. Volume I is accepted as the behavioural b
 
 ## Change Control
 
-Volume I is accepted by this change set over the prior `v1.1-implementation-ready` baseline. After the accepted-baseline commit and tag, a normative Volume I edit is permitted only to correct a demonstrated defect—a contradiction, non-executable contract, unsafe behavior, or acceptance oracle that cannot test the stated behavior—or to incorporate an approved owner decision through controlled change. Preference changes, scope expansion, new capabilities, speculative refinement, governance expansion, and silent replacement of deterministic interim behavior are not defect corrections.
+Volume I is frozen at `v1.2-volume-i-frozen`. ADR-017 authorizes only the now-validated corrections for DEF-V1-001 through DEF-V1-006; those corrections require commit and a successor frozen tag before further Volume II work. After that tag, a normative Volume I edit remains permitted only to correct a demonstrated defect—a contradiction, non-executable contract, unsafe behavior, or acceptance oracle that cannot test the stated behavior—or to incorporate an approved owner decision through controlled change. Preference changes, scope expansion, new capabilities, speculative refinement, governance expansion, and silent replacement of deterministic interim behavior are not defect corrections.
 
 Pending owner approvals remain explicit release gates. Approval of the already-specified interim behavior may be recorded without reopening product scope. An owner choice that would replace frozen behavior requires explicit product-owner authorization to unfreeze and version Volume I; it MUST NOT be disguised as a defect correction.
 

@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -68,6 +68,8 @@ SEC-REQ-001: Authentication MUST use strong, managed identity mechanisms.
 SEC-REQ-002: Multi-factor authentication MUST be enforced for administrative roles.
 
 SEC-REQ-003: Service-to-service authentication MUST use scoped machine identities.
+
+For existing-account sign-in, the approved managed identity service validates credentials and required factors and issues the signed Identity Validation Receipt defined by `onboarding-interim-v1`; F1 MUST NOT receive, store, or validate raw credentials or factor values. A managed identity that the identity service has disabled cannot obtain a valid receipt. Administrative-role sign-in requires receipt evidence that the current multi-factor requirement passed. F1 account suspension or revocation creates no credential lockout state at the provider, and failed sign-in attempts never create an F1 Account state transition. Distinct fresh receipts may create concurrent Sessions; the product imposes no concurrent-Session count limit, and each Session independently follows the canonical idle, absolute-expiry, and revocation rules.
 
 ### Authorization Model
 

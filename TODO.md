@@ -11,7 +11,7 @@ Could an experienced engineering team build F1 without asking the product owner 
 1. Define finding lifecycle states and transitions used by scoring and adjudication.
 2. Define adjudication workflow, authority, and SLA for review_required and disputed findings.
 3. Define interim scoring algorithm semantics (pillar definitions, contribution fields, determinism rules) until OD-002 and OD-003 approvals finalize policy.
-4. Define verification evidence payload format, method validation rules, and timeout behavior pending OD-001 closure.
+4. Obtain OD-001 owner approval or retain the already-defined `verification_observation` Verification Evidence payload, method-validation, and timeout interim contract.
 5. Define role-permission matrix for all workflow actors and gated actions.
 6. Define policy entity semantics and versioning for scope-change approvals and entitlement enforcement.
 7. Define deduplication fingerprint algorithm and collision/idempotency behavior.

@@ -22,18 +22,18 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Identifier: CAP-001
 - Name: Registration and Access
 - Purpose: Allow a user to establish authenticated access to F1.
-- Actor: Validated self-service identity principal or invitation-bound identity principal; Organization Administrator after bootstrap
-- Preconditions: A fresh `onboarding-interim-v1` Identity Validation Receipt exists. Grant request requires a principal that has never consumed self-service bootstrap; self-service requires its issued Grant; Invitation response requires an active matching Invitation. No pre-Organization Account is required or allowed.
-- Inputs: Versioned Identity Validation Receipt; grant-request, Bootstrap Grant, or Invitation expected state; exact Organization/first-Project body for self-service; command and idempotency envelope.
-- Product Behavior: Apply `onboarding-interim-v1`: issue/replay one eligible 15-minute Bootstrap Grant without tenant records; self-service atomically creates/activates the tenant-scoped Account, Organization, first OrganizationAdmin Assignment, byte-exact baseline Access and Entitlement Policies, `interim-baseline-plan-v1` Plan Assignment, and draft Project and consumes the grant; invited acceptance atomically creates/reuses only the same-Organization Account, creates/reuses the exact invited Role Assignment and activates a Session; recipient decline creates no Account/grant/Session and terminates only the Invitation.
-- Outputs: Grant-only result; or one active tenant-scoped Account and Session. Self-service additionally returns Organization, first Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, and draft Project; invited acceptance returns no new Organization or Project; decline returns only the authorized terminal Invitation result.
-- Success Condition: Account reaches active state and user can access permitted views.
-- Failure Condition: An enumerated identity/grant/invitation/policy/input/race failure commits no partial onboarding branch. Pending Account/Organization states are never externally visible after failed atomic bootstrap or invited provisioning.
+- Actor: Validated self-service identity principal, invitation-bound identity principal, or existing Account identity principal; Organization Administrator after bootstrap
+- Preconditions: A fresh purpose-bound `onboarding-interim-v1` Identity Validation Receipt exists. Grant request requires a principal that has never consumed self-service bootstrap; self-service requires its issued Grant; Invitation response requires an active matching Invitation; existing-account sign-in names one Organization and never creates or selects an Account implicitly. No pre-Organization Account is required or allowed for bootstrap.
+- Inputs: Versioned Identity Validation Receipt; grant-request, Bootstrap Grant, Invitation expected state, or existing-account sign-in Organization and optional logical return target; exact Organization/first-Project body for self-service; command and idempotency envelope.
+- Product Behavior: Apply `onboarding-interim-v1`: issue/replay one eligible 15-minute Bootstrap Grant without tenant records; self-service atomically creates/activates the tenant-scoped Account, Organization, baseline BillingEntity, first OrganizationAdmin Assignment, byte-exact baseline Access and Entitlement Policies, BillingEntity-linked `interim-baseline-plan-v1` Plan Assignment, and draft Project and consumes the grant; invited acceptance atomically creates/reuses only the same-Organization Account, creates/reuses the exact invited Role Assignment and activates a Session; recipient decline creates no Account/grant/Session and terminates only the Invitation; existing-account sign-in validates the exact Account/Organization lifecycle and identity-assurance predicates, initializes a current deny-by-default authorization context, and creates a new Session without changing Account identity or grants.
+- Outputs: Grant-only result; or one active tenant-scoped Account and Session. Self-service additionally returns Organization, BillingEntity, first Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, and draft Project; invited acceptance returns no new Organization, BillingEntity, or Project; sign-in returns the new Session and exact logical destination; decline returns only the authorized terminal Invitation result.
+- Success Condition: Bootstrap or Invitation acceptance reaches its exact active Account state, or existing-account sign-in creates one active Session with a current authorization context and deterministic logical destination.
+- Failure Condition: An enumerated identity/grant/invitation/sign-in/policy/input/race failure commits no partial onboarding branch or Session. Pending Account, Organization, and BillingEntity states are never externally visible after failed atomic bootstrap or invited provisioning.
 - Business Rules: PRULE-001, PRULE-018
 - Security Implications: Must comply with SEC-REQ-001 through SEC-REQ-024.
 - Data Implications: Account lifecycle events and audit records are persisted.
 - AI Implications: None.
-- Observability Requirements: Branch-specific identity/grant/invitation, Account, Session, Role, policy, Organization, and Project events and audited no-state outcomes under one correlation ID.
+- Observability Requirements: Branch-specific identity/grant/invitation/sign-in, Account, Session, Role, policy, BillingEntity, Organization, and Project events and audited no-state outcomes under one correlation ID.
 - Acceptance Criteria: AC-CAP-001
 - Dependencies: WF-001, WF-013, [../014 SECURITY_MODEL.md](../014%20SECURITY_MODEL.md)
 - Non-goals: Social growth features or non-business identity federation expansion.
@@ -47,15 +47,15 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: Organization Administrator
 - Preconditions: CAP-001 complete.
 - Inputs: `organization-profile-v1`, immutable `access-interim-v1`, `entitlement-interim-v1`, and `interim-baseline-plan-v1`/approval content hashes, first accountable administrator Assignment, Bootstrap Grant, and idempotency envelope.
-- Product Behavior: In the self-service WF-001 transaction create Organization pending, instantiate only byte-equivalent Access/Entitlement interim policies and Plan Assignment, create the bootstrap OrganizationAdmin Assignment, then activate Organization only when all tenant invariants pass.
-- Outputs: Organization record, active Access and Entitlement policy versions, Plan Assignment, administrator Role Assignment, and audit events.
+- Product Behavior: In the self-service WF-001 transaction create Organization and its sole baseline BillingEntity pending, instantiate only byte-equivalent Access/Entitlement interim policies and a same-Organization Plan Assignment linked to that BillingEntity, create the bootstrap OrganizationAdmin Assignment, activate BillingEntity, then activate Organization only when all tenant invariants pass. No provider call or lazy BillingEntity creation occurs.
+- Outputs: Organization record, active baseline BillingEntity, active Access and Entitlement policy versions, linked Plan Assignment, administrator Role Assignment, and audit events.
 - Success Condition: Organization reaches active state and supports project creation.
 - Failure Condition: Bootstrap validation failure rolls back new Organization creation; a later lifecycle failure retains the current canonical Organization state with an enumerated reason rather than inventing a failure state.
 - Business Rules: PRULE-002, PRULE-019
 - Security Implications: Tenant isolation and role assignment controls apply.
 - Data Implications: Organization metadata and policy history are auditable.
 - AI Implications: None.
-- Observability Requirements: OrganizationCreated and OrganizationActivated events.
+- Observability Requirements: OrganizationCreated, two ordered BillingStateChanged transition events, and OrganizationActivated under the same bootstrap correlation.
 - Acceptance Criteria: AC-CAP-002
 - Dependencies: WF-001, WF-013
 - Non-goals: Cross-tenant federation behavior.
@@ -119,7 +119,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Failure Condition: Unsupported/invalid request, unauthorized redelivery, on-demand concurrency/rate/count denial, mismatch, or dependency timeout never verifies or disables the Source; unresolved request expires after exactly 24 hours and terminal challenge material cannot be recovered.
 - Business Rules: PRULE-005, PRULE-020
 - Security Implications: Prevents unauthorized domain scanning.
-- Data Implications: Verification evidence and audit trail retained.
+- Data Implications: Verification Evidence and its Audit Evidence are retained under their separate contracts.
 - AI Implications: None.
 - Observability Requirements: SourceVerificationRequested, observation attempt, SourceVerified, expiry, cancellation, integrity failure, reason-code, latency, and redacted evidence telemetry.
 - Acceptance Criteria: AC-CAP-005
@@ -178,8 +178,8 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Provide operational visibility and recovery controls for partial failures.
 - Actor: Organization Administrator, Marketing Operator, or approved time-bounded SecurityOperator support session for recovery
 - Preconditions: CAP-007 started.
-- Inputs: Crawl, IngestionJob, ParsingJob, and IndexingJob telemetry; complete parse manifest; internal/external Evidence intake; exact failed subset, reason codes, attempt/replay counts, recovery command, and expected state version.
-- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, derived/external Evidence, indexing, Document lifecycle, and readiness state; apply only the bounded WF-005, `parsing-interim-v1`, or `indexing-interim-v1` retry and authorized recovery contracts.
+- Inputs: Crawl, IngestionJob, ParsingJob, and IndexingJob telemetry; complete parse manifest; platform-derived Evidence and Measurement Evidence intake; exact failed subset, reason codes, attempt/replay counts, recovery command, and expected state version.
+- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, platform-derived Evidence/Measurement Evidence, indexing, Document lifecycle, and readiness state; apply only the bounded WF-005, `parsing-interim-v1`, or `indexing-interim-v1` retry and authorized recovery contracts.
 - Outputs: Immutable Crawl/parse/index attempt history, Parsed Artifacts and Index Receipts, exact ingested-to-parsed and parsed-to-indexed Document outcomes, exact Evaluation Input Snapshot, terminal/coverage/readiness result, and linked recovery outcome.
 - Success Condition: Every admitted Crawl/parse member and every created IndexingJob has an exact terminal or scheduled outcome; each successful same-version job advances Document exactly once; ready-full/ready-partial/blocked derives from the complete parse/Evidence manifest without waiting for the Retrieval projection; and concurrent completion or replay cannot change an earlier snapshot.
 - Failure Condition: Exhausted/nonretryable parse/indexing, blocked readiness, missing external input, or denied recovery creates the enumerated state/reason/subset/events without hidden retry, dropped manifest member, stale Evaluation mutation, or unclassified persistence.
@@ -288,7 +288,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Ensure all Issues, scores, and Recommendation Artifacts are backed by valid auditable Evidence.
 - Actor: Tenant-scoped integrity-validation service; SecurityOperator holding protected `evidence.validation.manage` in authorized security/legal scope
 - Preconditions: Inspection workflows produce check outputs.
-- Inputs: Raw observations or immutable references, digest, same-Organization lineage, schema and collector versions, classification, validation result, and retention class.
+- Inputs: Raw observations or immutable references, digest, same-Organization lineage, schema and collector versions, Evidence Classification, validation result, and Evidence Payload `payload_retention_class`.
 - Product Behavior: Enforce exact Evidence fields/digest/tenant/immutability, operator/service Validation Decision permissions/transitions, and atomic propagation across current Issue support, passed/failed score-coverage Checks, and independent Recommendation rationale/citations, plus redaction.
 - Outputs: Valid, invalid, or quarantined Evidence with immutable provenance/access history; atomic unavailable score and suppressed-Recommendation projection when current support ceases to be valid.
 - Success Condition: Valid Evidence bytes match digest and every referenced entity belongs to one Organization; permitted users receive exact allowed/redacted fields.
@@ -316,7 +316,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Success Condition: Exact replay or concurrency creates one Issue; every state transition is authorized and version-checked; supersession is same-Project, acyclic, single-successor, and atomic.
 - Failure Condition: Invalid Evidence, unauthorized or stale transition, hash-only merge, lineage cycle, cross-Project link, or partial publish is rejected without changing current pointers.
 - Business Rules: PRULE-011, PRULE-017, PRULE-023, PRULE-033, PRULE-043
-- Security Implications: Organization scope, explicit dispute/adjudication permissions, requester/adjudicator separation, Evidence classification, and score visibility rules apply.
+- Security Implications: Organization scope, explicit dispute/adjudication permissions, requester/adjudicator separation, Evidence Classification, and score visibility rules apply.
 - Data Implications: Issue fingerprint preimage/hash/version, state versions, Case SLA/decision metadata, closure Evaluation/Check/Evidence, Issue-set membership/order, and supersession chain are retained.
 - AI Implications: Each published AI-assisted Recommendation Artifact has exactly one eligible current origin Issue.
 - Observability Requirements: Issue creation/replay/collision, dispute, adjudication, overdue/critical, resolution, supersession, and recalculation events.
@@ -425,10 +425,10 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Outputs: `comparable`, `not_comparable`, `insufficient_history`, or `comparison_unavailable` result with exact reason codes and permitted next action.
 - Success Condition: Compatible pairs return reproducible attributable deltas; incompatible pairs return no numeric score delta; fewer than two completed evaluations returns the exact available count.
 - Failure Condition: Silent cross-version comparison, synthetic missing data, later-state rewrite of history, or unbounded projection rebuild occurs.
-- Business Rules: PRULE-032
+- Business Rules: PRULE-030, PRULE-031, PRULE-032
 - Security Implications: Historical data access scoped by tenant and role.
 - Data Implications: Historical snapshots retained according to lifecycle policy.
-- AI Implications: AI-generated summaries must not alter underlying historical values.
+- AI Implications: None in the accepted baseline. Historical comparison returns deterministic structured data only and MUST NOT create, request, return, display, reserve a presentation region for, or imply AI-generated dashboard/history narrative, and MUST make no AI-provider call for that purpose. Narrative absence is a complete successful response, not an error, degraded state, incomplete response, or fallback. No feature flag, provider availability, model capability, tenant setting, UI layout, or implementation choice may enable narrative. Future support requires controlled Volume I change under PRULE-030.
 - Observability Requirements: comparison query latency and usage telemetry.
 - Acceptance Criteria: AC-CAP-019
 - Dependencies: WF-012, WF-011
@@ -439,19 +439,19 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-020
 - Name: Reassessment
-- Purpose: Re-run assessment workflows on schedule or manual trigger.
+- Purpose: Re-run assessment workflows by independent manual request or by a policy-driven Project schedule.
 - Actor: Organization Administrator, Marketing Operator, or scheduler service identity
-- Preconditions: Project active with at least one active Source, request covers the full active-Source set, and one prior completed Evaluation has the current promoted Issue Set/ScoreSnapshot pair.
-- Inputs: Authorized trigger or cancellation, full-Project active Source-set version/scope hash, current policy versions, expected Evaluation version when canceling, reason, and idempotency key.
-- Product Behavior: Reject no-prior and scope-limited requests before entitlement/Evaluation/Result creation; otherwise create/start a canonical Evaluation before its nested Crawl, let WF-006/007 reuse that Running state, stage the pipeline without pointer changes, recheck scope, and atomically publish all outputs only after invariants pass.
+- Preconditions: An admitted manual or scheduled reassessment requires an active Organization and Project, at least one active Source, the full active-Source set, and one prior completed Evaluation with the current promoted Issue Set/ScoreSnapshot pair. A due-slot evaluation itself requires only its exact active-policy slot identity; a missing execution precondition records the specified nonadmitted schedule decision rather than suppressing that decision.
+- Inputs: Authorized manual trigger, cancellation, or exact due-slot identity from an active `reassessment-schedule-v1` Project policy; full-Project active Source-set version/scope hash, current policy versions, expected Evaluation version when canceling, reason, and idempotency key.
+- Product Behavior: Manual reassessment remains available independently of schedule configuration. Scheduled reassessment exists only under an active enabled Project schedule whose positive whole-second cadence is an explicit policy input anchored at activation; entitlement gates each eligible execution but never selects or shifts cadence. Duplicate slots are suppressed, active-Evaluation races serialize to one start, and a slot is eligible only when Organization and Project scope was active strictly before its due instant and remains active at evaluation. Inactive slots are skipped without catch-up, including when scope is restored before scheduler recovery; outage recovery coalesces elapsed slots to at most the latest one under the same due-time/current-state rule. An admitted start rejects no-prior and scope-limited requests before entitlement/Evaluation/Result creation; otherwise it creates/starts a canonical Evaluation before its nested Crawl, lets WF-006/007 reuse that Running state, stages the pipeline without pointer changes, rechecks scope, and atomically publishes all outputs only after invariants pass.
 - Outputs: Immutable Reassessment Result, Evaluation attempt lineage, Issue/Case supersession-resolution-unverified sets, Contributions, ScoreSnapshot, projection, and exact usage outcome.
 - Success Condition: Same/new/absent/unverified cases follow exact two-pass rules, frozen and publication Source/scope match, prior current results remain until atomic success, and retry cannot duplicate stages/outputs.
-- Failure Condition: Entitlement Block, Source/scope race, pipeline/scoring/publication failure, or running/post-completion cancellation produces the exact Evaluation/Result/reservation outcome, changes no prior Current Score Projection field, and emits one terminal event; unavailable staged diagnostics never become latest/current.
+- Failure Condition: Missing, disabled, or invalid schedule creates no scheduled request; a superseded-policy, inactive-scope, active-Evaluation-conflicting, or ineligible latest slot records exactly one terminal schedule decision and no Entitlement/Evaluation/Result, while any earlier missed slots exist only as its coalescing metadata. Duplicate delivery returns that decision. Entitlement Block, Source/scope race, pipeline/scoring/publication failure, or running/post-completion cancellation produces the exact Evaluation/Result/reservation outcome, changes no prior Current Score Projection field, and emits one terminal event; unavailable staged diagnostics never become latest/current.
 - Business Rules: PRULE-033
 - Security Implications: Trigger authorization and audit requirements.
 - Data Implications: New evaluation history and lineage preserved.
 - AI Implications: AI recommendation refresh uses current evidence and versions.
-- Observability Requirements: reassessment trigger and completion telemetry.
+- Observability Requirements: trigger kind, schedule policy/version/slot, due/observed time, due-time and evaluation-time Organization/Project state versions, coalescing, eligibility/conflict decision, reassessment completion, and exact audit telemetry; schedule evaluation alone emits no dedicated customer Notification.
 - Acceptance Criteria: AC-CAP-020
 - Dependencies: WF-011, WF-012
 - Non-goals: Automatic policy override of previous operator decisions.
@@ -465,15 +465,15 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: Notification service identity; Organization Administrator or SecurityOperator for allowed policy changes; approved SecurityOperator support session for terminal recovery
 - Preconditions: Event-generating workflows execute.
 - Inputs: Versioned logical event, active route/template policy, exact Account selector recipients or direct Invitation target binding, redacted payload fields, and `integration-interim-v1` Mailgun Integration/Credential context.
-- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; apply the direct Invitation recipient route or union Account selectors by required permission; create exact conditional in-app/mandatory Mailgun Deliveries; lazily materialize/replay and validate platform-managed `mailgun_email` Integration/Credential metadata before the first provider checkpoint; classify unusable addresses without a provider call; apply exact integration initialization, credential expiry/rotation/revocation, delta-seconds delivery retry, provider mapping, aggregate transitions, and precedence; reauthorize each attempt; and re-resolve current policy/recipients for a linked replay generation.
-- Outputs: Immutable per-channel attempts and provider results, aggregate status, suppressed/terminal address reasons, and exactly one escalation for each terminally failed required Delivery or mandatory empty selector union.
-- Success Condition: Each Delivery durably succeeds, reaches an authorized governed suppression, or reaches a classified terminal failure escalated within 5 minutes; a mandatory empty selector union is likewise escalated, and replay causes no duplicate send.
-- Failure Condition: Unauthorized send, secret or raw Evidence leakage, duplicate provider side effect, retry beyond bound, unclassified terminal status, or missing escalation occurs.
+- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; apply the direct Invitation recipient route or union Account selectors by required permission; create exact conditional in-app/mandatory Mailgun Deliveries; classify unusable addresses without an attempt or provider call; claim one durable local email attempt before platform-managed `mailgun_email` Integration/Credential validation; map every prepared-stage outcome exactly; allow only exhausted retryable initialization or proven no-network-submission to join definitive provider nonacceptance on the bounded Delivery retry schedule; terminalize nonretryable Integration/Credential outcomes; disable implicit provider-client/transport retry; move unprovable acceptance to `acceptance_unknown` with automatic resend suppressed; reconcile read-only from exact authenticated provider evidence; expose duplicate risk; reauthorize each attempt; and require acknowledged support replay of an uncertain Delivery to target only that same logical recipient/channel under current policy and authorization. No provider exactly-once claim is permitted.
+- Outputs: Immutable per-channel attempts, dispatch checkpoints, local deduplication/correlation evidence, provider/reconciliation results, known or uncertain aggregate status, user-visible may-still-arrive status, and exactly one escalation for each uncertain or terminally failed required Delivery or mandatory empty selector union.
+- Success Condition: Each eligible nonsuppressed Delivery receives its initial durable attempt and then durably succeeds, reaches an authorized governed suppression, reaches a classified terminal failure, or remains explicitly `acceptance_unknown`; local replay/concurrency cannot repeat one claimed attempt, every failure/uncertainty escalates within 5 minutes, reconciliation never sends, and acknowledged replay preserves old history and duplicate-tolerant product-action idempotency.
+- Failure Condition: Unauthorized send, secret or raw Evidence leakage, duplicate application submission for one claimed attempt, automatic resend while acceptance is unknown, false exactly-once or false terminal-failure claim, retry beyond the definitive-nonacceptance bound, unclassified state, duplicate product action from duplicate email, or missing audit/escalation occurs. Provider-visible duplicate delivery after acknowledged replay or provider behavior is tolerated and is not itself a specification failure.
 - Business Rules: PRULE-034
 - Security Implications: No sensitive payload or credential leakage; recipient and provider-checkpoint authorization enforced.
 - Data Implications: Delivery status and notification history retained.
 - AI Implications: None required for baseline dispatch.
-- Observability Requirements: Integration/Credential version and transition identifiers plus notification send success/failure telemetry, never secret material.
+- Observability Requirements: Integration/Credential versions, local deduplication hits, dispatch checkpoints, definitive retries, acceptance-unknown count/age, reconciliation outcomes, acknowledged replays, provider and aggregate success/failure/uncertainty telemetry, never secret material.
 - Acceptance Criteria: AC-CAP-021
 - Dependencies: WF-006, WF-014, WF-017
 - Non-goals: Marketing campaign automation.
@@ -508,10 +508,10 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Support operational investigation and controlled remediation paths.
 - Actor: Security Operator; time-bounded approved SecurityOperator support session
 - Preconditions: Incident, failure, or customer support trigger exists.
-- Inputs: Versioned Incident or Investigation request, exact scope/permissions, telemetry/Evidence source set, state version, reason, and correlation identifiers.
+- Inputs: Versioned Incident or Investigation request, exact scope/permissions, required investigation input set, state version, reason, and correlation identifiers.
 - Product Behavior: Apply WF-017's severity/playbook/checkpoint/restoration and exact single-use high-risk step-approval contract, plus WF-018's one-Organization authority or complete per-Organization Support Session set, frozen query, custody, gap, completeness, report-version, and distinct-approval contract.
-- Outputs: Versioned Incident timeline and recovery records or complete/partial/insufficient Investigation report with immutable Evidence custody and gap records.
-- Success Condition: Every privileged action is named and approved, restoration passes twice, and every investigation source is either validated and custody-linked or represented by an explicit gap.
+- Outputs: Versioned Incident timeline and recovery records or complete/partial/insufficient Investigation report with immutable Investigation Audit Evidence Item custody and gap records.
+- Success Condition: Every privileged action is named and approved, restoration passes twice, and every required investigation input is either validated and custody-linked or represented by an explicit gap.
 - Failure Condition: Unauthorized/unnamed remediation, synthetic reconstruction, missing custody, unapproved closure/export, or hidden evidence gap occurs.
 - Business Rules: PRULE-037, PRULE-038
 - Security Implications: Break-glass and dual-control requirements apply.
@@ -529,7 +529,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Usage and Entitlement Enforcement
 - Purpose: Enforce package limits and entitlement policy consistently.
 - Actor: System automation and Billing Operator
-- Preconditions: Organization and billing entity context exists.
+- Preconditions: Organization and its WF-001-created active baseline BillingEntity linked to the current Plan Assignment exist.
 - Inputs: Versioned Entitlement and plan policy, operation class and units, UTC counter window, atomic counter snapshot, idempotency key, and actor/resource scope.
 - Product Behavior: Validate/activate immediate authorized Entitlement Policy versions; apply exact negative short-circuit/nullability and atomic whole-tuple cached-fallback behavior; create no queue-time high-cost Decision/reservation; atomically reserve/commit/release high-cost usage at execution; append exactly one low-cost usage record at durable response; recheck queued/nested work; never reopen terminal replay; and require linked new identity for retry.
 - Outputs: Immutable Allow, AllowWithWarning, or Block Decision; reservation lifecycle; exact low-cost usage record; exact actor/unit/window/counters/cache/retry/reason/recovery fields; usage and policy snapshot.
@@ -558,7 +558,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Success Condition: The next protected request is denied after suspension/closure, caches converge within 60 seconds, a hold blocks destruction but not revocation/closure, and eligible jobs complete only with exact primary/backup evidence.
 - Failure Condition: Access remains active, last-admin/dual-control is bypassed, held bytes are destroyed, deadline failure claims completion, or lifecycle outcome is missing/unclassified.
 - Business Rules: PRULE-041, PRULE-042
-- Security Implications: Immediate access revocation and audit evidence required.
+- Security Implications: Immediate access revocation and Audit Evidence required.
 - Data Implications: Data retention and deletion controls follow 015 DATA_LIFECYCLE.
 - AI Implications: None directly.
 - Observability Requirements: Account/Organization/Closure/Hold/Deletion state, deadline, retry, block, failure, completion-evidence and access-revocation telemetry.

@@ -195,13 +195,13 @@ Volume II and downstream specification work MUST remain paused until this volume
 
 - Platform generates recommendations and implementation artifacts.
 - Platform does not directly write to customer production systems in initial scope.
-- Platform may ingest customer-provided evidence and third-party data via explicit integrations.
+- The accepted baseline may ingest third-party Measurement Evidence only through its expressly activated platform-managed adapter contract. It defines no customer-provided Evidence producer, arbitrary customer connector, or customer Evidence submission path; any such path requires controlled Volume I change.
 
 ### Data Boundaries
 
 - canonical entities include Account, Project, Source, Document, Crawl, Evaluation, Issue, ScoreSnapshot and RecommendationArtifact
 - check results are evaluation outputs, not top-level canonical entities in the foundation domain model
-- score and recommendation generations must be traceable to source evidence
+- score and recommendation generations must be traceable to originating Evidence and its Evidence Provenance
 - every model that affects scoring must be versioned
 
 ### AI Boundaries

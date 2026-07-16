@@ -61,7 +61,7 @@ Authority precedence for decision evidence and conflict resolution:
 - ADR Threshold: Not met for Option 2 because this resolution aligns with accepted baseline authority. ADR required only if baseline changes to Option 1 or Option 3.
 - Owner Required: None; objective closure by authority alignment.
 - Blocking Impact: None. OD-004 is resolved and blocks neither Volume II, implementation, production use, nor baseline notification behavior.
-- Deterministic Delivery Behavior: WF-014 and `notification-interim-v1` define routing, authorization, redaction, Mailgun adapter invariants, timeout, retry, bounce, aggregate status, replay, and terminal escalation. Channel resolution alone does not permit unspecified delivery behavior.
+- Deterministic Delivery Behavior: WF-014 and `notification-interim-v1` define routing, authorization, redaction, at-least-once application attempt processing, local attempt deduplication, no provider exactly-once claim, acceptance-unknown state, definitive-nonacceptance-only retry, read-only reconciliation, user-visible duplicate tolerance, acknowledged administrative replay, bounce, aggregate status, Audit Evidence, and escalation. Channel resolution alone does not permit unspecified delivery behavior.
 
 ## Pending Decision Briefs
 
@@ -182,7 +182,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Exact Question: Which final values and acceptance gates should replace provisional QA thresholds?
 - Classification: D
 - Current Status: Pending owner approvals by QA requirement owner
-- Why The Decision Exists: Foundation quality requirements intentionally use provisional ranges pending measurement evidence.
+- Why The Decision Exists: Foundation quality requirements intentionally use provisional ranges pending measured baseline telemetry.
 - Affected Capabilities: CAP-007, CAP-008, CAP-015, CAP-024
 - Affected Workflows: WF-005, WF-008, WF-011, WF-015
 - Affected Product Rules: PRULE-008, PRULE-009, PRULE-024, PRULE-025, PRULE-039, PRULE-040, PRULE-045
@@ -331,7 +331,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Operational Implications: Simpler baseline support and change management.
 - Commercial Implications: Enables packaging now while deferring deeper billing architecture.
 - Reversibility: Medium; can be expanded later with ADR and migration planning.
-- Safe Interim Behavior: Keep invoice and payment details adapter-level.
+- Safe Interim Behavior: WF-001 always creates the core baseline BillingEntity pending, links its same-Organization Plan Assignment, and activates it before Organization activation without a provider call. Keep invoice and payment details adapter-level. OD-008 controls only future decomposition of those details and does not gate or alter BillingEntity creation, identity, linkage, lifecycle, retention, or entitlement use.
 - Latest Responsible Decision Point: Before Volume V commercial architecture acceptance.
 - Blocking Impact: Volume II — no; implementation — no with adapter-level invoice/payment detail; production — no for baseline entitlement and billing-provider integration; feature — core invoice/payment entities, hybrid summaries, and Volume V commercial architecture acceptance are blocked until approval if the owner selects expanded scope.
 - ADR Threshold: Required if Option 1 or Option 3 is approved.
@@ -399,13 +399,13 @@ Authority precedence for decision evidence and conflict resolution:
 - Benefits: Makes the baseline Evaluation, score-coverage, Issue, recommendation, and acceptance paths executable now.
 - Costs: The minimal catalog intentionally supplies only one score-capable signal per pillar and may not match final commercial differentiation.
 - Risks: Interim thresholds can shape early customer expectations; every output therefore retains catalog/definition/policy versions.
-- Security Implications: External provider responses are reduced to validated immutable observation Evidence before Check execution; Checks make no network call and fail closed on missing, stale, indeterminate, or cross-tenant input.
+- Security Implications: External provider responses are reduced to validated immutable Measurement Evidence before Check execution; Checks make no network call and fail closed on missing, stale, indeterminate, or cross-tenant input.
 - Data Implications: Requires exact subject, applicability, Evidence, freshness, and version lineage on every Check Result.
 - AI Implications: AI-presence observation is measurement input only; it cannot supply a product recommendation or alter another Check.
 - Operational Implications: External observation collection must either satisfy `external-observation-v1` or produce the catalog-defined `error` result and unavailable score.
 - Commercial Implications: Final catalog breadth, provider selection, and thresholds remain owner-controlled packaging choices.
 - Reversibility: High through immutable catalog/definition versions and reassessment; historical results never mutate.
-- Safe Interim Behavior: Activate exact `check-catalog-interim-v1` with `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and `CHK-LP-001` as defined in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md). Bind tenant Source/subject instances only in each frozen Evaluation Applicability Set. `external-measurement-interim-v1` bundles no query, intent, listing, provider, or adapter set before approval, so implementations do not invent one: the three always-applicable external entries for `CHK-SP-001`, `CHK-AIP-001`, and `CHK-AS-001` persist handled `input_evidence_missing` errors; `CHK-LP-001` does the same only when its frozen applicability decision is true and otherwise persists its canonical `not_applicable` Result. The numeric score therefore remains unavailable. An approved Measurement Set later activates as exact signed configuration and accepts only exact frozen provider-neutral Evidence before snapshot sealing; Check execution still makes no provider call. A missing/invalid catalog fails Evaluation before Check side effects; handled missing/stale/indeterminate observations create no Issue. No Recommendation or Priority Decision publishes from an unavailable calculation. This interim is deterministic but does not approve the final measurement strategy.
+- Safe Interim Behavior: Activate exact `check-catalog-interim-v1` with `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and `CHK-LP-001` as defined in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md). Bind tenant Source/subject instances only in each frozen Evaluation Applicability Set. `external-measurement-interim-v1` bundles no query, intent, listing, provider, or adapter set before approval, so implementations do not invent one: the three always-applicable external entries for `CHK-SP-001`, `CHK-AIP-001`, and `CHK-AS-001` persist handled `input_evidence_missing` errors; `CHK-LP-001` does the same only when its frozen applicability decision is true and otherwise persists its canonical `not_applicable` Result. The numeric score therefore remains unavailable. An approved Measurement Set later activates as exact signed configuration and accepts only exact frozen provider-neutral Measurement Evidence before snapshot sealing; Check execution still makes no provider call. A missing/invalid catalog fails Evaluation before Check side effects; handled missing/stale/indeterminate observations create no Issue. No Recommendation or Priority Decision publishes from an unavailable calculation. This interim is deterministic but does not approve the final measurement strategy.
 - Required Owner Approval Package: OD-010 approval is valid only for one immutable Measurement Set package whose owner-supplied content includes all of the following; omission leaves the no-set safe interim active and authorizes no inferred value:
   - package identity, schema version, immutable version, complete canonical bytes, SHA-256 of those exact bytes, predecessor or null, creation time, and proposed effective time
   - the exact provider identities and allowed measurement kinds, plus each bound collector adapter ID, immutable adapter version and digest, and deterministic provider-selection/fallback order when more than one provider is allowed

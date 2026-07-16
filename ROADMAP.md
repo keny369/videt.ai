@@ -11,7 +11,7 @@ Deliver a complete Product Architecture Manual before implementation with consti
 ## Execution Gates
 
 - Gate A: Foundation layer 000 through 020 MUST be accepted at version 1.0 before any downstream domain specification work proceeds.
-- Gate B: Volume I MUST be accepted, committed, and tagged before Volume II technical design starts.
+- Gate B: The current accepted Volume I baseline, including any validated controlled correction, MUST be committed and tagged before Volume II technical design starts or resumes.
 - Gate C: Volume II technical design and implementation MUST remain paused until Gates A and B pass; implementation additionally requires approved Volume II slices.
 - Gate D: Normative foundation changes MUST include ADR governance and impact mapping.
 
@@ -77,7 +77,7 @@ Implementation
 
 ### M4 Volume I Product Foundations
 
-- Status: Accepted; acceptance change set pending commit and successor tag over `v1.1-implementation-ready`
+- Status: Frozen at `v1.2-volume-i-frozen`; ADR-017 controlled correction for DEF-V1-001 through DEF-V1-006 validated and pending commit plus successor frozen tag
 - Deliverables:
   - canonical Volume I specification set under specification/volume-i
   - implementation-ready capability, workflow, rule, score-evidence, acceptance, and traceability definitions
@@ -87,8 +87,8 @@ Implementation
 
 ### M5 Experience and Interaction
 
-- Status: Paused
-- Start Condition: M4 accepted baseline committed and tagged
+- Status: Further Volume II expansion paused; the existing Rails architecture and PostgreSQL schema drafts are retained without new architecture documents
+- Start Condition: ADR-017 corrected Volume I baseline committed and tagged
 
 ### M6 Domain and State Deepening
 
@@ -133,5 +133,5 @@ Manual completion requires:
 
 1. Full domain coverage across required architecture domains.
 2. Sequenced dependency compliance across all layers.
-3. Traceability from requirement through operational evidence.
+3. Traceability from requirement through operational verification records.
 4. Zero unresolved contradictions in accepted documents.

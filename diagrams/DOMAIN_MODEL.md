@@ -35,13 +35,17 @@ erDiagram
     PARSING_JOB ||--o{ INDEXING_JOB : produces
 
     PROJECT ||--o{ EVALUATION : evaluates
+    PROJECT ||--o{ EVIDENCE : governs
     EVALUATION ||--o{ ISSUE : creates
     ISSUE ||--o{ RECOMMENDATION_ARTIFACT : drives
     RECOMMENDATION_ARTIFACT ||--o{ AI_RESPONSE : may_generate
     AI_RESPONSE ||--o{ CITATION : references
+    EVIDENCE ||--o{ CITATION : anchors
 
     INTEGRATION ||--o{ CREDENTIAL : uses
 ```
+
+`EVIDENCE` is the auxiliary immutable governed Evidence record owned by Evidence Context, not an additional DM-REQ-001 core entity. Evidence Type, Evidence Payload, Evidence Provenance, and Evidence Classification are not separate entities; Evidence Source is the nonpersisted origin view over Provenance. Audit Evidence is a separate audit/security record and is not represented by `EVIDENCE`.
 
 ## Related Documents
 

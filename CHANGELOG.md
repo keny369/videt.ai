@@ -2,6 +2,13 @@
 
 ## 2026-07-16
 
+- corrected DEF-V1-001 by replacing impossible exactly-once Mailgun delivery implications with at-least-once application attempts, durable local submission deduplication, explicit provider-acceptance uncertainty, resend suppression, read-only reconciliation, duplicate-tolerant user behavior, acknowledged administrative replay, terminal known-failure behavior, and complete Audit Evidence
+- corrected DEF-V1-002 by defining existing-Account sign-in through a purpose-bound managed-identity receipt, exact Organization and lifecycle/assurance checks, current authorization-context initialization, independent concurrent Sessions, deterministic destination selection, audited failures, and no framework-specific authentication choice
+- corrected DEF-V1-003 by retaining manual reassessment and permitting scheduled reassessment only through an active Project policy with an explicit anchored cadence input, exact due-slot identity, active-run conflict suppression, inactive-scope skipping, outage coalescing, no entitlement-derived cadence, no schedule-only customer Notification, and auditable decisions
+- corrected DEF-V1-004 by making atomic WF-001 self-service the sole baseline BillingEntity creation path, linking the initial Plan Assignment before activation, requiring exactly one current nonclosed entity per Organization, defining provider-independent bootstrap and closure/retention behavior, and adding no invoice or payment entity
+- corrected DEF-V1-005 by establishing Evidence, Evidence Type, Evidence Source, Evidence Payload, Evidence Provenance, Evidence Classification, Measurement Evidence, Verification Evidence, and Audit Evidence as the sole canonical vocabulary and removing conflicting aliases across foundation, Volume I, and diagrams
+- corrected DEF-V1-006 by aligning CAP-019 and its acceptance/traceability contracts to the frozen deterministic structured-only dashboard/history baseline with no AI narrative, placeholder, presentation region, hidden enablement, or AI-provider call
+- added ADR-017 for the six demonstrated post-freeze defect corrections, paused further Volume II expansion, and retained only the two existing Volume II drafts with reference-level alignment
 - resolved the final dashboard/history ambiguity by prohibiting AI-generated narrative, narrative placeholders and AI-provider calls in accepted Volume I while requiring complete deterministic structured responses
 - completed the final Volume I acceptance and closure pass without beginning Volume II
 - accepted Volume I as the behavioural baseline after making every pending owner decision deterministic and classifying its exact downstream blocking impact

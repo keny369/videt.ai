@@ -125,7 +125,7 @@ Requirement
     -> Code
     -> Test
     -> Generated Documentation
-    -> Operational Evidence
+    -> Operational Verification Record
 ```
 
 DOC-REQ-028: Traceability gaps MUST fail review gate unless approved exception is present.

@@ -48,11 +48,11 @@ The single authoritative definition for a concept. All other documents must refe
 
 ### Check
 
-A deterministic or model-assisted evaluation applied to collected evidence.
+A deterministic or model-assisted evaluation applied to governed Evidence.
 
 ### Check Result
 
-Structured output of a check, including status, evidence pointers and severity.
+Structured output of a Check, including status, Evidence references, and severity.
 
 ### Competitor Benchmark
 
@@ -60,7 +60,7 @@ Comparative score and issue context against peer organizations or domains.
 
 ### Confidence
 
-Estimated reliability of an Issue or Recommendation Artifact based on available evidence quality.
+Estimated reliability of an Issue or Recommendation Artifact based on available Evidence quality.
 
 ### Crawl
 
@@ -92,7 +92,39 @@ A versioned, named business event describing a meaningful state change in a cano
 
 ### Evidence
 
-Collected data used to support checks, scoring and recommendations.
+An immutable governed `product_history` record containing identity, tenant scope, an Evidence Type, an immutable Evidence Payload reference and digest, Evidence Provenance, Evidence Classification, validation state, the Evidence Payload field `payload_retention_class`, and correlation identity. The field never classifies the Evidence record itself. Evidence may support Checks, scoring, Issues, Recommendation Artifacts, and Citations only under the applicable validity and visibility rules.
+
+### Evidence Classification
+
+The handling and visibility label on Evidence, expressed only as `public`, `internal`, `confidential`, or `restricted`. “Evidence class” and `evidence_class` are prohibited aliases and do not identify a separate concept.
+
+### Evidence Payload
+
+The immutable bytes or schema-governed structured observation referenced and digested by an Evidence record. Payload retention is distinct from retention of the Evidence identity, digest, validation, provenance, and lineage metadata.
+
+### Evidence Provenance
+
+The immutable origin and collection metadata on Evidence: `source_system`, applicable `source_id`, collection method, collector or adapter version, observed and captured times, and governing schema and policy versions. Provenance is metadata, not an Evidence Payload or Evidence Type.
+
+### Evidence Source
+
+The actor, system, provider, Source, or governed process from which an observation originated. Evidence Source is the conceptual origin represented inside Evidence Provenance by `source_system` and applicable `source_id`; it is not a separately persisted field or entity and MUST NOT be used as an alias for the Source domain entity, Evidence Type, or Evidence Payload.
+
+### Evidence Type
+
+The schema-stable category of an Evidence record. Volume I recognizes exactly `source_document`, `crawl_observation`, `parsed_content`, `external_measurement`, `verification_observation`, and reserved `operator_attestation`; no alias or additional literal is valid. The accepted baseline has producer contracts only for the first five. `operator_attestation` has no creation command, payload schema, or authority and therefore cannot be created until controlled Volume I change defines them.
+
+### Measurement Evidence
+
+Evidence whose Evidence Type is `external_measurement` and whose payload follows the active Measurement Set and `external-observation-v1` contract. It is not a separate entity or type literal.
+
+### Verification Evidence
+
+Evidence whose Evidence Type is `verification_observation` and whose payload records one started ownership-verification observation under the verification contract. It is not a separate entity or type literal.
+
+### Audit Evidence
+
+An immutable audit or security record proving an action, decision, access, delivery attempt, or lifecycle outcome. Audit Evidence is not an Evidence domain record, Evidence Type, or Evidence Payload and is never score-eligible merely because it is audit evidence. Purpose-specific names such as Deletion Evidence and Investigation Audit Evidence Item designate Audit Evidence records only; they do not introduce another Evidence kind or domain entity.
 
 ### Finding
 
@@ -108,7 +140,7 @@ A delivery-ready output that helps execute a remediation, such as patch guidance
 
 ### Issue
 
-The sole canonical customer and product term for an evidence-derived deficiency or opportunity that may require prioritization, adjudication, remediation, or lifecycle tracking.
+The sole canonical customer and product term for an Evidence-derived deficiency or opportunity that may require prioritization, adjudication, remediation, or lifecycle tracking.
 
 ### Issue Priority
 
