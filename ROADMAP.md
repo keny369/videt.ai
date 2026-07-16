@@ -11,8 +11,8 @@ Deliver a complete Product Architecture Manual before implementation with consti
 ## Execution Gates
 
 - Gate A: Foundation layer 000 through 020 MUST be accepted at version 1.0 before any downstream domain specification work proceeds.
-- Gate B: The current accepted Volume I baseline, including any validated controlled correction, MUST be committed and tagged before Volume II technical design starts or resumes.
-- Gate C: Volume II technical design and implementation MUST remain paused until Gates A and B pass; implementation additionally requires approved Volume II slices.
+- Gate B: The current accepted Volume I baseline, including any validated controlled correction, MUST be committed and tagged before Volume II technical design starts or resumes. Passed by `v1.3-volume-i-corrected`.
+- Gate C: Volume II technical design may proceed from Gate B; broad implementation additionally requires controlled correction of all thirteen upstream Volume I blockers recorded by Pass 001, an accepted Volume II baseline with zero critical/high implementation-disagreement risks, and approved slices.
 - Gate D: Normative foundation changes MUST include ADR governance and impact mapping.
 
 ## Canonical Dependency Sequence
@@ -77,7 +77,7 @@ Implementation
 
 ### M4 Volume I Product Foundations
 
-- Status: Frozen at `v1.2-volume-i-frozen`; ADR-017 controlled correction for DEF-V1-001 through DEF-V1-006 validated and pending commit plus successor frozen tag
+- Status: Corrected and frozen at `v1.3-volume-i-corrected`; `v1.2-volume-i-frozen` retained as immutable history
 - Deliverables:
   - canonical Volume I specification set under specification/volume-i
   - implementation-ready capability, workflow, rule, score-evidence, acceptance, and traceability definitions
@@ -87,38 +87,38 @@ Implementation
 
 ### M5 Experience and Interaction
 
-- Status: Further Volume II expansion paused; the existing Rails architecture and PostgreSQL schema drafts are retained without new architecture documents
-- Start Condition: ADR-017 corrected Volume I baseline committed and tagged
+- Status: Pass 001 complete for unblocked behavior; acceptance blocked by the frozen Volume I blockers recorded in the Volume II index
+- Start Condition: Passed from `v1.3-volume-i-corrected`
 
 ### M6 Domain and State Deepening
 
-- Status: Paused
-- Start Condition: M5 accepted
+- Status: Pass 001 complete for unblocked behavior; upstream-blocked operations withheld
+- Start Condition: Passed within the integrated Volume II architecture pass
 
 ### M7 Data and Persistence
 
-- Status: Paused
-- Start Condition: M6 accepted
+- Status: Pass 001 complete except blocked event/audit scope representation
+- Start Condition: Passed within the integrated Volume II architecture pass
 
 ### M8 Search and Retrieval
 
-- Status: Paused
-- Start Condition: M7 accepted
+- Status: Pass 001 complete
+- Start Condition: Passed within the integrated Volume II architecture pass
 
 ### M9 AI and Evaluation
 
-- Status: Paused
-- Start Condition: M8 accepted
+- Status: Pass 001 complete for deterministic and dormant-gated provider behavior
+- Start Condition: Passed within the integrated Volume II architecture pass
 
 ### M10 API and Integration
 
-- Status: Paused
-- Start Condition: M9 accepted
+- Status: Pass 001 complete for unblocked routes/integrations; blocked routes absent
+- Start Condition: Passed within the integrated Volume II architecture pass
 
 ### M11 Implementation Planning
 
-- Status: Paused
-- Start Condition: M10 accepted and implementation gate approval
+- Status: TDD sequencing complete; implementation gate blocked by the thirteen upstream Volume I corrections recorded in the Volume II index
+- Start Condition: Volume II acceptance, zero critical/high disagreement risk, and approved implementation slices
 
 ## Cross-Cutting Governance
 

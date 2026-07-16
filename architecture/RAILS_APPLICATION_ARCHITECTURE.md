@@ -2,13 +2,35 @@
 
 ## Status And Scope
 
-- Status: Retained Volume II Pass 001 draft; further expansion paused during the controlled Volume I correction
+- Status: Volume II Implementation Architecture Pass 001 active
 - Runtime: Ruby 3.4.10, Rails 8.1.3
 - Architecture: modular monolith
 - Background runtime: Sidekiq, not Solid Queue
-- Source behaviour: corrected Volume I working tree under ADR-017; successor frozen-baseline commit and tag pending
+- Source behaviour: immutable corrected Volume I baseline `v1.3-volume-i-corrected` under ADR-017
 
 This document fixes the Rails module, bounded-context, aggregate, dependency, transaction, and concurrency architecture. It does not define new product behaviour.
+
+## Runtime Baseline
+
+The initial implementation locks these versions. Patch upgrades require the ordinary dependency-security change path and must preserve every contract in this Volume II set.
+
+| Component | Baseline |
+| --- | --- |
+| CRuby | 3.4.10 |
+| Rails | 8.1.3 |
+| PostgreSQL | 17, Heroku-managed minor patch |
+| `pg` | 1.6.3 |
+| Puma | 8.0.2 |
+| Sidekiq | 8.1.6 |
+| `redis-client` | 0.30.0 |
+| `connection_pool` | 3.0.2 |
+| Queue/cache service target | Heroku Key-Value Store Premium, Valkey major 8 (current platform minor 8.1); Redis protocol compatibility only |
+| `turbo-rails` / Turbo | 2.0.23 / 8.0.23 |
+| `stimulus-rails` | 1.3.4 |
+| RSpec Rails | 8.0.4 |
+| Packwerk | 3.3.0 |
+
+The application uses Propshaft and Importmap. It has no production Node.js runtime, JavaScript bundler, GraphQL runtime, Solid Queue database, or second cache/job datastore. Sidekiq owns its queue connection pools and uses the pinned `redis-client`; application code does not substitute `redis`/`hiredis`, create another queue pool, or select a different wire client. The queue and cache clients use only commands accepted by Valkey 8.1 and negotiate the protocol supported by the pinned client/server pair; changing either client version, the Valkey major, or the negotiated protocol is one compatibility-tested runtime-baseline change. `Gemfile.lock` and the import map pin exact transitive artifacts and integrity digests; deployment never resolves an unbounded version.
 
 ## Deployment Unit
 
@@ -29,6 +51,7 @@ The future application uses these exact roots:
 
 | Path | Purpose |
 | --- | --- |
+| `app/workflows` | Outer `Workflows` coordinators; the only package permitted to compose public commands/decisions from more than one context |
 | `app/contexts/<context>/domain` | Aggregate roots, entities, value objects, invariant policies, domain events |
 | `app/contexts/<context>/application/commands` | Immutable command types and one handler per state-changing operation |
 | `app/contexts/<context>/application/queries` | Read-only query types and handlers |
@@ -45,24 +68,24 @@ The future application uses these exact roots:
 | `app/controllers/webhooks` | Authenticated provider webhook ingress only |
 | `app/views` | Server-rendered HTML and Turbo templates |
 
-`app/contexts` and `app/platform` are Zeitwerk roots. A file below a context MUST define the matching context-qualified constant. Context roots are enforced as packages with Packwerk plus architecture specs. Rails concerns MUST NOT be used to share business behaviour across packages.
+The ordinary Rails `app` root maps `app/platform` to the `Platform` namespace. Each immediate directory under `app/contexts` is registered as the autoload root for its matching context namespace; `app/platform` itself is not separately pushed as a root. A file below a context MUST define the matching context-qualified constant. Context roots are enforced as packages with Packwerk plus architecture specs. Rails concerns MUST NOT be used to share business behaviour across packages.
 
 ## Bounded Contexts And Ownership
 
 | Context constant | Owns write authority for | May publish |
 | --- | --- | --- |
-| `IdentityAccess` | Account, Identity Validation Receipt metadata, Bootstrap Grant, Session, Invitation, Role Assignment, Access Policy, Credential metadata | identity, session, grant, invitation, role, policy, credential events |
+| `IdentityAccess` | Account, Identity Validation Receipt metadata, Bootstrap Grant, Session, Invitation, Role Assignment, Access Policy; Credential security-policy validation for the Integration aggregate | identity, session, grant, invitation, role and policy events |
 | `TenantGovernance` | Organization lifecycle, authorization epoch, closure request, Organization-wide policy pointers | Organization and closure lifecycle events |
 | `Projects` | Project lifecycle, source-set version, current projection pointers | Project and projection events |
-| `Intake` | Source, verification request/attempt, scope request, Document, Crawl, IngestionJob, ParsingJob, Parsed Artifact, Evaluation Input Snapshot | source, verification, crawl, ingestion, parsing, snapshot events |
-| `Retrieval` | IndexingJob, Index Receipt, searchable Document projection | indexing and projection events |
+| `Intake` | Source and Project-membership transitions; Crawl aggregate write coordination including IngestionJob, ParsingJob and IndexingJob lineage; verification request/attempt, scope request, Document, Parsed Artifact and Evaluation Input Snapshot | source, verification, crawl, ingestion, parsing, indexing-job and snapshot events |
+| `Retrieval` | Indexing transition validation inside the Crawl unit of work, Index Receipt and searchable Document projection | index-receipt and retrieval-projection events |
 | `Evidence` | Evidence record metadata/Payload binding, Provenance, lineage, Validation Decision, Citation lifecycle | Evidence and Citation events |
-| `Evaluation` | Evaluation, Check applicability, Check Result, Issue, Adjudication Case, Issue Set, ScoreSnapshot, Reassessment Result | evaluation, Check, Issue, Case, score, reassessment events |
-| `Recommendations` | Recommendation family/version, priority decision/override, action-queue projection | recommendation and action-queue events |
-| `AiOrchestration` | AIResponse attempt and claim manifest only when an approved provider policy exists | AIResponse events |
+| `Evaluation` | Evaluation aggregate write coordination including Check applicability, Check Result, Issue and Adjudication Case lineage; Issue Set, ScoreSnapshot and Reassessment Result | evaluation, Check, Issue, Case, score and reassessment events |
+| `Recommendations` | RecommendationArtifact aggregate write coordination including AIResponse and Citation lineage; family/version, priority decision/override and action-queue projection | recommendation, AIResponse, Citation and action-queue events |
+| `AiOrchestration` | AIResponse generation/safety validation inside the RecommendationArtifact unit of work, only when an approved provider policy exists | no independently committed lifecycle event |
 | `Delivery` | Notification, recipient, Delivery/attempt, Export/manifest/retrieval | notification and Export events |
 | `Commercial` | BillingEntity, plan assignment, Entitlement Decision, reservation, counter, usage record | billing, plan, entitlement, usage events |
-| `Integrations` | Integration lifecycle, adapter registration, provider checkpoint/attempt/event | Integration and provider checkpoint events |
+| `Integrations` | Integration aggregate write coordination including Credential lifecycle; adapter registration and provider checkpoint/attempt/event | Integration, Credential and provider checkpoint events |
 | `SecurityOperations` | Support Session, Incident, Investigation, high-risk approval, custody and report | support, incident, investigation, approval events |
 | `DataLifecycle` | LegalHold, LifecycleDeletionJob, deletion manifest/outcome/evidence, backup tombstone | hold, deletion, tombstone and restore events |
 | `Platform` | command/result/idempotency, authorization decision record, audit, event registry/outbox/inbox, scheduled action, stored-object metadata | infrastructure telemetry only; no product lifecycle event invented here |
@@ -71,32 +94,21 @@ The future application uses these exact roots:
 
 ## Canonical Aggregate Boundaries
 
-The foundation aggregate definitions remain authoritative. Physical consistency is fixed as follows:
+The Aggregate Boundaries section and DM-REQ-008 in `specification/011 DOMAIN_MODEL.md` control write entry. Entity context, lifecycle-policy owner and physical lock row are separate concepts; none creates another aggregate root. A command targeting a child enters the listed root coordinator, which calls the lifecycle owner inside the same database unit of work. A child repository cannot expose `save` to a controller, job, adapter, or another aggregate.
 
-| Aggregate root | Transaction-owned state | References only, never owned |
-| --- | --- | --- |
-| Organization | lifecycle, authorization epoch, current policy/plan pointers, closure execution marker | Accounts, Projects, historical policies, LifecycleDeletionJob |
-| Account | lifecycle and tenant-bound identity | Sessions and Role Assignments, which are separate roots coordinated under Organization epoch |
-| Project | lifecycle, source-set version, current Evaluation/Issue Set/Score pointers | Source lifecycle and immutable history |
-| Source | lifecycle, canonical root, current scope pointer, verification requests/attempts | Documents and Crawls |
-| Crawl | pinned Source/scope set, candidate ordering, run limits, terminal coverage | Document and stage jobs |
-| IngestionJob | attempt lineage and terminal outcome | immutable fetched object and Document |
-| ParsingJob | attempt lineage and terminal outcome | Parsed Artifact and Document |
-| IndexingJob | attempt lineage and terminal outcome | Index Receipt and retrieval projection |
-| Evaluation | orchestration state, sealed inputs, applicability, Result slots, Issue creation and publication plan | prior Evaluation and project current pointers |
-| Issue | state, adjudication pointer, lineage/fingerprint identity | Evidence and Recommendation families |
-| RecommendationArtifact family | positive version allocation, immutable versions, current published pointer | origin Issue, related Issues, Evidence, AIResponse |
-| AIResponse | immutable request fingerprint, attempt lifecycle, claim manifest | Artifact, Evidence and Citations |
-| BillingEntity | commercial lifecycle and current approved plan pointer | provider payment/invoice detail |
-| Integration | lifecycle, active Credential pointer, attempt generation | opaque Credential material versions |
-| Notification | immutable trigger/routing context, recipient set, Deliveries and aggregate state | triggering resource and provider event |
-| Export | frozen scope/manifest, approval, package pointer and lifecycle | selected immutable objects |
-| Incident | severity, playbook, step attempts, approvals, restoration checks | separately authorized remediation results |
-| Investigation | frozen Organization/investigation-input plan, Investigation Audit Evidence Items, custody, gaps, report versions | input records and per-Organization Support Sessions |
-| LegalHold | scope and two-person decision lifecycle | intersecting deletion jobs |
-| LifecycleDeletionJob | frozen deletion manifest, checkpoint outcomes, completion evidence | target entity metadata after destruction |
+| Target entity or state | Canonical aggregate root and command entry | Lifecycle-policy owner invoked by root | Repository/serialization guard |
+| --- | --- | --- | --- |
+| Organization, Account membership policy | Organization | TenantGovernance plus IdentityAccess policy | Organization row and authorization epoch |
+| Project, Source membership | Project | Projects plus Intake Source policy | Project row and source-set sequence |
+| Crawl, IngestionJob, ParsingJob, IndexingJob | Crawl | Intake; Retrieval validates indexing transition | Crawl row plus child attempt/checkpoint row |
+| Evaluation, Check Result, Issue, Adjudication Case | Evaluation | Evaluation | Evaluation row, Issue lineage head and calculation sequence |
+| RecommendationArtifact, AIResponse, Citation | RecommendationArtifact | Recommendations; AiOrchestration and Evidence validate response/Citation | Recommendation family row and child fingerprint guard |
+| BillingEntity and contract/billing state | BillingEntity | Commercial | BillingEntity row |
+| Integration and Credential lifecycle | Integration | Integrations; IdentityAccess validates secret-access policy | Integration row and Credential/material-version rows |
 
-The following serialization roots prevent unrelated hot-row contention:
+DM-REQ-001 entities not named as independent canonical roots above remain children even when stored in separate tables or assigned a specialist context. Notification, Export, Incident, Investigation, LegalHold and LifecycleDeletionJob are additional lifecycle roots defined by accepted Volume I contracts; they do not alter the seven foundation aggregate boundaries.
+
+The following are serialization guards, not aggregate roots, and prevent unrelated hot-row contention:
 
 - `recommendation_families` allocates Artifact versions and current pointers.
 - `issue_lineage_heads` allocates a single current leaf per full fingerprint preimage.
@@ -159,7 +171,7 @@ Every state-changing operation enters through one command handler. The handler r
 5. resolve authoritative permission, policies, entitlement and expected versions
 6. load and lock only the required aggregate roots
 7. invoke aggregate transitions and validate invariants
-8. persist domain state, logical result, authorization decision, audit record, and outbox events atomically
+8. persist domain state, logical result, authorization decision, audit record, domain events, any required Notification-consumer outbox route, and any next ScheduledAction atomically
 9. commit
 10. enqueue or render only from the committed result
 
@@ -193,13 +205,17 @@ Multi-root writes are allowed only for these frozen workflows and use the listed
 | Organization closure | closure execution, BillingEntity and Organization close, Session revocation, queued-work cancellation markers, deletion job and events |
 | Deletion completion | final manifest outcomes, immutable Deletion Evidence and terminal job state |
 
-All other cross-context reactions occur after commit through the outbox. A read-model delay MUST NOT weaken a command invariant.
+The Evaluation-seal boundary is executable for ordinary Issue derivation and for the separately specified Check Result key-collision failure path. It is not executable for an Issue-fingerprint same-hash/different-preimage branch under `UPSTREAM-V1-ISSUE-COLLISION-013`: the transaction must not choose second-Issue persistence, publish `IssueFingerprintCollision`, seal an Issue Set or advance score/recommendation/history until controlled Volume I correction defines the product outcome and Evaluation continuation/failure.
+
+All other cross-context reactions occur after commit through the exact ScheduledAction/Work Dispatch Binding registry. Domain-event outbox consumption is closed to `notification_route_v1`; it is not a generic workflow bus. A derived-read delay MUST NOT weaken a command invariant.
 
 ## Locking And Concurrency
 
 ### Lock order
 
-When a transaction needs several roots, it locks in this total order:
+Every required advisory and row lock is determined before the first row lock. Locks are acquired by the total tuple `(tier, table_name_utf8_bytes, organization_id_uuid_bytes_or_zero, project_id_uuid_bytes_or_zero, row_id_uuid_bytes_or_zero)`. Rows of the same table therefore lock by ascending UUID bytes; alternatives in one tier never depend on call order. A transaction that discovers a lower tuple after acquiring a higher tuple rolls back and retries from a fresh read; it never acquires out of order.
+
+The tiers are:
 
 1. Organization, bootstrap-principal serialization row, or BillingEntity when the same Organization transaction requires it
 2. Account / Role Assignment / Session
@@ -214,9 +230,9 @@ When a transaction needs several roots, it locks in this total order:
 11. Integration / Credential
 12. Incident / Investigation / Support Session
 13. LegalHold / LifecycleDeletionJob
-14. command result / audit / outbox rows
+14. command result / audit / domain event / Notification outbox route / next ScheduledAction rows
 
-Code that cannot acquire in this order must split the work at a committed event boundary. Deadlock retries are infrastructure retries of the same command attempt and do not increment a product attempt; they are limited to the exact workflow retry budget.
+An advisory lock for a not-yet-existing identity occupies tier zero and uses `(namespace_utf8_bytes, complete_preimage_sha256, collision_ordinal)` ordering. It is released only after the permanent serialization row exists. Code that cannot acquire the full sorted set must split the work at a committed event boundary. PostgreSQL deadlock or serialization failure retries the same physical transaction at most twice with delays of 10 and 50 milliseconds, reusing the command/idempotency claim and incrementing no product attempt; exhaustion maps to the Volume I concurrency result rather than creating a third product execution.
 
 ### Concurrency primitives
 
@@ -269,6 +285,6 @@ Future CI MUST fail when any of these conditions occurs:
 - a dashboard/history component references `AiOrchestration`
 - Solid Queue is configured as the Active Job backend
 
-## Corrected Volume I Constraints Inherited By This Draft
+## Corrected Volume I Constraints Inherited By This Architecture
 
-ADR-017 closes the six defects without authorizing further Volume II expansion. This draft therefore inherits: purpose-bound existing-account Session creation; `reassessment_schedule` Policy Artifacts, exact due-slot identities, and due-time plus current scope-state eligibility; WF-001-only BillingEntity creation with only active-to-closed baseline closure; the canonical Evidence vocabulary with reserved/unavailable `operator_attestation`; deterministic structured-only CAP-019 output with no AI narrative path; and Mailgun pre-validation attempt claims, exhaustive prepared-stage outcomes, `acceptance_unknown`/read-only reconciliation, and no provider exactly-once claim. Detailed implementation design beyond the alignments already present remains paused until the corrected baseline is committed and tagged.
+ADR-017 closes the six defects. This architecture therefore inherits: purpose-bound existing-account Session creation; `reassessment_schedule` Policy Artifacts, exact due-slot identities, and due-time plus current scope-state eligibility; WF-001-only BillingEntity creation with only active-to-closed baseline closure; the canonical Evidence vocabulary with reserved/unavailable `operator_attestation`; deterministic structured-only CAP-019 output with no AI narrative path; and Mailgun pre-validation attempt claims, exhaustive prepared-stage outcomes, `acceptance_unknown`/read-only reconciliation, and no provider exactly-once claim.

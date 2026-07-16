@@ -3,23 +3,24 @@
 ## Snapshot
 
 - Date: 2026-07-16
-- Status: Frozen Volume I controlled defect correction validated; commit and successor frozen tag pending
+- Status: Corrected Volume I frozen; Volume II Implementation Architecture Pass 001 complete for unblocked behavior and acceptance-blocked by demonstrated upstream ambiguities
 - Foundation Baseline: 1.0
-- Frozen Volume I Tag: `v1.2-volume-i-frozen`
-- Current Gate: Validated ADR-017 corrections for DEF-V1-001 through DEF-V1-006 must be committed and receive a successor frozen tag before Volume II resumes
+- Frozen Volume I Tag: `v1.3-volume-i-corrected` at `5d725fa`; historical `v1.2-volume-i-frozen` remains immutable
+- Initial Volume II Draft Commit: `7213e9a`
+- Current Gate: Volume II cannot be frozen or broad implementation begun until the thirteen demonstrated frozen-Volume-I blockers in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) receive controlled deterministic corrections
 
 ## Current Objective
 
-Commit and tag the validated six-defect ADR-017 correction set, then resume Volume II from the corrected behavior. Preserve the two existing Volume II drafts without further architecture expansion during this correction pass.
+Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volume II for every unblocked behavior, and report rather than invent the missing event scope, lifecycle, read, metering, reactivation-proof, comparison-event, Credential-rotation-token, reassessment-trigger-event, Role-expiry-blocked-event/notification, Document-lifecycle and Issue-fingerprint-collision semantics.
 
 ## Operating Constraints
 
 - No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
-- Treat `v1.2-volume-i-frozen` as the currently tagged frozen baseline until the ADR-017 correction set receives its successor frozen tag.
+- Treat `v1.3-volume-i-corrected` as the authoritative frozen behavioral baseline; do not move or replace historical tags.
 - Do not edit frozen Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion.
 - Permit a Volume I correction after acceptance only for a demonstrated contradiction, non-executable contract, unsafe behavior, invalid acceptance oracle, or an approved owner decision incorporated through controlled change.
-- Keep further Volume II expansion paused until the corrected baseline is committed and tagged; only alignment references in the two retained drafts are permitted during this correction pass.
-- Do not infer permission to begin implementation or downstream specification work from the freeze alone.
+- Permit Volume II implementation architecture, but withhold every route, query, control, event shape or job that intersects a recorded upstream blocker.
+- Do not infer permission to begin broad implementation from the Volume I freeze or an incomplete Volume II pass.
 
 ## Baseline Summary
 
@@ -35,28 +36,29 @@ Commit and tag the validated six-defect ADR-017 correction set, then resume Volu
 ## Domain Progress
 
 - Foundation governance: complete and active
-- Volume I Product Foundations: frozen at `v1.2-volume-i-frozen`; controlled correction set validated and successor baseline commit/tag pending
-- Experience and Interaction: Volume II expansion paused; retained Rails architecture draft only
-- Domain and State downstream detail: Volume II expansion paused; retained Rails architecture draft only
-- Data and Persistence downstream detail: Volume II expansion paused; retained PostgreSQL schema draft only
-- Search and Retrieval downstream detail: paused
-- AI and Evaluation downstream detail: paused
-- API and Integration downstream detail: paused
-- Implementation planning: paused
+- Volume I Product Foundations: frozen at `v1.3-volume-i-corrected`
+- Experience and Interaction: Volume II Pass 001 complete for authorized/unblocked screens; blocked screens are absent
+- Domain and State downstream detail: aggregate, workflow, dependency, transaction and lock architecture complete for unblocked behavior
+- Data and Persistence downstream detail: PostgreSQL design complete except blocked pretenant/platform/cross-Organization event/audit scope
+- Search and Retrieval downstream detail: Pass 001 complete
+- AI and Evaluation downstream detail: Pass 001 complete with dormant-provider gates and structured-only dashboard/history behavior
+- API and Integration downstream detail: Pass 001 complete for unblocked routes/providers; blocked routes remain absent
+- Implementation planning: TDD slices and CI gates specified; broad implementation remains paused
 
 ## Active Workstream
 
-1. Commit and apply a successor frozen-baseline tag to the validated ADR-017 change set.
-2. Resume Volume II from the corrected behavior; do not silently preserve a contradicted draft assumption.
-3. Record explicit owner approvals without silently changing accepted behaviour.
+1. Preserve the local `v1.3-volume-i-corrected` tag and initial Volume II draft commit.
+2. Obtain narrow controlled Volume I corrections for the thirteen blockers recorded in the Volume II index.
+3. Reconcile only the affected Volume II contracts, rerun validation, then freeze the Volume II architecture baseline before broad implementation.
+4. Push the two existing commits and corrected tag only after the configured remote is explicitly confirmed as trusted.
 
 ## Risks
 
-- Risk: downstream work starts before Volume I acceptance.
-  Mitigation: further Volume II expansion remains paused until the corrected frozen baseline is committed and tagged.
+- Risk: implementation begins from guessed behavior at a frozen-Volume-I gap.
+  Mitigation: blocked operations are unreachable and listed centrally in the Volume II index.
 
-- Risk: retained Volume II drafts continue to encode pre-correction behavior.
-  Mitigation: the two drafts may contain only reference-level alignment to ADR-017 until Volume II resumes.
+- Risk: architecture documents disagree on physical contracts.
+  Mitigation: cross-document API/schema/job/security/deployment validation and adversarial role review run before Volume II acceptance.
 
 - Risk: governance artifacts proliferate faster than product specification quality.
   Mitigation: reject new process artifacts unless they remove demonstrated product ambiguity.
@@ -69,7 +71,7 @@ Commit and tag the validated six-defect ADR-017 correction set, then resume Volu
 
 ## Next Checkpoints
 
-- Commit and apply a successor frozen tag to the validated ADR-017 Volume I correction set.
+- Resolve only the thirteen recorded Volume I blockers through controlled change; do not reopen unrelated product behavior.
 - Obtain OD-010 owner approval and exact Measurement Set bytes before complete customer-facing numeric score release.
 - Complete OD-011 qualified legal/product approval before production customer-data use.
-- Resume Volume II only after the corrected frozen-baseline tag exists; accept later Volume I changes only for demonstrated defects or approved owner decisions.
+- Revalidate and freeze Volume II only after the blocked contracts are deterministic; accept later Volume I changes only for demonstrated defects or approved owner decisions.

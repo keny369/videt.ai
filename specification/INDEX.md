@@ -86,14 +86,15 @@ Foundation Version: 1.0
 
 - [volume-i/INDEX.md](volume-i/INDEX.md)
 - [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md)
-- Status: Accepted and frozen at `v1.2-volume-i-frozen`; ADR-017 corrections for DEF-V1-001 through DEF-V1-006 are validated and pending commit plus successor frozen tag
-- Gate: The validated corrected ADR-017 baseline MUST be committed and receive its successor frozen tag before Volume II resumes
+- Status: Accepted and corrected at immutable successor tag `v1.3-volume-i-corrected`; historical `v1.2-volume-i-frozen` remains unchanged
+- Gate: Passed for Volume II discovery; later Volume I changes remain controlled defect/owner-decision changes only
 - Canonical Rule: The decomposed Volume I set under [volume-i/INDEX.md](volume-i/INDEX.md) is canonical for implementation-ready product specification details. [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md) remains the strategic umbrella and entry point.
 
-### Volume II And Beyond
+### Volume II Implementation Architecture
 
-- Status: Further expansion paused; only the two pre-existing Rails architecture and PostgreSQL schema drafts are retained for correction alignment
-- Start Condition: ADR-017 corrected Volume I baseline committed and successor-tagged under foundation 1.0 controls
+- [volume-ii/INDEX.md](volume-ii/INDEX.md)
+- Status: Pass 001 complete for unblocked behavior; architecture acceptance and broad implementation blocked by the thirteen upstream ambiguities in the Volume II index
+- Start Condition: Passed from `v1.3-volume-i-corrected`
 - Scope: implementation-facing experience and interaction design; detailed domain design; PostgreSQL and persistence design; search, crawl, and retrieval design; AI pipeline and evaluation design; physical API and event schemas; Rails application architecture; background processing; integration adapters; deployment and operational design; and TDD implementation sequencing.
 - Inheritance Rule: Volume II MUST inherit accepted Volume I behaviour and MUST NOT redefine product meaning without a controlled Volume I change.
 
