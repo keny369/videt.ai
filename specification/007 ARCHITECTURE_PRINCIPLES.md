@@ -90,7 +90,7 @@ ARC-REQ-010: Release gates MUST fail for unmet mandatory fitness functions unles
 | FF-004 | Interface discipline | Prevent unpublished interface access | Public surface allowlist checks | Only published interfaces used | Internal interface imported externally | CI | Planned | Chief Rails | FF-EXC-001 |
 | FF-005 | Test posture | Protect behavioral coverage | Test inventory checks by workflow | Required test types exist for critical workflows | Missing required test type | CI | Planned | Chief Rails | FF-EXC-001 |
 | FF-006 | Mutation quality posture | Detect weak assertions | Mutation testing in scoped modules | Mutation score meets approved threshold by 2026-09-01 | Mutation score below threshold after deadline | CI | Planned | Chief Rails | FF-EXC-001 |
-| FF-007 | Static correctness | Prevent avoidable defects | Static analysis run | No blocking findings | Blocking findings present | CI | Planned | Chief Rails | FF-EXC-001 |
+| FF-007 | Static correctness | Prevent avoidable defects | Static analysis run | No blocking static-analysis findings | Blocking static-analysis findings present | CI | Planned | Chief Rails | FF-EXC-001 |
 | FF-008 | Type safety | Prevent type contract drift | Type checking run | No blocking type errors | Blocking type errors | CI | Planned | Chief Rails | FF-EXC-001 |
 | FF-009 | Lint consistency | Enforce style and risk rules | Lint run | No blocking lint violations | Blocking lint violations | CI | Automated | Chief Rails | FF-EXC-001 |
 | FF-010 | Formatting consistency | Prevent formatting drift | Formatting check | No formatting drift | Formatting drift present | CI | Automated | Chief Rails | FF-EXC-001 |
@@ -102,7 +102,7 @@ ARC-REQ-010: Release gates MUST fail for unmet mandatory fitness functions unles
 | FF-016 | Query performance | Prevent inefficient data access | Query analysis and benchmark | Query budgets remain within approved envelope by 2026-08-25 | Query budget violation after deadline | CI | Planned | Chief Rails | FF-EXC-001 |
 | FF-017 | Error-rate regression | Protect reliability | Error rate trend analysis | Error rate remains within quality envelope from QA-REQ table | Envelope breach | Release | Planned | Chief Architect | FF-EXC-001 |
 | FF-018 | Observability coverage | Ensure diagnosability | Workflow telemetry coverage checks | Success and failure signals exist for critical workflows | Missing required signals | CI and release | Planned | Chief Security | FF-EXC-001 |
-| FF-019 | Security scanning | Detect security flaws early | Security scan suite | No blocking security findings | Blocking findings present | CI | Planned | Chief Security | FF-EXC-001 |
+| FF-019 | Security scanning | Detect security flaws early | Security scan suite | No blocking security findings | Blocking security findings present | CI | Planned | Chief Security | FF-EXC-001 |
 | FF-020 | Secret detection | Prevent credential leaks | Secret scanning checks | No detected secrets in versioned artifacts | Secret detected | CI | Automated | Chief Security | FF-EXC-001 |
 | FF-021 | Dependency vulnerability posture | Reduce supply chain risk | Vulnerability scan and policy threshold | No unapproved high-severity vulnerabilities | Unapproved high-severity vulnerability | CI and release | Planned | Chief Security | FF-EXC-001 |
 | FF-022 | AI evaluation regression | Protect AI quality | AI evaluation suite comparison | AI quality metrics remain within approved envelope by 2026-08-30 | Envelope breach after deadline | CI and release | Planned | Chief AI | FF-EXC-001 |

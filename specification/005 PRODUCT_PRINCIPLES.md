@@ -41,7 +41,7 @@ A new customer should receive a baseline score and a prioritized action list qui
 
 ## Principle 5: Actionability Is Mandatory
 
-A finding without a concrete next step is incomplete product behavior.
+An Issue without a concrete next step is incomplete product behavior. `Finding` is a prohibited legacy synonym for a customer or product deficiency and MUST NOT appear in product behavior or customer output.
 
 ## Principle 6: Continuous Improvement Loop
 

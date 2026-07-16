@@ -115,6 +115,8 @@ SB-REQ-008: External system classes MUST include:
 
 SB-REQ-009: Every external system integration MUST have an owner, contract, and failure policy.
 
+For SB-REQ-008 and SB-REQ-009, an external provider dependency is not automatically the tenant-scoped `Integration` entity from DM-REQ-001. A monitoring or error-tracking provider used only for F1 platform observability is a platform infrastructure dependency: it MUST have the owner, contract, failure, security, privacy, and exit controls required here, but MUST NOT materialize an Organization-scoped Integration or Credential or appear as customer-manageable Integration state. Only a logical kind expressly admitted by the active Volume I `integration-interim-v1` adapter policy may materialize those tenant records.
+
 ### Trust Boundaries
 
 SB-REQ-010: The following trust boundaries MUST be enforced:

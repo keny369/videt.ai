@@ -2,11 +2,11 @@
 
 ## Status
 
-- Status: Frozen implementation-ready baseline
+- Status: Accepted; acceptance change set pending commit and tag
 - Foundation Version Dependency: 1.0
 - Last Updated: 2026-07-16
 - Owner: Chief Architect
-- Freeze Tag: `v1.1-implementation-ready`
+- Prior Implementation-Ready Tag: `v1.1-implementation-ready`
 
 ## Authority
 
@@ -84,12 +84,12 @@ Volume I acceptance MUST NOT be marked passed unless every blocking item below i
 | State alignment | Pass | Named Volume I paths match [../016 STATE_MODEL.md](../016%20STATE_MODEL.md), including Project activation, Evaluation retry/supersession, RecommendationArtifact, LegalHold, LifecycleDeletionJob, Integration reconnect/degradation/retirement, and Credential rotation/expiry/revocation. |
 | Error alignment | Pass | The shared envelope fixes first-match subsystem/class precedence, code, severity, retry default, recovery action, safe unmapped behavior, and support reference; workflow contracts supply bounded timeout/retry/terminal behavior and exact narrower overrides. |
 | Observability alignment | Pass | The event envelope fixes actor/service attribution, profile-specific required fields, related-entity/version ordering, transition/attempt/decision/policy/projection/failure/recovery payloads, schema compatibility, redelivery, notification context, correlation, escalation, and secret/redaction rules. |
-| Owner decisions resolved or decision-ready | Blocked | [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) contains unresolved owner approvals. |
+| Owner decisions resolved or decision-ready | Pass | [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) gives every pending decision deterministic interim behavior and exact blocking impact. None blocks Volume II; OD-010 blocks complete customer-facing numeric scoring and OD-011 blocks production customer-data use until their approval packages are complete. |
 | ADR completeness for accepted architecture-impacting decisions | Pass | No currently approved Volume I outcome has an unmet ADR trigger; each pending owner decision states the exact threshold that would require an ADR if that option is approved. |
 | Terminology consistency | Pass | Canonical Issue terminology is used as the sole deficiency entity across the canonical Volume I files; no Finding domain entity remains. |
 | Volume II pause preserved | Pass | Volume II remains paused in [../../ROADMAP.md](../../ROADMAP.md) and [../../PROJECT_STATE.md](../../PROJECT_STATE.md). |
 
-Current Acceptance Gate Outcome: Blocked by every checklist item still marked Blocked above, including pending owner approvals.
+Current Acceptance Gate Outcome: Pass. Volume I is accepted as the behavioural baseline. Pending owner decisions remain only the precise feature, contractual, implementation-stage, or production gates stated in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md); they do not reopen defined interim behaviour and do not block Volume II.
 
 ## Dependencies
 
@@ -114,7 +114,7 @@ Current Acceptance Gate Outcome: Blocked by every checklist item still marked Bl
 
 ## Change Control
 
-Volume I is frozen at `v1.1-implementation-ready`. After that tag, a normative Volume I edit is permitted only to correct a genuine defect demonstrated during implementation: a contradiction, non-executable contract, unsafe behavior, or acceptance oracle that cannot test the stated behavior. Preference changes, scope expansion, new capabilities, speculative refinement, governance expansion, and silent replacement of deterministic interim behavior are not defect corrections.
+Volume I is accepted by this change set over the prior `v1.1-implementation-ready` baseline. After the accepted-baseline commit and tag, a normative Volume I edit is permitted only to correct a demonstrated defect—a contradiction, non-executable contract, unsafe behavior, or acceptance oracle that cannot test the stated behavior—or to incorporate an approved owner decision through controlled change. Preference changes, scope expansion, new capabilities, speculative refinement, governance expansion, and silent replacement of deterministic interim behavior are not defect corrections.
 
 Pending owner approvals remain explicit release gates. Approval of the already-specified interim behavior may be recorded without reopening product scope. An owner choice that would replace frozen behavior requires explicit product-owner authorization to unfreeze and version Volume I; it MUST NOT be disguised as a defect correction.
 

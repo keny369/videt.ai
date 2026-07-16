@@ -113,14 +113,19 @@ OBS-REQ-021: Dashboard ownership MUST be explicit per domain.
 | --- | --- | --- | --- |
 | WF-001 Domain Onboarding | Self-service emits `OrganizationActivated` and `ProjectCreated` with `project_state=draft`; invitation acceptance emits `InvitationAccepted`. `SourceActivated` and `ProjectActivated` are separate later WF-003 and WF-002 outcomes, not WF-001 success signals. | Audited rejected command outcome with the exact reason and no partial branch writes; transaction timeout/exhaustion reports `onboarding_transaction_unavailable`. No failure-only Organization, Account, or Project state is created. | Chief Product |
 | Crawl Execution | CrawlCompleted event and successful URL coverage metrics | CrawlFailed event or timeout | Chief Rails |
-| Ingestion and Parsing | ParsingSucceeded event and parse_success_rate above release threshold | ParsingDeadLettered event or repeated ParsingFailed events | Chief Rails |
+| Ingestion | Same-correlation `IngestionSucceeded` and `DocumentIngested` events identify the terminal Job and Document | `IngestionFailed` identifies a failed attempt; `IngestionDeadLettered` identifies exhausted or nonretryable terminal failure | Chief Rails |
+| Parsing | Same-correlation `ParsingSucceeded` and `DocumentParsed` events identify the terminal Job, Document, and validated Parsed Artifact | `ParsingFailed` identifies a failed attempt; `ParsingDeadLettered` identifies exhausted or nonretryable terminal failure | Chief Rails |
+| Indexing | Same-correlation `IndexingSucceeded` and `DocumentIndexed` events identify the terminal Job, Document, and Index Receipt | `IndexingFailed` identifies a failed attempt; `IndexingDeadLettered` identifies exhausted or nonretryable terminal failure | Chief Rails |
 | Evaluation | EvaluationCompleted with score snapshot persisted | EvaluationFailed event | Chief Architect |
 | Recommendation Generation | RecommendationArtifactGenerated event with origin Issue linkage and Artifact version | Audited generation or publication-validation rejection with exact reason and correlation_id, with no `RecommendationPublished` event | Chief Product |
 | AI Response Generation | AIResponseValidated event with citation coverage metric | AIResponseRejected event with exact generation or validation reason | Chief AI |
 | Citation Validation | CitationVerified event and validity metric | CitationInvalidated event | Chief AI |
-| Export Delivery | ExportAvailable event | ExportFailed or ExportRevoked event | Chief Rails |
+| Export Generation And Delivery | `ExportAvailable` event | `ExportFailed` event | Chief Rails |
+| Export Revocation | `ExportRevoked` event identifies the authorized terminal revocation and reason | Audited rejected revocation command with no Export state change; it MUST NOT emit `ExportFailed` | Chief Rails |
 
 OBS-REQ-022: Coverage table workflows MUST remain synchronized with state and error models.
+
+An attempt-failure signal is not a terminal-failure signal when the corresponding bounded retry remains available. `ExportRevoked` is an authorized terminal lifecycle outcome, not a generation or delivery failure, and MUST NOT be counted in the Export failure rate.
 
 ### Incident Investigation Requirements
 

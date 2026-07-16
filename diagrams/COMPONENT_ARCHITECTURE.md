@@ -3,8 +3,8 @@
 ## Status
 
 - Status: Canonical
-- Version: 1.0
-- Last Updated: 2026-07-15
+- Version: 1.1
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -22,15 +22,23 @@ Canonical terms are defined in [../specification/002 GLOSSARY.md](../specificati
 flowchart LR
     ONB[Onboarding Component] --> INTAKE[Intake Orchestrator]
     INTAKE --> CRAWL[Crawl Engine]
-    CRAWL --> PARSE[Parsing Component]
-    PARSE --> INDEX[Indexing Component]
-    INDEX --> EVAL[Evaluation Engine]
+    CRAWL --> INGEST[Ingestion Component]
+    INGEST --> PARSE[Parsing Component]
+    PARSE --> INPUT[Sealed Evaluation Input Snapshot]
+    PARSE -->|Independent non-gating projection| INDEX[Indexing Component]
+    INPUT --> EVAL[Evaluation Engine]
     EVAL --> ISSUE[Issue Prioritization Component]
     ISSUE --> REC[Recommendation Artifact Generator]
-    REC --> AIORCH[AI Orchestration Component]
-    AIORCH --> CITE[Citation Validator]
-    CITE --> REPORT[Reporting and Export Component]
+    REC -->|Current baseline: deterministic template| DRAFT[Draft RecommendationArtifact]
+    DRAFT -.->|Only with approved provider and safety artifacts| AIORCH[AI Orchestration Component]
+    AIORCH --> AIR[AIResponse]
+    AIR --> CITE[Citation Validator]
+    CITE --> VALIDATE
+    DRAFT --> VALIDATE[Policy, Schema and Publication Validator]
+    VALIDATE --> REPORT[Reporting and Export Component]
 ```
+
+Parsing feeds the sealed Evaluation input snapshot directly. Indexing is a bounded, independently recoverable projection and never gates Evaluation input readiness. Deterministic-template generation is the current Recommendation baseline; the AI branch is unavailable until the required signed provider, model, data-handling, and safety artifacts are active.
 
 ## Related Documents
 

@@ -65,7 +65,7 @@ This registry applies to foundation documents with non-uniform section layouts.
 - Dependencies: References
 - Definitions: Terminology Rules and Canonical Terms table
 - Assumptions: Scope and Rule sections assume cross-document terminology reuse
-- Constraints: Rule 1 through Rule 10
+- Constraints: Rule 1 through Rule 11
 - Normative Requirements: Terminology Rules
 - Decisions: Numbering and Identifier Policy plus Change Governance
 - Non-goals: Tone and Voice Requirements excludes marketing language in technical specs
@@ -154,6 +154,30 @@ This registry applies to foundation documents with non-uniform section layouts.
 - Open Questions: Not applicable for framework baseline; unresolved questions are captured in decision records and ADRs
 - Related Documents: References
 - Change Control: ADR threshold and post-decision review requirements
+
+### 011 DOMAIN_MODEL
+
+- Open Questions: Known Owner-Controlled Modeling Decisions identifies the bounded pending modeling decisions, and Volume I Interim Resolutions defines their deterministic current behavior. Together they are the stricter equivalent of an unbounded Open Questions section: no unnamed modeling question may alter the accepted baseline.
+
+### 012 SYSTEM_BOUNDARIES
+
+- Open Questions: Volume I Interim Resolutions records deterministic answers to the remaining downstream boundary questions. Any further scope possibility remains a non-commitment under SB-REQ-028 and SB-REQ-029 rather than an implicit open requirement.
+
+### 015 DATA_LIFECYCLE
+
+- Open Questions: Volume I Interim Resolutions and `retention-interim-v1` identify the bounded OD-011 dependency and define complete interim behavior. No unresolved retention question may be filled by implementation assumption.
+
+### 016 STATE_MODEL
+
+- Open Questions: Volume I Interim Resolutions records the deterministic disposition of the remaining lifecycle questions. A lifecycle not defined by the canonical table or those resolutions is unsupported, not implementation-discretionary.
+
+### 017 ERROR_MODEL
+
+- Open Questions: Volume I Interim Resolutions records deterministic exposure and compensation boundaries. Unlisted customer-visible status or inferred compensation is unsupported, not an open implementation choice.
+
+### 018 OBSERVABILITY
+
+- Open Questions: Volume I Interim Resolutions records deterministic customer-transparency and regional-signal boundaries. Additional customer-visible telemetry dimensions require a later versioned contract rather than local interpretation.
 
 ## Governance Notes
 

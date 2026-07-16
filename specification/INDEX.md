@@ -86,14 +86,16 @@ Foundation Version: 1.0
 
 - [volume-i/INDEX.md](volume-i/INDEX.md)
 - [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md)
-- Status: Active
-- Gate: MUST complete before Volume II and all downstream domain layers
+- Status: Accepted; acceptance change set pending commit and tag
+- Gate: Accepted baseline MUST be committed and tagged before Volume II starts
 - Canonical Rule: The decomposed Volume I set under [volume-i/INDEX.md](volume-i/INDEX.md) is canonical for implementation-ready product specification details. [VOLUME_I_FOUNDATIONS.md](VOLUME_I_FOUNDATIONS.md) remains the strategic umbrella and entry point.
 
 ### Volume II And Beyond
 
 - Status: Paused
-- Start Condition: Volume I accepted under foundation 1.0 controls
+- Start Condition: Volume I accepted baseline committed and tagged under foundation 1.0 controls
+- Scope: implementation-facing experience and interaction design; detailed domain design; PostgreSQL and persistence design; search, crawl, and retrieval design; AI pipeline and evaluation design; physical API and event schemas; Rails application architecture; background processing; integration adapters; deployment and operational design; and TDD implementation sequencing.
+- Inheritance Rule: Volume II MUST inherit accepted Volume I behaviour and MUST NOT redefine product meaning without a controlled Volume I change.
 
 ## Canonical Diagrams
 

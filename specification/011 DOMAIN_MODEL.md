@@ -10,7 +10,7 @@
 
 This document is a constitutional foundation document for Project F1.
 
-All downstream specifications MUST use this domain model as the canonical business and platform model unless an ADR explicitly supersedes a specific requirement.
+All downstream specifications MUST use this domain model as the canonical business and platform model. Under PM-REQ-003, an Architecture Decision Record (ADR) is subordinate to the unchanged foundation layer: an accepted ADR authorizes the controlled-change process in PM-REQ-009 but does not by itself supersede a requirement in this document. A changed requirement becomes authoritative only when this document and every required affected artifact are updated and accepted through that process.
 
 ## Purpose
 

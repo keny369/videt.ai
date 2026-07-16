@@ -2,6 +2,11 @@
 
 ## 2026-07-16
 
+- completed the final Volume I acceptance and closure pass without beginning Volume II
+- accepted Volume I as the behavioural baseline after making every pending owner decision deterministic and classifying its exact downstream blocking impact
+- recorded OD-010 as a complete customer-facing numeric-score and external-measurement production gate, and OD-011 as a production customer-data and contractual-retention gate; neither blocks Volume II
+- aligned onboarding, invitation, effective-permission, lifecycle, retention, logical-envelope, Check catalogue, acceptance, traceability, terminology, diagrams, and control-plane contracts
+- defined the Volume II implementation-facing boundary and preserved its pause until the accepted Volume I change set is committed and tagged
 - decomposed Volume I into canonical implementation-ready specification set under specification/volume-i
 - added product definition with stable PR-REQ identifiers and foundation-aligned boundaries
 - added capability model with CAP-001 through CAP-025 and explicit dependency/acceptance mapping

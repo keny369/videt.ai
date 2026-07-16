@@ -3,8 +3,8 @@
 ## Status
 
 - Status: Canonical
-- Version: 1.0
-- Last Updated: 2026-07-15
+- Version: 1.1
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -20,16 +20,25 @@ Canonical terms are defined in [../specification/002 GLOSSARY.md](../specificati
 
 ```mermaid
 flowchart LR
-    ISSUE[Issue Context] --> RETRIEVE[Retrieval Adapter]
-    RETRIEVE --> EVIDENCE[Evidence Set]
-    EVIDENCE --> PROMPT[Prompt Builder]
-    PROMPT --> MODEL[AI Provider]
-    MODEL --> RAW[Raw AI Response]
-    RAW --> POLICY[Policy and Schema Validator]
-    POLICY --> CITE[Citation Validator]
-    CITE --> ART[Recommendation Artifact]
-    POLICY --> REJECT[Rejected Output]
+    ISSUE[Issue] -->|Current baseline: deterministic template| DRAFT[Draft RecommendationArtifact]
+    DRAFT --> VALIDATE[Policy, Schema, Citation and Publication Validator]
+
+    DRAFT -.->|Optional AI-assisted request| PRECALL[Pre-call Provider, Data-handling and Safety Gate]
+    PRECALL -->|Approved signed artifacts only| RETRIEVE[Retrieval Adapter]
+    RETRIEVE --> EVIDENCE[Frozen Eligible Evidence Set]
+    EVIDENCE --> PROMPT[Bounded Prompt Builder]
+    PROMPT --> MODEL[Approved AI Provider]
+    MODEL --> RESPONSE[AIResponse]
+    RESPONSE --> CITE[Proposed Citations]
+    CITE --> VALIDATE
+
+    PRECALL -->|Denied or unavailable: no provider call| FALLBACK[Use Deterministic Draft]
+    FALLBACK --> VALIDATE
+    VALIDATE -->|All predicates pass| PUBLISH[Published RecommendationArtifact]
+    VALIDATE -->|Validation fails| REJECT[Remain Draft or Reject AIResponse]
 ```
+
+The solid deterministic-template route is the current baseline. The dashed AI-assisted route is optional and remains closed unless active signed provider/model, data-handling, Evidence-classification, prompt, output-schema, and safety artifacts pass the pre-call gate. Provider access occurs only after that gate; no failure silently weakens the deterministic publication predicates.
 
 ## Related Documents
 

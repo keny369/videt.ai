@@ -11,8 +11,8 @@ Deliver a complete Product Architecture Manual before implementation with consti
 ## Execution Gates
 
 - Gate A: Foundation layer 000 through 020 MUST be accepted at version 1.0 before any downstream domain specification work proceeds.
-- Gate B: Volume I MUST be accepted before Experience and Interaction specifications start.
-- Gate C: Product, UX, Database, Search, AI, API, and implementation specifications MUST remain paused until Gates A and B pass.
+- Gate B: Volume I MUST be accepted, committed, and tagged before Volume II technical design starts.
+- Gate C: Volume II technical design and implementation MUST remain paused until Gates A and B pass; implementation additionally requires approved Volume II slices.
 - Gate D: Normative foundation changes MUST include ADR governance and impact mapping.
 
 ## Canonical Dependency Sequence
@@ -77,18 +77,18 @@ Implementation
 
 ### M4 Volume I Product Foundations
 
-- Status: Frozen implementation-ready baseline at `v1.1-implementation-ready`; final acceptance remains gated by recorded owner approvals
+- Status: Accepted; acceptance change set pending commit and successor tag over `v1.1-implementation-ready`
 - Deliverables:
   - canonical Volume I specification set under specification/volume-i
   - implementation-ready capability, workflow, rule, score-evidence, acceptance, and traceability definitions
   - owner decision register for unresolved policy and threshold choices
   - foundation 1.0 dependency compliance verification
-  - frozen implementation baseline changed only for genuine implementation-discovered defects
+  - accepted behavioural baseline changed only for demonstrated defects or approved owner decisions through controlled change
 
 ### M5 Experience and Interaction
 
 - Status: Paused
-- Start Condition: M4 accepted
+- Start Condition: M4 accepted baseline committed and tagged
 
 ### M6 Domain and State Deepening
 

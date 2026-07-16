@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: Draft for owner review
+- Status: Accepted
 - Last Updated: 2026-07-16
 - Owner: Chief Product
 - Foundation Version Dependency: 1.0
@@ -53,6 +53,8 @@ PR-REQ-008: The platform MUST distinguish buyer and user concerns:
 
 PR-REQ-009: Organization Administrator and Security or Billing operators MUST be supported as governance actors according to foundation security and boundary requirements.
 
+An Account belongs to exactly one Organization. `OrganizationMembership` is the derived `(organization_id, account_id)` authorization view over current Account state, Organization authorization epoch, and Role Assignments; it is not a separate mutable entity, permission source, or expiry clock. Bootstrap creates the first active view atomically. An Invitation identifies one intended recipient and offered grant, has exact pending/active/terminal behavior, reaches the recipient through the mandatory direct Mailgun route, and supports accept, decline, revoke, expiry, duplicate suppression, existing-member handling, wrong-identity denial, and terminal reissue exactly as `onboarding-interim-v1` defines. No Account or membership grant exists merely because an Invitation was sent.
+
 ## Jobs To Be Done And Desired Outcomes
 
 PR-REQ-010: The product MUST support diagnosis of discoverability gaps with evidence and confidence signals.
@@ -65,7 +67,7 @@ PR-REQ-013: The product MUST support reassessment and trend comparison over time
 
 PR-REQ-014: Desired customer outcomes MUST include measurable score movement, issue closure progression, and improved discoverability presence.
 
-Until OD-010 is approved, PR-REQ-010, PR-REQ-011, and PR-REQ-014 use the deterministic `check-catalog-interim-v1` measurement boundary: `CHK-TI-001` Technical Integrity, `CHK-SP-001` Search Presence, `CHK-AIP-001` AI Presence, `CHK-AS-001` Authority Signals, `CHK-TR-001` Trust Signals, `CHK-CQ-001` Content Quality, and `CHK-LP-001` Local Presence when applicable. Pure Check execution makes no external call. Because query, intent, listing, provider, and adapter selection are product strategy, `external-measurement-interim-v1` bundles no active external Measurement Set before OD-010 approval; the four external expected Results therefore use handled `input_evidence_missing`, create no Issue, and make the numeric score unavailable. Once exact owner-approved Measurement Set bytes activate, an eligible adapter may create only schema-valid immutable `external-observation-v1` Evidence before Evaluation sealing. Stale, indeterminate, invalid, or cross-Organization required Evidence remains non-decision-grade. The interim catalog defines executable behavior and historical lineage without silently approving final commercial measurement breadth, provider choice, or thresholds.
+Until OD-010 is approved, PR-REQ-010, PR-REQ-011, and PR-REQ-014 use the deterministic `check-catalog-interim-v1` measurement boundary: `CHK-TI-001` Technical Integrity, `CHK-SP-001` Search Presence, `CHK-AIP-001` AI Presence, `CHK-AS-001` Authority Signals, `CHK-TR-001` Trust Signals, `CHK-CQ-001` Content Quality, and `CHK-LP-001` Local Presence when applicable. Pure Check execution makes no external call. Because query, intent, listing, provider, and adapter selection are product strategy, `external-measurement-interim-v1` bundles no active external Measurement Set before OD-010 approval; the three always-applicable external Results (`CHK-SP-001`, `CHK-AIP-001`, and `CHK-AS-001`) therefore use handled `input_evidence_missing`, while `CHK-LP-001` does the same only when the frozen Project profile makes local presence applicable and otherwise returns `not_applicable/local_presence_not_applicable` without external Evidence. No path creates an Issue, and missing applicable Evidence makes the numeric score unavailable. Once exact owner-approved Measurement Set bytes activate, an eligible adapter may create only schema-valid immutable `external-observation-v1` Evidence before Evaluation sealing. Stale, indeterminate, invalid, or cross-Organization required Evidence remains non-decision-grade. The interim catalog defines executable behavior and historical lineage without silently approving final commercial measurement breadth, provider choice, or thresholds.
 
 ## Product Value Boundaries
 

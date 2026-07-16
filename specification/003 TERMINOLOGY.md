@@ -93,7 +93,7 @@ Canonical domain events in specifications MUST use PascalCase naming, for exampl
 | --- | --- | --- |
 | Discoverability Intelligence Platform | SEO tool | category clarity |
 | Discoverability Score | SEO score, visibility score | preserve model identity |
-| Issue | problem item, defect note | stable action object |
+| Issue | finding, problem item, defect note | sole canonical customer and product deficiency object |
 | Recommendation Artifact | output file, generated fix | consistent implementation object |
 | Monitoring Run | weekly scan, re-crawl | stable lifecycle term |
 | Technical Integrity | technical health score | pillar consistency |

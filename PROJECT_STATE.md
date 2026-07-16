@@ -3,22 +3,22 @@
 ## Snapshot
 
 - Date: 2026-07-16
-- Status: Volume I implementation-ready baseline frozen
+- Status: Volume I accepted; acceptance change set pending commit and tag
 - Foundation Baseline: 1.0
 - Volume I Baseline: `v1.1-implementation-ready`
-- Current Gate: Volume I frozen; Volume II and downstream specifications paused
+- Current Gate: Volume I acceptance passed; Volume II remains paused until the accepted baseline is committed and tagged
 
 ## Current Objective
 
-Preserve the frozen Volume I implementation baseline while explicit owner approvals remain release gates. Reopen Volume I only for a genuine defect demonstrated during implementation.
+Commit and tag the accepted Volume I behavioural baseline, then begin Volume II technical design. Preserve explicit owner approvals as only their recorded feature, contractual, implementation-stage, or production gates.
 
 ## Operating Constraints
 
 - No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
-- Treat `v1.1-implementation-ready` as the normative Volume I implementation baseline.
+- Treat `v1.1-implementation-ready` as the prior implementation-ready baseline until this accepted change set receives its successor tag.
 - Do not edit frozen Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion.
-- Permit a Volume I correction only when implementation evidence demonstrates a contradiction, non-executable contract, unsafe behavior, or invalid acceptance oracle.
-- Do not begin Volume II or downstream specifications until Volume I acceptance passes.
+- Permit a Volume I correction after acceptance only for a demonstrated contradiction, non-executable contract, unsafe behavior, invalid acceptance oracle, or an approved owner decision incorporated through controlled change.
+- Do not begin Volume II until this accepted baseline is committed and tagged.
 - Do not infer permission to begin implementation or downstream specification work from the freeze alone.
 
 ## Baseline Summary
@@ -33,7 +33,7 @@ Preserve the frozen Volume I implementation baseline while explicit owner approv
 ## Domain Progress
 
 - Foundation governance: complete and active
-- Volume I Product Foundations: frozen at `v1.1-implementation-ready`; owner approvals remain release gates
+- Volume I Product Foundations: accepted; successor baseline commit and tag pending; owner approvals remain only their recorded downstream gates
 - Experience and Interaction: paused
 - Domain and State downstream detail: paused
 - Data and Persistence downstream detail: paused
@@ -44,10 +44,10 @@ Preserve the frozen Volume I implementation baseline while explicit owner approv
 
 ## Active Workstream
 
-1. Preserve the tagged Volume I baseline without further hardening passes.
-2. Record explicit owner approvals without silently changing frozen behavior.
-3. If implementation later demonstrates a genuine defect, correct only the affected existing specifications, acceptance assertions, and trace links, then create a successor implementation-baseline tag.
-4. Keep Volume II and every downstream specification phase paused until its existing gate is explicitly satisfied.
+1. Commit and tag this accepted Volume I change set without beginning Volume II in the same change.
+2. Begin Volume II technical design from the accepted behavioural baseline after the tag exists.
+3. Record explicit owner approvals without silently changing accepted behaviour.
+4. If later evidence demonstrates a genuine defect, correct only the affected existing specifications, acceptance assertions, and trace links through controlled change.
 
 ## Risks
 
@@ -65,7 +65,7 @@ Preserve the frozen Volume I implementation baseline while explicit owner approv
 
 ## Next Checkpoints
 
-- Obtain OD-010 owner approval and exact Measurement Set bytes before numeric score release.
+- Commit and tag the accepted Volume I behavioural baseline.
+- Obtain OD-010 owner approval and exact Measurement Set bytes before complete customer-facing numeric score release.
 - Complete OD-011 qualified legal/product approval before production customer-data use.
-- Preserve downstream pause status until the roadmap gate is explicitly changed.
-- Accept only implementation-evidenced Volume I defect reports; reject speculative reopening.
+- Begin Volume II only after the accepted-baseline tag exists; accept later Volume I changes only for demonstrated defects or approved owner decisions.

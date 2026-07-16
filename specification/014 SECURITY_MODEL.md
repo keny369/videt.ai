@@ -10,7 +10,7 @@
 
 This document is the canonical security architecture baseline for F1.
 
-All specifications and implementation plans MUST comply with these controls unless superseded by accepted ADR.
+All specifications and implementation plans MUST comply with these controls. Under PM-REQ-003, an Architecture Decision Record (ADR) is subordinate to the unchanged foundation layer: an accepted ADR authorizes the controlled-change process in PM-REQ-009 but does not by itself supersede a control in this document. A changed control becomes authoritative only when this document and every required affected artifact are updated and accepted through that process.
 
 ## Purpose
 

@@ -145,22 +145,49 @@ DLC-REQ-032: Restore operations MUST preserve lineage and audit metadata.
 
 ## Volume I Interim Retention And Deletion Contract `retention-interim-v1`
 
-This contract is the deterministic Volume I behavior pending OD-011 approval. It defines logical product outcomes and deadlines, not storage-vendor tiers. Every persisted record and payload has exactly one class below; derived data inherits the class with the longer retention and the stronger security classification. “Age” is elapsed time from the named cursor. Legal hold suspends only irreversible destruction and never restores access or permits a record to be used after its product-validity boundary.
+This contract is the deterministic Volume I behavior pending OD-011 approval. It defines logical product outcomes and deadlines, not storage-vendor tiers. Every separately persisted record, payload, package, or telemetry item has exactly one class below. When one action creates multiple stored objects, such as an Export lifecycle record, package bytes, and an audit event, each object is classified separately by its own named row. Derived data selects the one class with the longer retention and stronger security treatment; it does not acquire two classes. “Age” is elapsed time from the named cursor. Legal hold suspends only irreversible destruction and never restores access or permits a record to be used after its product-validity boundary.
 
 | Retention Class | Included Data | Minimum | Maximum And Cursor | Destruction |
 | --- | --- | ---: | --- | --- |
-| `ephemeral_secret` | plaintext verification/bootstrap material and decrypted credential material | 0 | 60 seconds after terminal use/revocation/expiry | cryptographic key destruction; never backed up |
-| `temporary_processing` | failed/uncommitted fetched bodies, parser/index staging, temporary generation files | 0 | 24 elapsed hours after owning attempt terminalizes | physical delete from primary/cache; never enters analytical backup |
-| `delivery_package` | encrypted Export package bytes | 0 | earlier of manifest expiry, revocation, or 24 hours after availability | cryptographic key destruction plus primary/cache deletion; immutable manifest moves to `product_history` |
-| `operational_telemetry` | nonsecurity metrics, traces, sanitized provider diagnostics and job performance detail | 30 days | 90 elapsed days after event | physical delete; aggregates containing no tenant/personal identifier may remain |
-| `product_evidence_payload` | Source Document, parsed, crawl, external, verification and operator Evidence payload bytes | 30 days | 24 elapsed months after capture | validation changes to invalid with `legal_deletion_completed`; payload/key deleted; lineage metadata/digest moves to `product_history` |
-| `product_history` | Evaluation, Check Result, Issue/Case, Contribution, ScoreSnapshot, Recommendation, Priority, policy/version, event, manifest and Evidence-lineage metadata/digests | 7 years | 7 elapsed years after record creation or terminal transition, whichever is later | irreversible destruction after reference-integrity proof |
-| `identity_commercial` | Account/Invitation/Session metadata, Organization/Project metadata, Plan/Entitlement/Billing summaries excluding payment-provider detail | active lifetime | 7 elapsed years after Organization closure or Account terminal transition, whichever applies later | irreversible destruction except minimal security/audit evidence |
-| `security_audit` | authorization decisions, Support Sessions, approvals, credential/integration metadata, Incident/Investigation, custody/access logs and deletion evidence | 7 years | 7 elapsed years after event/record terminal transition | irreversible destruction only with two-person security approval |
+| `ephemeral_secret` | plaintext verification/bootstrap tokens and decrypted Credential material; excludes their metadata records | 0 | 60 seconds after terminal use/revocation/expiry | cryptographic key destruction; never backed up |
+| `temporary_processing` | failed or uncommitted fetched bodies, parser/index staging, and temporary generation files; excludes committed Document, Job, Artifact, and Evidence records | 0 | 24 elapsed hours after owning attempt terminalizes | physical delete from primary/cache; never enters analytical backup |
+| `delivery_package` | encrypted Export package bytes only; excludes the Export lifecycle record and immutable manifest | 0 | earlier of manifest expiry, revocation, or 24 hours after availability | cryptographic key destruction plus primary/cache deletion; Export record and manifest remain `product_history` |
+| `operational_telemetry` | nonsecurity metrics, traces, sanitized provider diagnostics, and job performance details that are not canonical domain, lifecycle, result, or audit records | 30 days | 90 elapsed days after event | physical delete; aggregates containing no tenant/personal identifier may remain |
+| `product_evidence_payload` | payload bytes of `source_document`, `parsed_content`, `crawl_observation`, `external_measurement`, `verification_observation`, and `operator_attestation` Evidence; excludes Evidence identity, validation, lineage, and digest metadata | 30 days | 24 elapsed months after capture | validation changes to invalid with `legal_deletion_completed`; payload/key deleted; lineage metadata/digest remains `product_history` |
+| `product_history` | Source, Document, Crawl, IngestionJob, ParsingJob, IndexingJob, Evaluation, Issue/Case, RecommendationArtifact, AIResponse, Citation, Export record/manifest, Check Result, Contribution, ScoreSnapshot, Priority, Notification/Delivery, Entitlement result, nonsecurity policy/release artifact, product-domain event, and Evidence identity/validation/lineage/digest records | 7 years | 7 elapsed years after record creation or terminal transition, whichever is later | irreversible destruction after reference-integrity proof |
+| `identity_commercial` | Organization, Account, Project, BillingEntity, Invitation, Session, Plan Assignment, and Entitlement/Billing summary records, excluding payment-provider detail and security/audit records | active lifetime | 7 elapsed years after Organization closure or Account terminal transition, whichever applies later | irreversible destruction except minimal security/audit evidence |
+| `security_audit` | Integration and Credential metadata, LegalHold, LifecycleDeletionJob, Deletion Evidence, Role Assignment, Access Policy/authorization decisions, Bootstrap Grant/identity-receipt metadata, Support Session, protected approval, Closure Request, Incident/Investigation, security event, custody/access log, and deletion audit records | 7 years | 7 elapsed years after event/record terminal transition | irreversible destruction only with two-person security approval |
+
+### Core And Auxiliary Record Assignment
+
+This assignment is exhaustive for the core entities in DM-REQ-001 and the LegalHold and LifecycleDeletionJob auxiliary entities in this contract. The class names the entity record itself; separately persisted payload or secret material follows the explicit boundary in the third column.
+
+| Entity Record | Sole Retention Class | Separate Stored-Object Boundary |
+| --- | --- | --- |
+| Organization | `identity_commercial` | security/audit events are separate `security_audit` records |
+| Account | `identity_commercial` | identity receipts, access decisions, and protected grants are separate `security_audit` records |
+| Project | `identity_commercial` | project product-history outputs are separate `product_history` records |
+| Source | `product_history` | captured Evidence payload bytes are separate `product_evidence_payload` objects |
+| Document | `product_history` | committed source/parsed Evidence payload bytes are separate `product_evidence_payload` objects; uncommitted bodies are `temporary_processing` |
+| Crawl | `product_history` | committed crawl-observation payload bytes are separate `product_evidence_payload` objects; noncanonical performance details are `operational_telemetry` |
+| IngestionJob | `product_history` | uncommitted body staging is `temporary_processing` |
+| ParsingJob | `product_history` | parser staging is `temporary_processing`; committed parsed Evidence payload bytes are `product_evidence_payload` |
+| IndexingJob | `product_history` | index staging is `temporary_processing` |
+| Evaluation | `product_history` | none |
+| Issue | `product_history` | referenced Evidence payload bytes retain their own `product_evidence_payload` objects |
+| RecommendationArtifact | `product_history` | temporary generation files are `temporary_processing` |
+| AIResponse | `product_history` | temporary generation files are `temporary_processing` |
+| Citation | `product_history` | referenced Evidence payload bytes retain their own `product_evidence_payload` objects |
+| Export | `product_history` | encrypted package bytes are `delivery_package` |
+| BillingEntity | `identity_commercial` | payment-provider details remain external; security/audit events are separate `security_audit` records |
+| Integration | `security_audit` | sanitized noncanonical provider diagnostics are `operational_telemetry` |
+| Credential | `security_audit` | decrypted secret material is `ephemeral_secret` |
+| LegalHold | `security_audit` | held data retains its original single class |
+| LifecycleDeletionJob | `security_audit` | immutable Deletion Evidence is a separate `security_audit` record |
 
 At 30 days before a current `product_evidence_payload` maximum, the lifecycle service emits `EvidenceRetentionExpiring` once and requests reassessment when the Project remains active. Expiry wins at the maximum instant. Destruction appends the Evidence Validation Decision and all score/Recommendation suppression/recalculation effects before bytes become unreachable; no current read may cite expired bytes. A legal hold keeps the bytes but changes effective validation to quarantined with `retention_review` at the normal maximum, so held payload is not decision-grade merely because it remains stored. Release then resumes destruction or revalidation according to the current policy.
 
-### Legal Hold
+### Legal Hold Record And Enforcement
 
 A Legal Hold contains hold ID/schema version, Organization, exact resource IDs and/or retention classes, inclusive UTC event-time interval, 20-2,000 character legal-purpose reason, requester and distinct approving SecurityOperator Accounts, requested/approved/released times, nullable release reason/approver, status (`pending`, `active`, `rejected`, or `released`), state version, policy version, idempotency key, and correlation ID. Pending to active/rejected and active to released are the only transitions; rejected/released are terminal. Creation and release each require `legal_hold.manage`, expected state version, two different active SecurityOperators, and a Support Session for customer-Organization scope. The release approver must differ from the release requester. Exact replay returns one transition; altered/stale/self-approved/cross-scope requests change nothing. `LegalHoldActivated` and `LegalHoldReleased` identify exact scope and never include held payload.
 

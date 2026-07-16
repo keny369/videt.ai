@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: Mixed; objective and pending owner decisions
+- Status: Accepted register; one resolved and ten pending owner decisions with deterministic interim behaviour
 - Last Updated: 2026-07-16
 - Owner: Chief Architect
 - Foundation Version Dependency: 1.0
@@ -47,6 +47,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Product Rules: PRULE-034
 - Affected Foundation Requirements: SB-REQ-008, SB-REQ-017, OBS-REQ-019
 - Affected Volume I Requirements: PR-REQ-025
+- Affected Acceptance Criteria: AC-CAP-021, AC-WF-014, AC-PRULE-034; all are already deterministic under the resolved baseline and none remains owner-gated by OD-004.
 - Options Considered:
   1. In-app notifications only.
   2. In-app plus email.
@@ -59,6 +60,7 @@ Authority precedence for decision evidence and conflict resolution:
   - No accepted authority requires webhook callbacks in baseline scope.
 - ADR Threshold: Not met for Option 2 because this resolution aligns with accepted baseline authority. ADR required only if baseline changes to Option 1 or Option 3.
 - Owner Required: None; objective closure by authority alignment.
+- Blocking Impact: None. OD-004 is resolved and blocks neither Volume II, implementation, production use, nor baseline notification behavior.
 - Deterministic Delivery Behavior: WF-014 and `notification-interim-v1` define routing, authorization, redaction, Mailgun adapter invariants, timeout, retry, bounce, aggregate status, replay, and terminal escalation. Channel resolution alone does not permit unspecified delivery behavior.
 
 ## Pending Decision Briefs
@@ -74,6 +76,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-003
 - Affected Product Rules: PRULE-005, PRULE-020
 - Affected Foundation Requirements: SEC-REQ-010, SEC-REQ-011, SM-REQ-002, SM-REQ-003, SB-REQ-010
+- Affected Acceptance Criteria: AC-CAP-005, AC-WF-003, AC-PRULE-005, AC-PRULE-020, AC-SM-008
 - Options:
   1. DNS record verification only.
   2. DNS plus HTTP file verification.
@@ -94,6 +97,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; method policy can change but requires workflow, controls, and support updates.
 - Safe Interim Behavior: DNS TXT and HTTPS file methods are allowed; every field, location, exact-match predicate, 24-hour lifetime, attempt schedule, timeout, idempotency rule, Source state outcome, retained Evidence field, and recovery path is mandatory under [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md#ownership-verification-evidence-contract). Other methods are blocked.
 - Latest Responsible Decision Point: Before Volume IV acceptance.
+- Blocking Impact: Volume II — no; implementation — no while the safe interim remains active; production — no for the DNS TXT and HTTPS file baseline; feature — every other verification method and Volume IV acceptance are blocked until approval.
 - ADR Threshold: Required if approved method set differs from interim behavior or changes security threat assumptions.
 - Owner Required: Chief Architect
 - Exact Approval Wording: I approve OD-001 Option 2 as the baseline verification method set for Volume I and authorize corresponding specification updates.
@@ -109,6 +113,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-008, WF-010, WF-012
 - Affected Product Rules: PRULE-024, PRULE-025, PRULE-028, PRULE-029, PRULE-032, PRULE-045
 - Affected Foundation Requirements: QA-REQ-001, VER-REQ-014, DM-REQ-015
+- Affected Acceptance Criteria: AC-CAP-015, AC-CAP-017, AC-CAP-018, AC-WF-008, AC-WF-010, AC-WF-012, AC-PRULE-024, AC-PRULE-025, AC-PRULE-028, AC-PRULE-029, AC-PRULE-032, AC-PRULE-045, AC-SM-002
 - Options:
   1. Equal pillar weighting.
   2. Product-priority weighted distribution by pillar.
@@ -129,6 +134,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; reversible with version migration and communication plan.
 - Safe Interim Behavior: Apply `score-interim-v1`: equal exact rational weight across applicable pillars, exact penalty/contribution and applicability rules, base-10 score arithmetic, round-half-up to one decimal, clamping, completeness behavior, immutable snapshots, and normative fixtures in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md#interim-discoverability-score-policy). This is an interim implementation baseline and does not approve the final OD-002 distribution.
 - Latest Responsible Decision Point: Before Volume V commercial architecture acceptance.
+- Blocking Impact: Volume II — no; implementation — no under `score-interim-v1`; production — no for explicitly versioned interim scores; feature — any non-equal or contractually final weight policy and Volume V commercial architecture acceptance are blocked until approval.
 - ADR Threshold: Required when final weights are accepted.
 - Owner Required: Chief Product
 - Exact Approval Wording: I approve OD-002 Option 2 and authorize publication of a versioned baseline score-weight policy.
@@ -144,6 +150,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-007, WF-008, WF-010
 - Affected Product Rules: PRULE-012, PRULE-024, PRULE-025, PRULE-028, PRULE-029, PRULE-032, PRULE-045
 - Affected Foundation Requirements: QA-REQ-002, VER-REQ-014, ENG-REQ-010
+- Affected Acceptance Criteria: AC-CAP-010, AC-CAP-015, AC-CAP-017, AC-WF-007, AC-WF-008, AC-WF-010, AC-PRULE-012, AC-PRULE-024, AC-PRULE-025, AC-PRULE-028, AC-PRULE-029, AC-PRULE-032, AC-PRULE-045, AC-SM-002
 - Options:
   1. Three-band model (Low, Medium, High).
   2. Four-band model (Low, Medium, High, Very High).
@@ -164,6 +171,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: High with policy-versioned display mappings.
 - Safe Interim Behavior: Persist confidence on `0.0000..1.0000` using round-half-up to four decimals and policy `confidence-interim-v1`; display Low for `[0.0000,0.6000)`, Medium for `[0.6000,0.8500)`, and High for `[0.8500,1.0000]`. Missing or invalid confidence is recorded explicitly, displays Low, and routes the Issue to review_required. This interim mapping does not approve the final OD-003 model.
 - Latest Responsible Decision Point: Before Volume V commercial architecture acceptance and after at least two full reassessment cycles.
+- Blocking Impact: Volume II — no; implementation — no under `confidence-interim-v1`; production — no for explicitly versioned interim bands; feature — any alternative display/ranking mapping and Volume V commercial architecture acceptance are blocked until approval after the required reassessment evidence exists.
 - ADR Threshold: Required if confidence policy changes score or prioritization semantics.
 - Owner Required: Chief Product
 - Exact Approval Wording: I approve OD-003 Option 3 and authorize a versioned confidence mapping policy for ranking.
@@ -179,6 +187,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-005, WF-008, WF-011, WF-015
 - Affected Product Rules: PRULE-008, PRULE-009, PRULE-024, PRULE-025, PRULE-039, PRULE-040, PRULE-045
 - Affected Foundation Requirements: QA-REQ-001 through QA-REQ-007, QA-REQ-009, QA-REQ-010, QA-REQ-021 through QA-REQ-025
+- Affected Acceptance Criteria: AC-CAP-007, AC-CAP-008, AC-CAP-015, AC-CAP-024, AC-WF-005, AC-WF-008, AC-WF-011, AC-WF-015, AC-PRULE-008, AC-PRULE-009, AC-PRULE-024, AC-PRULE-025, AC-PRULE-039, AC-PRULE-040, AC-PRULE-045, AC-SM-002
 - Options:
   1. Accept provisional thresholds as final.
   2. Adjust thresholds using measured baseline telemetry.
@@ -199,6 +208,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; threshold changes are possible with governance but may require contract or gate updates.
 - Safe Interim Behavior: Treat foundation provisional values as planning constraints and non-final implementation gates. For product behavior that cannot safely remain unbounded, enforce `crawl-interim-v1` soft/hard constants and the exact limit-hit contract in WF-005 until an approved replacement policy activates; this does not finalize the foundation QA targets.
 - Latest Responsible Decision Point: Each threshold by its foundation deadline and gate.
+- Blocking Impact: Volume II — no; implementation — no against the provisional requirements and named safe interim; production/release — each OD-005 sub-decision blocks only its named gate at its latest responsible point; feature — limit increases, service commitments, or release claims beyond the active provisional/interim value are blocked until the responsible owner approves measured replacements.
 - ADR Threshold: Required if threshold changes alter release gates, contractual posture, or architecture constraints.
 - Owner Required: Mixed per QA owner in table below.
 - Exact Approval Wording: I approve OD-005 for my assigned QA requirement and authorize replacing the provisional threshold with the approved value and breach policy.
@@ -228,6 +238,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-015
 - Affected Product Rules: PRULE-039, PRULE-040, PRULE-045
 - Affected Foundation Requirements: QA-REQ-010, SB-REQ-014, SEC-REQ-005, SEC-REQ-006
+- Affected Acceptance Criteria: AC-CAP-024, AC-WF-015, AC-PRULE-039, AC-PRULE-040, AC-PRULE-045
 - Options:
   1. Immediate hard block at limit.
   2. Time-bound grace window with warning and escalation.
@@ -248,6 +259,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; policy changes affect customer expectations and support workflows.
 - Safe Interim Behavior: High-cost operations are crawl start, reassessment start, AI generation, and export generation; they hard-block only when committed plus active-reserved plus requested units would exceed the active hard limit, while equality is allowed, after an atomic server-side check/reservation. Low-cost report, history, Issue, recommendation, and score reads remain warning-only at the usage hard limit while the Organization and human Account or tenant service identity remain active. The exact multi-operation policy, negative/cached Decision fields, resolved reservation/lease, nested-operation, commit/release, queued recheck, outage, replay, and linked-retry behavior is defined in WF-015. This does not approve the final grace strategy.
 - Latest Responsible Decision Point: Before commercial packaging finalization.
+- Blocking Impact: Volume II — no; implementation — no under the exact safe interim; production — no while the interim operation classes and bounds are disclosed and enforced; feature — any grace-window or progressive-degradation behavior outside the interim and commercial packaging finalization are blocked until approval.
 - ADR Threshold: Required if policy materially changes package behavior or quality gate assumptions.
 - Owner Required: Chief Product
 - Exact Approval Wording: I approve OD-006 Option 2 and authorize documented grace-policy enforcement boundaries by operation class.
@@ -263,6 +275,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-009
 - Affected Product Rules: PRULE-014, PRULE-027
 - Affected Foundation Requirements: DM-REQ-019, DM-REQ-009, DM-REQ-011, VER-REQ-014
+- Affected Acceptance Criteria: AC-CAP-012, AC-CAP-013, AC-WF-009, AC-PRULE-014, AC-PRULE-027, AC-SM-001
 - Options:
   1. Keep Citation linked through AIResponse context only.
   2. Introduce many-to-many Citation linkage to both Evaluation and AIResponse.
@@ -283,6 +296,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; adding many-to-many later is possible with ADR and migration planning.
 - Safe Interim Behavior: Apply `citation-interim-v1` in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md#airesponse-and-citation-contract-citation-interim-v1). Each Citation has exactly one AIResponse and one Evidence parent, no direct Evaluation write link, the exact logical fields and full-preimage fingerprint, idempotent replay/collision behavior, exhaustive state/reason transitions, origin-Issue Evidence-lineage validation, and complete claim coverage before AIResponse validation or Artifact publication. Evaluation traversal is read-only through Recommendation origin Issue and Check/Evidence; an optional denormalized read projection has no write authority. This deterministic interim does not approve final OD-007 linkage.
 - Latest Responsible Decision Point: Before Volume IV acceptance.
+- Blocking Impact: Volume II — no; implementation — no under `citation-interim-v1`; production — no for the baseline one-AIResponse/one-Evidence linkage; feature — direct many-to-many Citation writes and Volume IV acceptance are blocked until approval if the owner selects that expansion.
 - ADR Threshold: Required if Option 2 is approved.
 - Owner Required: Chief Architect
 - Exact Approval Wording: I approve OD-007 Option 1 as the baseline citation-linkage scope for Volume I.
@@ -298,6 +312,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-015
 - Affected Product Rules: PRULE-039, PRULE-040
 - Affected Foundation Requirements: DM-REQ-019, SB-REQ-017, SB-REQ-018, QA-REQ-009
+- Affected Acceptance Criteria: AC-CAP-024, AC-WF-015, AC-PRULE-039, AC-PRULE-040
 - Options:
   1. Add invoice and payment sub-entities to core domain now.
   2. Keep BillingEntity core and retain invoice/payment detail in adapters.
@@ -318,6 +333,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: Medium; can be expanded later with ADR and migration planning.
 - Safe Interim Behavior: Keep invoice and payment details adapter-level.
 - Latest Responsible Decision Point: Before Volume V commercial architecture acceptance.
+- Blocking Impact: Volume II — no; implementation — no with adapter-level invoice/payment detail; production — no for baseline entitlement and billing-provider integration; feature — core invoice/payment entities, hybrid summaries, and Volume V commercial architecture acceptance are blocked until approval if the owner selects expanded scope.
 - ADR Threshold: Required if Option 1 or Option 3 is approved.
 - Owner Required: Chief Product
 - Exact Approval Wording: I approve OD-008 Option 2 and confirm adapter-level billing-detail scope for Volume I.
@@ -333,6 +349,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-007, WF-008, WF-010, WF-012
 - Affected Product Rules: PRULE-025, PRULE-027, PRULE-029, PRULE-032, PRULE-043
 - Affected Foundation Requirements: QA-REQ-002, SM-REQ-003, VER-REQ-014, DM-REQ-011
+- Affected Acceptance Criteria: AC-CAP-014, AC-CAP-015, AC-CAP-017, AC-WF-007, AC-WF-008, AC-WF-010, AC-WF-012, AC-PRULE-025, AC-PRULE-027, AC-PRULE-029, AC-PRULE-032, AC-PRULE-043, AC-SM-002, AC-SM-004, AC-SM-005
 - Options:
   1. Include disputed Issues with reduced contribution.
   2. Exclude disputed Issues until adjudication.
@@ -353,6 +370,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Reversibility: High with versioned scoring policy.
 - Safe Interim Behavior: Apply the Issue eligibility predicate in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md#score-contribution-contract). Candidate, review_required, disputed, in_review, terminal, superseded, and non-current Issues receive zero score and priority contribution. Upheld or withdrawn current open Issues become eligible; rejected Issues remain ineligible. Every eligibility change creates or reuses an immutable ScoreSnapshot and deterministically suppresses or republishes governed recommendations.
 - Latest Responsible Decision Point: Before Volume IV acceptance.
+- Blocking Impact: Volume II — no; implementation — no under the zero-contribution interim; production — no while unresolved Issues remain excluded; feature — contribution from review_required, disputed, or in_review Issues and Volume IV acceptance are blocked until approval if the owner selects inclusion.
 - ADR Threshold: Required if disputed Issues are included in score before adjudication.
 - Owner Required: Chief Product and Chief Architect
 - Exact Approval Wording: I approve OD-009 Option 2 and authorize score eligibility to exclude disputed Issues until adjudicated.
@@ -368,6 +386,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-007, WF-008, WF-009, WF-010, WF-011
 - Affected Product Rules: PRULE-010 through PRULE-013, PRULE-024 through PRULE-026, PRULE-028, PRULE-029
 - Affected Foundation Requirements: DM-REQ-009, DM-REQ-011, SM-REQ-003, VER-REQ-014, QA-REQ-010, AI-REQ-005
+- Affected Acceptance Criteria: AC-CAP-009, AC-CAP-010, AC-CAP-011, AC-CAP-015, AC-CAP-016, AC-CAP-017, AC-WF-007, AC-WF-008, AC-WF-009, AC-WF-010, AC-WF-011, AC-PRULE-010, AC-PRULE-011, AC-PRULE-012, AC-PRULE-013, AC-PRULE-024, AC-PRULE-025, AC-PRULE-026, AC-PRULE-028, AC-PRULE-029, AC-SM-001, AC-SM-002, AC-SM-003
 - Options:
   1. Approve the seven-definition provider-neutral baseline in `check-catalog-interim-v1`.
   2. Approve an expanded or provider-bound catalog with separately supplied definitions, channels, thresholds, impact, effort, and fixtures.
@@ -386,11 +405,20 @@ Authority precedence for decision evidence and conflict resolution:
 - Operational Implications: External observation collection must either satisfy `external-observation-v1` or produce the catalog-defined `error` result and unavailable score.
 - Commercial Implications: Final catalog breadth, provider selection, and thresholds remain owner-controlled packaging choices.
 - Reversibility: High through immutable catalog/definition versions and reassessment; historical results never mutate.
-- Safe Interim Behavior: Activate exact `check-catalog-interim-v1` with `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and `CHK-LP-001` as defined in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md). Bind tenant Source/subject instances only in each frozen Evaluation Applicability Set. `external-measurement-interim-v1` bundles no query, intent, listing, provider, or adapter set before approval, so implementations do not invent one: the four external expected entries persist handled `input_evidence_missing` errors and the numeric score remains unavailable. An approved Measurement Set later activates as exact signed configuration and accepts only exact frozen provider-neutral Evidence before snapshot sealing; Check execution still makes no provider call. A missing/invalid catalog fails Evaluation before Check side effects; handled missing/stale/indeterminate observations create no Issue. No Recommendation or Priority Decision publishes from an unavailable calculation. This interim is deterministic but does not approve the final measurement strategy.
+- Safe Interim Behavior: Activate exact `check-catalog-interim-v1` with `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and `CHK-LP-001` as defined in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md). Bind tenant Source/subject instances only in each frozen Evaluation Applicability Set. `external-measurement-interim-v1` bundles no query, intent, listing, provider, or adapter set before approval, so implementations do not invent one: the three always-applicable external entries for `CHK-SP-001`, `CHK-AIP-001`, and `CHK-AS-001` persist handled `input_evidence_missing` errors; `CHK-LP-001` does the same only when its frozen applicability decision is true and otherwise persists its canonical `not_applicable` Result. The numeric score therefore remains unavailable. An approved Measurement Set later activates as exact signed configuration and accepts only exact frozen provider-neutral Evidence before snapshot sealing; Check execution still makes no provider call. A missing/invalid catalog fails Evaluation before Check side effects; handled missing/stale/indeterminate observations create no Issue. No Recommendation or Priority Decision publishes from an unavailable calculation. This interim is deterministic but does not approve the final measurement strategy.
+- Required Owner Approval Package: OD-010 approval is valid only for one immutable Measurement Set package whose owner-supplied content includes all of the following; omission leaves the no-set safe interim active and authorizes no inferred value:
+  - package identity, schema version, immutable version, complete canonical bytes, SHA-256 of those exact bytes, predecessor or null, creation time, and proposed effective time
+  - the exact provider identities and allowed measurement kinds, plus each bound collector adapter ID, immutable adapter version and digest, and deterministic provider-selection/fallback order when more than one provider is allowed
+  - the complete ordered search-query keys and exact query text, AI-intent keys and exact intent content, authority-reference collection scope/selection rules, and required local-listing keys with their exact canonical business-profile field source and version
+  - every applicability rule and exact pass/fail/error, impact, confidence, effort, and score-contribution threshold, either by binding unchanged immutable Check Definition/Catalog digests or by supplying an immutable successor definition package
+  - activation prerequisites, exact effective-time rule, currently active predecessor, failure outcome, and the rule that rollback is activation of a separately approved immutable successor package rather than mutation or reactivation of unapproved bytes
+  - separate signatures from Chief Product and Chief Architect over the same package SHA-256, with signer identity, authority, signed time, and decision; one signature or signatures over different bytes do not authorize activation
+  - the pinning rule that every Evaluation records the Measurement Set, Catalog, Definition, provider, and adapter identities/versions/digests it consumed, plus the retention/access location for the exact approved canonical bytes needed to reproduce that Evaluation
 - Latest Responsible Decision Point: Before Volume I catalog values become a customer contractual claim.
+- Blocking Impact: Volume II — no for the logical Measurement Set contract and no-set path; implementation — no for the interim catalog, internal Checks, and deterministic missing-input path; production — customer-facing complete numeric score, score-derived Recommendation/Priority publication, and any contractual measurement claim are blocked; feature — external Measurement Set activation and successful external Check outcomes are blocked until both named owners sign one complete immutable package.
 - ADR Threshold: Required if the approved model permits one Check to contribute to multiple pillars, nondeterministic evaluation, or a new external trust boundary.
 - Owner Required: Chief Product and Chief Architect
-- Exact Approval Wording: I approve OD-010 Option 1 and authorize `check-catalog-interim-v1` as the baseline measurement scope.
+- Exact Approval Wording: Each required owner signs the identical statement: “I approve OD-010 Option [selected] and Measurement Set [package identity and immutable version], canonical SHA-256 [digest], effective [UTC time], including its exact provider/adapter bindings, query, intent, authority-reference and listing sets, applicability and threshold mappings. I authorize activation only when both required signatures bind this same digest, every Evaluation pins the approved versions and digests for reproduction, and any rollback occurs only through a separately approved immutable successor.”
 
 ### OD-011 Retention, Legal Hold, And Deletion Policy
 
@@ -403,6 +431,7 @@ Authority precedence for decision evidence and conflict resolution:
 - Affected Workflows: WF-003, WF-005, WF-006, WF-009, WF-013, WF-016, WF-018
 - Affected Product Rules: PRULE-016, PRULE-035, PRULE-036, PRULE-037, PRULE-042, PRULE-043
 - Affected Foundation Requirements: DLC-REQ-011 through DLC-REQ-016, DLC-REQ-024 through DLC-REQ-032, SEC-REQ-010, SEC-REQ-013
+- Affected Acceptance Criteria: AC-CAP-013, AC-CAP-018, AC-CAP-022, AC-CAP-023, AC-CAP-025, AC-WF-003, AC-WF-005, AC-WF-006, AC-WF-009, AC-WF-013, AC-WF-016, AC-WF-018, AC-PRULE-016, AC-PRULE-035, AC-PRULE-036, AC-PRULE-037, AC-PRULE-042, AC-PRULE-043, AC-SM-001, AC-SM-003, AC-SM-007
 - Options:
   1. Approve `retention-interim-v1` as the fixed baseline.
   2. Supply a legally reviewed fixed replacement class/window policy before launch.
@@ -422,10 +451,20 @@ Authority precedence for decision evidence and conflict resolution:
 - Commercial Implications: Retention can affect packaging and enterprise commitments; no customer-configurable option is implied.
 - Reversibility: Medium; a successor may lengthen future retention, while already destroyed bytes cannot be restored.
 - Safe Interim Behavior: Apply exact `retention-interim-v1` in [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md). No customer may change its windows. Legal hold suspends irreversible destruction only, never access revocation or product-validity expiry. Account/Organization deletion uses the exact LifecycleDeletionJob, 30-day primary and 35-day post-primary backup deadline, restore tombstones, and immutable deletion evidence. A conflicting legal obligation fails closed, blocks destruction, and requires owner/legal policy replacement; F1 does not provide a legal conclusion.
+- Required Owner And Legal Approval Package: The approved policy package MUST identify one immutable version and digest and record each decision below separately; approval of one item does not imply approval of another:
+  - Prelaunch implementation: whether and where `retention-interim-v1` may be used for development, testing, demonstrations, and other non-production operation, including the permitted data classes and prohibition or conditions for real customer data.
+  - Production and contractual gate: approved jurisdictions, markets, customer/contract scope, production effective time, and the exact claims that may be made; no prelaunch permission opens this gate.
+  - Legal hold: who may request, approve, reject, and release a hold; required separation of duties; eligible scope and reasons; precedence for conflicts; evidence fields; and the invariant that hold never restores access or product validity.
+  - Primary destruction: each data class's minimum/maximum window, trigger, destruction mode, deadline, retry/escalation behavior, and immutable destruction evidence.
+  - Backup: each data class's backup retention and deletion deadline, restore-tombstone behavior, restore-after-request prevention, verification, and missed-deadline escalation.
+  - Audit: security/audit and lifecycle-evidence retention windows, access/classification constraints, integrity proof, hold interaction, and the metadata retained after payload destruction.
+  - Customer configuration: an explicit disabled decision or the exact per-class selectable bounds, authorized actor, validation, effective-time, existing-data migration, rollback, and contractual behavior; configurability is never inferred from a fixed policy.
+  - Qualified legal approval: reviewer identity and capacity, jurisdictions and material legal assumptions reviewed, package identity/version/digest, approval or conditions, signed UTC time, and separate Chief Security and Chief Product signatures over that same digest.
 - Latest Responsible Decision Point: Before storing production customer data or making a contractual retention claim.
+- Blocking Impact: Volume II — no; prelaunch implementation and non-production testing — no under the exact interim and its data restrictions; production — storing production customer data is blocked; contractual gate — every retention, hold, deletion, backup, audit, or configurability claim is blocked; feature — customer-configurable retention is disabled unless expressly approved; these gates open only when qualified legal review and both named owners approve one identical immutable package.
 - ADR Threshold: Required for customer-configurable retention, a new legal authority role, or materially different backup/destruction architecture.
 - Owner Required: Chief Security and Chief Product following qualified legal review
-- Exact Approval Wording: I approve OD-011 Option [selected] and authorize its retention, legal-hold, backup, and destruction policy for Volume I.
+- Exact Approval Wording: Each required owner signs the identical statement: “I approve OD-011 Option [selected], policy package [identity and immutable version], canonical SHA-256 [digest], for [jurisdictions, markets, customer/contract scope] effective [UTC time]. I separately approve its recorded prelaunch, production/contractual, legal-hold, primary-destruction, backup, audit, and customer-configuration decisions; qualified legal reviewer [identity and capacity] approved this same digest on [UTC time].”
 
 ## Decision Resolution Protocol
 

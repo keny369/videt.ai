@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: Draft for owner review
+- Status: Accepted
 - Last Updated: 2026-07-16
 - Owner: Chief Product
 - Foundation Version Dependency: 1.0
@@ -23,12 +23,12 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Registration and Access
 - Purpose: Allow a user to establish authenticated access to F1.
 - Actor: Validated self-service identity principal or invitation-bound identity principal; Organization Administrator after bootstrap
-- Preconditions: A fresh `onboarding-interim-v1` Identity Validation Receipt exists and either its principal has an issued Bootstrap Grant or its target has an active Organization Invitation. No pre-Organization Account is required or allowed.
-- Inputs: Versioned Identity Validation Receipt; Bootstrap Grant or Invitation with expected state version; exact Organization/first-Project body for self-service; command and idempotency envelope.
-- Product Behavior: Apply `onboarding-interim-v1`: self-service atomically creates/activates the tenant-scoped Account, Organization, first OrganizationAdmin Assignment, byte-exact baseline Access and Entitlement Policies, `interim-baseline-plan-v1` Plan Assignment, and draft Project and consumes the grant; invited acceptance atomically creates/reuses only the same-Organization Account, activates the invited Role Assignment and Session, and consumes the Invitation.
-- Outputs: One active tenant-scoped Account and Session; self-service additionally returns Organization, first Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, and draft Project; invited acceptance returns no new Organization or Project.
+- Preconditions: A fresh `onboarding-interim-v1` Identity Validation Receipt exists. Grant request requires a principal that has never consumed self-service bootstrap; self-service requires its issued Grant; Invitation response requires an active matching Invitation. No pre-Organization Account is required or allowed.
+- Inputs: Versioned Identity Validation Receipt; grant-request, Bootstrap Grant, or Invitation expected state; exact Organization/first-Project body for self-service; command and idempotency envelope.
+- Product Behavior: Apply `onboarding-interim-v1`: issue/replay one eligible 15-minute Bootstrap Grant without tenant records; self-service atomically creates/activates the tenant-scoped Account, Organization, first OrganizationAdmin Assignment, byte-exact baseline Access and Entitlement Policies, `interim-baseline-plan-v1` Plan Assignment, and draft Project and consumes the grant; invited acceptance atomically creates/reuses only the same-Organization Account, creates/reuses the exact invited Role Assignment and activates a Session; recipient decline creates no Account/grant/Session and terminates only the Invitation.
+- Outputs: Grant-only result; or one active tenant-scoped Account and Session. Self-service additionally returns Organization, first Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, and draft Project; invited acceptance returns no new Organization or Project; decline returns only the authorized terminal Invitation result.
 - Success Condition: Account reaches active state and user can access permitted views.
-- Failure Condition: An enumerated identity/grant/invitation/policy/input/race failure commits no partial onboarding branch; a pre-existing pending Account remains pending only under its exact provisioning failure record.
+- Failure Condition: An enumerated identity/grant/invitation/policy/input/race failure commits no partial onboarding branch. Pending Account/Organization states are never externally visible after failed atomic bootstrap or invited provisioning.
 - Business Rules: PRULE-001, PRULE-018
 - Security Implications: Must comply with SEC-REQ-001 through SEC-REQ-024.
 - Data Implications: Account lifecycle events and audit records are persisted.
@@ -68,8 +68,8 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Create a bounded discoverability program within an organization.
 - Actor: Organization Administrator or Marketing Operator
 - Preconditions: Organization is active and actor holds `project.create`; activation is a later command after Source onboarding.
-- Inputs: Trimmed display name, locale, reporting time zone, local-presence applicability and conditional reason, fixed discoverability objective, idempotency key, then activation command.
-- Product Behavior: Project creation completes when the exact WF-002 fields produce one draft Project. Activation is a distinct completion condition and succeeds only after CAP-004, CAP-005, and CAP-006 have produced at least one active same-Project Source.
+- Inputs: Trimmed display name, locale, reporting time zone, local-presence applicability, conditional reason or exact immutable `local-business-profile-v1`, fixed discoverability objective, idempotency key, then activation command.
+- Product Behavior: Project creation completes when the exact WF-002 field/profile predicates produce one draft Project. Activation is a distinct completion condition and succeeds only after CAP-004, CAP-005, and CAP-006 have produced at least one active same-Project Source.
 - Outputs: Project identity and lifecycle state.
 - Success Condition: Creation returns one draft Project; the distinct activation command later makes it active and eligible for audit execution.
 - Failure Condition: Project activation fails or remains draft.
@@ -156,9 +156,9 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Start initial or re-audit crawl execution.
 - Actor: Organization Administrator, Marketing Operator, or scheduler service identity
 - Preconditions: CAP-006 complete and project active.
-- Inputs: Authorized Crawl command, active Sources, request-time Source Scope/Crawl Policy Snapshots, and Entitlement policy/counter context; the allowed root `crawl.start` Decision/reservation or parent `reassessment.start` reservation is resolved immediately before execution.
-- Product Behavior: Queue and start a Crawl under WF-005's exact numeric bounds, per-attempt/run byte formula and sentinel boundary, reservation-safe concurrent accounting, canonical breadth/sitemap/queue retention order, fetch retry policy, and terminal race/reason precedence independent of concurrent completion order.
-- Outputs: Crawl attempt, source-level outcomes, IngestionJobs, coverage status, completion reason, limit records, and entitlement reservation outcome.
+- Inputs: Authorized initial root or reassessment-child Crawl command, active Sources, request-time Source Scope/Crawl Policy Snapshots, and Entitlement policy/counter context; the allowed root `crawl.start` Decision/reservation or parent `reassessment.start` reservation is resolved immediately before execution.
+- Product Behavior: Reject a root when a promoted Evaluation pair already exists; otherwise queue/start under WF-005's exact bounds and atomically create one pending initial Evaluation at accepted root start. A reassessment child creates none and uses its running parent. Apply the per-attempt/run byte formula, sentinel boundary, reservation-safe concurrent accounting, canonical breadth/sitemap/queue retention order, fetch retry, and terminal race/reason precedence independent of completion order.
+- Outputs: Crawl attempt; exactly one new pending Evaluation for an accepted root start or the existing reassessment Evaluation reference; Source outcomes, IngestionJobs, coverage/completion, limit records, and entitlement reservation outcome.
 - Success Condition: Crawl reaches completed with full or explicitly partial coverage and at least one valid Document, or reaches an auditable canceled state by authorized request.
 - Failure Condition: Zero valid Documents, all Source roots fail, or a nonrecoverable pre-output policy/integrity failure produces failed; no terminal Crawl is moved back to running.
 - Business Rules: PRULE-007, PRULE-008
@@ -179,9 +179,9 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: Organization Administrator, Marketing Operator, or approved time-bounded SecurityOperator support session for recovery
 - Preconditions: CAP-007 started.
 - Inputs: Crawl, IngestionJob, ParsingJob, and IndexingJob telemetry; complete parse manifest; internal/external Evidence intake; exact failed subset, reason codes, attempt/replay counts, recovery command, and expected state version.
-- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, derived/external Evidence, indexing, and readiness state; apply only the bounded WF-005, `parsing-interim-v1`, or `indexing-interim-v1` retry and authorized recovery contracts.
-- Outputs: Immutable Crawl/parse/index attempt history, Parsed Artifacts and Index Receipts, exact Evaluation Input Snapshot, terminal/coverage/readiness result, and linked recovery outcome.
-- Success Condition: Every admitted Crawl/parse member and every created IndexingJob has an exact terminal or scheduled outcome, ready-full/ready-partial/blocked derives from the complete parse/Evidence manifest without waiting for the Retrieval projection, and concurrent completion or replay cannot change an earlier snapshot.
+- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, derived/external Evidence, indexing, Document lifecycle, and readiness state; apply only the bounded WF-005, `parsing-interim-v1`, or `indexing-interim-v1` retry and authorized recovery contracts.
+- Outputs: Immutable Crawl/parse/index attempt history, Parsed Artifacts and Index Receipts, exact ingested-to-parsed and parsed-to-indexed Document outcomes, exact Evaluation Input Snapshot, terminal/coverage/readiness result, and linked recovery outcome.
+- Success Condition: Every admitted Crawl/parse member and every created IndexingJob has an exact terminal or scheduled outcome; each successful same-version job advances Document exactly once; ready-full/ready-partial/blocked derives from the complete parse/Evidence manifest without waiting for the Retrieval projection; and concurrent completion or replay cannot change an earlier snapshot.
 - Failure Condition: Exhausted/nonretryable parse/indexing, blocked readiness, missing external input, or denied recovery creates the enumerated state/reason/subset/events without hidden retry, dropped manifest member, stale Evaluation mutation, or unclassified persistence.
 - Business Rules: PRULE-009, PRULE-022
 - Security Implications: Recovery actions require authorized roles.
@@ -201,7 +201,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: System automation
 - Preconditions: Immutable Evaluation input snapshot exists with exact full/partial coverage and failed-subset metadata.
 - Inputs: Frozen Evaluation Applicability Set, `parsed-observation-v1` link edges and Source-root terminal-outcome map, exact Evidence/Validation Decisions, catalog/definition/policy versions, and deterministic result key.
-- Product Behavior: Execute the pure bounded `CHK-TI-001` definition once per applicable Source, without a provider call, and persist the exact subject, observation, evidence, impact/confidence, status, and hash tuple.
+- Product Behavior: Materialize the retained Check Result uniqueness preimage/key before execution; execute the pure bounded `CHK-TI-001` definition once per applicable Source without a provider call; and persist the exact subject, observation, Evidence, impact/confidence, status, deterministic input/output hashes, collision, and replay tuple.
 - Outputs: One terminal Technical Integrity Check Result per applicable Source and zero or more evidence-linked Issues only from failed Results.
 - Success Condition: Every expected result key produces the exact catalog outcome and deterministic replay is semantically identical.
 - Failure Condition: Missing/invalid/cross-tenant input yields the catalog-defined `error`; catalog/integrity/cardinality failure follows WF-007 Evaluation failure and never silently omits a Result.
@@ -223,7 +223,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: System automation
 - Preconditions: The Evaluation input snapshot and applicability set are sealed; required parsed or `external-observation-v1` Evidence is either frozen or explicitly absent/indeterminate. CAP-009 completion is not a prerequisite and concurrent completion order is irrelevant.
 - Inputs: `parsed-observation-v1` title nodes for `CHK-CQ-001`; provider-neutral immutable external observations for `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and applicable `CHK-LP-001`; exact Evidence decisions and catalog/definition/policy versions.
-- Product Behavior: Execute each pure bounded definition once for every catalog-declared subject; validate observation kind/freshness/completeness before decision; never call or select a provider during Check execution; attribute confidence exactly from the definition.
+- Product Behavior: Materialize each retained Check Result uniqueness preimage/key; execute each pure bounded definition once for every catalog-declared subject; validate observation kind/freshness/completeness before decision; prohibit not-applicable except the valid false-applicability `CHK-LP-001` branch; never call or select a provider during Check execution; and persist exact input/output hashes, collision/replay behavior, and definition confidence.
 - Outputs: Terminal Check Results for the five owned definitions and candidate/open Issues only from failed Results.
 - Success Condition: Every expected definition/subject key has one deterministic result with exact evidence and status; an eligible failure is reviewable through its Issue lineage.
 - Failure Condition: Missing, stale, indeterminate, malformed, or invalid Evidence yields the definition's exact `error`; catalog/cardinality/integrity failure fails the Evaluation without a partial current Issue set.
@@ -245,7 +245,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: System automation
 - Preconditions: Parsed structured-data artifacts are available.
 - Inputs: Frozen Organization `organization-profile-v1`, Source canonical root, Source-root `parsed-observation-v1` Organization nodes, Evidence decisions, definition/policy versions, and applicability key.
-- Product Behavior: Execute the pure bounded `CHK-TR-001` identity-presence/consistency rule once per applicable Source using only frozen inputs.
+- Product Behavior: Materialize its retained Check Result uniqueness preimage/key, then execute the pure bounded `CHK-TR-001` identity-presence/consistency rule once per applicable Source using only frozen inputs with exact input/output hash, collision, and replay behavior.
 - Outputs: One terminal Trust Signals Check Result per applicable Source and an evidence-linked Issue only for a failed Result.
 - Success Condition: Absence, exact match, normalized match, mismatch, malformed, replay, and timeout fixtures produce the exact catalog tuple.
 - Failure Condition: Invalid schema, input integrity, tenant, or Evidence yields the catalog-defined `error` and no decision-grade Issue; catalog/cardinality failure fails Evaluation.
@@ -400,14 +400,14 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Preconditions: CAP-015 through CAP-017 complete.
 - Inputs: ScoreSnapshots, Issue inventory, Recommendation status, historical runs.
 - Product Behavior: Render current immutable snapshot and state-at-snapshot history using the exact role/classification allow, omit, restricted-reference, and deny rules across every delivery surface.
-- Outputs: Role-scoped summary and drill-down read models, stable redacted-field codes, and generated report artifacts.
+- Outputs: Role-scoped summary and drill-down read projections and stable redacted-field codes. A rendered dashboard/report is a transient presentation of those projections, not a domain entity or retained package; durable customer delivery exists only when WF-016 creates an Export.
 - Success Condition: Every role/classification fixture exposes exactly the allowed fields, denies inaccessible objects, and produces identical redaction semantics in UI, logical API responses, exports, notifications, and support views.
 - Failure Condition: Cross-Organization data, unauthorized field value, restricted Evidence detail, inconsistent surface redaction, or stale current pointer is returned.
 - Business Rules: PRULE-030, PRULE-031
 - Security Implications: Role-specific data visibility and redaction controls.
-- Data Implications: Report generation metadata and access logs persisted.
+- Data Implications: Source snapshots/projections remain canonical; only access/audit telemetry is persisted for an ordinary view. An Export persists only its separate WF-016 logical manifest and lifecycle records.
 - AI Implications: AI explanation is optional and must remain policy bounded.
-- Observability Requirements: report generation and view telemetry.
+- Observability Requirements: projection/read outcome, redaction, access, and optional Export-causation telemetry without a fabricated Report identifier.
 - Acceptance Criteria: AC-CAP-018
 - Dependencies: WF-008, WF-010
 - Non-goals: Generic BI replacement features.
@@ -464,8 +464,8 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Inform users about significant lifecycle outcomes and required actions.
 - Actor: Notification service identity; Organization Administrator or SecurityOperator for allowed policy changes; approved SecurityOperator support session for terminal recovery
 - Preconditions: Event-generating workflows execute.
-- Inputs: Versioned logical event, active route/template policy, exact authorized recipients, redacted payload fields, and `integration-interim-v1` Mailgun Integration/Credential context.
-- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; union route selectors by required permission; create one logical Notification and in-app/Mailgun Delivery per recipient; lazily materialize/replay and validate the platform-managed `mailgun_email` Integration/Credential metadata before the first provider checkpoint; classify missing verified addresses without a provider call; apply exact integration initialization, credential expiry/rotation/revocation, delta-seconds delivery retry, provider mapping, aggregate transitions, and precedence; reauthorize each attempt; and re-resolve current policy/recipients for a linked replay generation.
+- Inputs: Versioned logical event, active route/template policy, exact Account selector recipients or direct Invitation target binding, redacted payload fields, and `integration-interim-v1` Mailgun Integration/Credential context.
+- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; apply the direct Invitation recipient route or union Account selectors by required permission; create exact conditional in-app/mandatory Mailgun Deliveries; lazily materialize/replay and validate platform-managed `mailgun_email` Integration/Credential metadata before the first provider checkpoint; classify unusable addresses without a provider call; apply exact integration initialization, credential expiry/rotation/revocation, delta-seconds delivery retry, provider mapping, aggregate transitions, and precedence; reauthorize each attempt; and re-resolve current policy/recipients for a linked replay generation.
 - Outputs: Immutable per-channel attempts and provider results, aggregate status, suppressed/terminal address reasons, and exactly one escalation for each terminally failed required Delivery or mandatory empty selector union.
 - Success Condition: Each Delivery durably succeeds, reaches an authorized governed suppression, or reaches a classified terminal failure escalated within 5 minutes; a mandatory empty selector union is likewise escalated, and replay causes no duplicate send.
 - Failure Condition: Unauthorized send, secret or raw Evidence leakage, duplicate provider side effect, retry beyond bound, unclassified terminal status, or missing escalation occurs.
@@ -549,11 +549,11 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-025
 - Name: Account And Organization Lifecycle
-- Purpose: Apply Account/Organization access lifecycle, protected Legal Hold, and deterministic deletion consequences.
+- Purpose: Apply Invitation, Account, Organization-access, protected Legal Hold, and deterministic deletion consequences.
 - Actor: Organization Administrator or Security Operator
 - Preconditions: Exact lifecycle/hold/deletion command, versions, authority and approval required by WF-013 and `retention-interim-v1`.
-- Inputs: Account or Organization lifecycle action; Closure Request; Legal Hold request/decision; LifecycleDeletionJob replay; retention/hold snapshots and resource/class manifest.
-- Product Behavior: Apply authorization-epoch-safe suspend/reactivate/revoke/close, immediate Session/work revocation, two-person hold, and the exact asynchronous primary/backup deletion/tombstone/evidence contract.
+- Inputs: Invitation create/approve/respond/revoke/reissue action; Account or Organization lifecycle action; Closure Request; Legal Hold request/decision; LifecycleDeletionJob replay; retention/hold snapshots and resource/class manifest.
+- Product Behavior: Apply exact Invitation duplicate/existing-member/wrong-account/direct-delivery/terminal behavior; authorization-epoch-safe suspend/reactivate/revoke/close; immediate Session/work revocation; two-person hold; and the asynchronous primary/backup deletion/tombstone/evidence contract.
 - Outputs: Exact Account/Organization state, Closure Request, Legal Hold, LifecycleDeletionJob, Deletion Evidence, retained grant result, and audited deadlines/events.
 - Success Condition: The next protected request is denied after suspension/closure, caches converge within 60 seconds, a hold blocks destruction but not revocation/closure, and eligible jobs complete only with exact primary/backup evidence.
 - Failure Condition: Access remains active, last-admin/dual-control is bypassed, held bytes are destroyed, deadline failure claims completion, or lifecycle outcome is missing/unclassified.

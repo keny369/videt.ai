@@ -60,7 +60,7 @@ Comparative score and issue context against peer organizations or domains.
 
 ### Confidence
 
-Estimated reliability of a finding or recommendation based on available evidence quality.
+Estimated reliability of an Issue or Recommendation Artifact based on available evidence quality.
 
 ### Crawl
 
@@ -96,7 +96,7 @@ Collected data used to support checks, scoring and recommendations.
 
 ### Finding
 
-A detected issue or opportunity derived from evidence evaluation.
+A prohibited legacy synonym for the product entity Issue. `Finding` MUST NOT identify a customer or product deficiency in normative specifications, product interfaces, events, or customer outputs. A non-product review or audit use MUST be explicitly qualified, such as “review finding”, and has no F1 domain identity or lifecycle.
 
 ### Foundation Documents
 
@@ -108,7 +108,7 @@ A delivery-ready output that helps execute a remediation, such as patch guidance
 
 ### Issue
 
-Canonical term for a prioritized finding requiring action. In customer outputs, issue and finding may be displayed together.
+The sole canonical customer and product term for an evidence-derived deficiency or opportunity that may require prioritization, adjudication, remediation, or lifecycle tracking.
 
 ### Issue Priority
 
