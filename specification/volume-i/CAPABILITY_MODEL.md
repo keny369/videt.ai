@@ -399,18 +399,18 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: Organization Administrator, Marketing Operator, Technical Implementer, read-only Executive Buyer, or authorized SecurityOperator scope
 - Preconditions: CAP-015 through CAP-017 complete.
 - Inputs: ScoreSnapshots, Issue inventory, Recommendation status, historical runs.
-- Product Behavior: Render current immutable snapshot and state-at-snapshot history using the exact role/classification allow, omit, restricted-reference, and deny rules across every delivery surface.
-- Outputs: Role-scoped summary and drill-down read projections and stable redacted-field codes. A rendered dashboard/report is a transient presentation of those projections, not a domain entity or retained package; durable customer delivery exists only when WF-016 creates an Export.
-- Success Condition: Every role/classification fixture exposes exactly the allowed fields, denies inaccessible objects, and produces identical redaction semantics in UI, logical API responses, exports, notifications, and support views.
+- Product Behavior: Render deterministic structured data from the current immutable snapshot and state-at-snapshot history using the exact role/classification allow, omit, restricted-reference, and deny rules across every delivery surface. The accepted baseline MUST NOT create, request, display, reserve a presentation region for, or imply an AI-generated dashboard or history narrative. No feature flag, provider availability, model capability, tenant setting, or implementation choice may enable one.
+- Outputs: Role-scoped deterministic structured summary and drill-down read projections and stable redacted-field codes, with no AI-generated narrative field or placeholder. A rendered dashboard/report is a transient presentation of those projections, not a domain entity or retained package; durable customer delivery exists only when WF-016 creates an Export. Deterministic human-authored labels and already-defined templated explanatory text remain permitted and existing deterministic score, trend, Issue, Evidence, and Recommendation explanations are unchanged.
+- Success Condition: Every role/classification fixture exposes exactly the allowed structured fields, denies inaccessible objects, produces identical redaction semantics in UI, logical API responses, exports, notifications, and support views, makes no AI-provider call for dashboard/history narrative, and returns a complete successful response without narrative.
 - Failure Condition: Cross-Organization data, unauthorized field value, restricted Evidence detail, inconsistent surface redaction, or stale current pointer is returned.
 - Business Rules: PRULE-030, PRULE-031
 - Security Implications: Role-specific data visibility and redaction controls.
 - Data Implications: Source snapshots/projections remain canonical; only access/audit telemetry is persisted for an ordinary view. An Export persists only its separate WF-016 logical manifest and lifecycle records.
-- AI Implications: AI explanation is optional and must remain policy bounded.
+- AI Implications: AI-generated dashboard/history narrative is excluded from the accepted baseline. Its absence is not an error, degraded state, incomplete response, or fallback. Future support requires a separately accepted capability, explicit product requirements, AI evaluation criteria, grounding/provenance requirements, latency/cost budgets, failure/fallback behaviour, acceptance criteria, and controlled Volume I change.
 - Observability Requirements: projection/read outcome, redaction, access, and optional Export-causation telemetry without a fabricated Report identifier.
 - Acceptance Criteria: AC-CAP-018
 - Dependencies: WF-008, WF-010
-- Non-goals: Generic BI replacement features.
+- Non-goals: Generic BI replacement features and AI-generated dashboard/history narrative.
 - Release Classification: Baseline Core
 
 ### CAP-019 Historical Comparison

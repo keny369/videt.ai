@@ -29,6 +29,7 @@ Commit and tag the accepted Volume I behavioural baseline, then begin Volume II 
 - Canonical diagrams are created and source-controlled.
 - TDD, documentation-as-code, and fitness-function policy are established.
 - Volume I has been decomposed into a canonical implementation-ready specification set under specification/volume-i.
+- Accepted dashboard and history behaviour is deterministic structured data only; AI-generated narrative and its provider calls/placeholders are excluded unless a controlled future Volume I change accepts a separate capability and complete AI contract.
 
 ## Domain Progress
 

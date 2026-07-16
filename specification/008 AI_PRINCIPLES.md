@@ -91,6 +91,12 @@ An AI workflow MUST ship only when:
 4. traceability fields are persisted
 5. rollback path is documented
 
+## Accepted Volume I Dashboard And History Boundary
+
+Accepted Volume I dashboard and history views return deterministic structured data only. They MUST NOT create, request, display, reserve a presentation region for, or imply AI-generated narrative, and MUST make no AI-provider call for that purpose. Narrative absence is the complete successful baseline response and is not an error, degraded state, incomplete response, or fallback. No hidden feature flag, provider capability, model availability, tenant setting, or implementation choice may enable narrative generation.
+
+This boundary does not prohibit deterministic human-authored labels, already-defined templated explanatory text, or existing deterministic score, trend, Issue, Evidence, and Recommendation explanations. Future dashboard/history AI narrative requires a separately accepted product capability, explicit product requirements, AI evaluation criteria, grounding and provenance requirements, latency and cost budgets, failure and fallback behaviour, acceptance criteria, and controlled Volume I change before implementation or display.
+
 ## AI Risk Categories
 
 Track and mitigate at minimum:

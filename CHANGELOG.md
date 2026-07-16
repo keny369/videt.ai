@@ -2,6 +2,7 @@
 
 ## 2026-07-16
 
+- resolved the final dashboard/history ambiguity by prohibiting AI-generated narrative, narrative placeholders and AI-provider calls in accepted Volume I while requiring complete deterministic structured responses
 - completed the final Volume I acceptance and closure pass without beginning Volume II
 - accepted Volume I as the behavioural baseline after making every pending owner decision deterministic and classifying its exact downstream blocking impact
 - recorded OD-010 as a complete customer-facing numeric-score and external-measurement production gate, and OD-011 as a production customer-data and contractual-retention gate; neither blocks Volume II
