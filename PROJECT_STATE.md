@@ -3,9 +3,9 @@
 ## Snapshot
 
 - Date: 2026-07-16
-- Status: Corrected Volume I frozen; Volume II Implementation Architecture Pass 001 complete for unblocked behavior and acceptance-blocked by demonstrated upstream ambiguities
+- Status: Corrected Volume I accepted as the behavioural baseline but NOT frozen; an RC1 release-candidate review recorded open normative defects and the RC1 correction programme under ADR-018 is in progress. Volume II Implementation Architecture Pass 001 complete for unblocked behavior and acceptance-blocked by demonstrated upstream ambiguities
 - Foundation Baseline: 1.0
-- Frozen Volume I Tag: `v1.3-volume-i-corrected` at `5d725fa`; historical `v1.2-volume-i-frozen` remains immutable
+- Current Volume I Baseline Tag: `v1.4-volume-i-ratified-prelegal` (ratified pre-legal baseline, ADR-019); predecessor `v1.3-volume-i-corrected` at `5d725fa`; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines. No successor frozen tag exists; the freeze is blocked pending the RC1 correction programme and an RC2 regression audit returning no Critical or High finding
 - Initial Volume II Draft Commit: `7213e9a`
 - Current Gate: Volume II cannot be frozen or broad implementation begun until the thirteen demonstrated frozen-Volume-I blockers in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) receive controlled deterministic corrections
 
@@ -16,8 +16,8 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 ## Operating Constraints
 
 - No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
-- Treat `v1.3-volume-i-corrected` as the authoritative frozen behavioral baseline; do not move or replace historical tags.
-- Do not edit frozen Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion.
+- Treat `v1.4-volume-i-ratified-prelegal` as the authoritative current behavioral baseline; it is not frozen and implementation remains gated by PM-REQ-010. Do not move or replace historical tags.
+- Do not edit accepted Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion; only ADR-018 correction-programme changes and controlled defect/owner-decision changes are permitted.
 - Permit a Volume I correction after acceptance only for a demonstrated contradiction, non-executable contract, unsafe behavior, invalid acceptance oracle, or an approved owner decision incorporated through controlled change.
 - Permit Volume II implementation architecture, but withhold every route, query, control, event shape or job that intersects a recorded upstream blocker.
 - Do not infer permission to begin broad implementation from the Volume I freeze or an incomplete Volume II pass.
@@ -36,7 +36,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 ## Domain Progress
 
 - Foundation governance: complete and active
-- Volume I Product Foundations: frozen at `v1.3-volume-i-corrected`
+- Volume I Product Foundations: ratified pre-legal baseline at `v1.4-volume-i-ratified-prelegal`, not frozen; 21 owner decisions integrated under ADR-019; blocked on the retention/deletion legal package and OD-013 event tenant identity
 - Experience and Interaction: Volume II Pass 001 complete for authorized/unblocked screens; blocked screens are absent
 - Domain and State downstream detail: aggregate, workflow, dependency, transaction and lock architecture complete for unblocked behavior
 - Data and Persistence downstream detail: PostgreSQL design complete except blocked pretenant/platform/cross-Organization event/audit scope

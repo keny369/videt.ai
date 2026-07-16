@@ -208,7 +208,7 @@ The Check Result uniqueness preimage is exactly Evaluation ID, Evaluation Input 
 
 Every immutable Check Definition MUST contain an exact impact rule mapping its normalized failed observation to one of `informational`, `low`, `medium`, `high`, or `critical`. The mapping may be constant or threshold-based but MUST include complete boundary fixtures and `impact_rule_version`. A Definition with a missing or nonexhaustive impact mapping cannot enter an active Check Catalog. Discovery of catalog corruption or an unmapped failed outcome after activation fails the Evaluation as `check_catalog_integrity_failure`; it does not create an Issue or silently downgrade the outcome. Manual or AI post-hoc impact changes are prohibited; changed mapping requires a new Check Definition and impact-rule version and a new Evaluation or explicit policy recalculation.
 
-### Interim Confidence Policy `confidence-interim-v1`
+### Interim Confidence Policy `confidence-policy-v1`
 
 - Valid numeric domain: `0.0000` through `1.0000`, rounded half up to four decimal places before band mapping.
 - `low`: `0.0000 <= value < 0.6000`.
@@ -248,7 +248,7 @@ The Definition contains no Organization, Project, Source, Document, provider, or
 
 A Check Catalog contains `check_catalog_version`, owner, release time, status, ordered Definition ID/version/content-digest tuples, executor-policy version, external-measurement-policy version, effort-policy version, content SHA-256, and superseded Catalog version. Its content hash is SHA-256 over canonical JSON of every field except the content hash itself. Reuse of a Catalog version or Definition version for changed content is prohibited.
 
-`check-catalog-interim-v1` is the mandatory deterministic interim Catalog pending OD-010 approval or an approved replacement. Its owner is Chief Product, release time is `2026-07-16T00:00:00Z`, status is `active_interim`, executor policy is `check-executor-interim-v1`, external-measurement policy is `external-measurement-interim-v1`, effort policy is `effort-interim-v1`, and its ordered membership is exactly:
+`check-catalog-v1` is the mandatory deterministic interim Catalog pending OD-010 approval or an approved replacement. Its owner is Chief Product, release time is `2026-07-16T00:00:00Z`, status is `active_interim`, executor policy is `check-executor-interim-v1`, external-measurement policy is `external-measurement-v1`, effort policy is `effort-interim-v1`, and its ordered membership is exactly:
 
 1. `CHK-TI-001@1.0.0`
 2. `CHK-CQ-001@1.0.0`
@@ -318,9 +318,9 @@ Kind-specific bodies are exact:
 - `authority_reference_set`: `references` sorted by canonical referrer, reference type, canonical target, then immutable observation key. Each contains observation key, `reference_type` (`backlink` or `brand_mention`), canonical referrer, canonical in-scope target, and `attribution_status` (`attributable`, `not_attributable`, or `indeterminate`). Exact duplicate tuples are invalid. An empty complete list is a valid zero-signal observation.
 - `local_profile_consistency`: the exact frozen `local-business-profile-v1` snapshot ID/content hash; nonempty `required_listing_keys` sorted by UTF-8 bytes; and exactly one item per key in that order. An item contains listing key, `listing_status` (`present`, `absent`, or `indeterminate`) and comparisons for `name`, `address`, `telephone`, and `service_area`; each comparison is `match`, `mismatch`, `missing`, or `indeterminate`. Comparison is against the frozen Project profile: name uses Unicode NFC, collapsed whitespace and Unicode 15.1 default full case folding; address uses the exact address normalization version in the approved Measurement Set; telephone uses E.164; and service area uses sorted normalized set equality. An absent listing requires all four comparisons `missing`. A qualified listing is present with all four comparisons `match`. Missing/mismatched profile ID/hash, an unknown normalization version, or adapter output inconsistent with the signed Measurement Set is invalid Evidence. Raw provider responses remain prohibited.
 
-### Mandatory Check Definitions `check-catalog-interim-v1`
+### Mandatory Check Definitions `check-catalog-v1`
 
-All seven Definitions use owner Chief Product, release time `2026-07-16T00:00:00Z`, `check-executor-interim-v1`, `confidence-interim-v1`, `effort-interim-v1`, locale `en-AU`, UTC, and the canonical hash and Evidence-validation rules above. Each Definition's `rule_or_model_version` is exactly `<check_definition_id>-rule-v1`, for example `CHK-TI-001-rule-v1`; none invokes a model. Passed, failed, and not-applicable results use confidence `1.0000`, `confidence_status=valid`, and band `high`; handled errors use the common null/missing/low fallback. Each Definition uses `absence_proof_mode=check_pass_resolves_all` against its exact frozen subject selector, so a valid passed replacement resolves only the predecessor for that same Definition and subject under full relevant coverage.
+All seven Definitions use owner Chief Product, release time `2026-07-16T00:00:00Z`, `check-executor-interim-v1`, `confidence-policy-v1`, `effort-interim-v1`, locale `en-AU`, UTC, and the canonical hash and Evidence-validation rules above. Each Definition's `rule_or_model_version` is exactly `<check_definition_id>-rule-v1`, for example `CHK-TI-001-rule-v1`; none invokes a model. Passed, failed, and not-applicable results use confidence `1.0000`, `confidence_status=valid`, and band `high`; handled errors use the common null/missing/low fallback. Each Definition uses `absence_proof_mode=check_pass_resolves_all` against its exact frozen subject selector, so a valid passed replacement resolves only the predecessor for that same Definition and subject under full relevant coverage.
 
 #### `CHK-TI-001@1.0.0` Internal Link Resolution
 
@@ -582,7 +582,7 @@ Reassessment execution freezes active Source-set version and normalized full-sco
 
 ### Policy Identity And Applicability
 
-The mandatory interim policy is `score-interim-v1`. It remains effective until an approved OD-002 replacement becomes active.
+The mandatory interim policy is `score-policy-v1`. It remains effective until an approved OD-002 replacement becomes active.
 
 All seven pillars are applicable by default. `local_presence` may be `not_applicable` only when the Project profile explicitly records `local_presence_applicable=false`, an OrganizationAdmin or MarketingOperator records a nonblank reason, and the score-policy snapshot captures that decision version. Every other pillar remains applicable in baseline scope.
 
@@ -713,7 +713,7 @@ Personalized legal or tax conclusions, compliance determinations, filing positio
 
 A Recommendation Artifact MUST NOT be published if its origin Issue is score-ineligible. A later dispute or dismissal of that Issue suppresses the Artifact without deleting it. A related Issue state change has no effect. Suppression and republication emit audited state events.
 
-### AIResponse And Citation Contract `citation-interim-v1`
+### AIResponse And Citation Contract `citation-policy-v1`
 
 The OD-007 interim model is one-directional: a Citation belongs to exactly one AIResponse and points to exactly one Evidence record. Neither AIResponse nor Citation stores a direct Evaluation link; evaluation traversal is `AIResponse -> Recommendation Artifact -> origin Issue -> Check Result/Evidence`. A read-model projection MAY denormalize that traversal but MUST NOT become write authority.
 
@@ -757,13 +757,13 @@ Executive Buyer is a product persona, not a distinct foundation authorization ro
 | MarketingOperator | allow, with classified fields omitted above `internal` | allow, with classified fields omitted above `internal` | allow through `internal` | allow through `internal`; higher classification is reference-only | allow through `internal` | allow, with classified fields omitted above `internal` | allow with identical field rules |
 | Executive Buyer persona | allow through `internal`; higher-classified fields omitted | allow through `internal`; higher-classified fields omitted | deny | deny | deny | allow through `internal`; higher-classified fields omitted | summary-only through `internal` |
 | TechnicalImplementer | allow, with classified fields omitted above ceiling | allow, with classified fields omitted above ceiling | allow, with classified fields omitted above ceiling | allow through `confidential`; higher classification is reference-only | allow through `confidential` | allow, with classified fields omitted above ceiling | allow with identical field rules |
-| SecurityOperator | allow when incident, adjudication, or support scope is active | allow in authorized scope | allow in authorized scope | allow in authorized scope | allow including restricted only in authorized scope | allow in authorized scope | security-authorized only |
+| SecurityOperator | allow when authorized incident or adjudication scope is active | allow in authorized scope | allow in authorized scope | allow in authorized scope | allow including restricted only in authorized scope | allow in authorized scope | security-authorized only |
 | BillingOperator | deny | deny | deny | deny | deny | deny | deny |
 | Tenant-scoped service identity | minimum fields required for assigned workflow | minimum required | minimum required | minimum required | minimum required | no interactive access | deny |
 
 Undefined permission or scope is deny-by-default. Organization scope is mandatory for every allow.
 
-Classification ceilings are `confidential` for OrganizationAdmin and TechnicalImplementer, `internal` for MarketingOperator and the Executive Buyer persona, and `restricted` for a SecurityOperator only inside active incident/adjudication/support scope. An explicit `evidence.restricted.read` grant raises only the granted OrganizationAdmin Evidence payload access to `restricted`; it does not broaden resource scope or other field permissions.
+Classification ceilings are `confidential` for OrganizationAdmin and TechnicalImplementer, `internal` for MarketingOperator and the Executive Buyer persona, and `restricted` for a SecurityOperator only inside active authorized incident or adjudication scope. A Support Session scopes an already-permitted action to an Organization, resource, and action allowlist; it is not itself a read grant and never widens a Permission Baseline cell. Where this document and the Permission Baseline in [WORKFLOW_SPECIFICATIONS.md](WORKFLOW_SPECIFICATIONS.md#permission-baseline) appear to differ on scope, the Permission Baseline governs, as [CAPABILITY_MODEL.md](CAPABILITY_MODEL.md) requires. An explicit `evidence.restricted.read` grant raises only the granted OrganizationAdmin Evidence payload access to `restricted`; it does not broaden resource scope or other field permissions.
 
 `redacted_field_codes` uses these stable logical groups: `score.overall`, `score.pillar`, `issue.summary_text`, `issue.subject`, `score.contribution_detail`, `evidence.metadata`, `evidence.payload`, `recommendation.rationale`, `recommendation.steps`, `history.issue_detail`, and `export.detail_fields`. When only some fields in a group are omitted, append the exact snake-case logical field name, for example `evidence.metadata.content_sha256`. Codes describe omitted fields only and never reveal their values.
 
@@ -803,7 +803,7 @@ When fewer than two completed Evaluations with promoted ScoreSnapshots are avail
 - Any persisted Issue without valid same-Organization Evidence.
 - Score or priority contribution from a review-required, disputed, in-review, dismissed, resolved, superseded, or non-current Issue.
 - Publication or prioritization of a Recommendation Artifact whose origin Issue is ineligible.
-- A Citation with zero or multiple AIResponse/Evidence parents, or a Citation/AIResponse direct Evaluation write link under `citation-interim-v1`.
+- A Citation with zero or multiple AIResponse/Evidence parents, or a Citation/AIResponse direct Evaluation write link under `citation-policy-v1`.
 - ScoreSnapshot, Score Contribution, or historical Issue-state mutation.
 - Supersession across Organizations or Projects, lineage cycles, or more than one direct successor.
 - Hash-only Issue merging without retained-preimage equality.

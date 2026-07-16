@@ -46,7 +46,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Establish a tenant boundary and governance context.
 - Actor: Organization Administrator
 - Preconditions: CAP-001 complete.
-- Inputs: `organization-profile-v1`, immutable `access-interim-v1`, `entitlement-interim-v1`, and `interim-baseline-plan-v1`/approval content hashes, first accountable administrator Assignment, Bootstrap Grant, and idempotency envelope.
+- Inputs: `organization-profile-v1`, immutable `access-policy-v1`, `entitlement-interim-v1`, and `interim-baseline-plan-v1`/approval content hashes, first accountable administrator Assignment, Bootstrap Grant, and idempotency envelope.
 - Product Behavior: In the self-service WF-001 transaction create Organization and its sole baseline BillingEntity pending, instantiate only byte-equivalent Access/Entitlement interim policies and a same-Organization Plan Assignment linked to that BillingEntity, create the bootstrap OrganizationAdmin Assignment, activate BillingEntity, then activate Organization only when all tenant invariants pass. No provider call or lazy BillingEntity creation occurs.
 - Outputs: Organization record, active baseline BillingEntity, active Access and Entitlement policy versions, linked Plan Assignment, administrator Role Assignment, and audit events.
 - Success Condition: Organization reaches active state and supports project creation.
@@ -197,7 +197,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-009
 - Name: Technical Inspection
-- Purpose: Execute `CHK-TI-001` under `check-catalog-interim-v1` against frozen parsed and Crawl-outcome evidence.
+- Purpose: Execute `CHK-TI-001` under `check-catalog-v1` against frozen parsed and Crawl-outcome evidence.
 - Actor: System automation
 - Preconditions: Immutable Evaluation input snapshot exists with exact full/partial coverage and failed-subset metadata.
 - Inputs: Frozen Evaluation Applicability Set, `parsed-observation-v1` link edges and Source-root terminal-outcome map, exact Evidence/Validation Decisions, catalog/definition/policy versions, and deterministic result key.
@@ -219,7 +219,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-010
 - Name: Content And External Presence Inspection
-- Purpose: Execute the minimal Content Quality, Search Presence, AI Presence, Authority Signals, and Local Presence checks in `check-catalog-interim-v1`.
+- Purpose: Execute the minimal Content Quality, Search Presence, AI Presence, Authority Signals, and Local Presence checks in `check-catalog-v1`.
 - Actor: System automation
 - Preconditions: The Evaluation input snapshot and applicability set are sealed; required parsed or `external-observation-v1` Evidence is either frozen or explicitly absent/indeterminate. CAP-009 completion is not a prerequisite and concurrent completion order is irrelevant.
 - Inputs: `parsed-observation-v1` title nodes for `CHK-CQ-001`; provider-neutral immutable external observations for `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and applicable `CHK-LP-001`; exact Evidence decisions and catalog/definition/policy versions.
@@ -241,7 +241,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-011
 - Name: Structured-Data Inspection
-- Purpose: Execute `CHK-TR-001` under `check-catalog-interim-v1` against Source-root Organization structured data.
+- Purpose: Execute `CHK-TR-001` under `check-catalog-v1` against Source-root Organization structured data.
 - Actor: System automation
 - Preconditions: Parsed structured-data artifacts are available.
 - Inputs: Frozen Organization `organization-profile-v1`, Source canonical root, Source-root `parsed-observation-v1` Organization nodes, Evidence decisions, definition/policy versions, and applicability key.
@@ -267,7 +267,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: AI orchestration service; Organization Administrator or Marketing Operator for publication control
 - Preconditions: One target Recommendation version, exactly one origin Issue/state version, valid Evidence in that Issue/Check lineage, and AI/citation policy gates.
 - Inputs: Origin Issue, ordered Evidence tuples, target Artifact version, prompt/model/policy versions, locale, and idempotency key.
-- Product Behavior: Apply `citation-interim-v1`: fingerprint/replay one AIResponse attempt, manifest every generated claim, create one-AIResponse/one-Evidence Citations with no direct Evaluation write link, decide every Citation, and validate/reject/expire the response under exact boundaries.
+- Product Behavior: Apply `citation-policy-v1`: fingerprint/replay one AIResponse attempt, manifest every generated claim, create one-AIResponse/one-Evidence Citations with no direct Evaluation write link, decide every Citation, and validate/reject/expire the response under exact boundaries.
 - Outputs: Requested/generated/validated/rejected/expired AIResponse attempts and proposed/verified/invalid/superseded Citations with immutable claim/Evidence lineage.
 - Success Condition: One validation transaction persists every Citation decision, validates the response only with complete verified coverage, and binds draft content only on full pass; exact replay repeats no provider or decision side effect.
 - Failure Condition: Timeout, schema/policy/advisory failure, stale origin, incomplete claim coverage, invalid Evidence/locator, tenant mismatch, or altered replay produces the exact terminal reason and no AI-assisted publication.
@@ -331,9 +331,9 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Scoring and Recalculation
 - Purpose: Compute and recalculate Discoverability Score from governed inputs.
 - Actor: System automation
-- Preconditions: One exact sealed staged prospective or atomic current Issue Set with ordered membership/current-leaf lists, complete `check-catalog-interim-v1` expected-entry/result coverage, frozen state-at-snapshot Evidence/Check/scope/coverage/policy inputs, pillar applicability, and deterministic eligibility for every member.
+- Preconditions: One exact sealed staged prospective or atomic current Issue Set with ordered membership/current-leaf lists, complete `check-catalog-v1` expected-entry/result coverage, frozen state-at-snapshot Evidence/Check/scope/coverage/policy inputs, pillar applicability, and deterministic eligibility for every member.
 - Inputs: Selected Issue-set ID and Issues, Check Applicability Snapshot and every expected Check Result, latest effective Evidence Validation Decisions, exact scope/coverage identities, and score/confidence/eligibility/fingerprint/catalog versions and hashes.
-- Product Behavior: Apply `score-interim-v1` exactly, including membership validation, state-at-snapshot Contributions, fixed exclusion precedence, retained penalties, exact semantic hash tuples, rational equal weights, decimal/rounding rules, per-pillar status/reasons, serialized prior-snapshot linkage, Current Score Projection, and staging-specific no-pointer behavior.
+- Product Behavior: Apply `score-policy-v1` exactly, including membership validation, state-at-snapshot Contributions, fixed exclusion precedence, retained penalties, exact semantic hash tuples, rational equal weights, decimal/rounding rules, per-pillar status/reasons, serialized prior-snapshot linkage, Current Score Projection, and staging-specific no-pointer behavior.
 - Outputs: Complete, partial, or unavailable immutable ScoreSnapshot; one exact Contribution per Issue-set member; exact nullable current/last-promoted and latest-calculation projection pointers; exhaustive ordered pillar/unavailable reasons.
 - Success Condition: Normative fixtures reproduce exact values/hashes, every contribution reconciles, exact replay returns one snapshot, and permitted projection promotion never mutates history.
 - Failure Condition: Any missing/inconsistent policy, invalid Evidence, uncovered pillar, input mismatch, or invariant failure returns unavailable, exposes no old current numeric score, and leaves last-promoted history unchanged.

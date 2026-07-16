@@ -328,3 +328,149 @@ No shipped software or customer data exists to migrate. Existing document refere
 
 Review Checkpoint:
 Revalidate this decision when the successor frozen tag is created and again at the first Volume II architecture-baseline review, no later than 2026-08-27, for contradiction, unintended scope expansion, and implementability against the accepted fixtures.
+
+## ADR-018: RC1 Release-Candidate Correction Programme
+
+Status: Accepted
+Date: 2026-07-16
+Owner: Chief Architect
+Reversibility: Reversible while no implementation depends on the corrected contracts; the identifier and precedence corrections are difficult to reverse once downstream artifacts cite them.
+
+Decision:
+Authorize a controlled correction programme against the defects recorded by the RC1 release-candidate review of Volume I, and defer the successor Volume I freeze until that programme completes and an RC2 regression audit returns no Critical or High finding. The programme corrects only demonstrated defects. It corrects in place only where existing authority already compels exactly one conformant answer, and registers an owner decision with deterministic fail-closed interim behaviour wherever the behaviour is genuinely unresolved.
+
+Context:
+The RC1 review recorded defects across four classes: governance statements that contradict the constitution or misidentify the baseline; foundation content that downstream artifacts rely on but cannot cite; product behaviour that no command surface can reach; and product behaviour whose specification admits more than one observable outcome. Volume II discovery independently recorded thirteen of the behavioural defects as upstream blockers and correctly declined to resolve them downstream. Three findings raised by the review were adversarially refuted and are expressly out of scope.
+
+Authority And Precedence:
+This ADR does not supersede any unchanged foundation requirement and MUST NOT be read as doing so. Under PM-REQ-003 the foundation layer outranks the ADR registry, and under 011 DOMAIN_MODEL.md an accepted ADR authorizes the PM-REQ-009 controlled-change process but does not by itself change a foundation requirement. Where this programme changes foundation content, the change is made in the foundation document itself with its impact mapping in the same change set, exactly as ADR-006 and ADR-012 require.
+
+This ADR also records a governance defect in the repository's own history: commit `1e57f47` added the normative "Accepted Volume I Dashboard And History Boundary" section to `specification/008 AI_PRINCIPLES.md` and edited six Volume I documents with no ADR entry in that change set, contrary to ADR-006, ADR-012, and ROADMAP Gate D. That content is not reopened on its merits; it is brought under ADR governance here, and the identifiers `AI-REQ-023` and `AI-REQ-024` now make it citable.
+
+Options Considered:
+
+1. Freeze Volume I at `v1.3-volume-i-corrected` and let Volume II resolve the open ambiguities. Rejected: Volume II states that the ambiguities are product-behaviour choices it must not make, and a freeze would convert thirteen known implementation forks into permanent contract.
+2. Correct every defect by architectural inference so the baseline reads as complete. Rejected: nineteen of twenty analysed behavioural defects admit more than one conformant answer once adversarial challenge is applied to each forced verdict, so inference would silently make product decisions and reproduce the failure the review exists to catch.
+3. Correct what authority compels, register what it does not, and defer the freeze. Chosen.
+4. Reopen Volume I for a broad redesign. Rejected: it exceeds demonstrated-defect scope and would discard behaviour that the review confirmed is sound, including complete acceptance and traceability coverage.
+
+Chosen-Option Rationale:
+Option 3 is the only option that leaves no defect silently unresolved while making no product decision on the owner's behalf. It preserves the verified-sound surface of Volume I — 97 individually asserted acceptance criteria, complete identifier traceability, the Evidence vocabulary, and the deterministic no-AI-narrative boundary — and confines change to demonstrated defects and their required alignment.
+
+Consequences:
+
+- Volume I is not frozen and `volume-i/INDEX.md` no longer claims that it is; its acceptance gate records a conditional pass for behavioural content and a fail for freeze readiness
+- `v1.3-volume-i-corrected` at `5d725fa` is the current baseline; `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded history and are not implementation baselines
+- `specification/008 AI_PRINCIPLES.md` carries stable `AI-REQ-001` through `AI-REQ-025` identifiers, appears in the foundation traceability matrix, and is a declared Volume I dependency; no AI policy, wording, modal force, or capability changes
+- owner decisions registered by this programme carry deterministic fail-closed interim behaviour and exact blocking impact; each remains a release gate until its named owners approve it
+- Volume II remains permitted for unblocked behaviour under Gate C and remains blocked from an architecture baseline and broad implementation until the upstream corrections land
+- no software, physical endpoint, migration, or provider integration is authorized by this decision
+
+Risks And Mitigations:
+
+- registering rather than resolving behaviour leaves genuine product gates open; each registration states its exact blocking impact so no gate can be passed by inference
+- fail-closed interim behaviour can disable an operationally useful path, notably emergency cross-tenant support access; the interim is recorded as a decision gate rather than a permanent design so the owner can restore it deliberately
+- correcting authority precedence changes how future ADR/foundation conflicts resolve; the corrected ordering restates PM-REQ-003 verbatim rather than inventing an ordering
+- adding identifiers to a foundation document could be mistaken for a policy change; the identifier convention section states explicitly that it adds identifiers only
+
+Compatibility And Migration:
+No shipped software or customer data exists to migrate. All 97 acceptance identifiers, CAP-001 through CAP-025, WF-001 through WF-018, PRULE-001 through PRULE-046, and PR-REQ-001 through PR-REQ-030 are preserved without renumbering. Behavioural corrections either restore an outcome that existing authority already compelled or fail closed pending an owner decision; none silently replaces accepted behaviour.
+
+Review Checkpoint:
+Revalidate at the RC2 regression audit. A successor Volume I freeze requires RC2 to return no Critical or High finding and every registered owner decision to state an unexpired gate. Reassess no later than 2026-08-27.
+
+## ADR-019: Owner Ratification Integration And Volume I Pre-Legal Baseline
+
+Status: Accepted
+Date: 2026-07-17
+Owner: Chief Architect
+Reversibility: Low for the three foundation changes and for the decisions that remove behaviour, because downstream artifacts and any successor freeze cite the corrected contracts; medium for the added contracts while no implementation depends on them. No emitted event, persisted record, or customer datum exists to unwind.
+
+Decision:
+Integrate the owner decisions recorded on 2026-07-17 into the foundation, Volume I and the retained Volume II drafts as one atomic change set, and declare the result the Volume I ratified pre-legal baseline rather than the final Volume I freeze. Twenty-one decisions are applied. Four controlled foundation changes are made under PM-REQ-009. The retention and deletion legal package and OD-013 remain outstanding and continue to block production use and the final freeze.
+
+Context:
+The RC1 neutrality review found that 25 of 33 owner-decision interims already implemented one of their own stated options while the Owner Decision Register described them as pending. Volume I was therefore decided-but-unratified rather than under-designed. The owner disposed of every release-blocking decision in the 2026-07-17 session recorded at [specification/volume-i/RATIFICATION_SESSION_2026-07-17.md](specification/volume-i/RATIFICATION_SESSION_2026-07-17.md), and supplied the three decisions that session left indeterminate in [specification/volume-i/OWNER_DECISION_SUPPLEMENT_2026-07-17.md](specification/volume-i/OWNER_DECISION_SUPPLEMENT_2026-07-17.md).
+
+Decision recording and normative integration are distinct acts. Both records are audit evidence and confer no authority by themselves; until this ADR's change set landed, the Owner Decision Register remained the operative text and continued to show these decisions as pending. This ADR is the controlled change that makes them normative.
+
+Authority And Precedence:
+This ADR does not supersede any unchanged foundation requirement and MUST NOT be read as doing so. Under PM-REQ-003 the foundation layer outranks the ADR registry. Where this change set changes foundation content, the change is made in the foundation document itself with its impact mapping in the same change set, exactly as ADR-006 and ADR-012 require. Four such changes are recorded below.
+
+The ratification records are authoritative for what was decided. The repository — the Owner Decision Register, PM-REQ-009, the ADR thresholds, and the foundation documents — is authoritative for the integration obligations each decision creates. Where a recorded decision necessarily amended a higher-order artifact that the session did not name, the repository governed and the scope expanded accordingly. Four such expansions are recorded under Scope Adjustments below.
+
+Controlled Foundation Changes Under PM-REQ-009:
+
+1. OD-015 — [specification/016 STATE_MODEL.md](specification/016%20STATE_MODEL.md), Document row. The `quarantined` and `retired` Document states and the `DocumentQuarantined` and `DocumentRetired` events are removed. The canonical Document lifecycle becomes `discovered -> ingested -> parsed -> indexed`. The Evidence quarantine model is a separate state machine and is unaffected. Legal-retention behaviour is not absorbed into the Document state machine and remains governed by the outstanding legal package. Basis: the previous row admitted two states and named two events that no Volume I permission, command, actor, service authority, job or event could produce, and assigned Document transitions to an undefined "Data Lifecycle Context" naming two competing retirement producers.
+
+2. OD-025 — [specification/018 OBSERVABILITY.md](specification/018%20OBSERVABILITY.md), WF-011 row of the Critical Workflow Observability Coverage table. The previous requirement was that "an admitted scheduled or manual run emits one provenance-complete `ReassessmentTriggered`". `ReassessmentTriggered` is removed as a canonical domain event and that clause is amended. This foundation change was not named by the ratification session; OD-025's own ADR Threshold in the Owner Decision Register states that resolution amends this coverage row through the PM-REQ-009 controlled foundation change under ADR-012 for every option, and the repository governed. Observability of reassessment is preserved, not weakened: no replacement event is invented, and coverage is carried entirely by already-accepted mechanisms — `ReassessmentScheduleEvaluated` for every ordinary or latest-coalesced due slot, the manual command's Audit Evidence under SM-REQ-004 for manual provenance, `EvaluationStarted` for the run that reaches Evaluation creation, `ReassessmentCompleted` for successful replacement, and `ReassessmentFailed`, `ReassessmentCanceled` and the linked Entitlement Decision for the non-executing branches. Trigger provenance — `trigger_kind`, policy identity, version and content hash, slot number and due time — is retained on the Reassessment Result record and its Audit Evidence rather than on a dedicated event. The previously unresolvable question of whether an Entitlement-blocked branch emits a trigger event does not arise, because no trigger event exists.
+
+3. OD-016 — [specification/016 STATE_MODEL.md](specification/016%20STATE_MODEL.md), Session row. The row's trigger clause admitted `revoked` on "explicit security revocation" while naming a bounded context rather than an actor or permission as its Transition Authority, and Volume I defined no `session.*` permission. The row is amended to name the authority for both ratified paths and to admit user-initiated termination of the acting Session. This foundation change was not named by the ratification session; it is a transition-authority change requiring ADR governance under SM-REQ-010, and the repository governed. No new Session state and no new transition edge is introduced: `active`, `revoked` and `expired` and the existing `active -> revoked` edge are unchanged. The rule that concurrent Sessions do not revoke one another is preserved.
+
+4. OD-012 — [specification/016 STATE_MODEL.md](specification/016%20STATE_MODEL.md), new EmergencyAccessGrant row. The owner approved emergency access under a dedicated break-glass artifact with a bounded lifetime and revocation, which makes that artifact stateful; SM-REQ-001 and SM-REQ-002 therefore require it to carry a canonical state machine, exactly as LegalHold does. The row is added with states `pending`, `active`, `rejected`, `revoked`, `expired`, modelled on the accepted Legal Hold two-person request-and-approve pattern, and introduces no new authorization mechanism. This foundation change was not named by the ratification session; it follows necessarily from OD-012 Option 3, and the repository governed. The Incident aggregate is not amended: its field list remains exhaustive and carries no break-glass semantics, which is the substance of the owner's rejection of Option 2.
+
+Decisions Applied:
+
+Ratified as specified, with the approved option as recorded — OD-001 Option 2 (DNS TXT and HTTPS file ownership verification); OD-002 Option 1 (equal weighting of applicable score pillars as the Version 1 baseline); OD-003 Option 3 (numeric confidence `0.0000`–`1.0000` with displayed Low/Medium/High bands); OD-005 (QA and operational thresholds, subject to the commercial clarification); OD-006 Option 3 as implemented (entitlement enforcement semantics, subject to the commercial clarification); OD-007 Option 1 (one-directional Citation: exactly one AIResponse, exactly one Evidence, no direct Evaluation write link); OD-008 Option 2 (BillingEntity core with invoice and payment detail adapter-level); OD-009 Option 2 (disputed and review-required Issues excluded from published scoring and prioritisation until eligible); OD-010 Option 1 (the seven-check baseline catalogue, thresholds, impact mappings and measurement contracts); OD-019 Option 1 (the metered-read unit, subject to the commercial clarification); OD-021 Option 1 (Account reactivation proves only the acting administrator's current MFA-satisfied Session, restores state, creates no Session, consults no target identity).
+
+OD-002 supersedes the earlier recommendation for a weighted distribution. Any later weighting change MUST use a new scoring-policy version and MUST NOT reinterpret historical Score Snapshots. OD-021 was ratified as Option 1 knowingly; it is approved behaviour and is not a neutral interim.
+
+Resolved by owner decision — OD-015 (Document lifecycle simplification, above); OD-017 (on an Issue fingerprint collision the second Issue MUST NOT be created and the affected Evaluation fails closed on the existing canonical collision outcome and telemetry, with no silently persisted duplicate variant); OD-018 (only one initial Evaluation orchestration may exist per Project, and a second root Crawl request that would initiate another while one is pending or running is rejected deterministically, reusing the accepted WF-011 single-orchestration guard); OD-024 (`ComparisonGenerated` removed; comparison behaviour remains and emits no domain event); OD-025 (`ReassessmentTriggered` removed, above).
+
+OD-024's and OD-025's approved outcomes are recorded as owner decisions rather than as option numbers. OD-025's outcome is not among that decision's three enumerated options, all of which retained the event; assigning it an option number would falsify the record.
+
+Resolved by replacement — OD-012 Option 3 (emergency access via a dedicated break-glass workflow and artifact outside the Incident aggregate, with an explicit predicate, separate requesting and approving actors, least privilege, explicit resource and action scope, immutable Audit Evidence, a canonical emergency-access event contract and a bounded lifetime; no standing cross-tenant access; the no-break-glass posture is superseded, not ratified); OD-016 Option 3 (every authenticated user may terminate their current Session; authorized security personnel may revoke one identified Session; sign-out-everywhere remains deferred); OD-020 Option 1 (explicit read rows added to the Permission Baseline for Organization home data, Project, Source, Crawl, Evaluation, Notification inbox and Export enumeration, mirroring their existing mutation permissions).
+
+Resolved by supplemental owner decision — OD-022 Option 1 (a fifth purpose-bound Identity Validation Receipt purpose `organization_reactivation`, carrying the assurance version and `mfa_satisfied=true`, bound to Organization ID, issuer and subject, 10-minute expiry, nonce-consumed only by the reactivation command, creating no Session); OD-026 Option 1 (`RoleExpiryBlockDecision` as a `decision` record, the effectiveness predicate amended so an Assignment carrying `expiry_blocked_last_admin` stays effective past `expires_at_utc` until the guard clears, re-evaluated on each Organization authorization-epoch advance, with the mandatory `RoleExpiryBlocked` route row added).
+
+The ratification session recorded OD-022 and OD-026 as ratified "as specified" without naming an option. What was specified in each case was an interim that expressly approved no option and under which the behaviour was unreachable — `ReactivateOrganization` registered and denied by deny-by-default, and the last-administrator expiry branch unreachable exactly as built. Ratifying either as written would have left a mandatory baseline workflow permanently unreachable. The owner therefore decided both explicitly. OD-021 and OD-022 remain distinct decisions and are not merged; OD-022 governs `organization.reactivate` only.
+
+Commercial policy and numeric configuration are separated. The commercial enforcement model, billing architecture and metering unit are approved as the Volume I baseline. Specific commercial numerals — daily read limits, crawl quotas, entitlement thresholds, warning thresholds, hard limits, grace periods and similar plan-specific quantities — are versioned policy configuration bound to an approved policy version, not immutable Volume I product constants. Volume I fixes what is measured, the metering unit, when entitlement evaluation occurs, how warning and enforcement behave, deterministic soft-limit and hard-limit semantics, policy-version binding, and audit and observability expectations. It does not fix a commercial numeral unless the ratification record identifies that value as intrinsic to the product. Retained numerals are marked as test fixtures, example policy values, or the approved current policy version. No price and no packaging tier is invented.
+
+Scope Adjustments From The Session Record:
+The ratification session is authoritative for what was decided but did not enumerate every obligation its decisions created. Three expansions are recorded so the audit trail explains why this change set is wider than that record:
+
+1. OD-012 was omitted from the integration brief's decision list, which enumerated twenty; the session recorded twenty-one. OD-012 is resolved by replacement and is integrated here. Only its customer-notification limb remains outstanding.
+2. OD-025 is a controlled foundation change to 018 OBSERVABILITY.md, which the session did not state. OD-024 is not a foundation change: the foundation cross-context event list is a stated minimum under ADR-015 and never named `ComparisonGenerated`, so its removal violates no foundation requirement and none is asserted here.
+3. OD-016 is a controlled foundation change to the 016 STATE_MODEL.md Session row under SM-REQ-010, which the session did not state.
+4. OD-012 Option 3 requires a controlled foundation change adding an EmergencyAccessGrant state machine to 016 STATE_MODEL.md, because a break-glass artifact with a bounded lifetime and revocation is stateful under SM-REQ-001 and SM-REQ-002. The session did not state this.
+
+OD-031 is classified as implementation-blocking per the session record and is not part of the release-blocking legal package. It remains pending and is not altered by this change set.
+
+Options Considered:
+
+1. Integrate every decision and declare the final Volume I freeze. Rejected: the legal package and OD-013 are unresolved, and neither is resolvable by specification work. A freeze would either falsify their status or invent their answers.
+2. Integrate nothing until the legal package and OD-013 clear. Rejected: twenty-one decisions are decided and unapplied, so the register misdescribes the specification as pending on questions the owner has answered. Leaving them unapplied preserves a known false statement for an unbounded period.
+3. Integrate the decided set, keep the outstanding gates truthfully open, and tag a reviewable pre-legal baseline. Accepted.
+4. Integrate the eighteen determinate decisions and record OD-012, OD-022 and OD-026 as decided-in-direction with mechanism outstanding. Rejected: it would leave three ratification clusters partially applied, which is worse than either a complete integration or none. The owner supplied the three decisions instead.
+
+Consequences:
+
+- four foundation changes land in this change set: the 016 Document row, the 016 Session row, the new 016 EmergencyAccessGrant row, and the 018 WF-011 coverage row; no other foundation content is altered
+- the Volume I ratified pre-legal baseline is `v1.4-volume-i-ratified-prelegal`; it is a reviewable milestone and is not the final Volume I freeze, and no document may describe it as frozen or implementation-ready
+- no ratified decision remains described as pending, interim or provisional in active normative text; interim policy identifiers for ratified decisions are renamed to their approved Version 1 policy identity, and historical audit text is retained only where marked historical
+- `DocumentQuarantined`, `DocumentRetired`, `ComparisonGenerated` and `ReassessmentTriggered` have no active normative producer, consumer, route, manifest entry or acceptance claim; the Document `quarantined` and `retired` states are removed rather than reserved
+- a new capability and workflow exist for emergency access, a new `session.*` permission and Session revoke-reason vocabulary exist for sign-out and single-session revocation, a fifth receipt purpose exists for Organization reactivation, and `RoleExpiryBlockDecision` exists in the authorization record architecture; none is authorized by ADR-017 or ADR-018, whose constraint sets authorize no new capability, and all are authorized here
+- the acceptance identifier count remains exactly 97 and no identifier is added or renumbered. The behaviour added by OD-012, OD-016, OD-020, OD-022 and OD-026 binds to capabilities and workflows that already exist — emergency access to CAP-023 and WF-018, session termination to CAP-001, CAP-025, WF-001 and WF-013, customer-facing reads across the accepted read surface, Organization reactivation and the last-administrator block to WF-013 — so each is verified by strengthening the assertions of an existing acceptance identifier rather than minting a new one. Every ratified decision cites at least one defined acceptance identifier and none is dangling
+- production release with real customer data remains blocked wherever legal approval is required; the absence of legal sign-off is not approval
+- Volume II remains blocked from an architecture baseline and broad implementation; the retained drafts are aligned to the corrected contracts and are not expanded
+
+Affected Downstream Documents:
+[specification/002 GLOSSARY.md](specification/002%20GLOSSARY.md), [specification/011 DOMAIN_MODEL.md](specification/011%20DOMAIN_MODEL.md), [specification/014 SECURITY_MODEL.md](specification/014%20SECURITY_MODEL.md), [specification/015 DATA_LIFECYCLE.md](specification/015%20DATA_LIFECYCLE.md), [specification/017 ERROR_MODEL.md](specification/017%20ERROR_MODEL.md), [specification/FOUNDATION_TRACEABILITY_MATRIX.md](specification/FOUNDATION_TRACEABILITY_MATRIX.md), [specification/FOUNDATION_SECTION_MAPPINGS.md](specification/FOUNDATION_SECTION_MAPPINGS.md), and the Volume I set: INDEX, OWNER_DECISION_REGISTER, PRODUCT_DEFINITION, PRODUCT_RULES, CAPABILITY_MODEL, WORKFLOW_SPECIFICATIONS, SCORE_EVIDENCE_MODEL, ACCEPTANCE_AND_TEST_MAPPING, TRACEABILITY_MATRIX. Retained Volume II drafts: INDEX, API_CONTRACTS, APPLICATION_LAYER, BACKGROUND_PROCESSING, INTEGRATION_CONTRACTS, SECURITY_PERFORMANCE, TESTING_ARCHITECTURE.
+
+Affected Tests, Diagrams, Schemas And Contracts:
+Acceptance and test mapping for every capability, workflow and product rule named by the applied decisions; [diagrams/DOMAIN_MODEL.md](diagrams/DOMAIN_MODEL.md), [diagrams/DATA_LIFECYCLE.md](diagrams/DATA_LIFECYCLE.md), [diagrams/CONTAINER_ARCHITECTURE.md](diagrams/CONTAINER_ARCHITECTURE.md), [diagrams/SYSTEM_CONTEXT.md](diagrams/SYSTEM_CONTEXT.md); [schemas/POSTGRESQL_SCHEMA.md](schemas/POSTGRESQL_SCHEMA.md), whose executable event-registry manifest previously excluded five event names pending these decisions and is corrected here: the two removed Document events and the removed reassessment trigger event become permanent exclusions, while the last-administrator block event and the Issue collision event are admitted with exactly one producer each; [architecture/RAILS_APPLICATION_ARCHITECTURE.md](architecture/RAILS_APPLICATION_ARCHITECTURE.md); and the Volume II API, application-layer and event contracts carrying the corresponding upstream blocker identifiers.
+
+Risks And Mitigations:
+
+- removing an event named by a foundation requirement could silently weaken observability; the 018 coverage row is amended in this change set and its coverage is re-expressed through already-accepted events, audit evidence and records, so no coverage obligation is discharged by deletion alone
+- adding a break-glass capability creates the strongest available path to cross-tenant customer data; it is authorized outside the Incident aggregate with separated requesting and approving actors, explicit resource and action scope, a bounded lifetime and immutable Audit Evidence, and its customer-notification limb is withheld pending legal review rather than assumed
+- integrating decided behaviour while legal and OD-013 remain open could be misread as a freeze; the milestone is named pre-legal, the outstanding gates state their exact blocking impact, and no document claims implementation readiness
+- renaming interim policy identifiers could erase a genuinely unresolved gate; each occurrence is classified before change, and identifiers bound to unresolved decisions — including the legal package, OD-013, OD-014, OD-023, OD-027, OD-031 and OD-032 — are retained unchanged
+- an owner decision recorded without an option number could later be misread as an inference; OD-024, OD-025, OD-012, OD-016, OD-020, OD-022 and OD-026 each cite the record that decided them
+
+Compatibility And Migration:
+No shipped software, emitted event, persisted record or customer datum exists to migrate. CAP, WF, PRULE, PR-REQ, OD and ADR identifiers are preserved without renumbering; additions extend each family rather than reassigning it. The four removed events were never producible: each was already excluded from the executable event-registry manifest or had no defined producer, so no consumer, route or retained history depends on one and no event-contract version is broken. The removed Document `quarantined` and `retired` states were reserved and unreachable, so no Document can hold a removed state. OD-007's Citation direction, OD-002's equal-weight scoring policy and OD-010's check catalogue are ratified as already implemented and change no observable behaviour. Behaviour added by OD-012, OD-016, OD-020, OD-022 and OD-026 is new and supersedes no accepted contract. OD-026 Option 1 permits an Assignment to remain effective beyond its stated `expires_at_utc` until the guard clears; the owner accepted that consequence expressly.
+
+Review Checkpoint:
+This baseline is reviewable, not final. The successor Volume I freeze requires: qualified legal review of the retention, deletion and notification package to complete, preceded by the owner input it depends on — approved jurisdictions, markets, and customer and contract scope, none of which the repository currently contains; `AC-CAP-013`'s unsatisfiable 30-day expiry-warning criterion to be reconciled or changed; and an explicit Chief Architect decision on OD-013 event tenant identity, which no option may satisfy by inferring a synthetic platform tenant. The successor tag is the final Volume I freeze and MUST NOT be created while any of those gates is open. Reassess no later than 2026-08-27.

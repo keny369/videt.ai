@@ -233,7 +233,7 @@ Redis locks, `SETNX`, cache `add`, Sidekiq uniqueness and process mutexes are pr
 | `QRY-003 ProjectOverview` | 10 | 300 | current projections only; unreachable until WF-015 operation/unit mapping resolves |
 | `QRY-004 SourceCollection` | 7 | 150 | 50 Sources plus bounded status/policy summaries |
 | `QRY-005 SourceDetail` | 7 | 250 | child histories use separate pages |
-| `QRY-006 EvaluationCollection` | 7 | 150 | unreachable until read authority and WF-015 operation mapping resolve |
+| `QRY-006 EvaluationCollection` | 7 | 150 | read authority canonical under OD-020 `evaluation.read`; exposure deferred to the Volume II baseline |
 | `QRY-007 EvaluationDetail` | 10 | 500 | field reads bounded; unreachable until WF-015 operation mapping resolves |
 | `QRY-008 HistoryComparison` | 9 | 500 | exactly two selected snapshots; no provider call |
 | `QRY-009 IssueCollection` | 7 | 200 | 50 Issues plus bounded state summaries |

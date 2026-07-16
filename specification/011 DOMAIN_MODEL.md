@@ -128,7 +128,7 @@ DM-REQ-006: Identifier namespaces MUST appear in logs, audit events, and telemet
 | RecommendationArtifact to AIResponse | 0 to many | AIResponse MUST reference one RecommendationArtifact context when generated for remediation. |
 | AIResponse to Citation | 0 to many | Citation MUST reference exactly one AIResponse and exactly one Evidence record; baseline writes contain no direct Evaluation link. |
 | Project to Evidence | 1 to many | Every Evidence record belongs to exactly one Project; `source_id` and `evaluation_id` follow the exact nullable cases in the Volume I Evidence contract. |
-| Evidence to Citation | 1 to many | Every Citation references exactly one Evidence record; an Evidence record may support zero or more Citations. |
+| Evidence to Citation | 0 to many | Every Citation references exactly one Evidence record; an Evidence record may support zero or more Citations. |
 | Organization to BillingEntity | 1 to many over retained history | BillingEntity MUST reference one Organization. WF-001 creates exactly one active baseline BillingEntity; at most one BillingEntity for that Organization may be nonclosed, and every Plan Assignment MUST reference a BillingEntity in the same Organization. |
 | Organization to Integration | 1 to many | Integration MUST reference one Organization. |
 | Integration to Credential | 1 to many | Credential MUST reference one Integration owner. |

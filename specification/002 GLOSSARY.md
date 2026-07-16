@@ -52,7 +52,7 @@ A deterministic or model-assisted evaluation applied to governed Evidence.
 
 ### Check Result
 
-Structured output of a Check, including status, Evidence references, and severity.
+Structured output of a Check, including execution status, Evidence references, and impact band. A failed Check Result carries an impact band; `severity` is a distinct concept reserved for the error taxonomy in [017 ERROR_MODEL.md](017%20ERROR_MODEL.md) and is not a Check Result field.
 
 ### Competitor Benchmark
 
@@ -178,9 +178,9 @@ A bounded discoverability program for an organization, used as the primary plann
 
 Stored output package tied to an issue and generated for implementation by a user or partner team.
 
-### Score Snapshot
+### ScoreSnapshot
 
-Point-in-time storage of overall and pillar scores with version metadata.
+Point-in-time storage of overall and pillar scores with version metadata. `ScoreSnapshot` is the canonical spelling required by Rule 1 of [003 TERMINOLOGY.md](003%20TERMINOLOGY.md); "Score Snapshot" is not a permitted alias.
 
 ### Search Presence
 
