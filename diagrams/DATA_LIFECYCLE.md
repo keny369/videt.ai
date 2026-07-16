@@ -4,7 +4,7 @@
 
 - Status: Canonical
 - Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -27,10 +27,17 @@ flowchart LR
     RETRIEVE --> EXPORT[Export]
     RETRIEVE --> ARCHIVE[Archive]
     RETRIEVE --> LOGDEL[Logical Delete]
-    LOGDEL --> PHYSDEL[Physical Delete]
-    PHYSDEL --> DESTROY[Irreversible Destruction]
+    LOGDEL --> HOLD{Active Legal Hold Intersects?}
+    HOLD -->|Yes| BLOCKED[Deletion Job Blocked]
+    BLOCKED -->|Hold Released| HOLD
+    HOLD -->|No| TOMBSTONE[Write Backup Tombstone]
+    TOMBSTONE --> PHYSDEL[Delete Primary, Index, Cache And Key]
+    PHYSDEL --> BACKUPPURGE[Backup Purge Or Cryptographic Erasure]
+    BACKUPPURGE --> EVIDENCE[Persist Immutable Deletion Evidence]
+    EVIDENCE --> DESTROY[Irreversible Destruction Complete]
     ARCHIVE --> RESTORE[Restore]
-    RESTORE --> RETRIEVE
+    RESTORE --> RESTOREGUARD[Apply Tombstones Before Read]
+    RESTOREGUARD --> RETRIEVE
 ```
 
 ## Related Documents

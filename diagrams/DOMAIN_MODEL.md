@@ -4,7 +4,7 @@
 
 - Status: Canonical
 - Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -24,6 +24,7 @@ erDiagram
     ORGANIZATION ||--o{ PROJECT : owns
     ORGANIZATION ||--o{ BILLING_ENTITY : governs
     ORGANIZATION ||--o{ INTEGRATION : governs
+    ORGANIZATION ||--o{ EXPORT : owns
 
     PROJECT ||--o{ SOURCE : includes
     SOURCE ||--o{ DOCUMENT : yields
@@ -39,7 +40,6 @@ erDiagram
     RECOMMENDATION_ARTIFACT ||--o{ AI_RESPONSE : may_generate
     AI_RESPONSE ||--o{ CITATION : references
 
-    PROJECT ||--o{ EXPORT : delivers
     INTEGRATION ||--o{ CREDENTIAL : uses
 ```
 

@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -76,6 +76,8 @@ SB-REQ-003: In-scope capabilities MUST include:
 - AI-assisted explanation with evidence linkage
 - reporting, exports, and monitoring summaries
 - integration management for approved external systems
+
+For Volume I, “integration management” means only the platform-managed, policy-approved adapter and Credential lifecycle in `integration-interim-v1`. It does not include a customer connector catalogue, arbitrary endpoint entry, customer-supplied provider credentials, or direct customer mutation of Integration/Credential state.
 
 ### Out-Of-Scope Capabilities
 
@@ -206,10 +208,10 @@ SB-REQ-029: Future possibilities MUST be labeled as non-commitment in roadmap an
 | Trust and ownership boundaries | Architecture review and security review | Chief Architect and Chief Security | Design gate |
 | Responsibility leakage controls | Policy test suite and documentation review | Chief Security | CI and PR review |
 
-## Open Questions
+## Volume I Interim Resolutions
 
-- Should enterprise contracts permit optional delegated remediation execution under constrained approval workflows?
-- Should additional external system classes be standardized before Volume IV integration architecture?
+- Enterprise contracts do not permit delegated remediation execution in Volume I. F1 may produce guidance and approved exports only; any direct or delegated customer-production mutation requires a later explicit capability, authority, rollback, audit, and acceptance contract.
+- Volume I recognizes only the four logical integration kinds in `integration-interim-v1`. An additional external-system class is unsupported until a later versioned boundary and adapter contract explicitly adds it.
 
 ## Related Documents
 

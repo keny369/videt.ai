@@ -3,20 +3,23 @@
 ## Snapshot
 
 - Date: 2026-07-16
-- Status: Active architecture phase
+- Status: Volume I implementation-ready baseline frozen
 - Foundation Baseline: 1.0
-- Current Gate: Volume II and downstream specifications paused
+- Volume I Baseline: `v1.1-implementation-ready`
+- Current Gate: Volume I frozen; Volume II and downstream specifications paused
 
 ## Current Objective
 
-Reach Volume I specification completeness such that an experienced engineering team can implement without asking the product owner any functional clarification questions.
+Preserve the frozen Volume I implementation baseline while explicit owner approvals remain release gates. Reopen Volume I only for a genuine defect demonstrated during implementation.
 
 ## Operating Constraints
 
 - No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
-- Prioritize eliminating implementation disagreement risks in existing Volume I product-spec documents.
+- Treat `v1.1-implementation-ready` as the normative Volume I implementation baseline.
+- Do not edit frozen Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion.
+- Permit a Volume I correction only when implementation evidence demonstrates a contradiction, non-executable contract, unsafe behavior, or invalid acceptance oracle.
 - Do not begin Volume II or downstream specifications until Volume I acceptance passes.
-- Do not implement software, commit, or push during specification-completeness passes.
+- Do not infer permission to begin implementation or downstream specification work from the freeze alone.
 
 ## Baseline Summary
 
@@ -30,7 +33,7 @@ Reach Volume I specification completeness such that an experienced engineering t
 ## Domain Progress
 
 - Foundation governance: complete and active
-- Volume I Product Foundations: active
+- Volume I Product Foundations: frozen at `v1.1-implementation-ready`; owner approvals remain release gates
 - Experience and Interaction: paused
 - Domain and State downstream detail: paused
 - Data and Persistence downstream detail: paused
@@ -41,10 +44,10 @@ Reach Volume I specification completeness such that an experienced engineering t
 
 ## Active Workstream
 
-1. Run adversarial specification passes across capabilities, workflows, rules, scoring, and acceptance criteria to identify where implementation teams could diverge.
-2. Resolve ambiguity directly in existing Volume I specification files with deterministic behavior, edge-case handling, and testable acceptance criteria.
-3. Close remaining owner decisions only where they block deterministic functional behavior.
-4. Keep traceability and acceptance mapping synchronized as a byproduct of specification corrections.
+1. Preserve the tagged Volume I baseline without further hardening passes.
+2. Record explicit owner approvals without silently changing frozen behavior.
+3. If implementation later demonstrates a genuine defect, correct only the affected existing specifications, acceptance assertions, and trace links, then create a successor implementation-baseline tag.
+4. Keep Volume II and every downstream specification phase paused until its existing gate is explicitly satisfied.
 
 ## Risks
 
@@ -62,7 +65,7 @@ Reach Volume I specification completeness such that an experienced engineering t
 
 ## Next Checkpoints
 
-- Execute an adversarial disagreement sweep: for each capability and workflow, identify missing information, ambiguity, conflicting interpretations, undefined transitions, missing permissions, unhandled failures, and non-testable acceptance criteria.
-- Convert highest-severity disagreement defects into deterministic specification text in existing Volume I files.
-- Resolve only the owner decisions that are direct blockers to deterministic behavior.
-- Reconfirm downstream pause status in roadmap and index before each merge.
+- Obtain OD-010 owner approval and exact Measurement Set bytes before numeric score release.
+- Complete OD-011 qualified legal/product approval before production customer-data use.
+- Preserve downstream pause status until the roadmap gate is explicitly changed.
+- Accept only implementation-evidenced Volume I defect reports; reject speculative reopening.

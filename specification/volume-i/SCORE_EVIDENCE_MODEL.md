@@ -20,7 +20,7 @@ This document defines logical product contracts and behavior. It does not define
 - All timestamps are UTC instants.
 - All decimal calculations use base-10 decimal arithmetic. Binary floating-point output MUST NOT determine a persisted score.
 - Every version field identifies an immutable policy or definition. Reusing a version identifier for changed content is prohibited.
-- OD-001, OD-002, OD-003, and OD-009 remain owner approvals. The interim policies in this document are mandatory until an approved replacement version becomes effective.
+- OD-001, OD-002, OD-003, OD-009, and OD-010 remain owner approvals. The interim policies in this document are mandatory until an approved replacement version becomes effective.
 
 ## Conceptual Chain
 
@@ -46,7 +46,7 @@ Every Evidence record MUST contain:
 - `project_id`
 - `source_id`, nullable only for project-level external measurements
 - `evaluation_id`, nullable only for ownership-verification evidence captured before an Evaluation exists
-- `evidence_type`: one of `crawl_observation`, `parsed_content`, `external_measurement`, `verification_observation`, or `operator_submission`
+- `evidence_type`: one of `source_document`, `crawl_observation`, `parsed_content`, `external_measurement`, `verification_observation`, or `operator_submission`
 - `payload_reference`: an immutable reference to the retained observation or artifact
 - `content_sha256`: lowercase 64-character SHA-256 hexadecimal digest of the referenced bytes
 - `captured_at_utc`
@@ -60,6 +60,8 @@ Every Evidence record MUST contain:
 - `retention_class`
 - `correlation_id`
 
+For every Evidence type in Volume I, `retention_class` is exactly `product_evidence_payload` under `retention-interim-v1`; no caller may choose another value. Staging bytes before Evidence creation use `temporary_processing`, while the Evidence envelope, digest, provenance, Validation Decisions, and downstream lineage become `product_history` after payload destruction. Verification challenge plaintext remains `ephemeral_secret` and is never part of Evidence. An unknown retention class rejects Evidence creation.
+
 ### Data Classification Semantics
 
 Classification order is `public < internal < confidential < restricted`:
@@ -69,7 +71,7 @@ Classification order is `public < internal < confidential < restricted`:
 - `confidential`: customer-provided nonpublic content, detailed Evidence, personal or contact data, and tenant-specific exports that are not security secrets.
 - `restricted`: credentials, challenge material, security-incident detail, privileged audit content, or any Evidence explicitly placed behind a security grant.
 
-A derived field inherits the strongest classification of any source value or Evidence used to derive it. An approved declassification is a separate immutable record containing source field or Evidence IDs, original and resulting classification, authorizer, reason, policy version, and effective time; it never mutates the source Evidence. Unknown classification is treated as `restricted`.
+A derived field inherits the strongest classification of any source value or Evidence used to derive it. Volume I defines no declassification permission or workflow, so declassification is prohibited and no actor or service may lower a persisted or derived classification. A future declassification capability requires an explicit protected authority, approval, transition, expiry/recalculation, event, and acceptance contract before use. Unknown classification is treated as `restricted`.
 
 ### Validation Rules
 
@@ -161,13 +163,21 @@ Every Check Result MUST contain:
 
 - `check_result_id`
 - `organization_id`, `project_id`, and `evaluation_id`
+- `evaluation_input_snapshot_id`
+- `check_catalog_version` and `check_applicability_snapshot_id`
 - `check_definition_id` and `check_definition_version`
 - `pillar_id`
+- `subject_scope`: `project`, `source`, or `document`
+- `source_id`, null only when `subject_scope=project`
+- `document_id`, nonnull only when `subject_scope=document`
+- `canonical_subject_type` and `canonical_subject_key`
+- `absence_coverage_selector_snapshot` and `subject_set_complete`
 - ordered `evidence_references`
 - ordered Evidence Validation Decision ID/status pairs effective as of Check creation
 - `evidence_set_hash`
 - `execution_status`: `passed`, `failed`, `not_applicable`, or `error`
 - `outcome_code`
+- `error_reason_code`, null unless `execution_status=error`
 - `normalized_observation`
 - `impact_band`, required for `failed` and null for `passed`, `not_applicable`, or `error`
 - `impact_rule_version`
@@ -176,16 +186,17 @@ Every Check Result MUST contain:
 - `confidence_band`: `low`, `medium`, or `high`
 - `confidence_policy_version`
 - `rule_or_model_version`
+- `execution_attempt_count`, either one or two under the common executor policy
 - `deterministic_input_hash`
 - `produced_at_utc`
 
 ### Deterministic Input And Output
 
-The canonical input tuple is the ordered tuple of Organization, Project, Evaluation input-snapshot identifier, Check Definition identifier and version, pillar identifier, sorted Evidence identifiers and digests, policy versions including impact rule, rule or model version, locale, and time-zone assumption. Locale is `en-AU` and the time-zone assumption is UTC unless the Check Definition explicitly versions another value.
+The canonical input tuple is the ordered tuple of Organization, Project, Evaluation input-snapshot identifier, Check Catalog version and content hash, Check Applicability Snapshot identifier and content hash, Check Definition identifier and version, pillar, subject scope and canonical subject identity, frozen absence-coverage-selector snapshot, sorted Evidence identifiers and digests, their effective Validation Decision identifiers/statuses, policy versions including impact and effort rules, rule or model version, locale, and time-zone assumption. Locale is `en-AU` and the time-zone assumption is UTC unless the Check Definition explicitly versions another value.
 
-`deterministic_input_hash` is SHA-256 over UTF-8 canonical JSON with keys sorted lexicographically, no insignificant whitespace, decimal values rendered without exponent notation, arrays in declared order, and strings normalized to Unicode NFC. Two executions with the same canonical input tuple MUST produce the same semantic output tuple: execution status, outcome code, normalized observation, impact band, confidence value or status, confidence band, and pillar identifier. Generated identifiers and timestamps are excluded from semantic equality.
+`deterministic_input_hash` is SHA-256 over UTF-8 canonical JSON with keys sorted lexicographically, no insignificant whitespace, decimal values rendered without exponent notation, arrays in declared order, and strings normalized to Unicode NFC. Two executions with the same canonical input tuple MUST produce the same semantic output tuple: execution status, outcome code, normalized observation, impact band, confidence value or status, confidence band, pillar, subject identity, absence selector, and subject-set-complete flag. Generated identifiers, attempt timestamps, correlation identifiers, and `produced_at_utc` are excluded from semantic equality.
 
-Every immutable Check Definition MUST contain an exact impact rule mapping its normalized failed observation to one of `informational`, `low`, `medium`, `high`, or `critical`. The mapping may be constant or threshold-based but MUST include complete boundary fixtures and `impact_rule_version`. Missing or unmapped impact changes the Check Result to `error` and creates no Issue. Manual or AI post-hoc impact changes are prohibited; changed mapping requires a new Check Definition and impact-rule version and a new Evaluation or explicit policy recalculation.
+Every immutable Check Definition MUST contain an exact impact rule mapping its normalized failed observation to one of `informational`, `low`, `medium`, `high`, or `critical`. The mapping may be constant or threshold-based but MUST include complete boundary fixtures and `impact_rule_version`. A Definition with a missing or nonexhaustive impact mapping cannot enter an active Check Catalog. Discovery of catalog corruption or an unmapped failed outcome after activation fails the Evaluation as `check_catalog_integrity_failure`; it does not create an Issue or silently downgrade the outcome. Manual or AI post-hoc impact changes are prohibited; changed mapping requires a new Check Definition and impact-rule version and a new Evaluation or explicit policy recalculation.
 
 ### Interim Confidence Policy `confidence-interim-v1`
 
@@ -203,6 +214,201 @@ Every immutable Check Definition MUST contain an exact impact rule mapping its n
 - `failed` with valid medium or high confidence creates a published, open Issue.
 - `failed` with low, missing, or invalid confidence creates a withheld candidate Issue in `review_required` adjudication status.
 - A Check Result MUST map to exactly one pillar. Multi-pillar allocation and duplicate score contribution are prohibited; a related Issue MAY inform multiple Recommendation Artifacts but contributes to one pillar only.
+
+## Check Definition And Check Catalog Contract
+
+### Immutable Check Definition
+
+A Check Definition is an immutable versioned logical artifact. It is not a tenant-editable rule and is not a new core aggregate. Every Definition contains:
+
+- `check_definition_id`, semantic `check_definition_version`, owner, and `released_at_utc`
+- nonblank purpose, one owning Capability ID, one Pillar ID, and `score_capable=true`
+- exact input Evidence types and payload-schema versions
+- result cardinality and subject scope/type/canonicalization
+- an applicability predicate and ordered input selector
+- exhaustive execution-status/outcome-code and normalized-observation schemas
+- one Issue type for each failed outcome, an exhaustive `impact_rule_version`, and the confidence rule
+- one `absence_proof_mode` and a Source-neutral selector template
+- executor-policy version, dependencies, effort-policy version, and exhaustive recommendation-template mapping
+- ordered acceptance-fixture identifiers and a SHA-256 content digest over all preceding semantic fields
+
+The Definition contains no Organization, Project, Source, Document, provider, or generated record identifier. For a Project or Source subject, the canonical key is the opaque Project or Source ID unchanged; a Document subject uses the canonical URL algorithm in this document. Changing any semantic field requires a new Definition version and Check Catalog version. Tenant actors cannot create, edit, disable, remap, or reorder a Definition.
+
+### Check Catalog
+
+A Check Catalog contains `check_catalog_version`, owner, release time, status, ordered Definition ID/version/content-digest tuples, executor-policy version, external-measurement-policy version, effort-policy version, content SHA-256, and superseded Catalog version. Its content hash is SHA-256 over canonical JSON of every field except the content hash itself. Reuse of a Catalog version or Definition version for changed content is prohibited.
+
+`check-catalog-interim-v1` is the mandatory deterministic interim Catalog pending OD-010 approval or an approved replacement. Its owner is Chief Product, release time is `2026-07-16T00:00:00Z`, status is `active_interim`, executor policy is `check-executor-interim-v1`, external-measurement policy is `external-measurement-interim-v1`, effort policy is `effort-interim-v1`, and its ordered membership is exactly:
+
+1. `CHK-TI-001@1.0.0`
+2. `CHK-CQ-001@1.0.0`
+3. `CHK-TR-001@1.0.0`
+4. `CHK-SP-001@1.0.0`
+5. `CHK-AIP-001@1.0.0`
+6. `CHK-AS-001@1.0.0`
+7. `CHK-LP-001@1.0.0`
+
+Activation validation recomputes the Catalog and Definition digests; proves exactly one score-capable Definition for each Pillar; proves every outcome, impact, effort, template, subject, error, and fixture mapping exhaustive; and rejects unknown or duplicate membership. A missing, altered, incomplete, or unrecognized active Catalog is `check_catalog_unavailable`. Digest mismatch, duplicate Definition identity, cross-version semantic reuse, or a mapping that was accepted but proves nonexhaustive is `check_catalog_integrity_failure`. Either condition fails the Evaluation before any Check or Issue write. No partially validated Catalog executes.
+
+### Frozen Check Applicability Snapshot
+
+Before execution, the evaluation service creates one immutable Check Applicability Snapshot containing its identifier; Organization, Project, Evaluation, and Evaluation Input Snapshot IDs; Catalog version/content digest; Project profile version and `local_presence_applicable` decision/reason; the active Source IDs sorted ascending; Crawl coverage and parsing-readiness identities; and every expected result entry. Each entry contains Definition ID/version, `applicable`, exact reason when false, subject scope/type/key, nullable Source and Document IDs, ordered selected Evidence ID/digest/Validation-Decision tuples, and a frozen absence-selector instance.
+
+Expected entries are exhaustive and ordered by Catalog position, canonical subject key UTF-8 bytes, Source ID, then Document ID:
+
+- `CHK-TI-001`: one entry for every active Source.
+- `CHK-CQ-001`: one entry for every successfully parsed HTML or XHTML Document in the Evaluation Input Snapshot.
+- `CHK-TR-001`: one entry for every active Source, including a Source whose root input is missing so that it produces an explicit handled error.
+- `CHK-SP-001`, `CHK-AIP-001`, and `CHK-AS-001`: exactly one Project entry each.
+- `CHK-LP-001`: exactly one Project entry; it is inapplicable only when the frozen Project profile validly records `local_presence_applicable=false` and its nonblank reason.
+
+The Snapshot content hash is SHA-256 over canonical JSON of all semantic fields. Actual Source IDs are bound only in this Snapshot and its absence-selector instances, never in a global Definition. An instance contains the Definition's subject namespace plus exactly the entry's Organization, Project, nullable Source, subject type, and canonical subject key. Missing/duplicate expected entries, an entry outside the active Source set, stale profile/input version, tenant mismatch, altered order, or content-digest mismatch is `check_applicability_snapshot_invalid` and fails the Evaluation before Check execution. A missing selected input that is permitted by an otherwise valid selector remains an entry and produces the Definition's handled `error`; it is not silently omitted.
+
+`subject_set_complete` is true only when the selected evidence proves complete coverage for that exact selector instance. It is false for every `error`, for partial relevant Crawl/parser/external coverage, or when a required subject could not be observed. A `not_applicable` Local Presence result has true subject-set completeness for its inapplicable Project selector. A passed or failed result MUST reference at least one effectively valid Evidence record. A `not_applicable` result may have no Evidence because the frozen applicability entry is its authority. An `error` caused by missing Evidence may also have no Evidence; every other error retains the available Evidence that proves it.
+
+### Common Pure Check Executor `check-executor-interim-v1`
+
+Checks are pure evaluations of the frozen applicability entry and Evidence. They MUST NOT perform a network request, provider call, mutable read, clock-dependent query, or tenant-policy mutation. Each expected entry ultimately yields exactly one Check Result or the whole Evaluation fails under the Catalog/applicability/integrity boundary above.
+
+- Each attempt has five elapsed seconds. At exactly five seconds, `check_internal_timeout` wins over completion; a later completion is discarded and cannot create or replace a Check Result.
+- Only `check_dependency_unavailable` and `check_internal_timeout` are retryable. They receive one initial attempt and exactly one retry starting one second after the failed attempt completes. The retry uses the identical applicability entry, Evidence tuple, input hash, and attempt identity lineage. No other reason retries.
+- Exhaustion persists one `error` Check Result with both outcome and `error_reason_code` equal to `check_dependency_unavailable` or `check_internal_timeout`, `execution_attempt_count=2`, null confidence value, `confidence_status=missing`, display band `low`, null impact, no Issue, and subject-set completeness false.
+- A semantic input problem persists one-attempt `error` with `error_reason_code` selected by this first-match order: `input_evidence_missing`, `input_evidence_stale`, `input_evidence_indeterminate`, `input_evidence_invalid`, `normalized_input_invalid`, or `output_schema_invalid`. Its outcome equals that reason unless a Definition expressly names a narrower domain outcome. Unknown runtime failures map to nonretryable `output_schema_invalid` with restricted diagnostics.
+- Passed, failed, and not-applicable results use one attempt. Exact execution replay returns the stored Result and emits no second `CheckResultCreated`; altered input under the same result identity is `idempotency_conflict` and fails the Evaluation.
+- Handled `error` Results are terminal and do not fail WF-007. After every expected entry is terminal, the Evaluation may complete and seal its Issue Set; the affected pillar is insufficient and the overall score becomes unavailable. Catalog, Definition, applicability-snapshot, tenant-integrity, result-idempotency, or atomic Issue-set publication failure instead transitions the Evaluation to failed and publishes no Issue Set.
+
+The executor emits one attempt telemetry record for every attempt with Definition, subject, attempt number, queued/started/completed times, terminal reason, input hash, and correlation ID. It emits `CheckResultCreated` only with the one persisted Result. Retrying or completing late cannot duplicate the event.
+
+### Baseline Internal Evidence Payloads
+
+`CHK-TI-001` consumes one `crawl_observation` Evidence payload per Source using schema `internal-link-observation-v1`. The payload contains Organization, Project, Source, Evaluation and Crawl IDs; canonical Source root; relevant-coverage status (`full` or `partial`); and `targets`, ordered by canonical target URL UTF-8 bytes. Each target contains canonical URL, terminal status (`reachable`, `absent`, or `unobserved`), reason (`document_valid`, `content_absent`, `fetch_failed`, `limit_discarded`, or `parse_omitted`), and ordered referrers. Each referrer contains Document ID, canonical referring URL, and zero-based link position in normalized document order. `reachable` requires `document_valid`, `absent` requires `content_absent` from terminal `404` or `410`, and every other reason requires `unobserved`. Duplicate target URLs or referrer tuples, a target outside frozen Source Scope, inconsistent status/reason, or noncanonical ordering invalidates the payload.
+
+`CHK-CQ-001` consumes one `parsed_content` Evidence payload per Document using schema `document-title-observation-v1`. It contains Organization, Project, Source, Evaluation and Document IDs, canonical Document URL, media type, parser and normalization-schema versions, and `title_nodes` in document order. Each node contains zero-based position, immutable locator, and normalized title. Normalization decodes character references, converts the string to Unicode NFC, trims leading/trailing Unicode White_Space characters, and replaces every internal run of one or more Unicode White_Space characters with one ASCII space. Blank normalized values remain in the node list. Duplicate positions, unresolved locators, unsupported media type, or a value inconsistent with the normalized source bytes invalidates the payload.
+
+`CHK-TR-001` consumes one `parsed_content` Evidence payload per Source root using schema `organization-identity-observation-v1`. It contains Organization, Project, Source, Evaluation and root Document IDs; canonical root URL; immutable public-identity-profile ID/version; expected public name and canonical public URL; structured-data parser/schema versions; and ordered Organization nodes. Each node contains a stable zero-based node position, locator, `schema_valid`, nullable normalized public name, and nullable canonical URL. Public-name normalization uses Unicode NFC, the same whitespace rule as title normalization, and Unicode 15.1 default full case folding for comparison. URL comparison uses the canonical URL rules in this document. A valid matching node has `schema_valid=true` and both normalized values equal the expected values. Missing expected identity/profile values, ambiguous profile version, invalid locator, or inconsistent normalization invalidates the payload; zero observed nodes is a valid observation.
+
+### Provider-Neutral External Evidence `external-observation-v1`
+
+No Check selects or calls a network provider. `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and applicable `CHK-LP-001` consume frozen `external_measurement` Evidence. Its payload schema is `external-observation-v1` and contains:
+
+- Organization, Project, and Evaluation IDs matching the Evidence envelope
+- `measurement_kind`: `search_index_presence`, `ai_answer_presence`, `authority_reference_set`, or `local_profile_consistency`
+- `measurement_policy_version=external-measurement-interim-v1`
+- nonblank provider-neutral `collector_adapter_id` and immutable `collector_adapter_version`; these identify provenance and do not select a baseline vendor
+- `measurement_set_version`, `locale=en-AU`, `time_zone=UTC`, `observed_at_utc`, and `fresh_until_utc`
+- `coverage_status`: `complete`, `partial`, or `indeterminate`
+- one kind-specific body defined below
+
+`fresh_until_utc` is exactly 24 elapsed hours after `observed_at_utc`. The Evidence envelope's `observed_at_utc` MUST equal the payload value, and `captured_at_utc` MUST be at or after observation and before freshness expiry. An Evaluation Input Snapshot may consume it only when `observed_at_utc <= snapshot_sealed_at_utc < fresh_until_utc`; equality at `fresh_until_utc` is stale. The applicability entry selects exactly one Evidence per measurement kind. A missing payload produces `input_evidence_missing`; a stale payload produces `input_evidence_stale`; partial coverage, any indeterminate item, or a key-set mismatch produces `input_evidence_indeterminate`; invalid same-tenant digest/schema/provenance produces `input_evidence_invalid`. All four are handled Check errors with no Issue and make the applicable pillar insufficient. A cross-Organization/Project/Evaluation payload is tenant-integrity failure and fails the Evaluation through the applicability boundary rather than creating a handled Result. Provider text, prompts, unrestricted responses, credentials, and opaque error strings are not retained in this payload.
+
+Kind-specific bodies are exact:
+
+- `search_index_presence`: nonempty `expected_query_keys` sorted by UTF-8 bytes and exactly one item per key in that order. An item contains query key, `presence_status` (`present`, `absent`, or `indeterminate`), and sorted unique matching canonical in-scope URLs; `present` requires at least one URL and `absent` requires none.
+- `ai_answer_presence`: nonempty `expected_intent_keys` sorted by UTF-8 bytes and exactly one item per key in that order. An item contains intent key, `presence_status` (`present`, `absent`, or `indeterminate`), `citation_status` (`cited`, `not_cited`, or `indeterminate`), and sorted unique matching canonical entity keys. `absent` requires `not_cited` and no entity key; a qualified observation requires `present`, `cited`, and at least one entity key.
+- `authority_reference_set`: `references` sorted by canonical referrer, reference type, canonical target, then immutable observation key. Each contains observation key, `reference_type` (`backlink` or `brand_mention`), canonical referrer, canonical in-scope target, and `attribution_status` (`attributable`, `not_attributable`, or `indeterminate`). Exact duplicate tuples are invalid. An empty complete list is a valid zero-signal observation.
+- `local_profile_consistency`: nonempty `required_listing_keys` sorted by UTF-8 bytes and exactly one item per key in that order. An item contains listing key, `listing_status` (`present`, `absent`, or `indeterminate`) and comparisons for `name`, `address`, `telephone`, and `service_area`; each comparison is `match`, `mismatch`, `missing`, or `indeterminate`. An absent listing requires all four comparisons `missing`. A qualified listing is present with all four comparisons `match`.
+
+### Mandatory Check Definitions `check-catalog-interim-v1`
+
+All seven Definitions use owner Chief Product, release time `2026-07-16T00:00:00Z`, `check-executor-interim-v1`, `confidence-interim-v1`, `effort-interim-v1`, locale `en-AU`, UTC, and the canonical hash and Evidence-validation rules above. Each Definition's `rule_or_model_version` is exactly `<check_definition_id>-rule-v1`, for example `CHK-TI-001-rule-v1`; none invokes a model. Passed, failed, and not-applicable results use confidence `1.0000`, `confidence_status=valid`, and band `high`; handled errors use the common null/missing/low fallback. Each Definition uses `absence_proof_mode=check_pass_resolves_all` against its exact frozen subject selector, so a valid passed replacement resolves only the predecessor for that same Definition and subject under full relevant coverage.
+
+#### `CHK-TI-001@1.0.0` Internal Link Resolution
+
+- Purpose and ownership: detect broken in-scope internal targets; CAP-009; Pillar `technical_integrity`; Issue type `broken_internal_links`.
+- Inputs and Evidence: exactly one valid `internal-link-observation-v1` Evidence selected for each active Source. Cardinality is one Result per Source; subject type is `source`, key is the opaque Source ID, and `source_id` is nonnull.
+- Outputs: `passed/internal_links_resolve` when coverage is full, every target is reachable, and the absent set is empty; `failed/broken_internal_links` when coverage is full and one or more targets are absent; `error/internal_link_coverage_incomplete` with `error_reason_code=input_evidence_indeterminate` when relevant coverage is partial or any target is unobserved. The error precedes failed/pass evaluation.
+- Normalized observation: `source_id`, `canonical_root`, `total_target_count`, `reachable_count`, `absent_count`, `unobserved_count`, `absent_target_keys`, and `absent_targets` with ordered referrers. Target-key arrays use canonical target URL order and counts MUST equal the corresponding arrays.
+- Impact `impact-CHK-TI-001-v1`: one through four absent targets is `low`; five through nineteen is `medium`; twenty or more is `high`.
+- Retry, timeout, dependencies: common executor only; no provider call; depends on WF-005 terminal target outcomes, WF-006 normalized link extraction, Source Scope canonicalization, and valid Crawl/parsed Evidence.
+- Priority and recommendation: effort is `low` for one through four, `medium` for five through nineteen, and `high` for twenty or more under `effort-interim-v1`; failed outcomes render `REC-CHK-TI-001-v1`.
+
+#### `CHK-CQ-001@1.0.0` Meta-title Presence And Singularity
+
+- Purpose and ownership: require one nonblank title per parsed page; CAP-010; Pillar `content_quality`; Issue types `meta_title_missing` and `meta_title_multiple`.
+- Inputs and Evidence: exactly one valid `document-title-observation-v1` Evidence per successfully parsed Document. Cardinality is one Result per Document; subject type is `url`, key is its canonical Document URL; Source and Document IDs are nonnull.
+- Outputs: `failed/meta_title_missing` when the nonblank normalized-title count is zero; `passed/meta_title_present` when it is one; `failed/meta_title_multiple` when it is two or more. Normalized observation contains `canonical_url`, `title_node_count`, `nonblank_title_count`, and ordered node positions/locators/normalized values.
+- Impact `impact-CHK-CQ-001-v1`: missing is `medium`; multiple is `low`.
+- Retry, timeout, dependencies: common executor only; depends on WF-006 `document-title-observation-v1` output and valid parsed Evidence.
+- Priority and recommendation: both failed outcomes have `low` effort under `effort-interim-v1` and render `REC-CHK-CQ-001-v1` with the outcome-specific rationale.
+
+#### `CHK-TR-001@1.0.0` Structured Organization Identity
+
+- Purpose and ownership: require valid Organization structured data matching the frozen public identity; CAP-011; Pillar `trust_signals`; Issue types `organization_schema_missing`, `organization_schema_invalid`, and `organization_identity_mismatch`.
+- Inputs and Evidence: exactly one valid `organization-identity-observation-v1` Evidence per active Source root. Cardinality is one Result per Source; subject type is `source`, key is Source ID.
+- Outputs in first-match order: `failed/organization_schema_missing` for zero nodes; `passed/organization_identity_consistent` when at least one node is valid and exactly matches; `failed/organization_schema_invalid` when no node is schema-valid; otherwise `failed/organization_identity_mismatch`. Normalized observation contains `source_id`, `canonical_root`, `public_identity_profile_id`, `public_identity_profile_version`, `node_count`, `valid_node_count`, `matching_node_count`, and ordered node positions/locators with schema validity and field-match booleans.
+- Impact `impact-CHK-TR-001-v1`: missing or invalid is `medium`; identity mismatch is `high`.
+- Retry, timeout, dependencies: common executor only; depends on a versioned public identity profile, WF-006 structured-data extraction, canonical URL normalization, and valid root Evidence.
+- Priority and recommendation: every failure has `medium` effort and renders `REC-CHK-TR-001-v1` with the outcome-specific rationale.
+
+#### `CHK-SP-001@1.0.0` Search Index Presence
+
+- Purpose and ownership: measure observed presence for the complete frozen search-query set; CAP-010; Pillar `search_presence`; Issue type `search_presence_gap`.
+- Inputs and Evidence: exactly one fresh, complete, determinate `external-observation-v1/search_index_presence` Evidence. Cardinality is one Result per Project; subject type is `project`, key is Project ID, and Source/Document IDs are null.
+- Outputs: compute `presence_rate=present_count/expected_count` to four decimals, round half up. `passed/search_presence_complete` requires `1.0000`; otherwise `failed/search_presence_gap`. Normalized observation contains measurement/adapter/set versions, `expected_count`, `present_count`, `absent_count`, `presence_rate`, and `absent_query_keys` sorted by UTF-8 bytes.
+- Impact `impact-CHK-SP-001-v1`: rate `0.0000` is `high`; `0.0000 < rate < 1.0000` is `medium`.
+- Retry, timeout, dependencies: the collector is outside Check execution; the Check uses only the common executor and depends on one frozen provider-neutral external observation.
+- Priority and recommendation: `medium` effort; render `REC-CHK-SP-001-v1`.
+
+#### `CHK-AIP-001@1.0.0` AI Answer Presence
+
+- Purpose and ownership: measure attributable, cited presence for the complete frozen AI-intent set; CAP-010; Pillar `ai_presence`; Issue type `ai_answer_presence_gap`.
+- Inputs and Evidence: exactly one fresh, complete, determinate `external-observation-v1/ai_answer_presence` Evidence. Cardinality is one Result per Project; subject type/key is Project/Project ID.
+- Outputs: a qualified item is present, cited, and has at least one entity key. Compute `qualified_rate=qualified_count/expected_count` to four decimals, round half up. `passed/ai_answer_presence_complete` requires `1.0000`; otherwise `failed/ai_answer_presence_gap`. Normalized observation contains measurement/adapter/set versions, `expected_count`, `qualified_count`, `unqualified_count`, `qualified_rate`, and `unqualified_intent_keys` sorted by UTF-8 bytes with their presence/citation statuses.
+- Impact `impact-CHK-AIP-001-v1`: rate `0.0000` is `high`; `0.0000 < rate < 1.0000` is `medium`.
+- Retry, timeout, dependencies: provider collection is outside the Check; common executor only; depends on one frozen external observation and approved measurement-set version, without choosing a provider.
+- Priority and recommendation: `high` effort; render `REC-CHK-AIP-001-v1`.
+
+#### `CHK-AS-001@1.0.0` Attributable Authority Reference
+
+- Purpose and ownership: establish at least one attributable external backlink or brand mention; CAP-010; Pillar `authority_signals`; Issue type `authority_reference_absent`.
+- Inputs and Evidence: exactly one fresh, complete, determinate `external-observation-v1/authority_reference_set` Evidence. Cardinality is one Result per Project; subject type/key is Project/Project ID.
+- Outputs: `passed/authority_reference_present` when attributable count is at least one; otherwise `failed/authority_reference_absent`. Normalized observation contains measurement/adapter/set versions, `backlink_count`, `brand_mention_count`, `attributable_count`, `nonattributable_count`, `total_count`, and sorted attributable observation keys.
+- Impact `impact-CHK-AS-001-v1`: zero attributable references is `medium`.
+- Retry, timeout, dependencies: provider collection is outside the Check; common executor only; depends on one frozen external observation.
+- Priority and recommendation: `high` effort; render `REC-CHK-AS-001-v1`.
+
+#### `CHK-LP-001@1.0.0` Local Profile Consistency
+
+- Purpose and ownership: measure presence and identity consistency across the frozen required local-listing set; CAP-010; Pillar `local_presence`; Issue types `local_profiles_absent` and `local_profile_inconsistent`.
+- Inputs and Evidence: when local presence is applicable, exactly one fresh, complete, determinate `external-observation-v1/local_profile_consistency` Evidence; otherwise no external Evidence is selected. Cardinality is one Result per Project; subject type/key is Project/Project ID.
+- Outputs: `not_applicable/local_presence_not_applicable` only from the valid frozen false applicability decision; otherwise `passed/local_profiles_consistent` when every required listing is qualified; `failed/local_profiles_absent` when present-listing count is zero; otherwise `failed/local_profile_inconsistent`. Normalized applicable observation contains measurement/adapter/set versions, `required_count`, `present_count`, `qualified_count`, and `nonqualified_listing_keys` sorted by UTF-8 bytes with exact listing/field statuses. The not-applicable observation contains Project profile version and its reason.
+- Impact `impact-CHK-LP-001-v1`: all profiles absent is `high`; partial presence or any inconsistency is `medium`.
+- Retry, timeout, dependencies: provider collection is outside the Check; common executor only; depends on the frozen Project applicability decision and, when applicable, one frozen external observation.
+- Priority and recommendation: `medium` effort; failures render `REC-CHK-LP-001-v1`; no Artifact is generated for not-applicable.
+
+### Interim Effort Policy `effort-interim-v1`
+
+Effort is derived only from the origin Check Result and this exhaustive mapping; AI cannot replace it. `CHK-TI-001` uses `low` for one through four absent targets, `medium` for five through nineteen, and `high` for twenty or more. `CHK-CQ-001` uses `low`. `CHK-TR-001`, `CHK-SP-001`, and `CHK-LP-001` use `medium`. `CHK-AIP-001` and `CHK-AS-001` use `high`. The persisted `effort_basis` is exactly `effort-interim-v1:<check_definition_id>:<outcome_code>:<matched-rule>`. An unlisted failed outcome is `effort_policy_unavailable` and blocks Recommendation publication and Priority Decision creation without changing the Issue or score.
+
+### Deterministic Recommendation Templates
+
+Each `REC-...-v1` identifier is also its immutable template-family ID; its template version is `1.0.0`. Rendering substitutes only the origin Check Result's `outcome_code`, `canonical_subject_key`, and values from its normalized observation. Scalars render in canonical decimal/string form; ordered arrays join with comma plus one space; an empty array renders `[none]`; output is Unicode NFC with no HTML. Missing or extra placeholders fail as `recommendation_template_input_invalid`. Template text is exact:
+
+| Template | Problem statement | Rationale | Ordered implementation steps | Ordered verification steps | Platform applicability |
+| --- | --- | --- | --- | --- | --- |
+| `REC-CHK-TI-001-v1` | `Internal links target missing pages.` | `{{absent_count}} in-scope targets returned terminal absence: {{absent_target_keys}}.` | `Review each listed target and its referring pages.`; `Restore the intended target or update/remove every referring link.`; `Publish the corrected pages without broadening Source scope.` | `Confirm every listed target resolves to a valid in-scope Document.`; `Run reassessment and confirm CHK-TI-001 passes.` | `all_web_platforms` |
+| `REC-CHK-CQ-001-v1` | `The page does not have exactly one usable title.` | `{{canonical_subject_key}} produced {{outcome_code}} with {{nonblank_title_count}} nonblank title nodes.` | `Choose one concise title describing the page.`; `Set exactly one nonblank HTML title element and remove duplicate title elements.` | `Parse the published page and confirm one nonblank normalized title.`; `Run reassessment and confirm CHK-CQ-001 passes.` | `html_documents` |
+| `REC-CHK-TR-001-v1` | `Organization structured data is missing, invalid, or inconsistent.` | `The Source produced {{outcome_code}} against public identity profile {{public_identity_profile_version}}.` | `Add or correct one Organization node on the Source root.`; `Set its name and URL to the frozen canonical public identity values.`; `Validate the published structured data.` | `Confirm one schema-valid Organization node exactly matches the public identity profile.`; `Run reassessment and confirm CHK-TR-001 passes.` | `structured_data_capable_platforms` |
+| `REC-CHK-SP-001-v1` | `The Project is absent for part of the measured search-query set.` | `Observed search presence is {{presence_rate}}; absent queries: {{absent_query_keys}}.` | `Review the absent query set and the pages intended to answer it.`; `Correct crawlability, indexability, and page relevance using the linked Evidence.`; `Request indexing through an authorized external channel when appropriate.` | `Collect a new complete search observation with the same measurement-set version.`; `Run reassessment and confirm CHK-SP-001 passes.` | `all_web_platforms` |
+| `REC-CHK-AIP-001-v1` | `The Project lacks cited presence for part of the measured AI-intent set.` | `Qualified AI presence is {{qualified_rate}}; unqualified intents: {{unqualified_intent_keys}}.` | `Review the unqualified intents and their supporting first-party pages.`; `Improve explicit entity identification, answer clarity, and attributable supporting evidence.`; `Publish discoverability-only changes without attempting to manipulate provider output.` | `Collect a new complete AI observation with the same measurement-set version.`; `Run reassessment and confirm CHK-AIP-001 passes.` | `all_web_platforms` |
+| `REC-CHK-AS-001-v1` | `No attributable external authority reference was observed.` | `The complete authority observation contained {{attributable_count}} attributable references.` | `Identify reputable sources relevant to the business and its audience.`; `Publish reference-worthy first-party material and pursue accurate, non-deceptive attribution.` | `Collect a new complete authority-reference observation.`; `Run reassessment and confirm CHK-AS-001 passes.` | `all_web_platforms` |
+| `REC-CHK-LP-001-v1` | `Required local profiles are absent or inconsistent.` | `{{qualified_count}} of {{required_count}} required listings are present and fully consistent; affected listings: {{nonqualified_listing_keys}}.` | `Create missing required listings where authorized.`; `Correct name, address, telephone, and service-area values to match the canonical business profile.` | `Collect a new complete local-profile observation.`; `Run reassessment and confirm CHK-LP-001 passes.` | `local_business_profiles` |
+
+Every deterministic Artifact uses the origin Issue/Check Evidence as rationale Evidence, copies impact/confidence, applies `effort-interim-v1`, fixes `advisory_scope=discoverability_only`, and uses null `ai_response_id`. Template rendering never introduces a legal/tax conclusion or direct production mutation.
+
+### Normative Check Acceptance Fixtures
+
+All Definitions MUST pass these ordered common fixtures: `FX-CHECK-COM-001` exact replay returns one Result/event; `FX-CHECK-COM-002` a changed Evidence digest changes the input hash; `FX-CHECK-COM-003` cross-Organization/Project/Evaluation input fails the Evaluation before a Result; `FX-CHECK-COM-004` missing input produces the exact one-attempt handled error; `FX-CHECK-COM-005` same-tenant invalid input produces the exact one-attempt handled error; `FX-CHECK-COM-006` completion at 4.999 seconds commits; `FX-CHECK-COM-007` completion at exactly five seconds loses to timeout and the retry starts at exactly six seconds; `FX-CHECK-COM-008` completion after five seconds is discarded; `FX-CHECK-COM-009` dependency failure receives only one retry exactly one second later; `FX-CHECK-COM-010` a second timeout persists the two-attempt terminal error; `FX-CHECK-COM-011` invalid output schema is a one-attempt error; `FX-CHECK-COM-012` every impact/effort boundary maps exactly; `FX-CHECK-COM-013` every deterministic template renders byte-identically; `FX-CHECK-COM-014` a missing or extra placeholder rejects publication; `FX-CHECK-COM-015` a full passed replacement resolves the same Definition/subject; and `FX-CHECK-COM-016` a different subject remains unchanged. Additional mandatory fixtures are:
+
+| Definition | Fixtures and exact result |
+| --- | --- |
+| `CHK-TI-001` | `FX-CHK-TI-001-01` full/empty -> pass; `-02` full/all reachable -> pass; `-03` 1 absent -> low; `-04` 4 absent -> low; `-05` 5 absent -> medium; `-06` 19 absent -> medium; `-07` 20 absent -> high; `-08` partial coverage -> error; `-09` one unobserved -> error; `-10` corrected same Source -> resolved |
+| `CHK-CQ-001` | `FX-CHK-CQ-001-01` zero nodes -> missing/medium; `-02` blank-only -> missing/medium; `-03` one nonblank with surrounding/repeated Unicode whitespace -> normalized pass; `-04` two nonblank -> multiple/low; `-05` invalid locator -> error; `-06` corrected same URL -> resolved |
+| `CHK-TR-001` | `FX-CHK-TR-001-01` zero nodes -> missing/medium; `-02` no schema-valid node -> invalid/medium; `-03` valid mismatch -> mismatch/high; `-04` one exact matching valid node among others -> pass; `-05` missing profile -> error; `-06` corrected same Source -> resolved |
+| `CHK-SP-001` | `FX-CHK-SP-001-01` empty expected set -> error; `-02` key mismatch -> error; `-03` partial -> error; `-04` indeterminate -> error; `-05` stale/equality-at-expiry -> error; `-06` all present -> pass; `-07` zero present -> high; `-08` partial presence -> medium; `-09` array permutation -> identical normalization |
+| `CHK-AIP-001` | `FX-CHK-AIP-001-01` empty expected set -> error; `-02` key mismatch/partial/indeterminate/stale -> exact error; `-03` all present+cited+entity -> pass; `-04` zero qualified -> high; `-05` partial qualified -> medium; `-06` present but not cited -> unqualified |
+| `CHK-AS-001` | `FX-CHK-AS-001-01` empty complete list -> failed/medium; `-02` one attributable backlink -> pass; `-03` one attributable mention -> pass; `-04` only nonattributable -> failed/medium; `-05` indeterminate -> error; `-06` duplicate tuple -> invalid/error |
+| `CHK-LP-001` | `FX-CHK-LP-001-01` valid false applicability -> not-applicable without external Evidence; `-02` false without reason -> applicability failure; `-03` true with missing/stale/partial/indeterminate Evidence -> exact error; `-04` zero present -> high; `-05` partial/mismatch/missing field -> medium; `-06` all required present/all fields match -> pass |
 
 ## Pillar Contract
 
@@ -305,7 +511,7 @@ Unless a narrower contract says otherwise, every model hash uses the canonical J
 
 `scope_definition_hash` is SHA-256 over canonical JSON containing Organization ID, Project ID, and the complete active Source set sorted by Source ID. Each Source tuple contains Source ID, canonical host, lifecycle status `active`, and its active Source Scope Policy ID, version, content hash, normalized allowed schemes, allowed ports, include prefixes, exclude prefixes, and query-handling rule. The preimage also contains active Organization- and Project-scope Source Scope Policy IDs, versions, content hashes, and normalized rules, sorted by scope then policy ID. It contains no capture timestamp or generated snapshot ID. The baseline preimage always covers every active Project Source; omission of one makes the hash invalid.
 
-Coverage inputs in `input_set_hash` are Crawl ID, `coverage_status`, `completion_reason`, each Source/root terminal status and reason sorted by Source ID then canonical root URL, accepted Document IDs sorted by ID, failed or omitted canonical candidate URLs with reason sorted by URL, and each applicable pillar's score-capable Check Result ID, execution status, and sorted Evidence ID/current effective Validation Decision ID/status tuples, sorted by pillar then Check Result ID. A count without the listed identities is insufficient.
+Coverage inputs in `input_set_hash` are Crawl ID, `coverage_status`, `completion_reason`, each Source/root terminal status and reason sorted by Source ID then canonical root URL, accepted Document IDs sorted by ID, failed or omitted canonical candidate URLs with reason sorted by URL, the Check Catalog version/content hash, the Check Applicability Snapshot ID/content hash, and each applicable pillar's score-capable Check Result ID, Definition/version, subject identity, execution status/outcome, subject-set-complete flag, absence-selector snapshot, deterministic input hash, and sorted Evidence ID/current effective Validation Decision ID/status tuples, sorted by pillar, Definition, canonical subject key, then Check Result ID. A count without the listed identities is insufficient.
 
 Generated IDs for the record being hashed, creation timestamps, correlation IDs, and presentation-only fields are excluded. Any semantic input change MUST change the corresponding hash; ordering or serialization variation alone MUST NOT.
 
@@ -341,9 +547,9 @@ Issues are immutable observation versions except for controlled lifecycle, adjud
 
 An immutable Issue Set contains `issue_set_id`, Organization, Project, originating Evaluation, ordered Issue IDs, ordered current-leaf Issue IDs, a content hash, and `sealed_at_utc`. Its membership is exactly every Issue in the Project lineage graph that existed at the seal checkpoint and is either a current leaf or an ancestor of a current leaf; later-created Issues never enter an earlier set. It therefore includes terminal current leaves and non-current ancestors. It contains exactly one current leaf for every full fingerprint identity represented in the Project at that checkpoint. Both lists are ordered by fingerprint preimage, then Issue originating-Evaluation creation time, then Issue ID. Reassessment membership is the prior current set union every successor and new Issue created by the two passes below. Adjudication, Evidence, and policy recalculation reuse the current set membership while freezing each member's then-current state version in Contributions.
 
-Every immutable Check Definition declares one `absence_proof_mode` and an `absence_coverage_selector` containing its governed Source IDs and canonical subject namespace or path predicate. “Full relevant coverage” means the replacement Crawl/Check coverage inputs contain a terminal covered outcome for every admitted candidate matching that exact selector and contain no matching failed, omitted, or limit-discarded candidate.
+Every immutable Check Definition declares one `absence_proof_mode` and a Source-neutral absence-selector template containing its canonical subject namespace or path predicate. The frozen Check Applicability Snapshot binds Organization, Project, actual governed Source IDs, and the exact subject key into each `absence_coverage_selector_snapshot`; a global Definition never contains tenant identifiers. “Full relevant coverage” means the replacement Crawl/Check/external-measurement coverage inputs contain a terminal covered outcome for every admitted candidate matching that exact bound selector and contain no matching failed, omitted, indeterminate, stale, or limit-discarded candidate.
 
-- `check_pass_resolves_all`: a `passed` replacement Check Result for the same definition and exact `absence_coverage_selector`, with valid Evidence and full relevant coverage, proves absence for every predecessor governed by that selector.
+- `check_pass_resolves_all`: a `passed` replacement Check Result for the same Definition and exact `absence_coverage_selector_snapshot`, with valid Evidence and full relevant coverage, proves absence for every predecessor governed by that bound selector.
 - `observed_subject_set`: a terminal `passed` or `failed` replacement Check Result may prove absence only when it contains an immutable exhaustive canonical subject set, `subject_set_complete=true`, valid Evidence, and full relevant coverage, and the predecessor's canonical subject is absent from that set.
 - `never_automatic`: absence never resolves an Issue automatically; it remains `resolution_unverified` until an explicit future governed rule applies.
 
@@ -370,7 +576,7 @@ The mandatory interim policy is `score-interim-v1`. It remains effective until a
 
 All seven pillars are applicable by default. `local_presence` may be `not_applicable` only when the Project profile explicitly records `local_presence_applicable=false`, an OrganizationAdmin or MarketingOperator records a nonblank reason, and the score-policy snapshot captures that decision version. Every other pillar remains applicable in baseline scope.
 
-Every applicable pillar MUST have at least one valid score-capable Check Result with execution status `passed` or `failed` in the Evaluation. `not_applicable` and `error` do not satisfy coverage. Otherwise that pillar is `insufficient_data` and the overall score is unavailable.
+Every applicable pillar MUST have every expected applicable entry in the frozen Check Applicability Snapshot represented by exactly one effectively valid score-capable Check Result with execution status `passed` or `failed`. It must also have at least one such entry. `not_applicable`, `error`, and a missing expected Result do not satisfy coverage. Any error/missing expected entry makes that pillar `insufficient_data` and the overall score unavailable; no successful sibling Result masks it.
 
 ### Impact Penalty Table
 
@@ -435,7 +641,7 @@ The overall score is clamped to `0.0..100.0` and persisted to one decimal place 
 
 - `complete`: every applicable pillar has valid terminal coverage; crawl coverage is full; no current Issue is excluded for review, dispute, in-review status, or invalid Evidence.
 - `partial`: every applicable pillar can be scored, but crawl coverage is partial or at least one current Issue is excluded for review, dispute, or in-review status. The numeric score MUST be accompanied by excluded-Issue count and coverage reasons.
-- `unavailable`: any applicable pillar has zero valid terminal score-capable Check Results, any current Issue references Evidence not effectively valid, the score policy is missing or invalid, or the Issue-set publication is incomplete. Overall score is null and no current ScoreSnapshot is promoted.
+- `unavailable`: any applicable pillar has an expected Check Result missing or in `error`, has zero valid passed/failed score-capable Results, any current Issue references Evidence not effectively valid, the score policy is missing or invalid, or the Issue-set publication is incomplete. Overall score is null and no current ScoreSnapshot is promoted.
 
 ## ScoreSnapshot Contract
 
@@ -447,6 +653,7 @@ Every persisted ScoreSnapshot MUST contain:
 - `scope_definition_hash`
 - `score_policy_version`, `confidence_policy_version`, `eligibility_policy_version`, and `fingerprint_version`
 - `check_catalog_version`, `pillar_applicability_version`, and `scope_policy_version_set_hash`
+- `check_applicability_snapshot_id` and `check_applicability_snapshot_content_hash`
 - per-pillar applicability, status, unrounded calculation value, persisted value, effective-weight numerator and denominator, optional nonauthoritative display weight, included contribution count, excluded Issue count, and ordered coverage reason codes
 - `overall_status`: `complete`, `partial`, or `unavailable`
 - `overall_score`, null only when unavailable
@@ -461,7 +668,7 @@ Per-pillar status is exactly `not_applicable`, `scored`, `insufficient_data`, or
 1. An inapplicable pillar is `not_applicable`, has null score, weight `0/1`, and sole reason `pillar_not_applicable`.
 2. If any of `issue_set_incomplete`, `score_policy_unavailable`, `confidence_policy_unavailable`, `eligibility_policy_unavailable`, `scope_definition_invalid`, `check_catalog_unavailable`, `contribution_mismatch`, or `score_invariant_failure` applies, every applicable pillar is `unavailable` with null score and all applicable codes from that set in overall precedence order; an affected pillar additionally includes `invalid_evidence` in its overall-precedence position, while an unaffected pillar does not.
 3. A pillar affected by invalid Evidence in one of its prospective-current Issues or passed/failed coverage Checks is `unavailable` with null score and reason `invalid_evidence`; an unaffected pillar does not inherit another pillar's invalid-Evidence reason.
-4. An applicable pillar with zero effectively valid passed/failed score-capable Check Results is `insufficient_data`, has null score, and has sole reason `no_valid_terminal_check`; this derives overall reason `applicable_pillar_insufficient_data`.
+4. An applicable pillar with any expected result absent or in `error`, or with zero effectively valid passed/failed score-capable Results, is `insufficient_data` with null score. Its de-duplicated reasons are selected in this order: `required_check_missing`, `check_result_error`, then `no_valid_terminal_check`; only applicable reasons are stored. This derives overall reason `applicable_pillar_insufficient_data`.
 5. Every remaining applicable pillar is `scored` with calculated values and the applicable de-duplicated reasons in this order: `crawl_partial`, `review_required_excluded`, `disputed_excluded`, `in_review_excluded`. A fully covered scored pillar has an empty reason list. One unavailable or insufficient pillar makes the overall score unavailable but does not erase reproducible per-pillar values for other pillars in that immutable diagnostic snapshot.
 
 ScoreSnapshots and Score Contributions are immutable. The idempotency tuple is `(evaluation_id, score_policy_version, confidence_policy_version, eligibility_policy_version, scope_snapshot_id, input_set_hash, creation_reason)`. Exact replay returns the existing snapshot. A changed input or policy creates a new snapshot. Snapshot creation serializes per Project. `prior_score_snapshot_id` is the immediately preceding newly created ScoreSnapshot for that Project in this serialized calculation order, whether promoted or unavailable, and is null only when none exists; exact replay retains the original link. When one historical-rebase command creates two snapshots, the earlier Evaluation by `created_at_utc`, then Evaluation ID, is created first, and neither rebase snapshot changes a Current Score Projection pointer. Only complete or partial snapshots other than `historical_rebase` may advance a current pointer; a rebase snapshot is permanently noncurrent.
@@ -484,9 +691,13 @@ Each Project has one mutable Current Score Projection containing Project ID, nul
 
 ### Recommendation Artifact
 
-Required attributes are `recommendation_id`, exactly one `origin_issue_id`, ordered optional `related_issue_references`, nonblank `problem_statement`, nonblank `rationale`, `expected_impact_band`, `confidence_value`, `confidence_band`, `effort_band` (`low`, `medium`, `high`, or `unknown`), nonblank `effort_basis`, `effort_policy_version`, one or more ordered `implementation_steps`, one or more ordered `verification_steps`, `platform_applicability`, `advisory_scope` fixed to `discoverability_only`, ordered `rationale_evidence_references`, `generation_mode` (`deterministic_template` or `ai_assisted`), nullable `ai_response_id`, `artifact_version`, and `publication_status` (`draft`, `published`, `suppressed`, or `retired`). `expected_impact_band`, `confidence_value`, and `confidence_band` equal the origin Issue values; they are not independently inferred. The origin Issue alone governs eligibility, suppression, priority, and lifecycle. Related Issue references are informational, same-Organization references only; they cannot supply required Evidence, alter score/priority/publication eligibility, or become additional origins.
+Required attributes are `recommendation_id`, `artifact_family_id`, positive integer `artifact_version`, nullable `predecessor_recommendation_id`, `generation_definition_family_id`, and `generation_definition_version`; exactly one `origin_issue_id`; ordered optional `related_issue_references`; nonblank `problem_statement`; nonblank `rationale`; `expected_impact_band`; `confidence_value`; `confidence_band`; `effort_band` (`low`, `medium`, `high`, or `unknown`); nonblank `effort_basis`; `effort_policy_version`; one or more ordered `implementation_steps`; one or more ordered `verification_steps`; `platform_applicability`; `advisory_scope` fixed to `discoverability_only`; ordered `rationale_evidence_references`; `generation_mode` (`deterministic_template` or `ai_assisted`); nullable `ai_response_id`; and `publication_status` (`draft`, `published`, `suppressed`, or `retired`). `expected_impact_band`, `confidence_value`, and `confidence_band` equal the origin Issue values; they are not independently inferred. The origin Issue alone governs eligibility, suppression, priority, and lifecycle. Related Issue references are informational, same-Organization references only; they cannot supply required Evidence, alter score/priority/publication eligibility, or become additional origins.
 
-Publication requires the origin Issue to be the current score-eligible leaf and every rationale Evidence reference to be effectively valid, same-Organization Evidence directly referenced by that Issue or its Check Result. `deterministic_template` requires null `ai_response_id`; `ai_assisted` requires one validated, unexpired AIResponse for this exact Recommendation version. Empty steps, blank text, unknown impact/confidence value, absent effort basis/policy, absent platform applicability, an invalid origin/Evidence/AIResponse, or any other advisory scope blocks publication. AI-proposed effort MUST pass the versioned effort-policy validator. An authorized correction creates a new Artifact version and never mutates a published version.
+One Artifact family exists per `(origin_issue_id, recommendation_kind=remediation)`. The family never crosses an Issue lineage record: a reassessment successor Issue starts a new family even when it uses the same template family. Version 1 has a null predecessor; every later version increments the prior latest version by exactly one under a per-family lock and points to that prior Artifact. Reusing a version number or creating a branch is prohibited. An exact generation-command replay returns the same version; changed generation input under the same key is `idempotency_conflict`.
+
+A mutable Current Recommendation Family Projection contains family ID, `latest_artifact_id`, nullable `current_published_artifact_id`, state version, and update time. Creating a draft advances only the latest pointer. Publishing a version atomically retires the prior current published/suppressed version when present, advances the current-published pointer, and leaves every earlier payload immutable. Suppression changes the pointed version to suppressed but does not clear the pointer; valid republication changes that same version back to published. Retired is terminal and cannot republish. A failed draft remains historical and cannot displace the current-published pointer. The projection, positive version sequence, predecessor link, publication transition, and Artifact event commit atomically.
+
+Publication requires the origin Issue to be the current score-eligible leaf and every rationale Evidence reference to be effectively valid, same-Organization Evidence directly referenced by that Issue or its Check Result. `deterministic_template` requires null `ai_response_id`; `ai_assisted` requires one validated, unexpired AIResponse for this exact Recommendation version. Empty steps, blank text, unknown impact/confidence value, absent effort basis/policy, absent platform applicability, an invalid origin/Evidence/AIResponse, or any other advisory scope blocks publication. AI-proposed effort MUST pass the versioned effort-policy validator. An authorized correction creates a new Artifact version and never mutates an earlier version's content or lineage; only the governed publication lifecycle fields may transition.
 
 Personalized legal or tax conclusions, compliance determinations, filing positions, or instructions to take a legal/tax action are prohibited in generated and deterministic output and fail nonretryably with `prohibited_advisory_domain`. A Recommendation may state an observed discoverability fact and may direct the customer to consult a qualified professional; it may not supply the professional conclusion.
 
@@ -496,13 +707,17 @@ A Recommendation Artifact MUST NOT be published if its origin Issue is score-ine
 
 The OD-007 interim model is one-directional: a Citation belongs to exactly one AIResponse and points to exactly one Evidence record. Neither AIResponse nor Citation stores a direct Evaluation link; evaluation traversal is `AIResponse -> Recommendation Artifact -> origin Issue -> Check Result/Evidence`. A read-model projection MAY denormalize that traversal but MUST NOT become write authority.
 
+AI-assisted generation additionally requires active signed `ai-response-interim-v1` and `ai-safety-interim-v1` artifacts naming an approved provider adapter/model, data-handling approval, allowed Evidence classifications, prompt-template hash, output schema, prohibited-content scanner, and contract-review reference. No such provider artifact is bundled while provider/model/data-handling selection remains unapproved. Therefore the deterministic interim behavior is `deterministic_template` generation from the exact catalog templates above; an `ai_assisted` request fails before entitlement reservation or provider call as `F1-AI-422 / ai_provider_unapproved`, creates no AIResponse or Citation, and may recover only by selecting deterministic generation or activating an approved signed artifact. An implementation MUST NOT choose a provider, send Evidence, or silently weaken this gate.
+
+When an approved artifact is later active, the prompt envelope places immutable Evidence only in a delimited untrusted-data field, never in system/developer instructions; strips executable markup and provider tool directives; sends no credentials, verification material, restricted Evidence, or field above the artifact's classification allowlist; fixes the response to the exact Recommendation schema and claim manifest; and rejects unknown/extra fields. The output scanner applies this first-match order before Citation validation: `prompt_instruction_leakage`, `secret_or_personal_data`, `prohibited_advisory_domain`, `unsafe_external_action`, `output_schema_invalid`. Any match changes the AIResponse to rejected with `policy_denied` except the already canonical prohibited-advisory and schema reasons, publishes nothing, and permits only a new linked attempt after input/policy correction. Provider timeout and retry remain exactly those in the AIResponse lifecycle; no hidden provider retry is allowed.
+
 Every AIResponse contains `ai_response_id`, schema version, Organization and Project IDs, target `recommendation_id` and `artifact_version`, `origin_issue_id` and its state version, ordered input Evidence ID/content-digest/Validation-Decision tuples, prompt template ID/version, model ID/version, response-policy and citation-policy versions, locale, `request_fingerprint_sha256` and retained preimage, idempotency key, immutable generated-payload reference and content digest nullable until generated, ordered claim manifest nullable until generated, status (`requested`, `generated`, `validated`, `rejected`, or `expired`), nullable rejection reason, `requested_at_utc`, nullable generated/validated/rejected/expired times, `generation_due_at_utc` exactly 90 seconds after request, `validation_due_at_utc` exactly two minutes after request, nullable `publication_expires_at_utc` exactly 24 hours after validation, state version, and correlation ID.
 
 The AIResponse request-fingerprint preimage is canonical JSON containing exactly Organization, Project, target Recommendation/version, origin Issue/state version, ordered Evidence tuples, prompt template/version, model/version, response-policy/citation-policy versions, and locale. Exact preimage replay returns the original attempt and never calls the provider or validates twice. Reuse of its idempotency key with a different preimage is `idempotency_conflict`. A same hash with a different retained preimage never merges and emits restricted `AIResponseFingerprintCollision` telemetry.
 
 AIResponse transitions are exhaustive: `requested -> generated`; `requested -> rejected` for `generation_timeout`, `provider_failure`, or `policy_denied`; `generated -> validated`; `generated -> rejected` for `schema_invalid`, `citation_missing`, `citation_invalid`, `stale_input`, `prohibited_advisory_domain`, `policy_denied`, or `validation_timeout`; and unpublished `validated -> expired`. At exactly `generation_due_at_utc` timeout wins over provider completion. Validation and the `ai.generate` durable entitlement commit must commit strictly before `validation_due_at_utc`; at that exact two-minute maximum-execution instant, lease expiry and `validation_timeout` win over validation. At exactly `publication_expires_at_utc`, expiry wins over publication. Publication atomically binds the validated AIResponse to the target Artifact version and cancels expiry; a bound response remains validated as immutable lineage. Rejected and expired are terminal. Provider or validation retry creates a new AIResponse attempt linked by causation ID; it never reopens a terminal response.
 
-The generated payload has an ordered claim manifest with exactly one entry for each customer-visible `problem_statement`, `rationale`, `expected_impact_band`, `confidence_value`, `confidence_band`, `effort_basis`, `platform_applicability`, `implementation_steps[i]`, and `verification_steps[i]` value. Each entry contains a unique `claim_key` equal to that logical path and `claim_sha256` over its canonical UTF-8 value. No customer-visible generated value may exist outside this manifest. Citation coverage passes only when every claim has at least one verified Citation, every Citation targets a manifest claim, and no Citation for the response remains proposed or invalid.
+The generated payload has an ordered claim manifest with exactly one entry for each customer-visible `problem_statement`, `rationale`, `expected_impact_band`, `confidence_value`, `confidence_band`, `effort_band`, `effort_basis`, `platform_applicability`, `implementation_steps[i]`, and `verification_steps[i]` value. Each entry contains a unique `claim_key` equal to that logical path and `claim_sha256` over its canonical UTF-8 value. No customer-visible generated value may exist outside this manifest. Citation coverage passes only when every claim has at least one verified Citation, every Citation targets a manifest claim, and no Citation for the response remains proposed or invalid.
 
 Every Citation contains `citation_id`, schema version, Organization and Project IDs, exactly one `ai_response_id`, exactly one `evidence_id`, `claim_key`, `claim_sha256`, Evidence content digest and effective Validation Decision ID/status, a nonblank immutable `evidence_locator`, `citation_policy_version`, `fingerprint_sha256` and retained preimage, status (`proposed`, `verified`, `invalid`, or `superseded`), nullable reason code, proposed/decided timestamps, deciding citation-validation service identity, state version, and correlation ID. It intentionally contains no `evaluation_id`.
 
@@ -512,7 +727,7 @@ The tenant-scoped citation-validation service changes `proposed -> verified` onl
 
 ### Interim Priority Policy `priority-interim-v1`
 
-Only published Recommendation Artifacts whose origin Issue is score-eligible receive a Priority Decision. Deterministic base order is:
+Only the Current Recommendation Family Projection's published Artifact whose origin Issue is score-eligible receives a Priority Decision. A historical published, suppressed, draft, or retired version never receives a current Priority Decision. Deterministic base order is:
 
 1. origin Issue impact rank first: critical, high, medium, low, informational;
 2. origin Issue confidence value descending; missing confidence sorts last;
@@ -545,7 +760,7 @@ Classification ceilings are `confidential` for OrganizationAdmin and TechnicalIm
 - If the actor cannot access the requested score object, the whole request is denied with an auditable authorization error.
 - If the actor can access the score object but not a field, the field is omitted and its stable field code appears in `redacted_field_codes`; no value-derived placeholder is returned.
 - When an actor can read the origin Issue but an Evidence record exceeds that actor's classification ceiling, return only `evidence_id` and `access_status=restricted`; omit payload reference, content digest, provenance detail, and observation content. This reference-only result applies to `confidential` as well as `restricted` Evidence when the actor's ceiling is lower.
-- The strongest classification among a field's source Evidence governs that derived field unless an explicit approved declassification record exists.
+- The strongest classification among a field's source Evidence governs that derived field. Volume I prohibits declassification, so no record, actor, policy, or service may lower that classification.
 - The same allow, omit, and deny semantics apply to UI read models, logical API responses, exports, notifications, and support views.
 
 ## Reassessment Result And Historical Comparison
@@ -586,8 +801,8 @@ When fewer than two completed Evaluations with promoted ScoreSnapshots are avail
 
 ## Acceptance Criteria
 
-- AC-SM-001: Every published Recommendation Artifact has exactly one eligible origin Issue and at least one valid same-Organization Evidence path; every AI-assisted version has one validated unexpired AIResponse and complete verified one-AIResponse/one-Evidence Citations with no direct Evaluation write link.
-- AC-SM-002: The normative score fixtures reproduce the exact pillar, overall, status, version, contribution, exclusion, and idempotency results defined in this document.
+- AC-SM-001: Every published Recommendation Artifact has one linear version-family position, exactly one eligible origin Issue and at least one valid same-Organization Evidence path; its effort passes `effort-interim-v1`; and every AI-assisted version includes `effort_band` in its claim manifest plus one validated unexpired AIResponse and complete verified one-AIResponse/one-Evidence Citations with no direct Evaluation write link.
+- AC-SM-002: Every common and per-Definition Check fixture and every normative score fixture reproduces the exact applicability, subject, Evidence, attempt, timeout/retry, outcome/error, impact, confidence, effort, template, pillar, overall, status, version, contribution, exclusion, and idempotency result defined in this document.
 - AC-SM-003: Creating any Issue fails when Evidence is absent, invalid, quarantined, missing required fields, or cross-Organization.
 - AC-SM-004: Reassessment produces an acyclic single-successor lineage with exactly one current leaf per fingerprint, and incomplete coverage never falsely resolves an Issue.
 - AC-SM-005: Review-required, disputed, and in-review Issues have zero score and priority contribution; adjudication creates or reuses a new immutable current ScoreSnapshot without changing history.

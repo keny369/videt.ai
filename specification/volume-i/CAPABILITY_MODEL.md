@@ -22,18 +22,18 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Identifier: CAP-001
 - Name: Registration and Access
 - Purpose: Allow a user to establish authenticated access to F1.
-- Actor: Eligible self-service registrant or invited Account; Organization Administrator after bootstrap
-- Preconditions: Identity validation succeeds and either a time-bounded bootstrap grant or active Organization invitation exists.
-- Inputs: Identity attributes and authentication factors.
-- Product Behavior: Platform atomically provisions Account and, for self-service bootstrap, Organization plus first OrganizationAdmin assignment; failed bootstrap leaves no partially active tenant.
-- Outputs: Active authenticated session and account identity record.
+- Actor: Validated self-service identity principal or invitation-bound identity principal; Organization Administrator after bootstrap
+- Preconditions: A fresh `onboarding-interim-v1` Identity Validation Receipt exists and either its principal has an issued Bootstrap Grant or its target has an active Organization Invitation. No pre-Organization Account is required or allowed.
+- Inputs: Versioned Identity Validation Receipt; Bootstrap Grant or Invitation with expected state version; exact Organization/first-Project body for self-service; command and idempotency envelope.
+- Product Behavior: Apply `onboarding-interim-v1`: self-service atomically creates/activates the tenant-scoped Account, Organization, first OrganizationAdmin Assignment, byte-exact baseline Access and Entitlement Policies, `interim-baseline-plan-v1` Plan Assignment, and draft Project and consumes the grant; invited acceptance atomically creates/reuses only the same-Organization Account, activates the invited Role Assignment and Session, and consumes the Invitation.
+- Outputs: One active tenant-scoped Account and Session; self-service additionally returns Organization, first Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, and draft Project; invited acceptance returns no new Organization or Project.
 - Success Condition: Account reaches active state and user can access permitted views.
-- Failure Condition: Provisioning fails or account remains pending.
+- Failure Condition: An enumerated identity/grant/invitation/policy/input/race failure commits no partial onboarding branch; a pre-existing pending Account remains pending only under its exact provisioning failure record.
 - Business Rules: PRULE-001, PRULE-018
 - Security Implications: Must comply with SEC-REQ-001 through SEC-REQ-024.
 - Data Implications: Account lifecycle events and audit records are persisted.
 - AI Implications: None.
-- Observability Requirements: AccountProvisionRequested and AccountActivated telemetry.
+- Observability Requirements: Branch-specific identity/grant/invitation, Account, Session, Role, policy, Organization, and Project events and audited no-state outcomes under one correlation ID.
 - Acceptance Criteria: AC-CAP-001
 - Dependencies: WF-001, WF-013, [../014 SECURITY_MODEL.md](../014%20SECURITY_MODEL.md)
 - Non-goals: Social growth features or non-business identity federation expansion.
@@ -46,11 +46,11 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Establish a tenant boundary and governance context.
 - Actor: Organization Administrator
 - Preconditions: CAP-001 complete.
-- Inputs: Organization profile, immutable baseline Access Policy version, accountable administrator assignment, idempotency key.
-- Product Behavior: Create Organization state and activate exactly one versioned baseline Access Policy after validation.
-- Outputs: Organization record, active policy version, administrator Role Assignment, and audit events.
+- Inputs: `organization-profile-v1`, immutable `access-interim-v1`, `entitlement-interim-v1`, and `interim-baseline-plan-v1`/approval content hashes, first accountable administrator Assignment, Bootstrap Grant, and idempotency envelope.
+- Product Behavior: In the self-service WF-001 transaction create Organization pending, instantiate only byte-equivalent Access/Entitlement interim policies and Plan Assignment, create the bootstrap OrganizationAdmin Assignment, then activate Organization only when all tenant invariants pass.
+- Outputs: Organization record, active Access and Entitlement policy versions, Plan Assignment, administrator Role Assignment, and audit events.
 - Success Condition: Organization reaches active state and supports project creation.
-- Failure Condition: Organization remains pending or transitions to suspended.
+- Failure Condition: Bootstrap validation failure rolls back new Organization creation; a later lifecycle failure retains the current canonical Organization state with an enumerated reason rather than inventing a failure state.
 - Business Rules: PRULE-002, PRULE-019
 - Security Implications: Tenant isolation and role assignment controls apply.
 - Data Implications: Organization metadata and policy history are auditable.
@@ -67,11 +67,11 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Project Setup
 - Purpose: Create a bounded discoverability program within an organization.
 - Actor: Organization Administrator or Marketing Operator
-- Preconditions: CAP-002 complete.
+- Preconditions: Organization is active and actor holds `project.create`; activation is a later command after Source onboarding.
 - Inputs: Trimmed display name, locale, reporting time zone, local-presence applicability and conditional reason, fixed discoverability objective, idempotency key, then activation command.
-- Product Behavior: Create any authorized Project in draft through WF-002, then activate only when exact metadata and active-Source prerequisites pass.
+- Product Behavior: Project creation completes when the exact WF-002 fields produce one draft Project. Activation is a distinct completion condition and succeeds only after CAP-004, CAP-005, and CAP-006 have produced at least one active same-Project Source.
 - Outputs: Project identity and lifecycle state.
-- Success Condition: Project becomes active and eligible for audit execution.
+- Success Condition: Creation returns one draft Project; the distinct activation command later makes it active and eligible for audit execution.
 - Failure Condition: Project activation fails or remains draft.
 - Business Rules: PRULE-003, PRULE-004
 - Security Implications: Authorization checks for project creation and activation.
@@ -89,10 +89,10 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Website or Property Onboarding
 - Purpose: Register target web property context for discoverability analysis.
 - Actor: Organization Administrator, Marketing Operator, or Technical Implementer
-- Preconditions: CAP-003 complete.
-- Inputs: Property root host, registration-scope version 1, onboarding provenance, and command idempotency data.
-- Product Behavior: Register exactly one proposed Source per normalized same-Project host; verification later materializes its first active Source Scope Policy.
-- Outputs: Onboarding request and source candidates.
+- Preconditions: CAP-002 is complete and a same-Organization Project exists in draft, active, or paused state; Project activation is not a prerequisite.
+- Inputs: One `source-registration-v1` absolute HTTPS root URI, target Project, registration provenance derived from the command/authorization decision, and idempotency data.
+- Product Behavior: Apply the exact URI grammar, host normalization, first-match rejection order, atomic nonremoved-host uniqueness, provenance, replay, concurrency, and event contract; verification later materializes its first active Source Scope Policy.
+- Outputs: Exactly one proposed Source or one enumerated no-Source rejection; no Onboarding Request or plural candidate entity.
 - Success Condition: Property is ready for verification and source activation.
 - Failure Condition: Onboarding fails validation.
 - Business Rules: PRULE-004, PRULE-005
@@ -178,11 +178,11 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Provide operational visibility and recovery controls for partial failures.
 - Actor: Organization Administrator, Marketing Operator, or approved time-bounded SecurityOperator support session for recovery
 - Preconditions: CAP-007 started.
-- Inputs: Crawl, IngestionJob, and ParsingJob telemetry; complete parse manifest; exact failed subset, reason codes, attempt/replay counts, recovery command, and expected state version.
-- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, and readiness state; apply only WF-005 bounded fetch recovery or `parsing-interim-v1` internal retry and authorized dead-letter replay.
-- Outputs: Immutable Crawl/parse attempt history, Parsed Artifacts, exact Evaluation Input Snapshot, terminal/coverage/readiness result, and linked recovery outcome.
-- Success Condition: Every admitted Crawl and parse member has an exact terminal outcome, ready-full/ready-partial/blocked derives solely from the complete manifest, and concurrent completion or replay cannot change an earlier snapshot.
-- Failure Condition: Exhausted/nonretryable parse, blocked readiness, or denied recovery creates the enumerated state/reason/subset/events without hidden retry, dropped manifest member, stale Evaluation mutation, or unclassified persistence.
+- Inputs: Crawl, IngestionJob, ParsingJob, and IndexingJob telemetry; complete parse manifest; internal/external Evidence intake; exact failed subset, reason codes, attempt/replay counts, recovery command, and expected state version.
+- Product Behavior: Surface accepted pages/bytes, Source-root, coverage, limit, fetch, parsing, derived/external Evidence, indexing, and readiness state; apply only the bounded WF-005, `parsing-interim-v1`, or `indexing-interim-v1` retry and authorized recovery contracts.
+- Outputs: Immutable Crawl/parse/index attempt history, Parsed Artifacts and Index Receipts, exact Evaluation Input Snapshot, terminal/coverage/readiness result, and linked recovery outcome.
+- Success Condition: Every admitted Crawl/parse member and every created IndexingJob has an exact terminal or scheduled outcome, ready-full/ready-partial/blocked derives from the complete parse/Evidence manifest without waiting for the Retrieval projection, and concurrent completion or replay cannot change an earlier snapshot.
+- Failure Condition: Exhausted/nonretryable parse/indexing, blocked readiness, missing external input, or denied recovery creates the enumerated state/reason/subset/events without hidden retry, dropped manifest member, stale Evaluation mutation, or unclassified persistence.
 - Business Rules: PRULE-009, PRULE-022
 - Security Implications: Recovery actions require authorized roles.
 - Data Implications: Failure lineage and recovery attempts retained.
@@ -197,14 +197,14 @@ Each `Actor` line identifies participating product personas or services; it neve
 
 - Identifier: CAP-009
 - Name: Technical Inspection
-- Purpose: Evaluate technical discoverability checks on ingested material.
+- Purpose: Execute `CHK-TI-001` under `check-catalog-interim-v1` against frozen parsed and Crawl-outcome evidence.
 - Actor: System automation
 - Preconditions: Immutable Evaluation input snapshot exists with exact full/partial coverage and failed-subset metadata.
-- Inputs: Parsed documents and technical evidence.
-- Product Behavior: Execute deterministic technical checks and produce check results.
-- Outputs: Technical check results linked to evidence.
-- Success Condition: Technical checks produce evaluable outputs.
-- Failure Condition: Check execution fails or evidence insufficient.
+- Inputs: Frozen Evaluation Applicability Set, `parsed-observation-v1` link edges and Source-root terminal-outcome map, exact Evidence/Validation Decisions, catalog/definition/policy versions, and deterministic result key.
+- Product Behavior: Execute the pure bounded `CHK-TI-001` definition once per applicable Source, without a provider call, and persist the exact subject, observation, evidence, impact/confidence, status, and hash tuple.
+- Outputs: One terminal Technical Integrity Check Result per applicable Source and zero or more evidence-linked Issues only from failed Results.
+- Success Condition: Every expected result key produces the exact catalog outcome and deterministic replay is semantically identical.
+- Failure Condition: Missing/invalid/cross-tenant input yields the catalog-defined `error`; catalog/integrity/cardinality failure follows WF-007 Evaluation failure and never silently omits a Result.
 - Business Rules: PRULE-010, PRULE-011
 - Security Implications: Internal-only processing under tenant isolation.
 - Data Implications: Check outputs and evidence references persisted.
@@ -215,18 +215,18 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Non-goals: Framework-specific lint implementation details.
 - Release Classification: Baseline Core
 
-### CAP-010 Content Inspection
+### CAP-010 Content And External Presence Inspection
 
 - Identifier: CAP-010
-- Name: Content Inspection
-- Purpose: Evaluate content quality and discoverability relevance signals.
+- Name: Content And External Presence Inspection
+- Purpose: Execute the minimal Content Quality, Search Presence, AI Presence, Authority Signals, and Local Presence checks in `check-catalog-interim-v1`.
 - Actor: System automation
-- Preconditions: CAP-009 and parsed content availability.
-- Inputs: Content evidence and check definitions.
-- Product Behavior: Execute content checks and confidence attribution.
-- Outputs: Content Check Results and candidate Issues.
-- Success Condition: Content issues are evidence-linked and reviewable.
-- Failure Condition: Checks fail due to missing or invalid content signals.
+- Preconditions: The Evaluation input snapshot and applicability set are sealed; required parsed or `external-observation-v1` Evidence is either frozen or explicitly absent/indeterminate. CAP-009 completion is not a prerequisite and concurrent completion order is irrelevant.
+- Inputs: `parsed-observation-v1` title nodes for `CHK-CQ-001`; provider-neutral immutable external observations for `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and applicable `CHK-LP-001`; exact Evidence decisions and catalog/definition/policy versions.
+- Product Behavior: Execute each pure bounded definition once for every catalog-declared subject; validate observation kind/freshness/completeness before decision; never call or select a provider during Check execution; attribute confidence exactly from the definition.
+- Outputs: Terminal Check Results for the five owned definitions and candidate/open Issues only from failed Results.
+- Success Condition: Every expected definition/subject key has one deterministic result with exact evidence and status; an eligible failure is reviewable through its Issue lineage.
+- Failure Condition: Missing, stale, indeterminate, malformed, or invalid Evidence yields the definition's exact `error`; catalog/cardinality/integrity failure fails the Evaluation without a partial current Issue set.
 - Business Rules: PRULE-010, PRULE-012
 - Security Implications: Tenant-scoped evidence access.
 - Data Implications: Content-derived Issues and confidence metadata persisted.
@@ -234,21 +234,21 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Observability Requirements: EvaluationCompleted plus content-check metrics.
 - Acceptance Criteria: AC-CAP-010
 - Dependencies: WF-006, WF-007
-- Non-goals: Human editorial workflow automation.
+- Non-goals: Human editorial workflow automation, external-provider selection, or network collection during Check execution.
 - Release Classification: Baseline Core
 
 ### CAP-011 Structured-Data Inspection
 
 - Identifier: CAP-011
 - Name: Structured-Data Inspection
-- Purpose: Evaluate structured-data and schema quality for discoverability surfaces.
+- Purpose: Execute `CHK-TR-001` under `check-catalog-interim-v1` against Source-root Organization structured data.
 - Actor: System automation
 - Preconditions: Parsed structured-data artifacts are available.
-- Inputs: Structured-data evidence and check rules.
-- Product Behavior: Validate schema presence and quality constraints.
-- Outputs: Structured-data Check Results and related Issues.
-- Success Condition: Structured-data outcomes are attributable and measurable.
-- Failure Condition: Parsing or validation failure blocks decision-grade output.
+- Inputs: Frozen Organization `organization-profile-v1`, Source canonical root, Source-root `parsed-observation-v1` Organization nodes, Evidence decisions, definition/policy versions, and applicability key.
+- Product Behavior: Execute the pure bounded `CHK-TR-001` identity-presence/consistency rule once per applicable Source using only frozen inputs.
+- Outputs: One terminal Trust Signals Check Result per applicable Source and an evidence-linked Issue only for a failed Result.
+- Success Condition: Absence, exact match, normalized match, mismatch, malformed, replay, and timeout fixtures produce the exact catalog tuple.
+- Failure Condition: Invalid schema, input integrity, tenant, or Evidence yields the catalog-defined `error` and no decision-grade Issue; catalog/cardinality failure fails Evaluation.
 - Business Rules: PRULE-010, PRULE-013
 - Security Implications: None beyond standard tenant isolation.
 - Data Implications: Schema validation outcomes and evidence pointers persisted.
@@ -331,8 +331,8 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Name: Scoring and Recalculation
 - Purpose: Compute and recalculate Discoverability Score from governed inputs.
 - Actor: System automation
-- Preconditions: One exact sealed staged prospective or atomic current Issue Set with ordered membership/current-leaf lists, frozen state-at-snapshot Evidence/Check/scope/coverage/policy inputs, pillar applicability, and deterministic eligibility for every member.
-- Inputs: Selected Issue-set ID and Issues, Check Results, latest effective Evidence Validation Decisions, exact scope/coverage identities, and score/confidence/eligibility/fingerprint/catalog versions and hashes.
+- Preconditions: One exact sealed staged prospective or atomic current Issue Set with ordered membership/current-leaf lists, complete `check-catalog-interim-v1` expected-entry/result coverage, frozen state-at-snapshot Evidence/Check/scope/coverage/policy inputs, pillar applicability, and deterministic eligibility for every member.
+- Inputs: Selected Issue-set ID and Issues, Check Applicability Snapshot and every expected Check Result, latest effective Evidence Validation Decisions, exact scope/coverage identities, and score/confidence/eligibility/fingerprint/catalog versions and hashes.
 - Product Behavior: Apply `score-interim-v1` exactly, including membership validation, state-at-snapshot Contributions, fixed exclusion precedence, retained penalties, exact semantic hash tuples, rational equal weights, decimal/rounding rules, per-pillar status/reasons, serialized prior-snapshot linkage, Current Score Projection, and staging-specific no-pointer behavior.
 - Outputs: Complete, partial, or unavailable immutable ScoreSnapshot; one exact Contribution per Issue-set member; exact nullable current/last-promoted and latest-calculation projection pointers; exhaustive ordered pillar/unavailable reasons.
 - Success Condition: Normative fixtures reproduce exact values/hashes, every contribution reconciles, exact replay returns one snapshot, and permitted projection promotion never mutates history.
@@ -355,10 +355,10 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Actor: Recommendation service; Organization Administrator or Marketing Operator for publication; Technical Implementer as consumer
 - Preconditions: CAP-014 and CAP-015 complete.
 - Inputs: Exactly one origin Issue, optional informational related Issue references, origin-lineage Evidence, Score Contribution context, and artifact templates or validated AIResponse.
-- Product Behavior: Generate and validate the exact versioned Recommendation Artifact fields, sole-origin eligibility, Evidence/AIResponse/Citation lineage, publication, suppression, and deterministic fallback contract.
-- Outputs: Draft, published, suppressed, or retired Recommendation Artifact versions linked to one origin Issue, optional non-governing related Issues, and valid Evidence.
-- Success Condition: Every required field passes; impact/confidence equal the origin; an AI-assisted version has complete verified Citation coverage; only the origin controls eligibility, suppression, and priority.
-- Failure Condition: Missing/blank field, non-discoverability advisory scope, personalized legal/tax conclusion or instruction, empty step list, invalid Evidence/AIResponse/Citation, ineligible origin Issue, stale version, or policy-invalid output prevents publication with the exact reason.
+- Product Behavior: Resolve the origin Check/outcome's exact deterministic template and `effort-interim-v1`, create/replay a linear immutable Artifact-family version, validate sole-origin Evidence/AIResponse/Citation lineage, and atomically publish/replace/retire/suppress/re-publish through the Current Recommendation Family Projection.
+- Outputs: One linear family of draft, published, suppressed, or retired immutable Artifact versions linked to one origin Issue, optional non-governing related Issues, valid Evidence, and at most one current published/suppressed pointer.
+- Success Condition: Every required field/template/effort predicate passes; impact/confidence equal the origin; publication retires any prior current version atomically; an AI-assisted version has complete verified Citation coverage; only the origin controls eligibility, suppression, and priority.
+- Failure Condition: Missing/unmapped template or effort, family conflict, missing/blank field, non-discoverability advisory scope, personalized legal/tax conclusion or instruction, empty step list, invalid Evidence/AIResponse/Citation, ineligible origin Issue, stale version, or policy-invalid output leaves the prior current pointer unchanged with the exact reason.
 - Business Rules: PRULE-026, PRULE-027
 - Security Implications: Artifact access scoped by organization and role.
 - Data Implications: Artifact versions and lineage persisted.
@@ -376,7 +376,7 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Rank recommendations by impact, confidence, and effort.
 - Actor: Organization Administrator or Marketing Operator; read-only consumers cannot override
 - Preconditions: CAP-016 complete.
-- Inputs: Published Recommendation Artifacts with one eligible origin Issue each, persisted origin impact/confidence plus Artifact effort, creation time, identifier, policy version, and input hash.
+- Inputs: Only each family's current published Recommendation Artifact with one eligible origin Issue, persisted origin impact/confidence plus validated Artifact effort, creation time, identifier, policy version, and input hash.
 - Product Behavior: Apply the exact lexicographic `priority-interim-v1` order and retain base order separately from authorized display overrides.
 - Outputs: Immutable Priority Decisions, deterministic base queue, optional reasoned display override, and suppressed ineligible recommendations.
 - Success Condition: Stable inputs produce byte-for-byte equal semantic ordering including ties; every override records actor, reason, prior and resulting order without changing factors or score.
@@ -464,16 +464,16 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Purpose: Inform users about significant lifecycle outcomes and required actions.
 - Actor: Notification service identity; Organization Administrator or SecurityOperator for allowed policy changes; approved SecurityOperator support session for terminal recovery
 - Preconditions: Event-generating workflows execute.
-- Inputs: Versioned logical event, active route/template policy, exact authorized recipients, redacted payload fields, and provider adapter context.
-- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; union route selectors by required permission; create one logical Notification and in-app/Mailgun Delivery per recipient; classify missing verified addresses without a provider call; apply exact delta-seconds retry, provider mapping, aggregate transitions, and precedence; reauthorize each attempt; and re-resolve current policy/recipients for a linked replay generation.
+- Inputs: Versioned logical event, active route/template policy, exact authorized recipients, redacted payload fields, and `integration-interim-v1` Mailgun Integration/Credential context.
+- Product Behavior: Validate/activate immediate authorized immutable Notification Policy versions; union route selectors by required permission; create one logical Notification and in-app/Mailgun Delivery per recipient; lazily materialize/replay and validate the platform-managed `mailgun_email` Integration/Credential metadata before the first provider checkpoint; classify missing verified addresses without a provider call; apply exact integration initialization, credential expiry/rotation/revocation, delta-seconds delivery retry, provider mapping, aggregate transitions, and precedence; reauthorize each attempt; and re-resolve current policy/recipients for a linked replay generation.
 - Outputs: Immutable per-channel attempts and provider results, aggregate status, suppressed/terminal address reasons, and exactly one escalation for each terminally failed required Delivery or mandatory empty selector union.
 - Success Condition: Each Delivery durably succeeds, reaches an authorized governed suppression, or reaches a classified terminal failure escalated within 5 minutes; a mandatory empty selector union is likewise escalated, and replay causes no duplicate send.
 - Failure Condition: Unauthorized send, secret or raw Evidence leakage, duplicate provider side effect, retry beyond bound, unclassified terminal status, or missing escalation occurs.
 - Business Rules: PRULE-034
-- Security Implications: No sensitive payload leakage; recipient authorization enforced.
+- Security Implications: No sensitive payload or credential leakage; recipient and provider-checkpoint authorization enforced.
 - Data Implications: Delivery status and notification history retained.
 - AI Implications: None required for baseline dispatch.
-- Observability Requirements: notification send success and failure telemetry.
+- Observability Requirements: Integration/Credential version and transition identifiers plus notification send success/failure telemetry, never secret material.
 - Acceptance Criteria: AC-CAP-021
 - Dependencies: WF-006, WF-014, WF-017
 - Non-goals: Marketing campaign automation.
@@ -545,23 +545,23 @@ Each `Actor` line identifies participating product personas or services; it neve
 - Non-goals: Dynamic commercial experimentation outside approved pricing models.
 - Release Classification: Baseline Core With Owner Decision Dependency
 
-### CAP-025 Account Suspension And Deletion
+### CAP-025 Account And Organization Lifecycle
 
 - Identifier: CAP-025
-- Name: Account Suspension and Deletion
-- Purpose: Apply account lifecycle controls and aligned data lifecycle consequences.
+- Name: Account And Organization Lifecycle
+- Purpose: Apply Account/Organization access lifecycle, protected Legal Hold, and deterministic deletion consequences.
 - Actor: Organization Administrator or Security Operator
-- Preconditions: Valid suspension or deletion request and authorization.
-- Inputs: Account or organization lifecycle action request.
-- Product Behavior: Transition states, revoke access, and enforce lifecycle retention or deletion policy.
-- Outputs: Suspended, revoked, archived, or deletion-complete status with audit records.
-- Success Condition: The next protected request is denied after suspension and every authorization cache and active session converges within 60 seconds; lifecycle obligations then reach their exact terminal state.
-- Failure Condition: Access remains active after suspension or deletion obligations are incomplete.
+- Preconditions: Exact lifecycle/hold/deletion command, versions, authority and approval required by WF-013 and `retention-interim-v1`.
+- Inputs: Account or Organization lifecycle action; Closure Request; Legal Hold request/decision; LifecycleDeletionJob replay; retention/hold snapshots and resource/class manifest.
+- Product Behavior: Apply authorization-epoch-safe suspend/reactivate/revoke/close, immediate Session/work revocation, two-person hold, and the exact asynchronous primary/backup deletion/tombstone/evidence contract.
+- Outputs: Exact Account/Organization state, Closure Request, Legal Hold, LifecycleDeletionJob, Deletion Evidence, retained grant result, and audited deadlines/events.
+- Success Condition: The next protected request is denied after suspension/closure, caches converge within 60 seconds, a hold blocks destruction but not revocation/closure, and eligible jobs complete only with exact primary/backup evidence.
+- Failure Condition: Access remains active, last-admin/dual-control is bypassed, held bytes are destroyed, deadline failure claims completion, or lifecycle outcome is missing/unclassified.
 - Business Rules: PRULE-041, PRULE-042
 - Security Implications: Immediate access revocation and audit evidence required.
 - Data Implications: Data retention and deletion controls follow 015 DATA_LIFECYCLE.
 - AI Implications: None directly.
-- Observability Requirements: AccountSuspended, AccountRevoked, lifecycle completion telemetry.
+- Observability Requirements: Account/Organization/Closure/Hold/Deletion state, deadline, retry, block, failure, completion-evidence and access-revocation telemetry.
 - Acceptance Criteria: AC-CAP-025
 - Dependencies: WF-013, [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md)
 - Non-goals: Silent account deactivation without user-visible status.

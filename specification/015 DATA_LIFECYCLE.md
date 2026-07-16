@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -143,6 +143,39 @@ DLC-REQ-031: Restore drills MUST run on a scheduled cadence with documented succ
 
 DLC-REQ-032: Restore operations MUST preserve lineage and audit metadata.
 
+## Volume I Interim Retention And Deletion Contract `retention-interim-v1`
+
+This contract is the deterministic Volume I behavior pending OD-011 approval. It defines logical product outcomes and deadlines, not storage-vendor tiers. Every persisted record and payload has exactly one class below; derived data inherits the class with the longer retention and the stronger security classification. “Age” is elapsed time from the named cursor. Legal hold suspends only irreversible destruction and never restores access or permits a record to be used after its product-validity boundary.
+
+| Retention Class | Included Data | Minimum | Maximum And Cursor | Destruction |
+| --- | --- | ---: | --- | --- |
+| `ephemeral_secret` | plaintext verification/bootstrap material and decrypted credential material | 0 | 60 seconds after terminal use/revocation/expiry | cryptographic key destruction; never backed up |
+| `temporary_processing` | failed/uncommitted fetched bodies, parser/index staging, temporary generation files | 0 | 24 elapsed hours after owning attempt terminalizes | physical delete from primary/cache; never enters analytical backup |
+| `delivery_package` | encrypted Export package bytes | 0 | earlier of manifest expiry, revocation, or 24 hours after availability | cryptographic key destruction plus primary/cache deletion; immutable manifest moves to `product_history` |
+| `operational_telemetry` | nonsecurity metrics, traces, sanitized provider diagnostics and job performance detail | 30 days | 90 elapsed days after event | physical delete; aggregates containing no tenant/personal identifier may remain |
+| `product_evidence_payload` | Source Document, parsed, crawl, external, verification and operator Evidence payload bytes | 30 days | 24 elapsed months after capture | validation changes to invalid with `legal_deletion_completed`; payload/key deleted; lineage metadata/digest moves to `product_history` |
+| `product_history` | Evaluation, Check Result, Issue/Case, Contribution, ScoreSnapshot, Recommendation, Priority, policy/version, event, manifest and Evidence-lineage metadata/digests | 7 years | 7 elapsed years after record creation or terminal transition, whichever is later | irreversible destruction after reference-integrity proof |
+| `identity_commercial` | Account/Invitation/Session metadata, Organization/Project metadata, Plan/Entitlement/Billing summaries excluding payment-provider detail | active lifetime | 7 elapsed years after Organization closure or Account terminal transition, whichever applies later | irreversible destruction except minimal security/audit evidence |
+| `security_audit` | authorization decisions, Support Sessions, approvals, credential/integration metadata, Incident/Investigation, custody/access logs and deletion evidence | 7 years | 7 elapsed years after event/record terminal transition | irreversible destruction only with two-person security approval |
+
+At 30 days before a current `product_evidence_payload` maximum, the lifecycle service emits `EvidenceRetentionExpiring` once and requests reassessment when the Project remains active. Expiry wins at the maximum instant. Destruction appends the Evidence Validation Decision and all score/Recommendation suppression/recalculation effects before bytes become unreachable; no current read may cite expired bytes. A legal hold keeps the bytes but changes effective validation to quarantined with `retention_review` at the normal maximum, so held payload is not decision-grade merely because it remains stored. Release then resumes destruction or revalidation according to the current policy.
+
+### Legal Hold
+
+A Legal Hold contains hold ID/schema version, Organization, exact resource IDs and/or retention classes, inclusive UTC event-time interval, 20-2,000 character legal-purpose reason, requester and distinct approving SecurityOperator Accounts, requested/approved/released times, nullable release reason/approver, status (`pending`, `active`, `rejected`, or `released`), state version, policy version, idempotency key, and correlation ID. Pending to active/rejected and active to released are the only transitions; rejected/released are terminal. Creation and release each require `legal_hold.manage`, expected state version, two different active SecurityOperators, and a Support Session for customer-Organization scope. The release approver must differ from the release requester. Exact replay returns one transition; altered/stale/self-approved/cross-scope requests change nothing. `LegalHoldActivated` and `LegalHoldReleased` identify exact scope and never include held payload.
+
+An active hold is evaluated by exact Organization plus resource/class/time intersection before every irreversible-destruction checkpoint. It changes an eligible job to blocked with reason `deletion_blocked_legal_hold`; it does not prevent Account/Organization access revocation, Organization closure, logical deletion, or package retrieval expiry. At release, the lifecycle service queues each affected blocked job once against current policy; a changed policy may lengthen but never silently shorten an already accrued mandatory minimum.
+
+### Lifecycle Deletion Job
+
+Every accepted delete or closure request creates/replays one LifecycleDeletionJob containing job/schema version; Organization and nullable Account/resource; requested deletion mode (`logical_deletion`, `physical_deletion`, `archival`, `revocation`, or `irreversible_destruction`); requester/approver/service identities; request reason; active retention-policy and hold-snapshot IDs/hashes; exact resource/class manifest; status (`queued`, `running`, `blocked`, `failed`, or `completed`); attempt/replay generation; per-store/index/cache/key/backup outcomes; blocked/failure reason; primary due time; backup purge due time; state version; idempotency key; timestamps; and correlation ID. A missing mode is invalid. Account deletion and Organization closure always include immediate revocation/logical deletion plus eventual irreversible destruction of eligible classes; a hold may block only the latter.
+
+The job starts within 60 seconds of acceptance. Each primary/index/cache/key attempt has a 15-minute timeout and one retry after 5 minutes only for `deletion_dependency_unavailable`; schema, scope, digest, policy and authorization failures are nonretryable. Eligible primary/index/cache/key removal must complete within 30 elapsed days of acceptance. Backup tombstones are written before primary completion and every restore applies them before any product read; affected bytes must age out or be cryptographically erased from backup paths within 35 elapsed days after primary completion. At a due-time equality the deadline/escalation checkpoint wins. Failure or missed deadline emits `LifecycleDeletionFailed` and critical escalation without claiming completion.
+
+Completion requires one immutable Deletion Evidence record listing job/manifest/policy/hold snapshot, every store/index/cache/key/backup outcome and time, pre-destruction digests, tombstone ID, verifier service, completion time, and SHA-256 content digest. It contains no deleted payload. The job becomes completed and emits `AccountDeletionCompleted` or `OrganizationDeletionCompleted` only in the same transaction that persists this evidence. Blocked to queued after hold release and failed to queued by an authorized new replay generation are the only recovery transitions; completed never reopens.
+
+Protected data classes `product_evidence_payload`, `product_history`, `identity_commercial`, and `security_audit` are included in daily encrypted backup coverage. `ephemeral_secret`, `temporary_processing`, and `delivery_package` are excluded. Restore verification runs at least once every 90 elapsed days; success requires restoration into an isolated tenant, digest/lineage verification, tombstone application before read, and destruction of the drill copy within 24 hours. Drill records use `security_audit` retention.
+
 ## Decisions
 
 - DEC-015-01: Data lifecycle controls are mandatory release gates, not optional operations guidance.
@@ -168,10 +201,10 @@ DLC-REQ-032: Restore operations MUST preserve lineage and audit metadata.
 | Retention and deletion controls | Lifecycle integration tests and audit review | Chief Security | CI and release |
 | Backup and restore behavior | Restore drills and evidence logs | Chief Rails | Operations gate |
 
-## Open Questions
+## Volume I Interim Resolutions
 
-- Which data classes require customer-configurable retention windows in baseline releases?
-- Which export classes require cryptographic signing before delivery?
+- Customer-configurable retention windows are not available in Volume I. `retention-interim-v1` applies until OD-011 approves a replacement; any approved tenant policy may lengthen retention but MUST NOT shorten an accrued minimum or extend product validity.
+- Volume I makes no cryptographic-signature claim for Export packages. `export-interim-v1` requires the immutable manifest digests and encrypted package controls defined in the Volume I workflow specification; adding package signing requires a later approved contract version.
 
 ## Related Documents
 

@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -72,6 +72,7 @@ ERR-REQ-001: Canonical error classes MUST include:
 - AI errors
 - retrieval errors
 - citation errors
+- ingestion errors
 - parsing errors
 - indexing errors
 
@@ -150,10 +151,10 @@ ERR-REQ-020: Recovered workflows MUST emit explicit recovery-complete events.
 | Exposure policy | Security tests and redaction checks | Chief Security | CI |
 | Recovery and escalation | Incident simulation and runbook drills | Chief Security | Operations gate |
 
-## Open Questions
+## Volume I Interim Resolutions
 
-- Which error classes require customer-visible status page updates by policy?
-- Which workflows require automatic compensation versus operator confirmation?
+- Volume I defines no customer-visible status-page publication. Customer-visible failure information is limited to each authorized logical result, Notification route, Incident disclosure, and product projection expressly defined by the workflow contract.
+- Automatic compensation is permitted only where a Volume I workflow names the exact idempotent compensation/release action and authority. Every other corrective mutation requires its named actor/service command; an implementation cannot infer an automatic compensation from error class alone.
 
 ## Related Documents
 

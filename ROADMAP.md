@@ -77,12 +77,13 @@ Implementation
 
 ### M4 Volume I Product Foundations
 
-- Status: Active
+- Status: Frozen implementation-ready baseline at `v1.1-implementation-ready`; final acceptance remains gated by recorded owner approvals
 - Deliverables:
   - canonical Volume I specification set under specification/volume-i
   - implementation-ready capability, workflow, rule, score-evidence, acceptance, and traceability definitions
   - owner decision register for unresolved policy and threshold choices
   - foundation 1.0 dependency compliance verification
+  - frozen implementation baseline changed only for genuine implementation-discovered defects
 
 ### M5 Experience and Interaction
 

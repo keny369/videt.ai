@@ -357,6 +357,76 @@ Authority precedence for decision evidence and conflict resolution:
 - Owner Required: Chief Product and Chief Architect
 - Exact Approval Wording: I approve OD-009 Option 2 and authorize score eligibility to exclude disputed Issues until adjudicated.
 
+### OD-010 Baseline Check Catalog And Measurement Scope
+
+- Decision ID: OD-010
+- Exact Question: Which measured signals, external observation channels, applicability rules, pass/fail thresholds, impact mappings, and default remediation/effort semantics form the owner-approved baseline Check Catalog?
+- Classification: C
+- Current Status: Pending owner approval
+- Why The Decision Exists: A score requires at least one deterministic score-capable Check for every applicable pillar; selecting what the product measures and what constitutes a deficiency is product strategy, not an architectural inference.
+- Affected Capabilities: CAP-009, CAP-010, CAP-011, CAP-015, CAP-016, CAP-017
+- Affected Workflows: WF-007, WF-008, WF-009, WF-010, WF-011
+- Affected Product Rules: PRULE-010 through PRULE-013, PRULE-024 through PRULE-026, PRULE-028, PRULE-029
+- Affected Foundation Requirements: DM-REQ-009, DM-REQ-011, SM-REQ-003, VER-REQ-014, QA-REQ-010, AI-REQ-005
+- Options:
+  1. Approve the seven-definition provider-neutral baseline in `check-catalog-interim-v1`.
+  2. Approve an expanded or provider-bound catalog with separately supplied definitions, channels, thresholds, impact, effort, and fixtures.
+  3. Defer catalog activation and ship no score or recommendation publication until a later owner-approved catalog exists.
+- Recommended Option: Option 1, replacing individual interim values only through a complete immutable successor catalog.
+- Evidence Supporting The Recommendation:
+  - Seven applicable score pillars require at least seven single-pillar Check Definitions.
+  - One minimal definition per pillar removes implementation disagreement without promoting the non-normative research inventory into product scope.
+  - Provider-neutral frozen observations preserve deterministic evaluation while keeping provider procurement replaceable.
+- Benefits: Makes the baseline Evaluation, score-coverage, Issue, recommendation, and acceptance paths executable now.
+- Costs: The minimal catalog intentionally supplies only one score-capable signal per pillar and may not match final commercial differentiation.
+- Risks: Interim thresholds can shape early customer expectations; every output therefore retains catalog/definition/policy versions.
+- Security Implications: External provider responses are reduced to validated immutable observation Evidence before Check execution; Checks make no network call and fail closed on missing, stale, indeterminate, or cross-tenant input.
+- Data Implications: Requires exact subject, applicability, Evidence, freshness, and version lineage on every Check Result.
+- AI Implications: AI-presence observation is measurement input only; it cannot supply a product recommendation or alter another Check.
+- Operational Implications: External observation collection must either satisfy `external-observation-v1` or produce the catalog-defined `error` result and unavailable score.
+- Commercial Implications: Final catalog breadth, provider selection, and thresholds remain owner-controlled packaging choices.
+- Reversibility: High through immutable catalog/definition versions and reassessment; historical results never mutate.
+- Safe Interim Behavior: Activate exact `check-catalog-interim-v1` with `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, and `CHK-LP-001` as defined in [SCORE_EVIDENCE_MODEL.md](SCORE_EVIDENCE_MODEL.md). Bind tenant Source/subject instances only in each frozen Evaluation Applicability Set. `external-measurement-interim-v1` bundles no query, intent, listing, provider, or adapter set before approval, so implementations do not invent one: the four external expected entries persist handled `input_evidence_missing` errors and the numeric score remains unavailable. An approved Measurement Set later activates as exact signed configuration and accepts only exact frozen provider-neutral Evidence before snapshot sealing; Check execution still makes no provider call. A missing/invalid catalog fails Evaluation before Check side effects; handled missing/stale/indeterminate observations create no Issue. No Recommendation or Priority Decision publishes from an unavailable calculation. This interim is deterministic but does not approve the final measurement strategy.
+- Latest Responsible Decision Point: Before Volume I catalog values become a customer contractual claim.
+- ADR Threshold: Required if the approved model permits one Check to contribute to multiple pillars, nondeterministic evaluation, or a new external trust boundary.
+- Owner Required: Chief Product and Chief Architect
+- Exact Approval Wording: I approve OD-010 Option 1 and authorize `check-catalog-interim-v1` as the baseline measurement scope.
+
+### OD-011 Retention, Legal Hold, And Deletion Policy
+
+- Decision ID: OD-011
+- Exact Question: Which retention windows, customer-configurable choices, legal-hold authority, backup deletion deadlines, and destruction evidence rules apply to Volume I data classes?
+- Classification: C
+- Current Status: Pending owner approval
+- Why The Decision Exists: Foundation requirements mandate per-class minimum/maximum retention and auditable hold/destruction, but the values and customer flexibility are legal, commercial, and risk choices.
+- Affected Capabilities: CAP-013, CAP-018, CAP-022, CAP-023, CAP-025
+- Affected Workflows: WF-003, WF-005, WF-006, WF-009, WF-013, WF-016, WF-018
+- Affected Product Rules: PRULE-016, PRULE-035, PRULE-036, PRULE-037, PRULE-042, PRULE-043
+- Affected Foundation Requirements: DLC-REQ-011 through DLC-REQ-016, DLC-REQ-024 through DLC-REQ-032, SEC-REQ-010, SEC-REQ-013
+- Options:
+  1. Approve `retention-interim-v1` as the fixed baseline.
+  2. Supply a legally reviewed fixed replacement class/window policy before launch.
+  3. Add customer-configurable windows within owner-approved class-specific bounds.
+- Recommended Option: Option 2 before external launch; use Option 1 for deterministic implementation and prelaunch operation.
+- Evidence Supporting The Recommendation:
+  - A single fixed interim prevents teams from inventing divergent deletion/backup behavior.
+  - Legal and contractual obligations can vary by market and customer, so launch values need qualified review.
+  - Customer configurability expands authorization, billing, UX, and migration scope and should not be inferred.
+- Benefits: Executable lifecycle, hold, deletion job, restore-tombstone, and completion-evidence behavior now.
+- Costs: Conservative history retention and backup deadlines create storage/operations cost.
+- Risks: Interim values may not satisfy every launch jurisdiction or enterprise contract and therefore are not a legal conclusion.
+- Security Implications: Holds and security/audit destruction require protected two-person authority; access revocation remains immediate even while bytes are held.
+- Data Implications: Every data class has one exact class, cursor, minimum/maximum, deletion mode, backup behavior, and evidence record.
+- AI Implications: Expired/quarantined Evidence cannot ground AI output; historical lineage retains only metadata/digests after payload destruction.
+- Operational Implications: Requires deadline escalation, tombstone-before-restore, 90-day restore drill, and idempotent deletion job recovery.
+- Commercial Implications: Retention can affect packaging and enterprise commitments; no customer-configurable option is implied.
+- Reversibility: Medium; a successor may lengthen future retention, while already destroyed bytes cannot be restored.
+- Safe Interim Behavior: Apply exact `retention-interim-v1` in [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md). No customer may change its windows. Legal hold suspends irreversible destruction only, never access revocation or product-validity expiry. Account/Organization deletion uses the exact LifecycleDeletionJob, 30-day primary and 35-day post-primary backup deadline, restore tombstones, and immutable deletion evidence. A conflicting legal obligation fails closed, blocks destruction, and requires owner/legal policy replacement; F1 does not provide a legal conclusion.
+- Latest Responsible Decision Point: Before storing production customer data or making a contractual retention claim.
+- ADR Threshold: Required for customer-configurable retention, a new legal authority role, or materially different backup/destruction architecture.
+- Owner Required: Chief Security and Chief Product following qualified legal review
+- Exact Approval Wording: I approve OD-011 Option [selected] and authorize its retention, legal-hold, backup, and destruction policy for Volume I.
+
 ## Decision Resolution Protocol
 
 1. Owner records selected option and rationale in this document.

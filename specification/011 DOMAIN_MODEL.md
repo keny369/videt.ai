@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -112,7 +112,7 @@ DM-REQ-006: Identifier namespaces MUST appear in logs, audit events, and telemet
 
 | Relationship | Cardinality | Constraint |
 | --- | --- | --- |
-| Organization to Account | 1 to many | Account MUST belong to exactly one Organization. |
+| Organization to Account | 1 to many | Account MUST belong to exactly one Organization. One external identity principal MAY bind to a separate Account in each Organization, but an Account and its Session never span Organizations. |
 | Organization to Project | 1 to many | Project MUST belong to exactly one Organization. |
 | Project to Source | 1 to many | Source MUST belong to exactly one Project. |
 | Source to Document | 1 to many | Document MUST belong to exactly one Source. |
@@ -157,6 +157,7 @@ DM-REQ-011: The following invariants MUST hold:
 - A RecommendationArtifact MUST reference exactly one valid origin Issue; optional related Issue references are non-governing.
 - An AIResponse used in customer output MUST include complete verified Citation coverage, with each Citation linked to exactly one AIResponse and one Evidence object and no direct Evaluation write link under the Volume I interim contract.
 - A Credential MUST NOT exist without an owning Integration.
+- An Account MUST reference exactly one Organization; pre-Organization identity receipts and Bootstrap Grants are authorization artifacts, not Accounts.
 - A Project MUST NOT transition to active without one active Source.
 
 DM-REQ-012: Invariant checks MUST be represented in automated tests before implementation changes merge.
@@ -167,7 +168,7 @@ The minimum canonical cross-context domain event set includes:
 
 - OrganizationCreated
 - OrganizationActivated
-- OrganizationPolicyUpdated
+- AccessPolicyActivated
 - AccountProvisionRequested
 - AccountActivated
 - ProjectCreated
@@ -180,12 +181,12 @@ The minimum canonical cross-context domain event set includes:
 - AIResponseGenerated
 - AIResponseValidated
 - CitationVerified
-- ExportGenerated
+- ExportAvailable
 - IntegrationConnected
 - CredentialRotated
 - BillingStateChanged
 
-DM-REQ-013: Each domain event MUST include event_id, event_type, occurred_at_utc, actor_id, organization_id, and affected_entity_id.
+DM-REQ-013: Each domain event MUST include event_id, event_type, schema_version, workflow_id, event_profile, occurred_at_utc, organization_id, affected_entity_type, affected_entity_id, aggregate_version, correlation_id, causation_id, and exactly one of actor_id or service_identity_id, plus the profile-specific fields in the Volume I Logical Event Envelope. A pre-Organization bootstrap event substitutes the immutable bootstrap principal for organization_id only where the named onboarding contract expressly permits it.
 
 DM-REQ-014: Event payload schemas MUST be versioned under [019 VERSIONING.md](019%20VERSIONING.md). Additional workflow-specific lifecycle and failure events MAY be defined in [016 STATE_MODEL.md](016%20STATE_MODEL.md) and [017 ERROR_MODEL.md](017%20ERROR_MODEL.md), and MUST follow event naming rules in [003 TERMINOLOGY.md](003%20TERMINOLOGY.md).
 
@@ -208,16 +209,14 @@ DM-REQ-018: The following concepts MUST NOT be treated as domain entities:
 - vendor product names
 - dashboard widget names
 
-### Known Unresolved Modeling Questions
+### Known Owner-Controlled Modeling Decisions
 
 DM-REQ-019: Unresolved modeling questions MUST include owner, decision deadline, and ADR trigger.
 
-Current unresolved questions:
+Current pending decisions and deterministic interim behavior:
 
-- Should Citation support many-to-many linkage to Evaluation and AIResponse simultaneously?
-  Owner: Chief Architect. Deadline: 2026-08-01. ADR Trigger: before Volume IV acceptance.
-- Should BillingEntity include invoice and payment sub-entities in core domain or remain adapter-level?
-  Owner: Chief Product. Deadline: 2026-08-15. ADR Trigger: before Volume V commercial architecture acceptance.
+- OD-007 Citation linkage is pending Chief Architect approval by 2026-08-01; until approval, each Citation references exactly one AIResponse and one Evidence object, and no Citation writes a direct Evaluation link. ADR trigger: before Volume IV acceptance or before approving a many-to-many model.
+- OD-008 BillingEntity decomposition is pending Chief Product approval by 2026-08-15; until approval, BillingEntity remains the core commercial aggregate and invoice/payment detail remains adapter-level with no inferred F1 sub-entity. ADR trigger: before Volume V commercial architecture acceptance or before approving core invoice/payment entities.
 
 ## Decisions
 
@@ -247,10 +246,10 @@ Current unresolved questions:
 | Event schema completeness | Schema lint and event contract tests | Chief AI and Chief Rails | CI |
 | Non-domain concept exclusion | Documentation review gate | Chief Architect | PR review |
 
-## Open Questions
+## Volume I Interim Resolutions
 
-- Should Account and Organization support delegated administration scopes beyond role-based access?
-- Should RecommendationArtifact lifecycle include approval states in baseline scope?
+- Account and Organization administration uses only the Organization, Project, and exact resource scopes carried by the Volume I Role Assignment and Access Policy contracts. Volume I provides no delegated-administration scope outside that model.
+- RecommendationArtifact has only `draft`, `published`, `suppressed`, and `retired` states. Volume I adds no approval state; publication is an authorized transition whose complete validation and authority rules are defined by WF-009 and the score/evidence model.
 
 ## Related Documents
 

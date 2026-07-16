@@ -4,7 +4,7 @@
 
 - Status: Accepted
 - Foundation Version: 1.0
-- Last Updated: 2026-07-15
+- Last Updated: 2026-07-16
 
 ## Authority
 
@@ -111,12 +111,12 @@ OBS-REQ-021: Dashboard ownership MUST be explicit per domain.
 
 | Workflow | Success Condition | Failure Condition | Owner |
 | --- | --- | --- | --- |
-| Domain Onboarding | ProjectActivated event with project_id and source_id | activation_failed state transition with error class | Chief Product |
+| WF-001 Domain Onboarding | Self-service emits `OrganizationActivated` and `ProjectCreated` with `project_state=draft`; invitation acceptance emits `InvitationAccepted`. `SourceActivated` and `ProjectActivated` are separate later WF-003 and WF-002 outcomes, not WF-001 success signals. | Audited rejected command outcome with the exact reason and no partial branch writes; transaction timeout/exhaustion reports `onboarding_transaction_unavailable`. No failure-only Organization, Account, or Project state is created. | Chief Product |
 | Crawl Execution | CrawlCompleted event and successful URL coverage metrics | CrawlFailed event or timeout | Chief Rails |
 | Ingestion and Parsing | ParsingSucceeded event and parse_success_rate above release threshold | ParsingDeadLettered event or repeated ParsingFailed events | Chief Rails |
 | Evaluation | EvaluationCompleted with score snapshot persisted | EvaluationFailed event | Chief Architect |
-| Recommendation Generation | RecommendationArtifactGenerated event with issue linkage | recommendation generation failure state with correlation_id | Chief Product |
-| AI Response Generation | AIResponseValidated event with citation coverage metric | AIResponseRejected event or generation_failed state | Chief AI |
+| Recommendation Generation | RecommendationArtifactGenerated event with origin Issue linkage and Artifact version | Audited generation or publication-validation rejection with exact reason and correlation_id, with no `RecommendationPublished` event | Chief Product |
+| AI Response Generation | AIResponseValidated event with citation coverage metric | AIResponseRejected event with exact generation or validation reason | Chief AI |
 | Citation Validation | CitationVerified event and validity metric | CitationInvalidated event | Chief AI |
 | Export Delivery | ExportAvailable event | ExportFailed or ExportRevoked event | Chief Rails |
 
@@ -153,10 +153,10 @@ OBS-REQ-024: Incident investigations MUST produce a telemetry-gap assessment.
 | Workflow coverage | Observability fitness function checks | Chief Architect | CI and release |
 | Security redaction | Security telemetry tests | Chief Security | CI |
 
-## Open Questions
+## Volume I Interim Resolutions
 
-- Which metrics require customer-facing transparency in baseline releases?
-- Which synthetic checks require regional differentiation for future scaling?
+- Customer-facing transparency is limited to the authorized product projections, Evidence lineage, coverage, reason codes, and operational statuses explicitly named by Volume I. Internal metrics, traces, alerts, and provider diagnostics are not customer-facing.
+- Volume I synthetic checks have no customer-visible regional differentiation. An implementation may run private regional probes for operations, but those probes MUST NOT change a Check Result, score, entitlement, or customer-visible status unless a later versioned product contract defines the region dimension.
 
 ## Related Documents
 

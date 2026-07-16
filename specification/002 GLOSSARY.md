@@ -4,7 +4,7 @@
 
 - Status: Accepted baseline
 - Version: 1.0.0
-- Last updated: 2026-07-15
+- Last updated: 2026-07-16
 - Owner: Chief Architect
 - Classification: Canonical
 
@@ -20,7 +20,11 @@ This glossary defines concept meanings. Naming conventions and wording rules are
 
 ### Account
 
-A customer organization that owns one or more domains and users within Project F1.
+A tenant-scoped user-access record binding one externally validated identity principal to exactly one Organization. The same external person may have a separate Account in another Organization; no Account itself carries cross-Organization authority.
+
+### Organization
+
+The customer tenant, ownership root, and policy boundary that contains Accounts, Projects, and governed product data.
 
 ### AI Assistant Surface
 

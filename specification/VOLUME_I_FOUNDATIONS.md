@@ -77,7 +77,7 @@ The platform must answer three customer questions with evidence:
 
 - recurring subscription model aligned to ongoing visibility monitoring
 - multi-seat and multi-domain expansion path for agencies and enterprise teams
-- retention driven by weekly score movement, issue closure and competitive tracking
+- retention driven in Volume I by weekly score movement and issue closure; competitive tracking is a later Growth expansion and is not a baseline behavior
 
 ## Functional Specification
 
@@ -89,7 +89,7 @@ Project F1 provides continuous discoverability intelligence across search engine
 2. scoring discoverability across standardized pillars
 3. prioritizing issues by impact and effort
 4. generating implementation-ready remediation artifacts
-5. monitoring trend movement and competitor positioning
+5. monitoring the customer's own trend movement; competitor selection, collection, comparison, positioning, and alerts require a later explicit capability contract and are not Volume I behavior
 
 ### Target Segments
 
@@ -174,7 +174,7 @@ Planned packaging:
 
 - Free: single scan baseline report
 - Starter: recurring monitoring for one domain
-- Growth: competitor and AI visibility expansion
+- Growth: planned competitor and AI visibility expansion; this packaging label grants no Volume I competitor behavior or entitlement
 - Agency: multi-domain and client management model
 - Enterprise: custom contracts, controls and support
 
@@ -273,7 +273,7 @@ Planned expansion after baseline architecture validation:
 
 - predictive discoverability risk forecasting
 - vertical-specific scoring profiles
-- richer competitor intelligence and benchmarking models
+- competitor selection, tracking, intelligence, positioning, alerts, and benchmarking models
 - deeper enterprise governance controls
 
 ## References

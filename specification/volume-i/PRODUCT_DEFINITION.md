@@ -65,6 +65,8 @@ PR-REQ-013: The product MUST support reassessment and trend comparison over time
 
 PR-REQ-014: Desired customer outcomes MUST include measurable score movement, issue closure progression, and improved discoverability presence.
 
+Until OD-010 is approved, PR-REQ-010, PR-REQ-011, and PR-REQ-014 use the deterministic `check-catalog-interim-v1` measurement boundary: `CHK-TI-001` Technical Integrity, `CHK-SP-001` Search Presence, `CHK-AIP-001` AI Presence, `CHK-AS-001` Authority Signals, `CHK-TR-001` Trust Signals, `CHK-CQ-001` Content Quality, and `CHK-LP-001` Local Presence when applicable. Pure Check execution makes no external call. Because query, intent, listing, provider, and adapter selection are product strategy, `external-measurement-interim-v1` bundles no active external Measurement Set before OD-010 approval; the four external expected Results therefore use handled `input_evidence_missing`, create no Issue, and make the numeric score unavailable. Once exact owner-approved Measurement Set bytes activate, an eligible adapter may create only schema-valid immutable `external-observation-v1` Evidence before Evaluation sealing. Stale, indeterminate, invalid, or cross-Organization required Evidence remains non-decision-grade. The interim catalog defines executable behavior and historical lineage without silently approving final commercial measurement breadth, provider choice, or thresholds.
+
 ## Product Value Boundaries
 
 PR-REQ-015: In baseline scope, F1 MUST provide recommendation artifacts and MUST NOT directly modify customer production systems.
@@ -97,7 +99,7 @@ PR-REQ-023: The platform MUST NOT imply capabilities that are explicitly out of 
 
 PR-REQ-024: Baseline workflows assume customer-owned remediation execution.
 
-PR-REQ-025: Baseline workflows assume external providers for selected services such as billing, notification, monitoring, and some AI capabilities. Mailgun is the selected baseline email delivery provider through a versioned adapter; Postmark is not in baseline scope.
+PR-REQ-025: Baseline workflows assume external providers for selected services such as billing, notification, monitoring, and some AI capabilities. Mailgun is the selected baseline email delivery provider through a versioned adapter; Postmark is not in baseline scope. Volume I provider connections are platform-managed under `integration-interim-v1`; customers cannot create arbitrary connectors, enter provider credentials, or mutate Integration/Credential lifecycle state.
 
 PR-REQ-026: Baseline quality thresholds remain provisional where unresolved in [../013 QUALITY_ATTRIBUTES.md](../013%20QUALITY_ATTRIBUTES.md).
 
