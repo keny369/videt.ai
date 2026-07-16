@@ -43,6 +43,8 @@ PR-REQ-006: Primary user segments MUST include SMB operators, agencies, and in-h
 
 PR-REQ-007: Secondary actor segment MAY include consultants delivering discoverability programs.
 
+Consultant is a commercial persona, not a runtime role. A consultant participates only as an invited Account in the customer's Organization with one or more existing OrganizationAdmin, MarketingOperator, or TechnicalImplementer Role Assignments; it receives no implicit cross-Organization scope or additional permission. A consultant serving multiple customers uses separate tenant-scoped assignments and authorization contexts for each Organization.
+
 PR-REQ-008: The platform MUST distinguish buyer and user concerns:
 
 - Executive Buyer: commercial outcomes, risk, trend direction.
@@ -95,7 +97,7 @@ PR-REQ-023: The platform MUST NOT imply capabilities that are explicitly out of 
 
 PR-REQ-024: Baseline workflows assume customer-owned remediation execution.
 
-PR-REQ-025: Baseline workflows assume external providers for selected services such as billing, notification, monitoring, and some AI capabilities.
+PR-REQ-025: Baseline workflows assume external providers for selected services such as billing, notification, monitoring, and some AI capabilities. Mailgun is the selected baseline email delivery provider through a versioned adapter; Postmark is not in baseline scope.
 
 PR-REQ-026: Baseline quality thresholds remain provisional where unresolved in [../013 QUALITY_ATTRIBUTES.md](../013%20QUALITY_ATTRIBUTES.md).
 

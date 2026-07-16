@@ -43,7 +43,6 @@ Volume I does not define:
 - [ACCEPTANCE_AND_TEST_MAPPING.md](ACCEPTANCE_AND_TEST_MAPPING.md)
 - [TRACEABILITY_MATRIX.md](TRACEABILITY_MATRIX.md)
 - [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md)
-- [INDEPENDENT_REVIEW.md](INDEPENDENT_REVIEW.md)
 
 ## Identifier Conventions
 
@@ -51,18 +50,44 @@ Volume I does not define:
 - Capabilities: CAP-XXX
 - Workflows: WF-XXX
 - Product Rules: PRULE-XXX
-- Acceptance Criteria: AC-CAP-XXX and AC-WF-XXX
+- Acceptance Criteria: AC-CAP-XXX, AC-WF-XXX, AC-SM-XXX, and AC-PRULE-XXX
 - Owner Decisions: OD-XXX
 
 ## Volume I Review Gate
 
 Volume I is ready for owner review only when all are true:
 
-1. all CAP and WF items have explicit acceptance criteria
-2. all PRULE items map to at least one CAP and WF
-3. traceability matrix rows map through to planned test types and operational evidence
+1. all CAP, WF, Score Model, and PRULE items have explicit objective acceptance criteria
+2. all PRULE items map to at least one CAP and WF and to the same-numbered AC-PRULE assertion
+3. traceability matrix rows map through to planned test types
 4. unresolved owner choices are explicitly recorded in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md)
 5. Volume II remains paused in control documents
+
+This review gate is distinct from the Volume I acceptance gate below.
+
+## Volume I Acceptance Checklist
+
+Volume I acceptance MUST NOT be marked passed unless every blocking item below is in Pass state.
+
+| Checklist Item | Status | Evidence |
+| --- | --- | --- |
+| Product definition completeness | Pass | [PRODUCT_DEFINITION.md](PRODUCT_DEFINITION.md) covers PR-REQ-001 through PR-REQ-030. |
+| Capability coverage | Blocked | [CAPABILITY_MODEL.md](CAPABILITY_MODEL.md) covers CAP-001 through CAP-025. CAP-009 through CAP-011 still lack the mandatory baseline Check Definition catalog and CAP-001 through CAP-004 still depend on incomplete onboarding, invitation, bootstrap, Access Policy, and Source-registration input contracts. |
+| Workflow coverage | Blocked | [WORKFLOW_SPECIFICATIONS.md](WORKFLOW_SPECIFICATIONS.md) covers WF-001 through WF-018. WF-001, WF-002, and WF-013 still lack complete bootstrap/invitation/access-resolution behavior; WF-007 cannot enumerate required execution outcomes until the baseline Check Definition catalog exists. |
+| Rule coverage | Pass | [PRODUCT_RULES.md](PRODUCT_RULES.md) covers PRULE-001 through PRULE-046; every rule has Capability, Workflow, same-numbered AC-PRULE, trace, test-type, and decision-dependency coverage, and identifier/source/cross-reference validation passes. |
+| Acceptance criteria coverage | Blocked | Every AC-CAP-001 through AC-CAP-025, AC-WF-001 through AC-WF-018, AC-SM-001 through AC-SM-008, and AC-PRULE-001 through AC-PRULE-046 identifier exists with an objective assertion, but onboarding/access/source-registration fixtures and CAP-009 through CAP-011 Check-catalog fixtures have no complete normative oracle yet. |
+| Traceability completeness | Pass | [TRACEABILITY_MATRIX.md](TRACEABILITY_MATRIX.md) covers every PR-REQ, CAP, WF, PRULE, and Acceptance ID; expanded-range, planned test-type, and Product Rule owner-decision dependency validation passes. |
+| Security alignment | Blocked | Runtime permissions, protected grants, support sessions, tenant scoping, and score redaction are explicit. The bootstrap grant, invitation authority, named baseline Access Policy payload, and deterministic multi-assignment/effective-permission resolution formula remain undefined. |
+| Data lifecycle alignment | Blocked | Evidence, snapshot, lineage, export, and deletion assertions exist; retention-class and deletion-policy cross-check against [../015 DATA_LIFECYCLE.md](../015%20DATA_LIFECYCLE.md) remains required. |
+| State alignment | Blocked | Source verification/scope, crawl/parsing, Evaluation, Issue/Case, score, notification, entitlement, export, incident, and investigation paths are explicit. WF-002 draft activation failure still conflicts with [../016 STATE_MODEL.md](../016%20STATE_MODEL.md), and onboarding grant/invitation transitions are absent. |
+| Error alignment | Blocked | Priority workflow retry, timeout, terminal, precedence, and recovery behavior is explicit; onboarding, invitation, Access Policy, Source-registration, and baseline Check execution still lack exhaustive rejection/recovery codes. |
+| Observability alignment | Blocked | Priority events, attempts, escalation, replay, and correlation evidence are explicit; the missing onboarding/invitation and baseline Check contracts leave their exact event sets incomplete. |
+| Owner decisions resolved or decision-ready | Blocked | [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) contains unresolved owner approvals. |
+| ADR completeness for accepted architecture-impacting decisions | Blocked | Pending owner approvals include decisions with ADR thresholds not yet triggered by approved outcomes. |
+| Terminology consistency | Pass | Canonical Issue terminology is used as the sole deficiency entity across the canonical Volume I files; no Finding domain entity remains. |
+| Volume II pause preserved | Pass | Volume II remains paused in [../../ROADMAP.md](../../ROADMAP.md) and [../../PROJECT_STATE.md](../../PROJECT_STATE.md). |
+
+Current Acceptance Gate Outcome: Blocked by every checklist item still marked Blocked above, including pending owner approvals.
 
 ## Dependencies
 

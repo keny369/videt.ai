@@ -73,6 +73,6 @@ A role-based independent review was performed against Volume I documents:
 
 Recommend conditional owner review sign-off for Volume I documentation readiness, with conditions:
 
-1. resolve OD-001 through OD-006 by their deadlines
+1. resolve pending owner decisions in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) by their deadlines
 2. create ADRs when listed trigger conditions are met
 3. preserve Volume II paused state until explicit release gate update

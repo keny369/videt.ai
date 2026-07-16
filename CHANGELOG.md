@@ -10,9 +10,15 @@
 - added conceptual score and evidence chain model from evidence through reassessment without invented numeric formulas
 - added acceptance and planned test-type mapping across capabilities, workflows, and score model criteria
 - added Volume I traceability matrix linking requirements, capabilities, workflows, rules, acceptance, and verification
-- added canonical owner decision register OD-001 through OD-006 including unresolved 011 domain decisions and provisional 013 quality threshold handling
+- added canonical owner decision register OD-001 through OD-006 baseline set including provisional 013 quality threshold handling
 - added independent multi-role review record with findings, resolutions, and residual risks
 - updated control-plane docs to treat specification/volume-i/INDEX.md as canonical Volume I detail set while preserving Volume II pause gate
+- resolved OD-004 objectively to baseline in-app plus email notification channels
+- converted unresolved owner decisions to decision-ready briefs with explicit approval wording and latest-responsible decision points
+- added domain-model owner decisions for citation linkage scope and billing-entity decomposition scope
+- added scoring owner decision for disputed Issue score eligibility and synchronized scoring behavior artifacts
+- corrected objective traceability defects in Volume I product-rule source requirement references
+- added explicit Volume I acceptance checklist with pass and blocked conditions in specification/volume-i/INDEX.md
 
 ## 2026-07-15
 

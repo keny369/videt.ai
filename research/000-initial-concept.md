@@ -213,7 +213,7 @@ Enterprise
 - Lighthouse CLI
 - Playwright
 - Stripe
-- Postmark
+- Mailgun
 - Sentry
 - Docker
 - Kamal

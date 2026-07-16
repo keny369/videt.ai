@@ -122,9 +122,9 @@ DM-REQ-006: Identifier namespaces MUST appear in logs, audit events, and telemet
 | ParsingJob to IndexingJob | 1 to many | IndexingJob MUST reference one ParsingJob outcome batch. |
 | Project to Evaluation | 1 to many | Evaluation MUST reference one Project snapshot scope. |
 | Evaluation to Issue | 1 to many | Issue MUST reference one Evaluation origin. |
-| Issue to RecommendationArtifact | 1 to many | RecommendationArtifact MUST reference one Issue origin. |
+| Issue to RecommendationArtifact | 1 to many | RecommendationArtifact MUST reference exactly one origin Issue; optional related-Issue references are informational and never govern eligibility, priority, or lifecycle. |
 | RecommendationArtifact to AIResponse | 0 to many | AIResponse MUST reference one RecommendationArtifact context when generated for remediation. |
-| AIResponse to Citation | 0 to many | Citation MUST reference one evidence object. |
+| AIResponse to Citation | 0 to many | Citation MUST reference exactly one AIResponse and exactly one Evidence object; baseline writes contain no direct Evaluation link. |
 | Organization to BillingEntity | 1 to many | BillingEntity MUST reference one Organization. |
 | Organization to Integration | 1 to many | Integration MUST reference one Organization. |
 | Integration to Credential | 1 to many | Credential MUST reference one Integration owner. |
@@ -154,8 +154,8 @@ DM-REQ-010: Lifecycle state transitions MUST be authorized by the lifecycle owne
 DM-REQ-011: The following invariants MUST hold:
 
 - An Issue MUST reference a valid Evaluation.
-- A RecommendationArtifact MUST reference a valid Issue.
-- An AIResponse used in customer output MUST include citation coverage.
+- A RecommendationArtifact MUST reference exactly one valid origin Issue; optional related Issue references are non-governing.
+- An AIResponse used in customer output MUST include complete verified Citation coverage, with each Citation linked to exactly one AIResponse and one Evidence object and no direct Evaluation write link under the Volume I interim contract.
 - A Credential MUST NOT exist without an owning Integration.
 - A Project MUST NOT transition to active without one active Source.
 
