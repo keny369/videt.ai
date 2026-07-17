@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-17 — Legal review record; Volume I freeze NOT achieved
+
+- recorded the owner's approval of the presently recorded proposals and the fact of counsel consultation with no objection, in the new append-only `specification/volume-i/LEGAL_REVIEW_RECORD_2026-07-17.md`
+- did not close OD-011. Its own standard requires reviewer identity and capacity, jurisdictions and material legal assumptions reviewed, a policy package identity/version/canonical digest, signed UTC time, and separate Chief Security and Chief Product signatures over that same digest. None exists in the repository or was supplied, and the owner's own constraint forbids inventing jurisdictions or markets to obtain closure. The requirement binds every OD-011 option, including Option 1
+- did not close OD-013. Contrary to the ratification session's summary, the Owner Decision Register recommends Option 1 for the pre-Organization bootstrap sub-decision only and records the platform-wide Incident and cross-Organization Investigation sub-decisions as owner input required, stating that no accepted authority selects among them. `UPSTREAM-V1-EVENT-SCOPE-001` therefore remains a genuine blocker
+- did not close OD-033, whose own text states the choice is genuinely open and that no accepted authority prefers either option
+- no freeze tag was created. Volume I remains at `v1.4-volume-i-ratified-prelegal`; implementation remains gated by PM-REQ-010
+
 ## 2026-07-17 — Volume I owner ratification integration (ADR-019)
 
 - integrated the 2026-07-17 owner ratification session recorded in `specification/volume-i/RATIFICATION_SESSION_2026-07-17.md`, together with the three decisions that session left indeterminate, recorded in the new dated `specification/volume-i/OWNER_DECISION_SUPPLEMENT_2026-07-17.md`; the append-only ratification record was not edited

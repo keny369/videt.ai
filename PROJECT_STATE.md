@@ -73,5 +73,5 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 
 - Resolve only the thirteen recorded Volume I blockers through controlled change; do not reopen unrelated product behavior.
 - Obtain OD-010 owner approval and exact Measurement Set bytes before complete customer-facing numeric score release.
-- Complete OD-011 qualified legal/product approval before production customer-data use.
+- Complete OD-011 qualified legal/product approval before production customer-data use. Owner approval and counsel consultation were recorded on 2026-07-17 in `specification/volume-i/LEGAL_REVIEW_RECORD_2026-07-17.md`; that record does NOT meet OD-011's closure standard, which requires reviewer identity and capacity, jurisdictions and material legal assumptions, a package identity/version/digest, signed UTC time, and separate Chief Security and Chief Product signatures over that same digest.
 - Revalidate and freeze Volume II only after the blocked contracts are deterministic; accept later Volume I changes only for demonstrated defects or approved owner decisions.
