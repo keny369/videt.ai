@@ -96,7 +96,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | MTX-001 | AC-CAP-001 | CAP: CAP-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | - | - | OD-013, OD-016, OD-022, OD-026 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-002 | AC-CAP-002 | CAP: CAP-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | - | - | OD-020, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-003 | AC-CAP-003 | CAP: CAP-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | - | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
+| MTX-003 | AC-CAP-003 | CAP: CAP-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | - | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-004 | AC-CAP-004 | CAP: CAP-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-004 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-04 | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-005 | AC-CAP-005 | CAP: CAP-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-006 | AC-CAP-006 | CAP: CAP-006 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-006 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
@@ -120,7 +120,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-024 | AC-CAP-024 | CAP: CAP-024 | PR-REQ-006..PR-REQ-029 (8) | CAP-024 | - | - | OD-005, OD-006, OD-008, OD-019, OD-020 | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-22 | TYP-INT, TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-025 | AC-CAP-025 | CAP: CAP-025 | PR-REQ-006..PR-REQ-025 (11) | CAP-025 | - | - | OD-011..OD-033 (10) | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-23 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | OD-031; OD-032 -- OD-031: routine retention-expiry destruction withheld under retention-destruction-trigger-interim-v1; OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
 | MTX-026 | AC-WF-001 | WF: WF-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | - | WF-001 | - | OD-013, OD-016, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
+| MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-030 | AC-WF-005 | WF: WF-005 | PR-REQ-026, PR-REQ-029 | - | WF-005 | - | OD-005, OD-011, OD-015, OD-018, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
@@ -147,8 +147,8 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-051 | AC-SM-008 | SM: Verification Evidence | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-052 | AC-PRULE-001 | PRULE: PRULE-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | WF-001, WF-013 | PRULE-001 | OD-013, OD-016 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-053 | AC-PRULE-002 | PRULE: PRULE-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002, CAP-024 | WF-001 | PRULE-002 | - | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02,S-22 | TYP-E2E, TYP-DATA, TYP-SEC, TYP-OBS | Complete | None |
-| MTX-054 | AC-PRULE-003 | PRULE: PRULE-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | WF-002 | PRULE-003 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
-| MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
+| MTX-054 | AC-PRULE-003 | PRULE: PRULE-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | WF-002 | PRULE-003 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
+| MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-056 | AC-PRULE-005 | PRULE: PRULE-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-005 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-057 | AC-PRULE-006 | PRULE: PRULE-006 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-006 | WF-004 | PRULE-006 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Pass B required | None |
 | MTX-058 | AC-PRULE-007 | PRULE: PRULE-007 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-007 | WF-005 | PRULE-007 | OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
@@ -271,6 +271,52 @@ from what the sources produce.
 - test contracts: TYP-DATA: every `organization-profile-v1` field boundary produces the exact state or no tenant record. TYP-DATA: duplicate display name is rejected with its first-match reason. TYP-DATA: first-policy null-version activation succeeds exactly once; a conflicting active policy is rejected. TYP-DATA: byte-equivalent hashes activate; each mismatched `access-policy-v1`/`entitlement-interim-v1`/`interim-baseline-plan-v1` hash is rejected. TYP-SEC: the first-administrator invariant holds. TYP-SEC: the bootstrap-service-only exception - an unauthorized actor creates no tenant record. TYP-DATA: exactly one active baseline BillingEntity exists per Organization, linked to the same-Organization active Plan Assignment. TYP-DATA: no provider, callback, lazy, background, first-use or Invitation path creates the BillingEntity, and none enters reserved `past_due` or `suspended`. TYP-OBS: `pending` is never returned as current state, while its immutable transition event is retained. TYP-OBS: the four events appear in their fixed positions within the thirteen-event order under one correlation. TYP-DATA: timeout, retry, rollback and replay fixtures each yield the exact states or no tenant record. TYP-DATA: no event in this row carries the OD-013 bootstrap substitution.
 - rollout: No predecessor behaviour exists; S-02 ships with S-01 as one onboarding transaction. No compatibility concern.
 
+### MTX-003 - AC-CAP-003 (CAP: CAP-003)
+
+- Slice: S-03
+- Status: Complete; limb withheld
+- Withheld limb: UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#cap-003-project-setup
+- interface type: Capability-level obligation satisfied by the WF-002 contract. CAP-003 names WF-001, WF-002 and WF-004 as dependencies and defines no interface of its own.
+- route: Not applicable - CAP-003 defines no interface independent of WF-002; see MTX-027.
+- request schema: As MTX-027.
+- response schema: Project identity and lifecycle state, per CAP-003 Outputs.
+- controller: Not applicable - no HTTP adapter defined by Volume I.
+- command: As MTX-027: `Workflows::Wf002::CreateProject` and `Workflows::Wf002::ActivateProject`. CAP-003 adds no command.
+- command input: As MTX-027.
+- command output: Creation returns one draft Project; the distinct activation command later makes it active and eligible for audit execution.
+- actor: Organization Administrator or Marketing Operator, holding `project.create` for creation and `project.activate` for activation.
+- organization scope: The Organization MUST be active, per CAP-003 Preconditions.
+- aggregate: Project.
+- aggregate boundary: As MTX-027 - Project root; Source read by identity at activation.
+- value objects: As MTX-027.
+- domain service: Not applicable - CAP-003 names no domain service.
+- repository: As MTX-027.
+- persistence model: As MTX-027 - Project records and activation events are stored.
+- migration: Not applicable - no schema object added.
+- transaction boundary: As MTX-027 - creation and activation are distinct transactions, because CAP-003 states activation is a distinct completion condition.
+- concurrency: As MTX-027 - activation validates current Project and Source-membership versions.
+- idempotency: As MTX-027 - creation idempotent by key; activation guarded by its draft state.
+- background job: Not applicable - CAP-003 defines no asynchronous work.
+- queue: Not applicable - no asynchronous work.
+- retry policy: As MTX-027 - only `activation_transaction_unavailable` retries.
+- terminal failure: As MTX-027 - the Project remains draft with its exact reason.
+- reconciliation: Not applicable - atomic; the Project remains draft on failure.
+- domain events: `ProjectCreated` and `ProjectActivated` only.
+- event payload: As MTX-027.
+- event producer: `Workflows::Wf002`; `ProjectCreated` is additionally emitted by `Workflows::Wf001` for the first draft Project in the self-service branch.
+- event consumers: Not applicable - CAP-003 names no consumer.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before mutation.
+- permission checks: `project.create` then, separately, `project.activate`. CAP-003 Preconditions state activation is a later command after Source onboarding, so the two are never checked together.
+- tenant boundary: As MTX-027.
+- error contract: As MTX-027. CAP-003 Failure Condition is that activation fails or the Project remains draft - draft is the resting state and no `activation_failed` state exists.
+- audit record: As MTX-027.
+- observability: `ProjectCreated` and `ProjectActivated`.
+- retention: Project records and activation events are stored; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: every Project field plus the false/reason/null-profile and true/null-reason/complete-profile shapes create exactly one draft Project under replay. TYP-DATA: `local-business-profile-v1` normalization, E.164 and service-area order and hash boundaries. TYP-INT: activation atomically validates current Project and Source-membership versions and succeeds once only with one active same-Project Source. TYP-SEC: every invalid profile, Source state or scope, race, policy, authorization, timeout/retry and replay fixture returns the exact reason, state and event. TYP-DATA: no fixture creates an `activation_failed` state. TYP-SEC: activation is eligible only after CAP-004, CAP-005 and CAP-006 have produced at least one active same-Project Source.
+- rollout: As MTX-027.
+
 ### MTX-026 - AC-WF-001 (WF: WF-001)
 
 - Slice: S-01
@@ -315,6 +361,52 @@ from what the sources produce.
 - retention: Account lifecycle events and audit records are persisted per CAP-001 Data Implications. Retention class is owned by specification/015 DATA_LIFECYCLE.md under the approved `retention-interim-v1` baseline (OD-011, ADR-020); this row does not restate a retention window.
 - test contracts: TYP-E2E: the exact thirteen-event self-service order and one atomic BillingEntity-linked tenant result. TYP-E2E: new-Account, existing-Account and no-Account invitation orders, and that no BillingEntity is created on any invitation branch. TYP-INT: grant issuance emits one `BootstrapGrantIssued` and writes no tenant record. TYP-SEC: existing-account active/suspended/disabled/revoked/deleted/changed-email/MFA/first-match/policy/no-role fixtures each yield the exact redacted result and no Session. TYP-SEC: sign-in never searches another Organization (cross-Organization fixture). TYP-SEC: effective-assignment-all-denied yields `access_unavailable`. TYP-DATA: exact replay of each branch returns the stored result, emits no event and consumes no second nonce. TYP-DATA: altered payload under the same idempotency key fails. TYP-OBS: the OD-013 substitution appears on `BootstrapGrantIssued`/`BootstrapGrantExpired` only, is absent from every other event type and from every event after an Organization exists, and no event carries null, a sentinel, an invented platform tenant or an `event_scope` field. TYP-OBS: concurrent bootstrap for the same principal produces one grant, one tenant result and no duplicate authority, state, Session or event. TYP-OBS: retry fires at exactly 1s and 5s, rechecks expiry, and exhaustion returns `onboarding_transaction_unavailable` with no partial write. TYP-OBS: at grant/invitation expiry equality the lifecycle transition wins. TYP-OBS: 10-second attempt deadline, timeout wins at equality and rolls back.
 - rollout: S-01 is the first product slice and has no predecessor behaviour to migrate. No compatibility concern: no shipped software, emitted event or persisted record exists.
+
+### MTX-027 - AC-WF-002 (WF: WF-002)
+
+- Slice: S-03
+- Status: Complete; limb withheld
+- Withheld limb: UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-002-create-and-activate-project-scope
+- interface type: Two application commands: Project creation and the distinct, later Project activation. WF-002 Trigger is a user request, and its actors are Organization Administrator and Marketing Operator holding a canonical permission, so unlike WF-001 this workflow is reached by a principal rather than only by an approved service.
+- route: Not applicable - Volume I defines the two commands and their permissions but no HTTP path, method or transport. Volume II owns transport exposure at its own baseline (API_CONTRACTS.md); asserting a path here would fix a product contract Volume I has not defined. The commands are principal-reachable, so a route is expected at the Volume II baseline, but it is not this row's to invent.
+- request schema: Creation: display name (Unicode NFC, leading/trailing Unicode whitespace trimmed, 1-120 Unicode scalar values); `default_locale` which MUST equal `en-AU`; `reporting_time_zone` which MUST equal `UTC`; `local_presence_applicable` Boolean; objective which MUST equal `discoverability_assessment`; then exactly one of: `local_presence_reason` (20-500 trimmed Unicode scalar values) with `local_business_profile` null when applicability is false, or `local_business_profile` under `local-business-profile-v1` with reason null when applicability is true; plus idempotency key. Activation: Project identity, expected Project state version and expected Source-membership version.
+- response schema: Creation returns one draft Project identity and lifecycle state with its state version. Activation returns the Project identity and its resulting lifecycle state with state version, or the Project left draft with its exact reason.
+- controller: Not applicable - no HTTP adapter is defined by Volume I; see route.
+- command: `Workflows::Wf002::CreateProject` and `Workflows::Wf002::ActivateProject`. Activation is a distinct command and a distinct completion condition, never a continuation of creation.
+- command input: As request_schema, normalized. `local-business-profile-v1` requires: business name equal to the exact normalized Organization display name; `address_text` Unicode NFC with internal Unicode whitespace collapsed to one ASCII space, trimmed, 1-500 scalar values; `telephone_e164` of `+` followed by 8-15 ASCII digits whose first digit is 1-9; `service_areas` of 1-50 distinct strings each normalized by the display-name rule to 1-120 scalar values and sorted by UTF-8 bytes. The profile records schema version, attesting Account, server commit time and SHA-256 of canonical content. Every other value is `project_local_profile_invalid`.
+- command output: Creation: exactly one draft Project and `ProjectCreated`. Activation: Project active exactly once and `ProjectActivated`, or Project left draft with its exact reason and no event.
+- actor: Organization Administrator or Marketing Operator. Creation requires `project.create`; activation requires `project.activate`. WF-002 Security Notes require activation rights to be explicitly granted, so holding `project.create` never implies `project.activate`.
+- organization scope: The actor's Organization, which MUST be active. The Project is created in the actor's Organization; a mismatch is `tenant_mismatch`.
+- aggregate: Project.
+- aggregate boundary: Project is the root. Source is a separate root: activation reads Source membership by identity and version rather than owning Sources. LocalBusinessProfile is a value object of the Project, immutable with the creation profile.
+- value objects: ProjectId, ProjectDisplayName (NFC-normalized, trimmed, 1-120 scalars), LocalBusinessProfile (`local-business-profile-v1`), TelephoneE164, ServiceAreaSet (1-50 distinct, UTF-8-byte sorted), ContentHash (SHA-256 of canonical profile content), ProjectStateVersion, SourceMembershipVersion.
+- domain service: Not applicable - WF-002 names no domain service. Normalization and predicate validation run in the application command before the commit.
+- repository: `ProjectRepository`; `SourceRepository` read-only at activation for the active same-Project Source check.
+- persistence model: Canonical `projects` table per schemas/POSTGRESQL_SCHEMA.md, carrying lifecycle state, state version and the immutable Local Business Profile with its schema version, attesting Account, server commit time and canonical content SHA-256. The schema recognizes `paused` and `archived` because 016 STATE_MODEL.md defines them; no transition function or grant may enter either while OD-014 is pending.
+- migration: Not applicable at this row - the canonical `projects` table already exists. No schema object is added, and none may be added for the withheld limb.
+- transaction boundary: Creation: one transaction creating exactly one draft Project and emitting `ProjectCreated`. Activation: one atomic transaction validating current Project and Source-membership versions, the required fields and at least one active same-Project Source, then transitioning draft to active exactly once. Both are single-root; no multi-root specialisation is needed, so the EM-III-011 default applies unmodified.
+- concurrency: Activation is version-checked on both the Project state version and the Source-membership version. A stale Project version is `stale_state_version`; a Source set that changed under the command is `source_membership_changed`. Both are rejected without side effects and without partial transition. The draft-to-active transition occurs exactly once; a concurrent second activation observes `project_not_draft`.
+- idempotency: Creation is idempotent by the supplied idempotency key scoped to the Organization: exact replay returns the original draft Project and emits no second `ProjectCreated`. A same-key request with an altered payload is `idempotency_conflict`. Activation is naturally idempotent through its state guard: a replay against an already-active Project returns `project_not_draft` rather than transitioning twice, and exact replay returns the original result.
+- background job: Not applicable - both commands are synchronous. WF-002 defines no asynchronous work, and activation must observe current Source activity at commit time rather than deferred.
+- queue: Not applicable - no asynchronous work.
+- retry policy: Only `activation_transaction_unavailable` receives two service retries at exactly 1 and 5 seconds, and every retry rechecks current Source activity rather than reusing the earlier check. No other reason is retried: validation, authority, state, race and prerequisite outcomes are terminal for the attempt.
+- terminal failure: Retry exhaustion leaves the Project draft with `activation_transaction_unavailable`. An unmet prerequisite leaves it draft with its exact nonretryable reason. No failure creates an `activation_failed` state; WF-002 and AC-CAP-003 both forbid inventing one. Draft is the failure resting state.
+- reconciliation: Not applicable - both commands are atomic and single-root, and a failed activation leaves the Project in its prior draft state with no partial effect, so no divergent state exists to reconcile.
+- domain events: `ProjectCreated` on creation. `ProjectActivated` on the draft-to-active transition. Nothing else. `ProjectPaused`, `ProjectReactivated` and `ProjectArchived` are named by 016 STATE_MODEL.md but MUST NOT be emitted by any path while OD-014 is pending, because no command may effect their transitions.
+- event payload: The canonical envelope carrying the Organization's real `organization_id`, the Project identity and its resulting state version. The OD-013 bootstrap substitution is not available here and MUST NOT appear.
+- event producer: `Workflows::Wf002` is the sole producer of `ProjectCreated` and `ProjectActivated`. In the WF-001 self-service branch the first draft Project is created inside that transaction, so `Workflows::Wf001` also emits `ProjectCreated` in its fixed thirteen-event position; WF-001 states that Project activation is not part of WF-001, so `ProjectActivated` has exactly one producer.
+- event consumers: Not applicable at this row - WF-002 names no consumer.
+- serializer: Not applicable - no transport exposure is defined by Volume I; see route.
+- authorization entry point: The application command, before validation of the body and before any mutation. Because activation is also reachable only through this command, the `project.activate` check cannot be bypassed by a service or job path.
+- permission checks: `project.create` for creation, `project.activate` for activation, each held by an Organization Administrator or Marketing Operator in the target Organization. These two are the only Project permissions the Volume I permission contract defines. Absence of authority is `project_create_unauthorized` for creation, and the applicable authorization reason for activation.
+- tenant boundary: The Project is created in the actor's Organization; any cross-Organization attempt is `tenant_mismatch`. Activation reads only same-Project Sources; a Source from another Project or Organization can never satisfy the active-source prerequisite.
+- error contract: Creation first-match order: `project_schema_unsupported`, `project_display_name_invalid`, `project_locale_unsupported`, `project_time_zone_unsupported`, `project_local_applicability_invalid`, `project_local_reason_invalid`, `project_local_profile_invalid`, `project_objective_unsupported`, `organization_inactive`, `project_create_unauthorized`, `tenant_mismatch`, `stale_state_version`, `idempotency_conflict`. Activation reuses the applicable schema/tenant/authorization reasons first, then `project_not_draft`, `active_source_required`, `source_membership_changed`, `policy_unavailable`, `activation_transaction_unavailable`. Class mapping is fixed: validation reasons to `F1-VALIDATION-400`, authority to `F1-AUTH-403`, state and race to `F1-DOMAIN-409`, transaction dependency to `F1-DEPENDENCY-503`. First match wins; the order is normative, not advisory.
+- audit record: Creation input hash, creator, Project and Source-membership versions, selected active Source IDs, activation check outcomes, attempt and timeout data, replay result, and the exact denial reason, per WF-002 Audit and Observability.
+- observability: `ProjectCreated` and `ProjectActivated` per CAP-003 Observability Requirements, plus the audited denial reason and attempt/timeout data for every non-emitting outcome.
+- retention: Project records and activation events are stored per CAP-003 Data Implications. The retention window is owned by specification/015 DATA_LIFECYCLE.md; this row states none.
+- test contracts: TYP-DATA: display-name normalization - NFC, leading/trailing Unicode whitespace trimmed, and the 1-120 scalar boundary asserted at 0, 1, 120 and 121. TYP-DATA: `default_locale` other than `en-AU` is `project_locale_unsupported`; `reporting_time_zone` other than `UTC` is `project_time_zone_unsupported`; objective other than `discoverability_assessment` is `project_objective_unsupported`. TYP-DATA: applicability false with a 20-500 scalar reason and null profile creates one draft Project; the 19/20/500/501 boundaries assert `project_local_reason_invalid`. TYP-DATA: applicability true with null reason and a complete profile creates one draft Project; a business name differing from the exact normalized Organization display name is `project_local_profile_invalid`. TYP-DATA: `address_text` NFC, internal whitespace collapsed to one ASCII space, trimmed, 1-500 boundary. TYP-DATA: `telephone_e164` accepts `+` plus 8-15 digits with first digit 1-9, and rejects 7 digits, 16 digits, a leading 0 and a non-ASCII digit. TYP-DATA: `service_areas` 1-50 distinct, each 1-120 scalars, sorted by UTF-8 bytes - a duplicate, a 51st entry and an out-of-order set are each rejected. TYP-DATA: the profile records schema version, attesting Account, server commit time and canonical-content SHA-256, and the hash boundary is asserted. TYP-DATA: creation replay returns the original draft Project and emits one `ProjectCreated` only; an altered payload under the same key is `idempotency_conflict`. TYP-SEC: `project.create` absent is `project_create_unauthorized`; `project.activate` absent denies activation; holding create never implies activate. TYP-SEC: `organization_inactive` denies creation; cross-Organization is `tenant_mismatch`. TYP-INT: activation with zero active same-Project Sources leaves the Project draft with `active_source_required` and emits no event. TYP-INT: activation with one active same-Project Source succeeds exactly once and emits `ProjectActivated`. TYP-DATA: a Source active in another Project never satisfies the prerequisite. TYP-DATA: concurrent activation - one succeeds, the second observes `project_not_draft`. TYP-DATA: a stale Project state version is `stale_state_version`; a changed Source membership is `source_membership_changed`; neither leaves a partial transition. TYP-OBS: `activation_transaction_unavailable` retries at exactly 1s and 5s and each retry rechecks current Source activity; exhaustion leaves the Project draft. TYP-OBS: the 10-second activation deadline, timeout wins at equality and the attempt rolls back. TYP-DATA: no fixture ever produces an `activation_failed` state. TYP-SEC: no command, route, job or service path effects a Project pause, resume or archive transition, and no `ProjectPaused`, `ProjectReactivated` or `ProjectArchived` event is emitted - asserted absent while OD-014 is pending.
+- rollout: The first draft Project is created inside the WF-001 self-service transaction, so S-03's creation contract must match what S-01 already emits; both use `Workflows::Wf002::CreateProject` semantics and the same `ProjectCreated` payload. No predecessor behaviour exists to migrate.
 
 ### MTX-052 - AC-PRULE-001 (PRULE: PRULE-001)
 
@@ -381,6 +473,98 @@ from what the sources produce.
 - test contracts: TYP-SEC: an Organization can never exist without an accountable administrator, asserted against every failure fixture. TYP-DATA: exactly one active baseline BillingEntity per Organization, linked to the active same-Organization Plan Assignment. TYP-DATA: no provider call and no lazy creation - the BillingEntity exists at commit or the commit fails. TYP-SEC: an active Account with no active Role Assignment resolves to no Membership and is denied. TYP-SEC: a fabricated or mutated membership record grants no access, because Membership is derived rather than stored. TYP-SEC: a cross-Organization Plan Assignment link is rejected.
 - rollout: Ships with S-01/S-02; no predecessor behaviour.
 
+### MTX-054 - AC-PRULE-003 (PRULE: PRULE-003)
+
+- Slice: S-03
+- Status: Complete; limb withheld
+- Withheld limb: UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#prule-003-project-profile-and-activation-prerequisites
+- interface type: Validation and prerequisite rule enforced inside the WF-002 commands. PRULE-003 governs CAP-003 and applies to WF-002 only.
+- route: Not applicable - PRULE-003 is a rule, not an interface.
+- request schema: Not applicable - the rule constrains the MTX-027 schema rather than defining its own.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf002::CreateProject` (the profile contract) and `Workflows::Wf002::ActivateProject` (the prerequisite contract). This row adds no command.
+- command input: Not applicable - constrains the MTX-027 input.
+- command output: Not applicable - constrains the MTX-027 output.
+- actor: As MTX-027.
+- organization scope: As MTX-027.
+- aggregate: Project.
+- aggregate boundary: The rule constrains the Project root and the read of Source membership at activation; it crosses no boundary.
+- value objects: LocalBusinessProfile, ProjectStateVersion, SourceMembershipVersion.
+- domain service: Not applicable - enforced in the application command.
+- repository: As MTX-027.
+- persistence model: Not applicable - PRULE-003 introduces no persistent concept; it constrains the Project record MTX-027 writes.
+- migration: Not applicable - no schema object.
+- transaction boundary: The complete local-applicability and profile contract is validated before the creation commit. The activation prerequisites are validated inside the activation transaction under current versions, so a prerequisite cannot pass and then lapse before commit.
+- concurrency: Prerequisites are evaluated under current versions, which is the rule's explicit requirement: a stale Project or Source-membership version fails rather than activating against a superseded view.
+- idempotency: Inherits MTX-027 - creation by key, activation by state guard.
+- background job: Not applicable - no asynchronous work.
+- queue: Not applicable - no asynchronous work.
+- retry policy: As MTX-027; each retry rechecks current Source activity, which is what keeps the prerequisite evaluated under current versions across retries.
+- terminal failure: The Project remains draft until the exact onboarding and Source prerequisites pass. Draft is not a failure; it is the rule's required resting state.
+- reconciliation: Not applicable - no partial state.
+- domain events: Not applicable - PRULE-003 emits no event of its own; it gates `ProjectActivated`.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before mutation.
+- permission checks: As MTX-027 - the rule adds no permission; it adds validation and prerequisite predicates.
+- tenant boundary: Activation prerequisites read same-Project Sources only.
+- error contract: The complete profile contract maps to the creation first-match reasons in MTX-027, and any other value is `project_local_profile_invalid`. The prerequisite contract maps to `active_source_required`, `source_membership_changed` and `stale_state_version`.
+- audit record: Creation input hash and the activation check outcomes under one correlation, per MTX-027.
+- observability: The activation check outcome is observable for every attempt, including those that leave the Project draft.
+- retention: Not applicable - PRULE-003 defines no retention obligation.
+- test contracts: TYP-DATA: the complete local-applicability and profile contract is validated - every branch of the false/true applicability matrix, including a false applicability with a non-null profile and a true applicability with a non-null reason, both rejected. TYP-INT: activation remains draft until the exact onboarding and Source prerequisites pass. TYP-DATA: prerequisites are evaluated under current versions - a Source deactivated between check and commit does not activate the Project. TYP-DATA: a retry after `activation_transaction_unavailable` rechecks current Source activity rather than reusing the first check.
+- rollout: As MTX-027.
+
+### MTX-055 - AC-PRULE-004 (PRULE: PRULE-004)
+
+- Slice: S-03,S-04
+- Status: Complete; limb withheld
+- Withheld limb: UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#prule-004-project-scope-within-verified-source-boundaries
+- interface type: Scope invariant enforced at Project activation and at Source scope change. PRULE-004 governs CAP-003 and CAP-004 and applies to WF-002 and WF-004.
+- route: Not applicable - PRULE-004 is an invariant, not an interface.
+- request schema: Not applicable - constrains the MTX-027 schema.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf002::ActivateProject` (this slice). Its WF-004 limb, Source scope management, is owned by S-06 and is not contracted here.
+- command input: Not applicable - constrains the MTX-027 input.
+- command output: Not applicable - constrains the MTX-027 output.
+- actor: As MTX-027 for the WF-002 limb.
+- organization scope: The actor's Organization; scope never extends beyond it.
+- aggregate: Project as the scope subject; Source as the verified boundary, read by identity.
+- aggregate boundary: The invariant is evaluated across the Project and Source roots by identity reference, never by embedding Sources in the Project.
+- value objects: SourceMembershipVersion, ProjectId, SourceId.
+- domain service: Not applicable - enforced in the application command.
+- repository: `ProjectRepository`, `SourceRepository` read-only.
+- persistence model: Not applicable - the invariant introduces no persistent concept; it constrains which Sources may bound a Project.
+- migration: Not applicable - no schema object.
+- transaction boundary: Evaluated inside the activation transaction, so scope cannot widen between check and commit.
+- concurrency: Guarded by the Source-membership version; a scope change concurrent with activation is `source_membership_changed` and activates nothing.
+- idempotency: Inherits MTX-027.
+- background job: Not applicable - no asynchronous work in the WF-002 limb.
+- queue: Not applicable - no asynchronous work.
+- retry policy: As MTX-027; each retry re-evaluates the boundary under current Source activity.
+- terminal failure: A Project whose scope is not within verified Source boundaries stays draft with `active_source_required` or `source_membership_changed`.
+- reconciliation: Not applicable - no partial state.
+- domain events: Not applicable - PRULE-004 emits no event of its own; it gates `ProjectActivated`.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before the activation mutation.
+- permission checks: As MTX-027 - the invariant adds no permission.
+- tenant boundary: A Source outside the Organization or outside the Project can never bound the Project's scope, so the invariant is also a tenant control.
+- error contract: `active_source_required` when no verified boundary exists; `source_membership_changed` when the boundary moved under the command.
+- audit record: The selected active Source IDs are logged at activation, which is what makes the boundary auditable after the fact.
+- observability: The selected active Source IDs and the activation check outcome are observable per attempt.
+- retention: Not applicable - PRULE-004 defines no retention obligation.
+- test contracts: TYP-SEC: a Project cannot activate against a Source in another Project. TYP-SEC: a Project cannot activate against a Source in another Organization. TYP-INT: a Project cannot activate against an unverified or inactive Source. TYP-DATA: the selected active Source IDs are recorded at activation and match the Sources that satisfied the boundary. TYP-DATA: a scope change concurrent with activation is `source_membership_changed` and activates nothing.
+- rollout: As MTX-027. The WF-004 limb of this invariant lands with S-06.
+
 ### MTX-070 - AC-PRULE-019 (PRULE: PRULE-019)
 
 - Slice: S-02
@@ -425,8 +609,8 @@ from what the sources produce.
 
 - Volume I acceptance criteria: 97
 - Matrix rows: 97
-- Contracts complete: 6
-- Rows still `Pass B required`: 91
+- Contracts complete: 10
+- Rows still `Pass B required`: 87
 - Every acceptance criterion maps to exactly one row, by construction.
 - Every row maps back to exactly one governing acceptance criterion and its source.
 - Cross-cutting rows (`ALL`): 4. These are enforced in every slice

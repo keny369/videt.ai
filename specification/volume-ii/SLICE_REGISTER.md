@@ -87,7 +87,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-00 | Specified; no matrix rows | n/a | This register. S-00 implements no product behaviour, so no acceptance criterion maps to it and it has no contract row. |
 | S-01 | **Contracts complete** | MTX-001, MTX-026, MTX-052 | `contracts/S-01.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-02 | **Contracts complete** | MTX-002, MTX-053, MTX-070 | `contracts/S-02.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-03 .. S-24 | Pass B required | 0 | Next: S-03 Project Setup, first row MTX-003 (AC-CAP-003), which carries the OD-014 withheld limb |
+| S-03 | **Contracts complete; OD-014 limb withheld** | MTX-003, MTX-027, MTX-054, MTX-055 | `contracts/S-03.json`; canonical owner APPLICATION_LAYER.md |
+| S-04 .. S-24 | Pass B required | 0 | Next: S-04 Source Onboarding, first row MTX-004 (AC-CAP-004) |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -121,6 +122,21 @@ S-02 note: CAP-002 has no creation command of its own. Its establishment limb ex
 the WF-001 self-service transaction owned by S-01, and its lifecycle limb (suspend, reactivate,
 closure) is owned by WF-013 in S-23. S-02 therefore contracts obligations on an existing
 transaction plus an authorization gate, and adds no route, command or table.
+
+### S-03 cross-cutting application
+
+| Cross-cutting row | How S-03 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | Applied per row in `contracts/S-03.json`; verified by the S-03 TYP-SEC and TYP-DATA test contracts |
+| MTX-095 (AC-PRULE-044) | Cross-Organization creation is `tenant_mismatch`; activation reads same-Project Sources only, so PRULE-004 is a tenant control as well as a scope control |
+| MTX-096 (AC-PRULE-045) | S-03 effects `Draft -> Active` only; pause/resume/archive are withheld under OD-014 and asserted absent from every path |
+| MTX-097 (AC-PRULE-046) | Creation input hash, creator, versions, selected Source IDs, check outcomes, attempt/timeout data and denial reason are audited under one correlation |
+
+S-03 note: the OD-014 limb is absent from WF-002, whose State Transitions are
+`Project.Draft -> Project.Active` only. S-03 therefore reaches its stated outcome without the
+withheld limb, and the slice is **not** blocked. The `projects` table recognizes `paused` and
+`archived` because 016 STATE_MODEL.md defines them and guards elsewhere read them; no command,
+route, job, service path or entity method may enter either.
 
 ## Register
 

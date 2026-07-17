@@ -484,3 +484,112 @@ therefore a projection of the active Account plus the active Role Assignment, re
 authorization time. It MUST NOT be a writable row, because a writable row can drift from the
 Account and Assignment it is meant to reflect, and that drift would itself become a grant.
 An implementation that caches Membership MUST treat the cache as non-authoritative.
+
+## WF-002 Create And Activate Project Scope
+
+Matrix rows: MTX-003 (AC-CAP-003), MTX-027 (AC-WF-002). Slice: S-03.
+Structured contract: `specification/volume-ii/contracts/S-03.json`.
+Governing authority: CAP-003, WF-002, PRULE-003, PRULE-004 in `v1.5-volume-i-frozen`.
+
+This section is the canonical owner of the WF-002 application contract.
+
+### Two distinct commands
+
+`CreateProject` and `ActivateProject`. CAP-003 states activation is a distinct completion
+condition and a later command after Source onboarding, so activation is never a continuation of
+creation and the two permissions are never checked together. WF-002 Security Notes require
+activation rights to be explicitly granted: holding `project.create` never implies
+`project.activate`.
+
+### Creation predicates
+
+Display name NFC-normalized, Unicode-whitespace trimmed, 1-120 scalar values. `default_locale`
+MUST equal `en-AU`. `reporting_time_zone` MUST equal `UTC`. Objective MUST equal
+`discoverability_assessment`. Applicability false requires a 20-500 scalar reason and a null
+profile; applicability true requires a null reason and a complete `local-business-profile-v1`.
+Every other value is `project_local_profile_invalid`.
+
+The profile's business name MUST equal the exact normalized Organization display name;
+`address_text` is NFC with internal whitespace collapsed to one ASCII space, trimmed, 1-500
+scalars; `telephone_e164` is `+` plus 8-15 ASCII digits with a first digit of 1-9;
+`service_areas` is 1-50 distinct strings, each normalized by the display-name rule to 1-120
+scalars and sorted by UTF-8 bytes. The profile records schema version, attesting Account,
+server commit time and SHA-256 of canonical content.
+
+The baseline Local Business Profile is immutable with the creation profile. Volume I defines no
+silent provider-derived or administrator-amended replacement: a changed address, telephone,
+service-area set or Organization display name requires a new Project in this baseline. A
+profile-amendment capability would be a product change, not an implementation inference, and
+MUST NOT be added here.
+
+### Activation
+
+One atomic transaction validating the current Project state version, the current
+Source-membership version, the required fields, and at least one active same-Project Source,
+then transitioning draft to active exactly once. Draft is the resting state on every failure:
+no fixture creates an `activation_failed` state, and both WF-002 and AC-CAP-003 forbid
+inventing one.
+
+Only `activation_transaction_unavailable` retries, twice, at exactly 1 and 5 seconds, and every
+retry rechecks current Source activity rather than reusing the earlier check.
+
+### Error class mapping
+
+Validation reasons to `F1-VALIDATION-400`; authority to `F1-AUTH-403`; state and race to
+`F1-DOMAIN-409`; transaction dependency to `F1-DEPENDENCY-503`. The creation and activation
+first-match orders are normative and are listed in the structured contract.
+
+### Withheld under OD-014
+
+WF-002 State Transitions define `Project.Draft -> Project.Active` and nothing else. Project
+pause, resume and archive are named by 016 STATE_MODEL.md but have no command in Volume I, and
+OD-014 reserves that choice under `UPSTREAM-V1-PROJECT-LIFECYCLE-003`.
+
+S-03 therefore reaches its stated outcome -- a Project can be created and activated -- without
+the withheld limb. No command, route, job, service path or entity method may effect a pause,
+resume or archive transition, and `ProjectPaused`, `ProjectReactivated` and `ProjectArchived`
+MUST NOT be emitted. The `projects` table recognizes `paused` and `archived` because the state
+model defines them and guards elsewhere read them; no path may enter either.
+
+## CAP-003 Project Setup
+
+Matrix row: MTX-003 (AC-CAP-003). Slice: S-03.
+Structured contract: `specification/volume-ii/contracts/S-03.json`.
+
+CAP-003 defines no interface of its own; its obligations are discharged by the WF-002 contract
+above. Recorded separately because the capability owns two conditions the workflow does not
+restate: the Organization MUST be active and the actor MUST hold `project.create` at creation,
+and activation is eligible only after CAP-004, CAP-005 and CAP-006 have produced at least one
+active same-Project Source. Its Failure Condition is that activation fails or the Project
+remains draft; draft is the resting state and there is no `activation_failed` state.
+
+## PRULE-003 Project Profile And Activation Prerequisites
+
+Matrix row: MTX-054 (AC-PRULE-003). Slice: S-03.
+Structured contract: `specification/volume-ii/contracts/S-03.json`.
+Governing authority: PRULE-003, sourced from DM-REQ-011 and SM-REQ-003.
+
+Two obligations. Project creation MUST validate the complete local-applicability and profile
+contract. Activation MUST remain draft until the exact onboarding and Source prerequisites pass
+**under current versions**.
+
+The "under current versions" clause is the load-bearing one: a prerequisite that passed a moment
+ago is not a prerequisite that passes at commit. Both the Project state version and the
+Source-membership version are validated inside the activation transaction, and each retry
+rechecks current Source activity, so a Source deactivated between check and commit never
+activates a Project.
+
+## PRULE-004 Project Scope Within Verified Source Boundaries
+
+Matrix row: MTX-055 (AC-PRULE-004). Slice: S-03.
+Structured contract: `specification/volume-ii/contracts/S-03.json`.
+Governing authority: PRULE-004, sourced from SB-REQ-003 and SM-REQ-002.
+
+Project scope MUST remain within verified Source boundaries. This section owns the WF-002 limb,
+enforced at activation; the WF-004 limb, Source scope management, is owned by S-06.
+
+The invariant is evaluated inside the activation transaction and guarded by the
+Source-membership version, so scope cannot widen between check and commit. A Source in another
+Project or another Organization can never bound this Project, which makes the invariant a tenant
+control as well as a scope control. The selected active Source IDs are logged at activation,
+which is what makes the boundary auditable after the fact.
