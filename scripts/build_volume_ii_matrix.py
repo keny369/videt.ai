@@ -121,6 +121,20 @@ WITHHELD_LIMBS = {
                      "retention-destruction-trigger-interim-v1"),
     "OD-032": (None, "canonical namespace for an unassigned record withheld; behaviour permitted "
                      "under the interim"),
+    # OD-034 and OD-035 are successor decisions that OD-020 and OD-019 each delegate in their own
+    # ratified text. Neither withholds behaviour the owner approved: each names the deny that the
+    # ratifying decision already made, and supplies the node that deny may be cited against. Before
+    # they were registered, the affected rows had nothing to withhold against and nothing to
+    # implement, which is why the citations drifted onto retired blocker tags.
+    "OD-034": (None, "complete permission-matrix allow/deny fixtures for security, administrative "
+                     "and internal operational object read cells withheld; those classes have no "
+                     "row in permission-baseline-v1 and stay deny-by-default under OD-020's "
+                     "ratified carve-out; every command, approval, command-result and audit path "
+                     "is permitted and contracted"),
+    "OD-035": (None, "low-cost read route-to-operation declaration withheld; every metered read "
+                     "route resolves operation_unknown and returns Block with contact_support "
+                     "under OD-019's ratified fail-closed leg; the unit, checkpoint and Block path "
+                     "are settled and non-metered reads are unaffected"),
 }
 
 

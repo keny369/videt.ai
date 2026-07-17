@@ -693,3 +693,70 @@ Risks And Mitigations:
 
 Review Checkpoint:
 The ownership checks are reviewed if a false positive is reported or a new invented-entity class appears. Acceptance is revisited if OD-014 or OD-023 resolves in a way that changes engineering practice. Reassess no later than 2026-08-27.
+
+## ADR-023: Volume II Freeze-Candidate Governance Repair And Successor Decision Registration
+
+Status: Accepted
+Date: 2026-07-17
+Owner: Chief Architect
+Reversibility: Reversible while no implementation depends on the re-anchored rationales; the two registered identifiers are difficult to reverse once downstream artifacts cite them.
+
+Decision:
+Authorize the governance repair required before the Volume II architecture baseline may be frozen, and defer that freeze until it completes. The repair does exactly three things and no more. First, it registers the two successor owner decisions that ratified Volume I text delegates but never registered — OD-034 and OD-035 — each as pending, with the deterministic fail-closed interim behaviour its delegating decision already ratified. Second, it re-anchors every Volume II citation of a retired upstream blocker tag to the authority that actually governs the behaviour, correcting the label and never the behaviour. Third, it corrects the derived artifacts that still carry pre-ratification shapes for decisions already integrated under ADR-019 and ADR-020. No product behaviour changes and no owner decision is resolved.
+
+Context:
+Pass B completed all 97 implementation-matrix rows against frozen Volume I. Two governance defects survived it, and both are labelling and graph defects rather than implementation gaps.
+
+`scripts/validate_volume_ii.py` reports 72 sites where Volume II cites one of eight retired blocker tags as a live reason to defer, disable or refuse to route. `INDEX.md`'s registry is the status authority and records only `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) as LIVE. Every other tag is retired under ADR-019 or ADR-020 and each of its decisions records `Blocking Impact: None`. The failure runs in both directions: the same wrong label withholds behaviour the owner ratified and invites a reader to "unblock" objects the owner denied.
+
+Separately, OD-020's Ratified Behavior and the normative binding text in `WORKFLOW_SPECIFICATIONS.md` each leave read authority over security, administrative and internal operational objects deny-by-default "pending a separate owner decision", and OD-020's Blocking Impact records that scope as out of scope for it rather than resolved by it. That separate decision had no identifier and no register entry. Volume II recorded the consequence precisely on MTX-095: the decision "has no OD number and is absent from the register's pending set, so it is neither a pending Owner Decision this row may withhold against nor a resolved one this row may implement." A citation cannot be re-anchored to a node that does not exist, so the graph had to be repaired before the citations could be.
+
+OD-019 is the same shape. It ratified the metered-read unit and the fail-closed leg for an undeclared route, and booked the route-to-operation declaration table and `report.view`'s read surface as unpaid Costs. Neither exists. Its own Why The Decision Exists names the residual ambiguity — "the same navigation can reasonably resolve to `report.view` or `score.read`" — and classifies it as "a commercial and packaging choice rather than an architectural inference".
+
+Authority And Precedence:
+This ADR does not supersede any unchanged foundation requirement and MUST NOT be read as doing so. Under PM-REQ-003 authority is resolved by scope before rank; this change set is entirely within the product-behavior scope, where the foundation layer outranks the ADR registry. No foundation content changes, so PM-REQ-009 is not engaged and no controlled foundation change is performed or implied.
+
+`specification/volume-i/OWNER_DECISION_REGISTER.md` is changed. That change is confined to adding two decisions, correcting a Status summary line the register's own decisions already contradicted, and adding an explicit statement that each decision's `Current Status` field is the sole status authority. No accepted behaviour, option, ratification, interim or identifier is altered, and no decision is renumbered. Registering a decision that ratified Volume I text expressly delegates is completion of the governance graph Volume I itself declares incomplete; it reopens no contract in the ADR-020 change set and therefore requires no successor Volume I freeze tag. `v1.5-volume-i-frozen` remains the authoritative Volume I product-behaviour baseline, and every behavioural contract it froze is byte-unchanged.
+
+Options Considered:
+
+1. Reconcile the 72 citations without registering the successor decisions. Rejected: the security and administrative read citations are substantively correct and mis-attributed, so removing the retired tag leaves them citing nothing, and the only alternatives are a false enablement or a silent deny with no authority.
+2. Resolve the successor decisions by inference so the validator clears. Rejected: OD-020 expressly rejected deriving read from write, `CAPABILITY_MODEL.md:16` states an `Actor` line never grants authority, a Support Session scopes an already-permitted action and is never itself a read grant, and OD-019 classifies its residual as a commercial choice. Every inference route is closed by accepted authority, so inference would invent authority no document wrote and resolve two owner decisions by implementation.
+3. Bulk-delete the 72 citations. Rejected: one validator signal covers three distinct defects, at least one citation is accidentally load-bearing, and deleting a citation whose obligation is unmet asserts an enablement nothing can honour.
+4. Register what authority does not force, re-anchor what it does, correct the derived artifacts, and freeze. Chosen.
+
+Chosen-Option Rationale:
+Option 4 is the only option that leaves no citation unresolved while making no product decision on the owner's behalf. It applies the ADR-018 rule unchanged: correct in place only where existing authority already compels exactly one conformant answer, and register an owner decision with deterministic fail-closed interim behaviour wherever the behaviour is genuinely unresolved. Both registered decisions are recorded with the interim their delegating decision already ratified, so the repair makes the register describe the behaviour the repository already implements rather than changing it.
+
+Decisions Registered:
+
+- OD-034 Read Authority For Security, Administrative And Internal Operational Objects — Classification C, pending, Owner Required Chief Product and Chief Security. Interim: every named class stays deny-by-default exactly as OD-020 ratified. Scope follows the wider normative list in `WORKFLOW_SPECIFICATIONS.md`, which names Emergency Access Grant where OD-020's own sentence omits it, and expressly puts the classes OD-020's problem statement raised but neither carve-out sentence named — Integration/Credential, Account administration, Policy administration — to the owner rather than resolving them by silence. Only AC-PRULE-044 is gated, because its complete-fixture clause cannot be satisfied for an object class with no row.
+- OD-035 Low-Cost Read Route-To-Operation Declaration And `report.view` Read Surface — Classification C, pending, Owner Required Chief Product. Interim: OD-019's ratified fail-closed leg, under which every metered read route resolves `operation_unknown` and Blocks with `contact_support`. Gates AC-CAP-024, AC-WF-015 and AC-PRULE-040.
+
+Consequences:
+
+- The pending set is seven: OD-014, OD-023, OD-027, OD-031, OD-032, OD-034 and OD-035. Each records deterministic fail-closed interim behaviour and an exact blocking impact, and none blocks the Volume I freeze or the Volume II baseline. The withheld-limb count rises from 18 rows to 22; the matrix stays 97 rows, 97 acceptance criteria, 97 complete and 0 outstanding.
+- No retired blocker tag is cited as a live reason to withhold behaviour anywhere in scope. Where a deny survives, it cites the ratified decision that made it and, where one exists, the registered pending decision that will lift it.
+- `v1.5-volume-i-frozen` remains the authoritative Volume I baseline and no behavioural contract in it changes. `v1.7-engineering-manual-accepted` is unchanged and no engineering-practice content is touched.
+- Derived artifacts carrying pre-ratification shapes for OD-013, OD-016, OD-017, OD-024, OD-025 and OD-026 are corrected to the ratified shape at their canonical owners.
+- No software, physical endpoint, migration, provider integration or additional Volume II architecture artifact is authorized by this decision.
+
+Risks And Mitigations:
+
+- Registering rather than resolving leaves two genuine product gates open. Each registration states its exact blocking impact and its interim, so no gate can be passed by inference, and each affected row names its withheld limb exactly rather than gesturing at it.
+- Re-anchoring 72 citations could change behaviour under cover of a labelling correction. Every finding is classified individually in `specification/volume-ii/RETIRED_BLOCKER_CLASSIFICATION.md` against the question "what would break if this citation were simply deleted?", and each records whether behaviour changes. No deny becomes an allow.
+- Correcting the register could be read as reopening frozen Volume I. The change adds two delegated nodes and corrects a summary line the register's own fields already contradicted; it alters no accepted behaviour, option, ratification or identifier, and the ADR-020 Review Checkpoint's requirement of a new ADR to reopen a contract in that change set is satisfied by this ADR without any contract being reopened.
+- A future reader could mistake a registered pending decision for a blocker on the baseline. Each states `Volume II — no` and `Implementation — no`, and the Implementation Readiness Report proves non-blocking per row rather than asserting it.
+- The same class of defect could recur. `scripts/validate_volume_ii.py` gains `unresolved_successor_decision`, which fails when a settled decision delegates a policy question to a successor that no registered decision supplies, and the retired-blocker check is widened to the full in-scope corpus rather than one directory. Each new rule carries a negative mutation control.
+
+Compatibility And Migration:
+No shipped software, emitted event, persisted record or customer datum exists to migrate. No identifier is renumbered and no acceptance criterion changes. Every behavioural correction restores an outcome that ratified authority already compelled, or preserves an existing deny under corrected authority; none silently replaces accepted behaviour or widens access.
+
+Affected Downstream Documents:
+[specification/volume-i/OWNER_DECISION_REGISTER.md](specification/volume-i/OWNER_DECISION_REGISTER.md) (registration only). The Volume II set: INDEX, API_CONTRACTS, APPLICATION_LAYER, BACKGROUND_PROCESSING, FRONTEND_ARCHITECTURE, RATIFICATION_STATUS_OVERLAY, IMPLEMENTATION_MATRIX (generated), SPECIFICATION_FREEZE_CANDIDATE, RETIRED_BLOCKER_CLASSIFICATION, IMPLEMENTATION_READINESS_REPORT, IMPLEMENTATION_ENTRY_MAP, IMPLEMENTATION_BACKLOG. Contract sources: S-16, S-17, S-18, S-19, S-20, S-21, S-22, S-23, S-24, S-XC. Schema: [schemas/POSTGRESQL_SCHEMA.md](schemas/POSTGRESQL_SCHEMA.md). Control: [ROADMAP.md](ROADMAP.md), [PROJECT_STATE.md](PROJECT_STATE.md), [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md).
+
+Affected Tests, Diagrams, Schemas And Contracts:
+No acceptance criterion changes and no diagram changes. `scripts/build_volume_ii_matrix.py` gains the OD-034 and OD-035 withheld-limb texts. `scripts/validate_volume_ii.py` gains `unresolved_successor_decision`, a widened retired-blocker scope and an anchor-integrity check, each with a negative mutation control, and gains regression coverage for the prior `unauthorized_verification_method` vacuity. `schemas/POSTGRESQL_SCHEMA.md` is corrected to the ratified OD-013 Option 1 shape for the Incident and Investigation tables and to the retired-blocker status for the reassessment, Role-expiry, Document-lifecycle and Issue-collision notes.
+
+Review Checkpoint:
+Revalidate when OD-034 or OD-035 is approved, because each lifts a named limb and each requires its own impact mapping at that point. Reassess no later than 2026-08-27.
