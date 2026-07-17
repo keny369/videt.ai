@@ -1214,3 +1214,88 @@ The predicate opens no transaction, performs no write, and adds no SQL to the re
 budget of 9 application SQL statements and 500 rows, because it reads columns already materialized
 for the response.
 
+## PRULE-035 Export Policy And Manifest Authority
+
+
+Matrix row: MTX-086 (AC-PRULE-035). Slice: S-20.
+Structured contract: `specification/volume-ii/contracts/S-20.json`.
+Governing authority: PRULE-035, SEC-REQ-014, DLC-REQ-010, DLC-REQ-012, CAP-022, WF-016,
+`export-interim-v1`, `retention-interim-v1`, OD-011 (**resolved**), OD-031 (**pending**).
+
+This section is the canonical owner of the Export freeze, approval, retrieval reauthorization and
+package-destruction rules. It sits beside the existing
+[Export Retrieval Checkpoints And Streaming](#export-retrieval-checkpoints-and-streaming) section,
+which owns the physical checkpoint and streaming mechanics and is consumed here without duplication
+— subject to the state-machine correction recorded under
+[WF-016](APPLICATION_LAYER.md#wf-016-export-reports-and-data).
+
+### OD-011 is resolved; `retention-interim-v1` is the fixed baseline
+
+`Current Status` records OD-011 **Resolved on 2026-07-17 by explicit Product Owner decision;
+integrated by ADR-020**, with `Blocking Impact` **None for Volume I. OD-011 is closed.** MTX-022,
+MTX-086 and MTX-087 each cite OD-011, so this matters directly.
+
+Read the name carefully and then ignore it. `retention-interim-v1` is the **fixed approved** Volume I
+retention baseline despite the word "interim" — it is not provisional and not customer-configurable,
+and OD-011 records that configurability remains disabled and is never inferred from a fixed policy.
+PRULE-035's requirement to apply it is settled authority and is implemented, not withheld.
+
+The register's own Status header still lists OD-011 among ten pending decisions. That header is stale;
+each decision's `Current Status` field prevails.
+
+### The retention split is the rule
+
+One action creates two stored objects with two classes, and the split *is* PRULE-035's
+"destroy package bytes without mutating the manifest" clause expressed as retention:
+
+- **`delivery_package`** — the encrypted package bytes **only**. Minimum 0; maximum the earlier of
+  manifest expiry, revocation, or 24 hours after availability; destroyed by cryptographic key
+  destruction plus primary and cache deletion. Excluded from daily encrypted backup coverage, so no
+  backup path resurrects a destroyed package.
+- **`product_history`** — the Export lifecycle record and its immutable manifest, at 7 years.
+
+Destroying the first leaves the second intact and auditable. That is why the manifest tables are
+`T-IMM` while `exports` is `T-MUT`: the rule is enforced by table class rather than by discipline.
+
+**Withheld under OD-031:** the routine retention-expiry destruction trigger for the
+`product_history`-class Export record and manifest at their 7-year maximum where no accepted Account
+deletion or Organization closure request exists. The `delivery_package` limb is **not** withheld by
+OD-031 — see [WF-016](APPLICATION_LAYER.md#wf-016-export-reports-and-data) for that distinction and for
+the recorded gap in its execution surface.
+
+### One approval per generation attempt
+
+An Export is high-risk on exactly two predicates: it includes any restricted Evidence field, or it is
+requested by a SecurityOperator for an investigation. Each **create or linked-retry generation attempt**
+then requires its own single-use approval from a **different** active SecurityOperator holding
+`security.investigation.approve`.
+
+The timing is exact. The approval expires exactly one hour after `approved_at_utc`. Creation and the
+immediate `Pending -> Generating` checkpoint must **both** commit before that instant, and at the exact
+expiry instant expiry wins. Starting generation atomically sets `used_by_export_id`, so two concurrent
+attempts cannot both consume one approval. Reuse, altered content, self-approval, or a retry with no new
+approval is rejected **before** reservation or generation — no entitlement is consumed on the rejected
+path. Approval expiry *after* generation starts does not cancel that pinned attempt, but current
+permission revocation still stops it at the next protected checkpoint.
+
+Replay and retry coexist without contradiction because they are different things: an exact create or
+retry **command** replay returns the original result and consumes no second approval, while a **new
+generation attempt** always needs a new one.
+
+### Expiry wins, and retrieval fails closed
+
+The effective retrieval expiry is exactly
+`min(frozen_manifest_expires_at, available_at_utc + current_policy_lifetime)`. A policy shortened after
+availability moves it earlier; a policy lengthened after availability cannot move it later than the
+frozen manifest expiry. At `now_utc >= effective_retrieval_expires_at` the expiry checkpoint **wins**,
+returns `export_expired` and emits zero bytes — equality is owned by expiry, not by the reader.
+
+Every retrieval resolves the then-active Export Policy and re-applies current format, field,
+compressed-size and uncompressed-size bounds to the frozen manifest. A missing or invalid current policy
+returns `policy_unavailable` and zero bytes: retrieval **fails closed**.
+
+Policy activation and retrieval do not race for correctness. Activation enqueues idempotent expiry
+reevaluation for every available Export in scope, while retrieval independently applies the new policy
+immediately — so queue delay can never expose bytes a contracted policy has already forbidden. The
+reconcilers are advisory to the projection; the retrieval check is the authority.
+

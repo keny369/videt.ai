@@ -2797,3 +2797,236 @@ extrapolation or projection-forward field exists in any response.
 
 ---
 
+## WF-016 Export Reports And Data
+
+
+Matrix row: MTX-041 (AC-WF-016). Slice: S-20.
+Structured contract: `specification/volume-ii/contracts/S-20.json`.
+Governing authority: WF-016, CAP-022, the Interim Export Contract `export-interim-v1`, the Permission
+Baseline, the Score Visibility And Redaction contract, PRULE-035, PRULE-036, PRULE-044, OD-011
+(**resolved**), OD-020 (**ratified**), OD-006 (**ratified**), and OD-031 (**pending**).
+
+This section is the canonical owner of the Export lifecycle, the freeze, the manifest and the
+retrieval contract. It consumes the cross-surface classification and redaction semantics owned by
+MTX-082 (AC-PRULE-031) in **S-16 Reporting and Dashboard** at the freeze checkpoint without
+redefining them, and it consumes the `export.generate` high-cost entitlement checkpoint owned by
+MTX-040 in [WF-015](#wf-015-enforce-entitlements) in S-22.
+
+### The freeze is the whole design
+
+An Export is a durable copy of authorized data, and every other rule in this workflow follows from
+that one fact. The freeze commits format, one-Organization object and field scope, redaction result,
+artifact versions, requester-as-recipient, policy, approval when required, and request hash in a
+single transaction. A partially frozen Export would let generation resolve a scope no authorization
+decision ever covered.
+
+The freeze is deliberately **not** trusted afterwards. Retrieval re-resolves `export.retrieve`, the
+requester-as-recipient, Account and Organization, Export state, manifest scope, current field
+permissions and the then-active Export Policy before returning bytes. An authorization decision that
+is correct at freeze and stale at retrieval is a bypass, not a cache hit. That is why current
+permission or policy narrower than the frozen manifest denies the **whole** package with
+`export_scope_no_longer_authorized`: the package is never partially stripped, because a partially
+stripped package would silently contradict its own immutable manifest.
+
+### Redaction resolves from authority, never from the request
+
+Redaction and field classification are resolved server-side from the Permission Baseline and PRULE-044
+against the requester's current effective permissions and classification ceiling. A requester-supplied
+`redaction_codes` value cannot widen the frozen result.
+
+The ceilings are exact: `confidential` for OrganizationAdmin and TechnicalImplementer, `internal` for
+MarketingOperator and the Executive Buyer persona, and `restricted` for a SecurityOperator only inside
+active authorized incident or adjudication scope. The Executive Buyer persona receives summary-only
+output through `internal` and is denied contribution detail, Evidence metadata and Evidence payload
+outright. BillingOperator is denied every Export surface, and a tenant-scoped service identity is
+denied Export entirely.
+
+Three outcomes, and they are not interchangeable. An actor who cannot access the object has the
+**whole request denied**. An actor who can access the object but not a field gets the field **omitted**
+with its stable code appended to `redacted_field_codes` and no value-derived placeholder. Evidence
+above the actor's ceiling is **reference-only**: `evidence_id` and `access_status=restricted`, with
+payload reference, content digest, provenance detail and observation content omitted. The strongest
+classification among a derived field's originating Evidence governs it, and nothing may declassify.
+
+### Two retrieval state machines, not one
+
+`export_retrievals` carries `logical_state` with exactly `intent`, `stream_started` and `denied`, and
+its only edges are `intent -> stream_started` and `intent -> denied`. `export_stream_attempts` carries
+`transport_state` with `intent`, `streaming`, `complete`, `incomplete` and `denied`, together with the
+attempt number, the 60-second start deadline and the actual bytes sent.
+
+Keeping them apart is load-bearing. It is exactly what lets a client disconnect record an `incomplete`
+**transport** attempt without disturbing the committed **logical** retrieval, and what lets an exact
+command replay reuse one `export_retrievals` row while appending a new `export_stream_attempts` row.
+Checkpoint 3 is the durable authorization boundary: everything before it can be revoked, expired or
+contracted and emits zero bytes, and nothing after it can retract bytes already emitted.
+
+> **Correction required at integration.** The existing SECURITY_PERFORMANCE.md section
+> [Export Retrieval Checkpoints And Streaming](SECURITY_PERFORMANCE.md#export-retrieval-checkpoints-and-streaming)
+> states that `export_retrievals` carries "the declared monotonic `intent -> streaming ->
+> complete|incomplete|denied` checkpoints". Those are `export_stream_attempts.transport_state` values.
+> `schemas/POSTGRESQL_SCHEMA.md` and API_CONTRACTS.md's entity state registry independently agree that
+> `export_retrieval` is exactly `intent`, `stream_started`, `denied`. That section's behaviour is
+> correct and is consumed here without duplication; the one sentence merging the two machines is
+> defective and this contract follows the schema instead. Repairing it is a separate governed edit.
+
+### `export.generate` is not a permission
+
+Three `export.`-prefixed dotted tokens appear in the canonical sources and only some are permissions.
+The permissions are exactly `export.create`, `export.retrieve`, `export.retry`, `export.revoke`,
+`export.expire` and `export.list`, plus `policy.export.manage`. `export.generate` is the high-cost
+entitlement operation string and counter-group ID — no actor holds it. `export.detail_fields` is a
+`redacted_field_codes` group. A create is authorized by `export.create` and metered by
+`export.generate`; neither substitutes for the other.
+
+### Export enumeration: ratified authority, absent route
+
+OD-020's `Current Status` is **Ratified 2026-07-17, resolved by replacement**, its Approved Option adds
+an explicit read row for Export enumeration, and its `Blocking Impact` is **None for the approved
+customer-facing read set**. Volume I binds the token directly: `export.list` governs Export enumeration
+in WF-016. `UPSTREAM-V1-READ-AUTHORIZATION-004` is recorded in the blocker registry as **Retired under
+ADR-019**; only OD-014 and OD-023 remain live.
+
+The metering deferral does not reach this row either. `export.list` is not one of the five low-cost
+operations and is not among the nine `EntitlementPolicyRules` keys, so Export enumeration is a
+**nonmetered** read, and `UPSTREAM-V1-LOW-COST-METERING-005` is simply irrelevant to it.
+
+So the semantics are settled and are contracted. What is missing is a **route**: API_CONTRACTS.md's
+Query catalogue is a closed table and carries no `GET .../exports` row for `QRY-015` at all — neither
+enabled nor deferred. The contrast is decisive: every metered read *retains* its route there marked
+`Enablement: deferred under UPSTREAM-V1-LOW-COST-METERING-005`, so Volume II demonstrably knows how to
+record a known-but-disabled path, and enumeration uses no such row. Under the catalogue's own rule an
+absent route returns transport `404`. Enumeration is unreachable because nobody wrote the path, **not**
+because a decision withholds it. This contract states the authority and invents no path or DTO.
+
+> **Stale cells for integration.** `QRY-015 ExportCollection` defers in its Required authorization
+> column "under `UPSTREAM-V1-READ-AUTHORIZATION-004`; `export.retrieve` authorizes one known
+> retrieval, not enumeration". Both halves are stale: the blocker is retired, and OD-020 answers that
+> column with `export.list`. The resolved shape already exists in the same registry —
+> `QRY-018 EntitlementNoticeCollection` names its permission there rather than a blocker. Registering
+> `GET .../exports` against `export.list`, or recording it as an explicit blocked mapping, is an edit
+> to API_CONTRACTS.md and APPLICATION_LAYER.md that this contract does not perform.
+>
+> `QRY-016 ExportDetail` is **not** swept along. OD-020 ratifies Export *enumeration* only, and the
+> Permission Baseline contains no Export detail-read token. `export.list` must not be stretched to
+> cover it.
+
+### OD-031 withholds a limb this workflow never had
+
+OD-031 is **pending**. Its Exact Question covers irreversible destruction when a `product_history`,
+`identity_commercial` or `security_audit` record reaches its **7-year** maximum with no accepted
+Account deletion or Organization closure request. 015 DATA_LIFECYCLE.md classifies the Export lifecycle
+record and its immutable manifest as `product_history`, so the withheld limb here is exactly the
+routine retention-expiry destruction of those two artifacts at 7 years. Under
+`retention-destruction-trigger-interim-v1` nothing is destroyed, no job is created, no Deletion
+Evidence is produced and no domain event is emitted; the record is retained subject to legal hold and
+raises exactly one critical compliance escalation.
+
+**The package-byte limb is not withheld and must not be conflated with it.** The encrypted package
+bytes are class `delivery_package` — not one of OD-031's three named classes — and their maximum is not
+a 7-year cursor but the earlier of manifest expiry, revocation, or 24 hours after availability,
+triggered by this workflow's own `export.expire` checkpoint. S-23's completed MTX-076 asserts the same
+separation from the other side: a legal hold blocks irreversible destruction only and "does not prevent
+access revocation, Organization closure, logical deletion or package retrieval expiry".
+
+OD-032 does **not** touch this slice. Export is a DM-REQ-001 named core entity, it is absent from
+OD-032's omission list, and that decision's Affected Capabilities and Workflows exclude CAP-022 and
+WF-016. It imposes one constraint the contract observes: the manifest selects ScoreSnapshot and
+Issue-set versions, both of which *are* on the omission list, so neither is given an identifier
+namespace or a lifecycle owner here.
+
+### Authority gap: package destruction has no dispatch surface
+
+Volume I obligates destruction of the package bytes. 015 DATA_LIFECYCLE.md gives `delivery_package` a
+maximum and a destruction mode of "cryptographic key destruction plus primary/cache deletion";
+PRULE-035 requires destroying package bytes without mutating the manifest; AC-PRULE-035 demands a
+package-key destruction fixture.
+
+No Volume II surface executes it, and the closure is airtight rather than merely unclear.
+BACKGROUND_PROCESSING.md's ScheduledAction registry is expressly closed and its only Export kinds are
+`export_generate`, `export_expire` and `export_policy_reevaluate`, none of which destroys an object.
+The `object_destroy` work type is reachable from exactly one kind, `verification_material_destroy`, and
+its handler binding requires a DataLifecycle manifest-authorized entry — a manifest only a
+LifecycleDeletionJob produces, and such a job is created solely by accepted Account deletion or
+Organization closure, never by a routine 24-hour package expiry. DEPLOYMENT_OBSERVABILITY.md closes the
+last escape: DataLifecycle is the only authority for protected object/key destruction, and storage-tier
+rules must not independently destroy Export packages before a persisted manifest authorizes it.
+
+No owner decision withholds this and no `UPSTREAM-V1-*` blocker records it. It is an **authority gap**,
+reported rather than filled: this contract invents no ScheduledAction kind, work type, manifest
+producer or destruction permission. The slice still reaches its outcome, because the customer-visible
+obligation is independent and fully contracted — at `now_utc >= effective_retrieval_expires_at` the
+expiry checkpoint wins, returns `export_expired` and emits zero bytes, and revocation invalidates
+retrieval immediately. What is missing is the execution of byte destruction behind an already-closed
+door.
+
+
+## CAP-022 Export And Sharing
+
+
+Matrix row: MTX-022 (AC-CAP-022). Slice: S-20.
+Structured contract: `specification/volume-ii/contracts/S-20.json`.
+Governing authority: CAP-022, discharged by the WF-016 contract above; OD-011 (**resolved**), OD-020
+(**ratified**).
+
+CAP-022 defines no interface of its own. Its Purpose is governed outbound report or data package
+delivery, and its Non-goal fixes the boundary: unrestricted public sharing does not exist. There is no
+route, command, job, column or configuration that produces a public, anonymous, reusable or presigned
+URL, and no policy switch enables one — retrieval is server-mediated streaming only.
+
+Its Failure Condition is one predicate over four unrelated causes: an unsupported format, an over-size
+or manifest mismatch, an unauthorized field or retrieval, or an invalid transition each **publishes no
+bytes**. That is the capability's entire safety claim — whatever goes wrong, the failure mode is
+silence rather than partial exposure.
+
+Its Data Implications require Export metadata **and access logs** to be retained, which is why
+`export_retrievals` and `export_stream_attempts` exist at all: a retrieval that emitted bytes without a
+durable authorization record would fail the capability rather than merely lack telemetry. CAP-022
+Outputs name the retrieval audit as one of only three permitted results.
+
+Its AI Implications are narrow and worth stating exactly: AI-generated text is included **only when
+policy compliant**, meaning a published Recommendation's AI-derived fields enter a package only through
+the frozen field allowlist under the active Export Policy and the requester's classification ceiling.
+No model call occurs during generation or retrieval.
+
+
+## PRULE-036 Export Lifecycle Transitions
+
+
+Matrix row: MTX-087 (AC-PRULE-036). Slice: S-20.
+Structured contract: `specification/volume-ii/contracts/S-20.json`.
+Governing authority: PRULE-036, SM-REQ-007, OBS-REQ-006, DLC-REQ-014, CAP-022, WF-016, OD-011
+(**resolved**).
+
+The complete transition set is `Pending -> Generating`, `Generating -> Available`,
+`Generating -> Failed`, `Available -> Expired`, `Available -> Revoked`, and `Failed -> Pending` only
+through an authorized linked retry. `expired` and `revoked` are absorbing. `exports.state CHECK`
+already bounds the state set to exactly those six, and no schema, migration, function or grant may
+admit another edge.
+
+**A retry is not a resurrection.** `Failed -> Pending` creates a *new linked* Export carrying
+`retry_of_export_id`, with its own entitlement reservation and, for high-risk content, its own new
+single-use approval. The failed predecessor's state, manifest and reason are unchanged. This is also
+why no automatic retry exists: an automatic retry would reach the same edge without the authorization,
+reservation and approval the linked command carries.
+
+**Manifest immutability is structural, not procedural.** Lifecycle state and times live on the mutable
+`exports` root; the manifest lives in three `T-IMM` child tables that expose no update path. So
+"lifecycle timestamps never mutate its immutable package manifest" is true by construction — a
+revocation or actual-expiry time is written to the mutable lifecycle projection and the audit event
+only, and a future revocation time is never appended to the manifest.
+
+Three arrivals look alike and only one is benign. An **exact replay** returns the original result and
+emits no second event. A **stale** transition — one whose expected state version no longer matches — is
+rejected with `F1-DOMAIN-409` and audited as invalid. An **invalid** transition — one naming an edge
+outside the declared set — is likewise rejected and audited. Per OBS-REQ-006 every transition *attempt*
+is audited, accepted or not, which is what makes an attempted invalid transition detectable rather than
+merely ineffective.
+
+Where the state machine meets the permission table: `Failed -> Pending` requires `export.retry`,
+`Available -> Revoked` requires `export.revoke`, and `Available -> Expired` requires the lifecycle
+service's `export.expire`, which the Permission Baseline denies to **every** role. The one transition no
+human can request is the one that most needs to be automatic and exactly-once.
+
+---
+
