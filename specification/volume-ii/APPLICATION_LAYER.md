@@ -593,3 +593,56 @@ Source-membership version, so scope cannot widen between check and commit. A Sou
 Project or another Organization can never bound this Project, which makes the invariant a tenant
 control as well as a scope control. The selected active Source IDs are logged at activation,
 which is what makes the boundary auditable after the fact.
+
+## CAP-004 Website Or Property Onboarding
+
+Matrix row: MTX-004 (AC-CAP-004). Slice: S-04.
+Structured contract: `specification/volume-ii/contracts/S-04.json`.
+Governing authority: CAP-004 and the `source-registration-v1` contract in
+`v1.5-volume-i-frozen`. PRULE-004 is owned by [S-03](#prule-004-project-scope-within-verified-source-boundaries);
+PRULE-005 belongs to CAP-005/WF-003 and is owned by S-05.
+
+This section is the canonical owner of the Source registration contract.
+
+### One command, one outcome
+
+`Workflows::Wf004::RegisterSource` produces exactly one proposed Source or one enumerated
+no-Source rejection. Volume I states that no separate Onboarding Request and no plural candidate
+entity is created, so no intermediate aggregate may stage a registration. Registration never
+verifies, activates, crawls or creates Evidence; each is a separate command in a later slice.
+
+### Grammar and normalization
+
+`https://<host>` or `https://<host>/`, with an explicit `:443` accepted and removed. User
+information, query, fragment, a nonroot path, wildcard, IP literal, bracketed literal, non-HTTPS
+scheme, nondefault port, ASCII control or space, or any other URI component is rejected.
+
+Host normalization is `ascii-host-v1`: lowercase A-Z, remove one terminal dot, require 1-253
+remaining bytes and at least two dot-separated labels, and require every label to be 1-63 ASCII
+letters, digits or hyphens without a leading or trailing hyphen. A pre-encoded `xn--` label is
+allowed. Raw Unicode is `source_host_non_ascii` and MUST NOT be normalized: Volume I fixes that
+reason precisely so implementations cannot diverge on IDNA handling, and normalizing it would be
+an implementation choice changing product behaviour.
+
+The canonical root URI is `https://<lowercase_host>/`.
+
+### Provenance is the audit anchor
+
+Registration provenance is exactly `origin=human_command`, registering Account ID, command ID,
+idempotency key, Identity/Session authorization-decision ID, registered time and correlation ID.
+It is immutable and derived from the command and the authorization decision rather than supplied
+by the caller, so every Source carries proof of the decision that created it.
+
+### Uniqueness and removal
+
+The uniqueness key is `(project_id, canonical_host)` across every Source not `removed`, and the
+check and insert serialize. Concurrent same-key commands create exactly one Source; the loser
+receives `F1-DOMAIN-409 / source_host_already_registered`. A committed removed Source does not
+reopen: a later command creates a new Source with a new ID and new provenance and never attaches
+to the removed lineage.
+
+### Reading paused Project state
+
+Registration requires a same-Organization Project in `draft`, `active` or `paused`. Reading the
+paused state as a precondition guard is exactly the use OD-014 permits: the state is represented
+and read, never effected. Project activation is expressly not a prerequisite for registration.

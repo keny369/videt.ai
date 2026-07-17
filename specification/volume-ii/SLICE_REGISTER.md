@@ -88,7 +88,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-01 | **Contracts complete** | MTX-001, MTX-026, MTX-052 | `contracts/S-01.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-02 | **Contracts complete** | MTX-002, MTX-053, MTX-070 | `contracts/S-02.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-03 | **Contracts complete; OD-014 limb withheld** | MTX-003, MTX-027, MTX-054, MTX-055 | `contracts/S-03.json`; canonical owner APPLICATION_LAYER.md |
-| S-04 .. S-24 | Pass B required | 0 | Next: S-04 Source Onboarding, first row MTX-004 (AC-CAP-004) |
+| S-04 | **Contracts complete** | MTX-004 (MTX-055 owned by S-03) | `contracts/S-04.json`; canonical owner APPLICATION_LAYER.md |
+| S-05 .. S-24 | Pass B required | 0 | Next: S-05 Ownership Verification, first row MTX-005 (AC-CAP-005), which carries the OD-001 dependency |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -137,6 +138,15 @@ S-03 note: the OD-014 limb is absent from WF-002, whose State Transitions are
 withheld limb, and the slice is **not** blocked. The `projects` table recognizes `paused` and
 `archived` because 016 STATE_MODEL.md defines them and guards elsewhere read them; no command,
 route, job, service path or entity method may enter either.
+
+### S-04 cross-cutting application
+
+| Cross-cutting row | How S-04 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | Applied per row in `contracts/S-04.json`; verified by the S-04 TYP-SEC and TYP-DATA contracts |
+| MTX-095 (AC-PRULE-044) | A cross-Organization Project is `tenant_mismatch`; the uniqueness key is Project-scoped, so the same host in another Organization never collides |
+| MTX-096 (AC-PRULE-045) | Registration reads Project `draft`/`active`/`paused` as a guard and effects no Project transition |
+| MTX-097 (AC-PRULE-046) | Immutable registration provenance carries the authorization-decision ID; every rejection emits one audited command outcome under one correlation |
 
 ## Register
 
