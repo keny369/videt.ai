@@ -16,7 +16,10 @@ Run: python3 scripts/build_volume_ii_matrix.py
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "specification"
 V1 = SPEC / "volume-i"
 OUT = SPEC / "volume-ii" / "IMPLEMENTATION_MATRIX.md"
+CONTRACTS = SPEC / "volume-ii" / "contracts"
 
 VOLUME_I_BASELINE = "v1.5-volume-i-frozen"
 MANUAL_BASELINE = "v1.7-engineering-manual-accepted"
@@ -74,16 +78,30 @@ CONCERN_BY_SLICE = {
     "S-24": "ops",
 }
 
-# Pass B must supply these per row. Listing them once beats repeating "Pass B required"
-# thirty times per row across 97 rows, which would bury the columns Pass A did resolve.
-PASS_B_FIELDS = [
-    "interface type", "proposed route and method", "controller/action",
-    "command or application service", "domain entity or aggregate",
-    "persistence model/table", "migration need", "background job", "domain event",
-    "serializer or response schema", "permission and authorization enforcement",
-    "error contract", "idempotency rule", "concurrency rule", "audit requirement",
-    "observability requirement", "rollout or migration concern",
+# The canonical Pass B contract schema. The order is fixed here rather than taken from the
+# JSON, so regeneration is byte-deterministic regardless of key order in the source.
+CONTRACT_FIELDS = [
+    "contract_owner",
+    "interface_type", "route", "request_schema", "response_schema", "controller",
+    "command", "command_input", "command_output", "actor", "organization_scope",
+    "aggregate", "aggregate_boundary", "value_objects", "domain_service",
+    "repository", "persistence_model", "migration", "transaction_boundary",
+    "concurrency", "idempotency",
+    "background_job", "queue", "retry_policy", "terminal_failure", "reconciliation",
+    "domain_events", "event_payload", "event_producer", "event_consumers", "serializer",
+    "authorization_entry_point", "permission_checks", "tenant_boundary",
+    "error_contract", "audit_record", "observability", "retention",
+    "test_contracts", "rollout",
 ]
+FIELD_LABELS = {f: f.replace("_", " ") for f in CONTRACT_FIELDS}
+
+# Values that look like completion but assert nothing. A contract must name exact ownership
+# and behaviour, so these are rejected rather than accepted as filled.
+VAGUE_VALUES = re.compile(
+    r"(?i)^\s*(tbd|to be decided|to be determined|handled by service|standard validation|"
+    r"normal authorization|appropriate logging|retry as needed|tests required|existing model|"
+    r"as needed|n/a|none|pass b required)\s*\.?\s*$"
+)
 
 
 # Pending owner decisions withhold a limb rather than a capability. The register records
@@ -121,6 +139,37 @@ class Row:
     status: str = "Pass B required"
     blocker: str = "None"
     note: str = ""
+    contract: dict = field(default_factory=dict)
+
+
+def load_contracts() -> dict[str, dict]:
+    """Load completed contract data from the canonical per-slice JSON sources.
+
+    The matrix is generated, so contract data cannot live in it: a regeneration would
+    destroy hand-entered cells. It also must not live in a second prose document, which
+    would create a competing source of truth. So the structured facts live here, the
+    narrative contract lives in the Volume II document named by `contract_owner`, and
+    the matrix is derived from both. `scripts/validate_volume_ii.py` enforces that the
+    document and the structured facts agree, so consistency is executed, not promised.
+    """
+    contracts: dict[str, dict] = {}
+    if not CONTRACTS.exists():
+        return contracts
+    for path in sorted(CONTRACTS.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for row_id, fields in data.get("rows", {}).items():
+            if row_id in contracts:
+                raise SystemExit(f"{path.name}: {row_id} is defined in more than one contract source")
+            unknown = set(fields) - set(CONTRACT_FIELDS)
+            if unknown:
+                raise SystemExit(f"{path.name}: {row_id} has unknown fields {sorted(unknown)}")
+            for key, value in fields.items():
+                if not isinstance(value, str) or not value.strip():
+                    raise SystemExit(f"{path.name}: {row_id}.{key} must be a non-empty string")
+                if VAGUE_VALUES.match(value):
+                    raise SystemExit(f"{path.name}: {row_id}.{key} is vague: {value!r}")
+            contracts[row_id] = fields
+    return contracts
 
 
 def expand_ranges(text: str, prefix: str) -> list[str]:
@@ -224,6 +273,7 @@ def build() -> tuple[list[Row], dict]:
     prules = parse_product_rules()
     trace = parse_traceability()
     ods = parse_owner_decisions()
+    contracts = load_contracts()
 
     for i, r in enumerate(rows, start=1):
         r.row_id = f"MTX-{i:03d}"
@@ -250,6 +300,10 @@ def build() -> tuple[list[Row], dict]:
         r.ods = sorted({od for od, meta in ods.items() if r.ac in meta["acs"]},
                        key=lambda x: int(x.split("-")[-1]))
 
+        r.contract = contracts.get(r.row_id, {})
+        if r.contract:
+            r.status = "Complete"
+
         pending = [od for od in r.ods if ods[od]["pending"]]
         if pending:
             limbs = []
@@ -258,7 +312,7 @@ def build() -> tuple[list[Row], dict]:
                 upstream, limb = WITHHELD_LIMBS.get(od, (None, "limb withheld under its interim"))
                 limbs.append(f"{od}: {limb}")
                 blockers.append(f"{upstream} ({od})" if upstream else od)
-            r.status = "Pass B required; limb withheld"
+            r.status = ("Complete; limb withheld" if r.contract else "Pass B required; limb withheld")
             r.blocker = "; ".join(blockers) + " -- " + "; ".join(limbs)
 
         # Slice assignment, from the capability or workflow that owns the outcome.
@@ -279,7 +333,9 @@ def build() -> tuple[list[Row], dict]:
         "acs": len({r.ac for r in rows}),
         "unassigned": [r.row_id for r in rows if r.slice_id == "UNASSIGNED"],
         "cross_cutting": len([r for r in rows if r.slice_id == "ALL"]),
-        "withheld": [r.row_id for r in rows if r.status != "Pass B required"],
+        "withheld": [r.row_id for r in rows if "withheld" in r.status],
+        "complete": [r.row_id for r in rows if r.status.startswith("Complete")],
+        "outstanding": [r.row_id for r in rows if r.status.startswith("Pass B required")],
         "pending_ods": sorted({o for r in rows for o in r.ods if ods[o]["pending"]}),
     }
     return rows, stats
@@ -325,17 +381,15 @@ def render(rows: list[Row], stats: dict) -> str:
     A("Pass B fills the technical contract fields per row. It MUST NOT add a row that no Volume I")
     A("source governs, and MUST NOT remove a row without a controlled Volume I change.")
     A("")
-    A("## Pass B Contract Fields")
+    A("## Contract Fields")
     A("")
-    A("Every row whose Status is `Pass B required` MUST acquire the following fields in Pass B.")
-    A("They are listed once here rather than repeated as empty columns, because Pass A has no")
-    A("authority to supply them and guessing them to make the matrix look complete is prohibited:")
+    A("A row is `Complete` when its contract is supplied in `specification/volume-ii/contracts/`")
+    A("and rendered under Completed Implementation Contracts below. A row is `Pass B required`")
+    A("until then. Fields carry exact ownership and behaviour; a field that genuinely does not")
+    A("apply carries `Not applicable - <reason>` rather than being left ambiguous.")
     A("")
-    for f in PASS_B_FIELDS:
-        A(f"- {f}")
-    A("")
-    A("A field MAY be filled in Pass A only where an accepted authority already fixes it. Where")
-    A("it is not fixed, it remains `Pass B required` rather than being inferred.")
+    for f in CONTRACT_FIELDS:
+        A(f"- {FIELD_LABELS[f]}")
     A("")
     A("## Column Meanings")
     A("")
@@ -369,10 +423,32 @@ def render(rows: list[Row], stats: dict) -> str:
             em_for(r.slice_id), r.slice_id, ", ".join(r.test_types) or "-",
             r.status, r.blocker))
     A("")
+    completed = [r for r in rows if r.contract]
+    if completed:
+        A("## Completed Implementation Contracts")
+        A("")
+        A("Rendered from the canonical contract sources. Do not edit below by hand: this file is")
+        A("generated, and `python3 scripts/build_volume_ii_matrix.py --check` fails if it differs")
+        A("from what the sources produce.")
+        A("")
+        for r in completed:
+            A(f"### {r.row_id} - {r.ac} ({r.source_kind}: {r.source})")
+            A("")
+            A(f"- Slice: {r.slice_id}")
+            A(f"- Status: {r.status}")
+            if r.blocker != "None":
+                A(f"- Withheld limb: {r.blocker}")
+            for f in CONTRACT_FIELDS:
+                if f in r.contract:
+                    A(f"- {FIELD_LABELS[f]}: {r.contract[f]}")
+            A("")
+
     A("## Coverage Invariants")
     A("")
     A(f"- Volume I acceptance criteria: {stats['acs']}")
     A(f"- Matrix rows: {stats['rows']}")
+    A(f"- Contracts complete: {len(stats['complete'])}")
+    A(f"- Rows still `Pass B required`: {len(stats['outstanding'])}")
     A("- Every acceptance criterion maps to exactly one row, by construction.")
     A("- Every row maps back to exactly one governing acceptance criterion and its source.")
     A(f"- Cross-cutting rows (`ALL`): {stats['cross_cutting']}. These are enforced in every slice")
@@ -391,12 +467,31 @@ def render(rows: list[Row], stats: dict) -> str:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Generate the Volume II implementation matrix")
+    ap.add_argument("--check", action="store_true",
+                    help="fail if the generated file differs from what the sources produce")
+    args = ap.parse_args()
+
     rows, stats = build()
-    OUT.write_text(render(rows, stats), encoding="utf-8")
-    print(f"rows: {stats['rows']}  acs: {stats['acs']}  cross-cutting: {stats['cross_cutting']}")
+    rendered = render(rows, stats)
     if stats["unassigned"]:
         print(f"UNASSIGNED slices: {stats['unassigned']}")
         return 1
+
+    if args.check:
+        # A hand-edit to the generated matrix is a silent fork from the canonical sources.
+        # This makes it loud.
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != rendered:
+            print(f"{OUT.relative_to(ROOT)} differs from its canonical sources; "
+                  "it has been hand-edited or is stale. Run the generator.", file=sys.stderr)
+            return 1
+        print("matrix matches its canonical sources")
+        return 0
+
+    OUT.write_text(rendered, encoding="utf-8")
+    print(f"rows: {stats['rows']}  complete: {len(stats['complete'])}  "
+          f"outstanding: {len(stats['outstanding'])}  withheld: {len(stats['withheld'])}")
     print(f"wrote {OUT.relative_to(ROOT)}")
     return 0
 
