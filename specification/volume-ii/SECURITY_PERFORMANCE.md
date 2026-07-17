@@ -1686,3 +1686,196 @@ Organization is a cross-tenant disclosure **regardless of field-level correctnes
 Each denial emits exactly one authorization audit event **recording its surface**, so a parity breach
 is attributable rather than merely detected.
 
+## PRULE-044 Effective Authorization On Every Protected Read And Command
+
+
+Matrix row: MTX-095 (AC-PRULE-044). Slice: `ALL`.
+Structured contract: `specification/volume-ii/contracts/S-XC.json`.
+Governing authority: PRULE-044; WORKFLOW_SPECIFICATIONS.md Actor Resolution, Permission Baseline and Role
+Assignment And Policy Artifact (the six-step effective-authorization algorithm); SEC-REQ-004 through
+SEC-REQ-009 and SEC-REQ-013; CAP-001 through CAP-025; WF-001 through WF-018; OD-012, OD-013, OD-020,
+OD-026 (all **settled**).
+
+### One facade, because a controller is not a boundary
+
+PRULE-044 binds every capability and every workflow — all 24 slices, without exception. The reason it
+cannot live in a controller is structural rather than stylistic: the same protected behaviour is reachable
+from routed requests, service identities, background jobs, event consumers and lifecycle sweeps. A check
+placed at the transport edge is bypassed by four of those five.
+
+Volume II already resolves this at one place. `Platform::AuthenticatedRequest` step 5 resolves the
+authorization epoch, Assignments, policies, support scope and classification through
+`IdentityAccess::Public::Authorize`, and every command handler and query handler performs its named object
+and field authorization through **that same sole facade**. Authorization resolves *inside* the unit of
+work — after the Organization row is acquired at tier one and the Account and Session rows at tier two,
+and before the handler executes — and the authorization and audit records persist at tier fourteen in the
+same transaction. A denial and its audit event therefore commit together or not at all.
+
+Every one of the 24 slices records an entry point, and the recorded pattern is consistent:
+
+- **S-01, S-02** — the identity and bootstrap service, before any record is created. There is no route and
+  therefore *no controller-only check to bypass*
+  ([MTX-026](APPLICATION_LAYER.md#wf-001-onboard-organization-or-invited-account),
+  [MTX-002](APPLICATION_LAYER.md#cap-002-organization-setup)).
+- **S-03 – S-08** — each application command before validation of the body and before any insert; and
+  again at the `Queued -> Running` commit, where policy, entitlement and the OD-018 guard are re-resolved
+  ([MTX-030](APPLICATION_LAYER.md#wf-005-execute-crawl-and-ingestion)).
+- **S-09 – S-15** — each service command before mutation, with promotion, publication and override
+  re-resolving **inside their own committing transaction**, so an authorization result is never carried
+  across a state-version boundary ([MTX-033](APPLICATION_LAYER.md#wf-008-calculate-score-from-issues),
+  [MTX-034](APPLICATION_LAYER.md#wf-009-generate-recommendations), [MTX-035](APPLICATION_LAYER.md#wf-010-prioritize-and-publish-action-queue)).
+- **S-16, S-17** — every read before any field is serialized, object decision strictly before field
+  decision ([MTX-018](APPLICATION_LAYER.md#cap-018-reporting-and-dashboarding),
+  [MTX-037](APPLICATION_LAYER.md#wf-012-compare-historical-results)).
+- **S-19** — the handler, and **again before every single attempt**; the rule's own words are
+  *"reauthorize/redact every attempt"* ([MTX-039](APPLICATION_LAYER.md#wf-014-deliver-notifications)).
+- **S-20** — three non-interchangeable entry points, and the second is the point of the workflow: the
+  command handler; **the retrieval recheck** at checkpoints 1 and 3; and the lifecycle-service expiry
+  checkpoint ([MTX-041](APPLICATION_LAYER.md#wf-016-export-reports-and-data)).
+- **S-21** — each command, and again on **every collection page**
+  ([MTX-043](APPLICATION_LAYER.md#wf-018-investigate-and-audit-security-or-compliance-events)).
+- **S-22** — the server-side entitlement checkpoint; *no client-side trust for entitlement decisions*
+  ([MTX-040](APPLICATION_LAYER.md#wf-015-enforce-entitlements)).
+- **S-23, S-24** — each command, and again at every durable checkpoint of a running privileged operation,
+  which stops before the next protected side effect after revocation
+  ([MTX-038](APPLICATION_LAYER.md#wf-013-manage-tenant-lifecycle), [MTX-042](APPLICATION_LAYER.md#wf-017-handle-incident-and-recovery)).
+
+### The six steps, in order, and the traps in each
+
+The algorithm is a pure deterministic function — Volume I states that repeating evaluation with the same
+frozen inputs yields the same decision — and it is not a set of checks that may be reordered.
+
+1. Authenticate an active nonexpired Session or the expressly named tenant-scoped service identity. **An
+   inactive Account or Organization denies before Assignment evaluation** — the ordering is the contract,
+   not an optimisation.
+2. Resolve exactly one active Organization Access Policy plus every active narrower policy whose scope
+   contains the target. Applicable policies combine by **intersection**, so the union of all matching
+   denies wins. Missing or conflicting policy is `policy_unavailable` — a *policy* failure, not an
+   authority failure, and never `F1-AUTH-403`.
+3. Select active Role Assignments whose normalized scope contains the target. Resource containment
+   requires exact type and ID membership; Project scope contains that Project and its child resources
+   only; an empty non-Organization scope grants **nothing**.
+4. Read the role/action cell from `permission-baseline-v1` and apply `permission_mode`, persona,
+   support-session and action-specific conditions. **A `deny` cell never becomes allowed by another
+   policy**; a conditional cell is allowed only when its stated condition is true.
+5. Union the permissions allowed by at least one Assignment, then **subtract** every applicable policy
+   deny. Policy deny has precedence over every Role allow. Multiple Assignments never raise classification
+   above the strongest ceiling of an Assignment that independently allows the field.
+6. Allow only when action, Organization, resource, support-session and classification all pass. Otherwise
+   `F1-AUTH-403` with no product side effect.
+
+### Two enforcements of one rule, and neither is redundant
+
+In the **application**, `access-policy-v1` is the mandatory baseline. A later Organization policy may add
+denies or narrower scopes but can never turn a baseline deny or conditional cell into an unconditional
+allow, raise a classification ceiling, change protected status, introduce a role or persona, broaden
+outside the Organization, or leave zero active OrganizationAdmin Accounts able to perform `role.manage`,
+`project.create`, `policy.access.manage` and `account.reactivate`. Any of those is `access_policy_invalid`
+and changes nothing.
+
+In **PostgreSQL**, every tenant row carries `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`
+resolving `organization_id = f1_current_organization_id()`, and application code **cannot** make tenant
+context authoritative by executing `SET`, `SET LOCAL`, `set_config` or a raw SQL wrapper. A human read
+enters through `f1_enter_human_context`; a SecurityOperator read in authorized scope enters through
+`f1_enter_scoped_security_context`, which validates the exact active Support Session and Organization
+scope. Neither accepts a caller-supplied actor, Service Identity ID or scope
+([MTX-037](APPLICATION_LAYER.md#wf-012-compare-historical-results),
+[MTX-043](APPLICATION_LAYER.md#wf-018-investigate-and-audit-security-or-compliance-events),
+[MTX-038](APPLICATION_LAYER.md#wf-013-manage-tenant-lifecycle)).
+
+The fixtures assert them **independently**: a cross-Organization read is attempted with the application
+check stubbed to allow, and RLS must still refuse it.
+
+### An `Actor` line grants no authority, and neither does an operation name
+
+Three recorded findings from the slices, each of which would be an invented permission if trusted the
+other way:
+
+- **CAP-016 names TechnicalImplementer as an actor. WF-009 denies it `recommendation.publish`.** The actor
+  list is a consumer role, not a publication grant
+  ([MTX-034](APPLICATION_LAYER.md#wf-009-generate-recommendations)).
+- **The five low-cost operation strings are metering classes.** `report.view`, `history.view` and
+  `score.read` do not exist in the Permission Baseline at all, and the coincidence of `issue.read` and
+  `recommendation.read` with real tokens grants nothing
+  ([MTX-091](#prule-040-usage-accounting)).
+- **No principal permission exists** for Check execution, applicability sealing, Citation validation,
+  score calculation or promotion, Artifact generation, base-order computation or queue publication — and
+  none may be invented. S-09, S-10, S-11, S-13, S-14, S-15 and S-16 each record this against their own
+  capability.
+
+Two permissions are denied to **every** role including the one that would seem to own them:
+`export.expire` (lifecycle service only, [MTX-087](APPLICATION_LAYER.md#prule-036-export-lifecycle-transitions)) and
+`emergency_access.expire` (emergency-access lifecycle service only — a human cannot expire or extend a
+Grant, [MTX-023](APPLICATION_LAYER.md#wf-018-investigate-and-audit-security-or-compliance-events)). The one transition no human
+can request is the one that most needs to be automatic and exactly-once.
+
+### A Support Session scopes; it does not grant
+
+This phrasing recurs across S-11, S-12, S-16, S-17 and S-21 because it is the trap: a Support Session
+scopes an **already-permitted** action to an Organization, resource and action allowlist. It is **not
+itself a read grant** and it **never widens** a Permission Baseline cell. A session-scoped SecurityOperator
+still cannot reach a permission its baseline cell denies.
+
+Similarly, an explicit `evidence.restricted.read` protected grant raises **only** the granted
+OrganizationAdmin's Evidence payload access to `restricted`. It broadens no resource scope and no other
+field permission ([MTX-050](#score-visibility-and-redaction-enforcement)).
+
+### Denial is an event, not a gap
+
+An authorization denial returns `F1-AUTH-403`, emits **exactly one** authorization audit event, and
+performs no state change and no provider call. The decision record carries the base cell, **every
+conditional result**, the applicable denies and the classification ceiling — the conditional results are
+what make a conditional cell's *evaluation* reconstructible rather than just its verdict.
+
+S-23's [MTX-069](#prule-018-account-lifecycle-authority) states the relationship precisely: PRULE-018
+obliges every **denied** attempt at these entry points to emit its auditable outcome, so an authorization
+denial is never silent.
+
+Two error properties are asserted rather than assumed:
+
+- **Indistinguishability where Volume I requires it.** Under ratified OD-016 an unauthorized
+  `session.revoke`, a Session outside the actor's authorized scope, and a nonexistent Session identifier
+  all return an *indistinguishable* `F1-AUTH-403`, so Session existence is not disclosed
+  ([MTX-025](APPLICATION_LAYER.md#wf-013-manage-tenant-lifecycle)).
+- **Non-substitution.** A cross-tenant reference in a comparison is `F1-AUTH-403 / tenant_mismatch` and
+  **never** a mismatch code — a mismatch code would leak the existence of another Organization's snapshot
+  ([MTX-083](#prule-032-comparison-compatibility-and-rebase)).
+
+### The 60-second bound is measured, not assumed
+
+Revocation takes effect on the next protected request, and authorization caches and active sessions MUST
+reflect it within 60 seconds. Cache convergence time is recorded per suspension as a **measured** value,
+with the `control` queue's 30-second latency alert as the leading indicator for a breach
+([MTX-092](#prule-041-suspension-propagation-and-convergence)). The Organization authorization epoch is
+the serialization point: policy and Assignment mutation atomically advances it with the last-admin
+predicate, so two concurrent removals cannot both pass.
+
+### An authority gap, reported and not invented
+
+This one matters and it is **not** a labelling error.
+
+OD-020's Ratified Behavior grants explicit read rows for the seven customer-facing object classes and then
+states that read authority for **security, administrative and internal operational objects** — Support
+Session, Incident, Investigation, Legal Hold, Emergency Access Grant, LifecycleDeletionJob and other
+deletion jobs, and privileged Billing surfaces — *"remains deny-by-default pending a separate decision"*,
+with its Blocking Impact recording that limb as *out of scope for this decision rather than resolved by
+it*. The Permission Baseline's own OD-020 binding paragraph repeats it verbatim.
+
+**That separate decision has no OD number and is absent from the register's pending set.** It is therefore
+neither a pending Owner Decision this row may withhold against, nor a settled one this row may implement.
+
+The consequence is precise, and it is a Volume I coverage boundary rather than a defect in any slice:
+AC-PRULE-044's *"complete permission-matrix allow/deny fixtures"* clause is satisfiable for every
+enumerated cell, and is **not** satisfiable for an object class that has no row at all. The position every
+affected slice already takes — and the one this row records — is that those reads stay denied on the
+authority of the **unregistered pending decision the Permission Baseline names in its own text**, not on
+the authority of any blocker tag. Deferring a customer-facing read under a retired tag would be a defect;
+deferring a security or administrative read is substantively correct but must be attributed to the right
+authority.
+
+This row resolves nothing here and reports it for the owner.
+
+**No slice fails to apply PRULE-044.** All 24 record `tenant_boundary`, `permission_checks` and
+`authorization_entry_point` against `permission-baseline-v1` and the Volume I effective-authorization
+algorithm. All four of this row's decisions are settled and nothing is withheld.
+
