@@ -82,147 +82,57 @@ S-24 Incident and Recovery (depends on S-07)
 
 ## Pass B Status
 
-| Slice | Status | Rows complete | Evidence |
+Pass B is complete: every one of the 97 matrix rows carries a structured contract and 0 rows
+remain `Pass B required`. Status below is derived from `IMPLEMENTATION_MATRIX.md` and the
+contract sources, which are the canonical owners; where this table and they disagree, they
+prevail and this table is defective.
+
+A withheld limb bounds a row rather than blocking it. Every such row's contract is complete and
+implementable; one named behaviour is reserved by a pending owner decision and MUST NOT be
+effected. See [SPECIFICATION_FREEZE_CANDIDATE.md](SPECIFICATION_FREEZE_CANDIDATE.md) and
+[IMPLEMENTATION_BACKLOG.md](IMPLEMENTATION_BACKLOG.md).
+
+| Slice | Status | Rows | Evidence |
 | --- | --- | --- | --- |
 | S-00 | Specified; no matrix rows | n/a | This register. S-00 implements no product behaviour, so no acceptance criterion maps to it and it has no contract row. |
-| S-01 | **Contracts complete** | MTX-001, MTX-026, MTX-052 | `contracts/S-01.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-02 | **Contracts complete** | MTX-002, MTX-053, MTX-070 | `contracts/S-02.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-03 | **Contracts complete; OD-014 limb withheld** | MTX-003, MTX-027, MTX-054, MTX-055 | `contracts/S-03.json`; canonical owner APPLICATION_LAYER.md |
-| S-04 | **Contracts complete** | MTX-004 (MTX-055 owned by S-03) | `contracts/S-04.json`; canonical owner APPLICATION_LAYER.md |
-| S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-06 | **Contracts complete** | MTX-006, MTX-029, MTX-057, MTX-072 | `contracts/S-06.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-07 | **Contracts complete; OD-027 limb withheld** | MTX-007, MTX-008, MTX-030, MTX-058, MTX-059, MTX-060, MTX-073 | `contracts/S-07.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-08 | **Contracts complete; OD-027 limb carried forward** | MTX-031 | `contracts/S-08.json`; canonical owner APPLICATION_LAYER.md |
-| S-09 .. S-24 | Pass B required | 0 | Next: S-09 Inspection, first row MTX-009 (AC-CAP-009); requires `check-catalog-v1` in SCORE_EVIDENCE_MODEL.md |
-
-MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
-respectively, and both carry a withheld limb. They are contracted with their owning slice
-rather than here, so that one row has one canonical contract.
-
-The four cross-cutting rows (MTX-094 to MTX-097) are not marked complete by S-01. A
-cross-cutting obligation is enforced in every slice, so it cannot be discharged by one
-slice's contract; each remains `Pass B required` until every slice records its application.
-S-01's application of them is recorded in `contracts/S-01.json` under the tenant_boundary,
-audit_record, observability and test_contracts fields of each row.
-
-### S-01 cross-cutting application
-
-| Cross-cutting row | Rule | How S-01 satisfies it |
-| --- | --- | --- |
-| MTX-094 (AC-PRULE-043) | see PRODUCT_RULES.md | Applied per row in `contracts/S-01.json`; verified by the S-01 TYP-SEC and TYP-DATA test contracts |
-| MTX-095 (AC-PRULE-044) | see PRODUCT_RULES.md | Tenant boundary established before Project creation; sign-in never searches another Organization |
-| MTX-096 (AC-PRULE-045) | see PRODUCT_RULES.md | Guards read Project state only; S-01 creates the first Project in `draft` and never activates it |
-| MTX-097 (AC-PRULE-046) | see PRODUCT_RULES.md | Audit and correlation obligations contracted on every S-01 row |
-
-### S-02 cross-cutting application
-
-| Cross-cutting row | How S-02 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | Applied per row in `contracts/S-02.json`; verified by the S-02 TYP-SEC and TYP-DATA test contracts |
-| MTX-095 (AC-PRULE-044) | Tenant isolation applies from the instant the Organization row exists, including while pending; `pending` is never returned as current state |
-| MTX-096 (AC-PRULE-045) | S-02 creates no Project and effects no Project transition; the WF-001 order activates Organization before `ProjectCreated` |
-| MTX-097 (AC-PRULE-046) | Audit and correlation obligations contracted on every S-02 row; denials are audited command outcomes under one correlation |
-
-S-02 note: CAP-002 has no creation command of its own. Its establishment limb executes inside
-the WF-001 self-service transaction owned by S-01, and its lifecycle limb (suspend, reactivate,
-closure) is owned by WF-013 in S-23. S-02 therefore contracts obligations on an existing
-transaction plus an authorization gate, and adds no route, command or table.
-
-### S-03 cross-cutting application
-
-| Cross-cutting row | How S-03 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | Applied per row in `contracts/S-03.json`; verified by the S-03 TYP-SEC and TYP-DATA test contracts |
-| MTX-095 (AC-PRULE-044) | Cross-Organization creation is `tenant_mismatch`; activation reads same-Project Sources only, so PRULE-004 is a tenant control as well as a scope control |
-| MTX-096 (AC-PRULE-045) | S-03 effects `Draft -> Active` only; pause/resume/archive are withheld under OD-014 and asserted absent from every path |
-| MTX-097 (AC-PRULE-046) | Creation input hash, creator, versions, selected Source IDs, check outcomes, attempt/timeout data and denial reason are audited under one correlation |
-
-S-03 note: the OD-014 limb is absent from WF-002, whose State Transitions are
-`Project.Draft -> Project.Active` only. S-03 therefore reaches its stated outcome without the
-withheld limb, and the slice is **not** blocked. The `projects` table recognizes `paused` and
-`archived` because 016 STATE_MODEL.md defines them and guards elsewhere read them; no command,
-route, job, service path or entity method may enter either.
-
-### S-04 cross-cutting application
-
-| Cross-cutting row | How S-04 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | Applied per row in `contracts/S-04.json`; verified by the S-04 TYP-SEC and TYP-DATA contracts |
-| MTX-095 (AC-PRULE-044) | A cross-Organization Project is `tenant_mismatch`; the uniqueness key is Project-scoped, so the same host in another Organization never collides |
-| MTX-096 (AC-PRULE-045) | Registration reads Project `draft`/`active`/`paused` as a guard and effects no Project transition |
-| MTX-097 (AC-PRULE-046) | Immutable registration provenance carries the authorization-decision ID; every rejection emits one audited command outcome under one correlation |
-
-### S-05 cross-cutting application
-
-Ownership verification is security-sensitive, so each application is stated concretely rather
-than generically.
-
-| Cross-cutting row | How S-05 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | Challenge token >=128 bits entropy, never persisted or logged in plaintext, envelope-encrypted under a request-specific key, destroyed within 60 seconds of terminal transition; Evidence retains no plaintext token and no raw DNS/HTTP content; provider text reduced to enum and status fields |
-| MTX-095 (AC-PRULE-044) | A Request may be created only for a same-Organization proposed Source, which is what prevents unauthorized domain scanning; retrieval returns no other Request's material; every read reauthorizes rather than trusting the creation decision |
-| MTX-096 (AC-PRULE-045) | Source transitions only `Proposed -> Verified`, only inside the atomic success commit; no Project transition is effected, so the OD-014 limb is untouched |
-| MTX-097 (AC-PRULE-046) | Exactly one restricted `verification_observation` Evidence per started observation regardless of outcome; challenge retrieval and replay append a restricted security access log; the digest and access audit survive cryptographic deletion |
-
-Abuse and replay controls: at most one pending Request per Source enforced by a partial unique
-index; on-demand capped at 10 with a 5-minute rate limit and an in-progress marker written before
-the provider call; `attempt_count` increments only when an observation starts; redirects are not
-followed; body reading stops at exactly 4,097 bytes and ignores declared `Content-Length`.
-
-S-05 note: OD-001 is **ratified**, not pending. Nothing in S-05 is withheld. The five rows carry
-an OD dependency, not an OD block.
-
-### S-06 cross-cutting application
-
-| Cross-cutting row | How S-06 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | Outbound boundary: S-06 performs no outbound retrieval at all, so it has no SSRF surface; the scope predicate it owns is what bounds S-07's outbound behaviour. A new host is never an expansion and requires WF-003 verification |
-| MTX-095 (AC-PRULE-044) | A policy names one exact verified `canonical_host`; subdomains, alternate apex/`www` hosts, ports and schemes are outside scope unless separately verified. Scope cannot cross a tenant boundary by URL rather than by permission |
-| MTX-096 (AC-PRULE-045) | S-06 reads Project state as a guard and effects no Project transition; the OD-014 limb is untouched |
-| MTX-097 (AC-PRULE-046) | Every unlisted or stale Source transition is denied **and audited**; scope decisions record prior/proposed rules, approver identity, expected and activated versions, decision reason, effective time and affected running Crawls |
-
-Abuse and isolation controls: dual control on same-host expansion by a non-admin, with the
-approver required to be a different Account; contraction needs no dual control because narrowing
-cannot leak a boundary; expiry wins at exactly `due_at_utc`; every terminal request is immutable;
-a TechnicalImplementer can neither approve a policy nor mutate lifecycle.
-
-S-06 note: "discovery" means scope control, not crawling. WF-004 performs no outbound retrieval;
-outbound crawling is CAP-007/WF-005 in S-07. PRULE-004's WF-004 limb, deferred by S-03, is closed
-here by MTX-029.
-
-### S-07 cross-cutting application
-
-| Cross-cutting row | How S-07 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | `destination-safety-v1` on every robots, sitemap, content and redirect connection; address pinning with transport-peer verification closes DNS rebinding; new full resolution on every retry and redirect; mixed answers fail closed; robots fail-closed on `401`/`403`/oversize/exhausted; sitemap XML parsed with DTD, entities, XInclude and external resolution disabled; the byte formula accounts expanded size, so a decompression bomb is a limit hit |
-| MTX-095 (AC-PRULE-044) | Every URL validated against the pinned AND current restrictive S-06 scope; a worker claims work only within its leased Crawl; raw resolved addresses never leave restricted telemetry |
-| MTX-096 (AC-PRULE-045) | S-07 reads Project active state as a precondition and effects no Project transition; the OD-014 limb is untouched |
-| MTX-097 (AC-PRULE-046) | Every limit observation, per-Source root status, retry, coverage and completion reason, entitlement outcome, recovery linkage and terminal state audited under one correlation; every recovery carries its full authority envelope; no hidden retry exists |
-
-Saturation and failure signals: `CrawlSoftLimitApproaching` once per dimension and run when the
-observed or reserved value first equals the soft limit; `CrawlLimitReached` exactly once per
-dimension and run with dimension, configured value, observed value and affected counts.
-
-S-07 note: this is the only outbound surface in the product, and every control is Volume I
-authority rather than crawler convention -- WF-005 Security Notes name robots and redirect
-boundaries explicitly and forbid inventing a broader exception. The OD-027 limb (a `has_one`
-narrowing, a `unique (parsing_job_id)` constraint, any second IndexingJob per ParsingJob) is
-withheld on MTX-008 and MTX-060 only; `indexing-interim-v1` pins both index keys, so the slice
-reaches its stated outcome and is **not** blocked.
-
-### S-08 cross-cutting application
-
-| Cross-cutting row | How S-08 satisfies it |
-| --- | --- |
-| MTX-094 (AC-PRULE-043) | The parser consumes attacker-controlled bytes: JSON-LD remote contexts never fetched, DTDs and external entities disabled, malformed JSON-LD yields a malformed item rather than disappearing; quarantined or invalid Evidence cannot produce a Parsed Artifact |
-| MTX-095 (AC-PRULE-044) | Every input and output reference is same-Organization; a cross-Organization manifest tuple is `input_manifest_invalid` and blocks readiness; cross-tenant external content is `F1-DATA-409 / tenant_mismatch` |
-| MTX-096 (AC-PRULE-045) | S-08 effects no Project transition; the OD-014 limb is untouched |
-| MTX-097 (AC-PRULE-046) | Every contract field, manifest and snapshot hash, attempt and replay generation, failed subset, readiness derivation, non-gating indexing outcome and Evaluation transition audited under one correlation |
-
-S-08 note: indexing never gates Evaluation, and Volume I closes the loophole itself -- an
-implementation MUST NOT wait for indexing in one code path and bypass it in another. The OD-027
-boundary is carried forward from S-07 unchanged, not reopened.
-
+| S-01 | **Contracts complete** | MTX-001, MTX-026, MTX-052 | `contracts/S-01.json` |
+| S-01,S-19,S-23 | **Contracts complete**; limb withheld under OD-023 | MTX-085 | `contracts/S-19.json` |
+| S-01,S-23 | **Contracts complete**; limb withheld under OD-032 | MTX-069 | `contracts/S-23.json` |
+| S-02 | **Contracts complete** | MTX-002, MTX-070 | `contracts/S-02.json` |
+| S-02,S-22 | **Contracts complete** | MTX-053 | `contracts/S-02.json` |
+| S-03 | **Contracts complete**; limb withheld under OD-014 | MTX-003, MTX-027, MTX-054 | `contracts/S-03.json` |
+| S-03,S-04 | **Contracts complete**; limb withheld under OD-014 | MTX-055 | `contracts/S-03.json` |
+| S-04 | **Contracts complete** | MTX-004 | `contracts/S-04.json` |
+| S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json` |
+| S-06 | **Contracts complete** | MTX-006, MTX-029, MTX-057, MTX-072 | `contracts/S-06.json` |
+| S-07 | **Contracts complete**; limb withheld under OD-027 | MTX-007, MTX-008, MTX-030, MTX-058, MTX-059, MTX-060 | `contracts/S-07.json` |
+| S-07,S-21 | **Contracts complete** | MTX-073 | `contracts/S-07.json` |
+| S-08 | **Contracts complete**; limb withheld under OD-027 | MTX-031 | `contracts/S-08.json` |
+| S-09 | **Contracts complete** | MTX-009, MTX-010, MTX-011, MTX-061, MTX-064 | `contracts/S-09.json` |
+| S-09,S-11,S-12 | **Contracts complete** | MTX-062 | `contracts/S-09.json` |
+| S-09,S-12 | **Contracts complete** | MTX-063 | `contracts/S-09.json` |
+| S-10 | **Contracts complete** | MTX-012, MTX-065 | `contracts/S-10.json` |
+| S-10,S-14 | **Contracts complete** | MTX-066 | `contracts/S-10.json` |
+| S-11 | **Contracts complete**; limb withheld under OD-032 | MTX-013 | `contracts/S-11.json` |
+| S-11,S-13,S-14 | **Contracts complete** | MTX-067 | `contracts/S-11.json` |
+| S-12 | **Contracts complete** | MTX-014, MTX-032, MTX-046, MTX-048, MTX-049, MTX-074 | `contracts/S-12.json` |
+| S-12,S-18 | **Contracts complete** | MTX-068, MTX-084 | `contracts/S-12.json` |
+| S-13 | **Contracts complete**; limb withheld under OD-032 | MTX-015, MTX-033, MTX-044, MTX-045, MTX-075 | `contracts/S-13.json` |
+| S-13,S-17 | **Contracts complete** | MTX-076 | `contracts/S-13.json` |
+| S-14 | **Contracts complete** | MTX-016, MTX-034, MTX-077, MTX-078 | `contracts/S-14.json` |
+| S-15 | **Contracts complete** | MTX-017, MTX-035, MTX-079, MTX-080 | `contracts/S-15.json` |
+| S-16 | **Contracts complete** | MTX-018, MTX-050 | `contracts/S-16.json` |
+| S-16,S-17 | **Contracts complete** | MTX-081 | `contracts/S-16.json` |
+| S-16,S-20 | **Contracts complete** | MTX-082 | `contracts/S-16.json` |
+| S-17 | **Contracts complete** | MTX-019, MTX-037, MTX-083 | `contracts/S-17.json` |
+| S-18 | **Contracts complete** | MTX-020, MTX-036, MTX-047 | `contracts/S-18.json` |
+| S-19 | **Contracts complete**; limb withheld under OD-023, OD-032 | MTX-021, MTX-039 | `contracts/S-19.json` |
+| S-20 | **Contracts complete** | MTX-022, MTX-041, MTX-086, MTX-087 | `contracts/S-20.json` |
+| S-21 | **Contracts complete** | MTX-023, MTX-043, MTX-088, MTX-089 | `contracts/S-21.json` |
+| S-22 | **Contracts complete**; limb withheld under OD-035 | MTX-024, MTX-040, MTX-090, MTX-091 | `contracts/S-22.json` |
+| S-23 | **Contracts complete**; limb withheld under OD-031, OD-032 | MTX-025, MTX-038, MTX-092, MTX-093 | `contracts/S-23.json` |
+| S-24 | **Contracts complete** | MTX-042 | `contracts/S-24.json` |
+| ALL (cross-cutting) | **Contracts complete**; limb withheld under OD-032, OD-034 | MTX-094, MTX-095, MTX-096, MTX-097 | `contracts/S-XC.json` |
 ## Register
 
 | Slice | Title | Outcome | Prerequisites | Dependants | Independent | Withheld |
