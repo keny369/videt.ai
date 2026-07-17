@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run a bin/rails database (DDL) command as the schema owner, with the matching
+# PostgreSQL 17 client tools (pg_dump/pg_restore) ahead of any other PostgreSQL
+# on PATH. All create/migrate/schema-load/test-prepare operations must run as
+# f1_schema_owner; the ordinary runtime role (f1_web) has no DDL and no table
+# ownership. Usage:
+#
+#   bin/f1db db:create
+#   bin/f1db db:migrate
+#   bin/f1db db:test:prepare
+#
+set -euo pipefail
+export F1_DATABASE_USER="${F1_DATABASE_USER:-f1_schema_owner}"
+F1_PG_BIN="${F1_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}"
+if [ -d "$F1_PG_BIN" ]; then
+  export PATH="$F1_PG_BIN:$PATH"
+fi
+exec bin/rails "$@"

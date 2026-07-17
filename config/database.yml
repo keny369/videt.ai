@@ -1,0 +1,38 @@
+# F1 targets PostgreSQL 17 exclusively (frozen runtime baseline). Locally the
+# project runs its own PG17 cluster on port 5433 so it never collides with any
+# other PostgreSQL on the default 5432.
+#
+# Role model (schemas/POSTGRESQL_SCHEMA.md): the application runtime connects as
+# a NON-owner login role in f1_runtime (f1_web for the web/API process, f1_worker
+# for Sidekiq) that never owns a table and never has BYPASSRLS. All DDL — create,
+# migrate, schema load, test prepare — runs as f1_schema_owner. Select the owner
+# for DDL with F1_DATABASE_USER=f1_schema_owner (see bin/f1db).
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  host: <%= ENV.fetch("F1_DATABASE_HOST", "localhost") %>
+  port: <%= ENV.fetch("F1_DATABASE_PORT", "5433") %>
+  username: <%= ENV.fetch("F1_DATABASE_USER", "f1_web") %>
+  password: <%= ENV.fetch("F1_DATABASE_PASSWORD", "") %>
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+  # A conservative statement timeout keeps a contended lock in a test from
+  # hanging the suite; concurrency specs override it per-connection.
+  variables:
+    statement_timeout: <%= ENV.fetch("F1_DATABASE_STATEMENT_TIMEOUT_MS", "15000") %>
+
+development:
+  <<: *default
+  database: <%= ENV.fetch("F1_DATABASE_NAME", "f1_development") %>
+
+test:
+  <<: *default
+  database: <%= ENV.fetch("F1_DATABASE_NAME", "f1_test") %>
+
+production:
+  <<: *default
+  host: <%= ENV.fetch("F1_DATABASE_HOST") { nil } %>
+  port: <%= ENV.fetch("F1_DATABASE_PORT") { nil } %>
+  database: <%= ENV.fetch("F1_DATABASE_NAME") { nil } %>
+  username: <%= ENV.fetch("F1_DATABASE_USER") { nil } %>
+  password: <%= ENV.fetch("F1_DATABASE_PASSWORD") { nil } %>
+  url: <%= ENV.fetch("DATABASE_URL", nil) %>
