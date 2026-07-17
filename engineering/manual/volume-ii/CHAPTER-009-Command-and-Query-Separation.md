@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-009-Command-and-Query-Separation.md
-
 ---
 title: Command and Query Separation (CQS)
 identifier: EM-II-009
@@ -89,14 +87,16 @@ A Command represents a request to perform a business action.
 
 Examples include:
 
-- CreateAssessment
+- CreateCrawl
 - StartEvaluation
-- ArchiveProject
-- ReactivateOrganisation
+- ActivateProject
+- ReactivateOrganization
 - ResolveIssue
 - AssignRole
 
 Commands describe business intent.
+
+A Command SHALL correspond to a command an accepted authority defines. The Volume I permission contract defines `project.create` and `project.activate` only; Project pause, resume and archive remain without a command while OD-014 is pending under `UPSTREAM-V1-PROJECT-LIFECYCLE-003`, and SHALL NOT be introduced here.
 
 ---
 
@@ -162,11 +162,11 @@ Queries retrieve information without modifying business state.
 
 Examples include:
 
-- GetAssessment
+- GetCrawl
 - ListProjects
 - FindIssues
 - ReadEvidence
-- SearchOrganisations
+- SearchOrganizations
 
 ---
 
@@ -277,9 +277,9 @@ Commands SHOULD use imperative names.
 Examples:
 
 ```
-CreateAssessment
+CreateCrawl
 
-ArchiveProject
+ActivateProject
 
 AssignRole
 ```
@@ -289,7 +289,7 @@ Queries SHOULD use interrogative or retrieval-oriented names.
 Examples:
 
 ```
-GetAssessment
+GetCrawl
 
 FindProjects
 

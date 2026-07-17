@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-017-Boot-Process.md
-
 ---
 title: Boot Process
 identifier: EM-II-017

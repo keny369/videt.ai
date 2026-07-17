@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-I-Change-Log.md
-
 ---
 title: Appendix I — Change Log
 identifier: EM-I-APP-I

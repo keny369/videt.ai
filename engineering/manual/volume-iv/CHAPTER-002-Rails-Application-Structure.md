@@ -1,5 +1,3 @@
-# engineering/manual/volume-iv/CHAPTER-002-Rails-Application-Structure.md
-
 ---
 title: Rails Application Structure
 identifier: EM-IV-002
@@ -305,11 +303,11 @@ Namespaces SHALL correspond directly to repository structure.
 Example:
 
 ```ruby
-Domain::Assessment
+Domain::Crawl
 
-Application::AssessmentCreationService
+Application::CrawlCreationService
 
-Infrastructure::PostgresAssessmentRepository
+Infrastructure::PostgresCrawlRepository
 ```
 
 Namespace drift is prohibited.

@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-010-Transaction-Boundaries.md
-
 ---
 title: Transaction Boundaries
 identifier: EM-II-010
@@ -205,7 +203,7 @@ Business workflows MAY span multiple transactions.
 
 Examples include:
 
-- assessments;
+- evaluations;
 - external crawls;
 - evidence collection;
 - notifications;

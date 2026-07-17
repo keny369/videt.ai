@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-010-Entity-Standards.md
-
 ---
 title: Entity Standards
 identifier: EM-III-010
@@ -71,13 +69,14 @@ Entities SHALL NOT exist merely as data containers.
 
 Identity SHALL be immutable.
 
-Examples include:
+Canonical entity identities are named by DM-REQ-001 in `specification/011 DOMAIN_MODEL.md`. Examples include:
 
-- OrganisationId
+- OrganizationId
 - ProjectId
-- AssessmentId
 - EvaluationId
 - IssueId
+
+An identity SHALL NOT be introduced for an entity that DM-REQ-001 does not define.
 
 Identity SHALL survive:
 
@@ -96,14 +95,16 @@ Entity state MAY change.
 
 State transitions SHALL occur only through explicit business behaviour.
 
+The examples in sections 6 through 10 use a fictional `Shipment` entity from an unrelated domain. They illustrate an engineering pattern only. They are deliberately not F1 entities, because an example naming a real transition would imply product behaviour this manual has no authority to establish. Canonical F1 states, transitions and their command authority are owned by `specification/016 STATE_MODEL.md` and the Volume I workflow and permission contracts.
+
 Examples:
 
 ```ruby
-assessment.complete!
+shipment.dispatch!
 
-project.archive!
+shipment.deliver!
 
-organisation.reactivate!
+shipment.cancel!
 ```
 
 Direct public mutation is prohibited.
@@ -117,14 +118,16 @@ Entities SHALL own behaviour directly related to their business responsibility.
 Examples:
 
 ```ruby
-Assessment#complete!
+Shipment#dispatch!
 
-Issue#close!
+Shipment#deliver!
 
-Project#archive!
+Shipment#cancel!
 ```
 
 Behaviour SHALL preserve business invariants.
+
+An entity method SHALL NOT be introduced for an F1 transition that no accepted authority defines. Where a transition is named by the state model but its command authority is undefined or pending an Owner Decision, no entity method, service or route may be inferred, and the affected path SHALL remain unimplemented. Project pause, resume and archive are the current example: `specification/016 STATE_MODEL.md` names the transitions, Volume I defines no command for them, and OD-014 remains pending under `UPSTREAM-V1-PROJECT-LIFECYCLE-003`.
 
 ---
 
@@ -136,11 +139,12 @@ Invariant enforcement SHALL occur before state mutation.
 
 Examples include:
 
-- completed Assessments cannot restart;
-- archived Projects cannot accept new Assessments;
-- expired Role Assignments cannot grant authority.
+- a delivered Shipment cannot be dispatched again;
+- a cancelled Shipment cannot accept new items.
 
 Invalid transitions SHALL fail immediately.
+
+An F1 invariant SHALL be implemented only where an accepted authority states it. This manual SHALL NOT introduce a cross-entity business rule by example.
 
 ---
 
@@ -157,13 +161,13 @@ Example:
 Preferred:
 
 ```ruby
-assessment.complete!
+shipment.dispatch!
 ```
 
 Not:
 
 ```ruby
-assessment.status = "completed"
+shipment.status = "dispatched"
 ```
 
 ---
@@ -175,13 +179,13 @@ Entity equality SHALL be based upon identity.
 Example:
 
 ```ruby
-Assessment(id: 123)
+Shipment(id: 123)
 ```
 
 equals
 
 ```ruby
-Assessment(id: 123)
+Shipment(id: 123)
 ```
 
 even if non-identity attributes differ.
@@ -224,27 +228,25 @@ Persistence belongs to Infrastructure.
 
 Every Entity SHALL possess a clearly defined lifecycle.
 
-Examples include:
+The fictional `Shipment` lifecycle illustrates the shape only:
 
 ```text
 Created
 
 ↓
 
-Active
+Dispatched
 
 ↓
 
-Suspended
-
-↓
-
-Archived
+Delivered
 ```
 
 Lifecycle transitions SHALL be explicit.
 
 Hidden lifecycle changes are prohibited.
+
+An F1 entity lifecycle SHALL be taken from `specification/016 STATE_MODEL.md` rather than from this example. The state model is the canonical owner of every F1 state, transition and terminal condition, and no state or edge may be inferred from the shape shown here.
 
 ---
 

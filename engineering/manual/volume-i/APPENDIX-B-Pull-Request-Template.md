@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-B-Pull-Request-Template.md
-
 ---
 title: Appendix B — Pull Request Template
 identifier: EM-I-APP-B

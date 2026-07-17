@@ -1,6 +1,3 @@
-```
-# engineering/manual/volume-i/CHAPTER-01-Engineering-Philosophy.md
-
 ---
 title: Engineering Philosophy
 identifier: EM-I-001
@@ -265,5 +262,4 @@ Departures require documented justification and approval through the project's g
 - EM-I-003 Authority Hierarchy
 - EM-I-005 Engineering Principles
 - Product Specification
-- Architectural Decision Recordsxxxxxxxxxx engineering/manual/volume-i/CHAPTER-01-Engineering-Philosophy.md
-```
+- Architectural Decision Records

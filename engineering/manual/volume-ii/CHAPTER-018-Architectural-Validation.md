@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-018-Architectural-Validation.md
-
 ---
 title: Architectural Validation
 identifier: EM-II-018

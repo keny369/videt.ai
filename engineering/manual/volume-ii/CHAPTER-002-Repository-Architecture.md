@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-002-Repository-Architecture.md
-
 ---
 title: Repository Architecture
 identifier: EM-II-002

@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-015-Validation-Standards.md
-
 ---
 title: Validation Standards
 identifier: EM-III-015

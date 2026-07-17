@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-009-Value-Object-Standards.md
-
 ---
 title: Value Object Standards
 identifier: EM-III-009
@@ -172,7 +170,7 @@ Typical Value Objects include:
 - LanguageCode
 - Url
 - IssueFingerprint
-- AssessmentIdentifier
+- EvaluationIdentifier
 - ProjectSlug
 
 Business terminology SHALL determine Value Object boundaries.

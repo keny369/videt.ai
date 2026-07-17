@@ -1,5 +1,3 @@
-# engineering/manual/volume-iv/CHAPTER-001-Rails-8-Framework-Philosophy.md
-
 ---
 title: Rails 8 Framework Philosophy
 identifier: EM-IV-001

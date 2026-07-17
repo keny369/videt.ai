@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-007-Repository-Standards.md
-
 ---
 title: Repository Standards
 identifier: EM-III-007
@@ -81,7 +79,7 @@ Example:
 
 ```ruby
 module Domain
-  class AssessmentRepository
+  class CrawlRepository
   end
 end
 ```
@@ -97,8 +95,8 @@ Infrastructure SHALL implement repository interfaces.
 Example:
 
 ```ruby
-class PostgresAssessmentRepository
-  include AssessmentRepository
+class PostgresCrawlRepository
+  include CrawlRepository
 end
 ```
 
@@ -137,7 +135,7 @@ find(id)
 
 load(project_id)
 
-save(assessment)
+save(crawl)
 
 delete(project)
 ```

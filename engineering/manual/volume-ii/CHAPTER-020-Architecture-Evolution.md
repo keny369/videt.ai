@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-020-Architecture-Evolution.md
-
 ---
 title: Architecture Evolution
 identifier: EM-II-020

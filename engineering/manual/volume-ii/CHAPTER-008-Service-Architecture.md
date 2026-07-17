@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-008-Service-Architecture.md
-
 ---
 title: Service Architecture
 identifier: EM-II-008
@@ -251,19 +249,21 @@ Interfaces SHOULD describe business intent.
 Examples:
 
 ```text
-AssessmentService.start()
+CrawlService.start()
 
 EvaluationService.complete()
 
-ProjectService.archive()
+ProjectService.activate()
 ```
 
 Avoid implementation-oriented names.
 
+A service SHALL be named for a command that an accepted authority defines. `project.create` and `project.activate` are the only Project commands the Volume I permission contract defines. Project pause, resume and archive are named by `specification/016 STATE_MODEL.md` but have no command, and OD-014 remains pending under `UPSTREAM-V1-PROJECT-LIFECYCLE-003`; no service, method or route for them may be inferred.
+
 Examples of prohibited names include:
 
 ```text
-AssessmentProcessorV2
+CrawlProcessorV2
 
 GenericWorkflowManager
 
@@ -278,7 +278,7 @@ Service names SHALL describe responsibilities.
 
 Examples:
 
-AssessmentCreationService
+CrawlCreationService
 
 EvidenceExtractionService
 

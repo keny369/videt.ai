@@ -21,7 +21,64 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANUAL_ROOT = ROOT / "engineering" / "manual"
-FRONT_MATTER_BASELINE_FILE = Path(__file__).resolve().parent / "front_matter_baseline.txt"
+
+# --- Product-authority ownership checks -------------------------------------
+#
+# The Engineering Manual owns engineering practice and holds no product-behaviour
+# authority at any rank (PM-REQ-003.4). These checks enforce that boundary, which
+# Governance Pass 001 found breached: Volume III had invented an Assessment entity
+# DM-REQ-001 does not define and had pre-empted pending OD-014.
+
+# Names the manual once presented as canonical F1 entities but which DM-REQ-001
+# does not define. "Assessment" is matched only at a word start, so "reassessment"
+# -- a real Volume I concept -- can never match.
+INVENTED_ENTITY_RE = re.compile(r"(?<!\w)Assessment\w*")
+# Ordinary-English senses of the word, which are not the invented entity.
+INVENTED_ENTITY_ALLOWED_QUALIFIER = re.compile(
+    r"(?i)\b(risk|debt|compatibility|architectural|security|readiness|impact|maturity|self)\s+$"
+)
+
+# First path segments that name F1 product resources. A route example using one of
+# these asserts an F1 contract the manual does not own; Volume I owns routes.
+PRODUCT_ROUTE_RE = re.compile(
+    r"\b(?:GET|POST|PUT|PATCH|DELETE)\s+/(assessments|projects|sessions|evaluations|issues|"
+    r"organizations|organisations|accounts|sources|documents|crawls|exports|credentials|"
+    r"integrations|recommendations|reports|notifications|billing)\b"
+)
+
+# Code-shaped assertions of a transition whose command authority is an open Owner
+# Decision. Prose that *cites* the deferral is not code and cannot match these.
+PENDING_OD_PREEMPTION_RES = {
+    re.compile(r"\bproject\.(archive|pause|resume)\b"): "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive command authority",
+    re.compile(r"\bProject#(archive|pause|resume)\b"): "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive command authority",
+    re.compile(r"\b(Archive|Pause|Resume)Project\b"): "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive command authority",
+    re.compile(r"\b(archive|pause|resume)_project\b"): "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive command authority",
+    re.compile(r"\bProjectService\.(archive|pause|resume)\b"): "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive command authority",
+    re.compile(r"\bBeginCredentialRotation\b|\bcredential\.rotate\b|\brotate_credential\b"): "OD-023 (UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009) reserves the credential rotation contract",
+}
+
+# Canonical spelling is Organization. The ordinary-English word (an arrangement, or
+# a company) is a different word and is deliberately left alone.
+NONCANONICAL_SPELLING_RE = re.compile(r"(?<!\w)[Oo]rganisation\w*")
+ORDINARY_ENGLISH_ORGANISATION = re.compile(
+    r"(?i)\b(directory|infrastructure|repository|system|boot|test|chapter|document|appendix|"
+    r"engineering|architecture-driven|technology-driven)\s+(re)?organisation"
+)
+# "organisational" is an adjective meaning structural arrangement. The product
+# entity is never spelled this way, so the adjective is always ordinary English.
+ORDINARY_ENGLISH_ADJECTIVE = re.compile(r"(?i)^organisational")
+
+# A precedence ladder lives under a heading about authority. A numbered reading
+# order or workflow sequence is not a ladder and must not be flagged as one.
+AUTHORITY_SECTION_RE = re.compile(r"(?i)\b(authority|precedence|hierarchy)\b")
+
+# Baselines superseded by v1.5-volume-i-frozen. Citing one as current authority is
+# a stale authority baseline.
+SUPERSEDED_BASELINE_TAGS = {
+    "v1.0-spec-baseline", "v1.1-implementation-ready", "v1.2-volume-i-frozen",
+    "v1.3-volume-i-corrected", "v1.4-volume-i-ratified-prelegal",
+}
+CURRENT_VOLUME_I_BASELINE = "v1.5-volume-i-frozen"
 
 ROMAN_BY_VOLUME = {
     "volume-i": "I",
@@ -91,24 +148,6 @@ def expected_chapters(volume: str) -> list[str]:
 
 
 FRONT_MATTER_DELIMITER = "---"
-
-
-def load_front_matter_baseline() -> set[str]:
-    """Load the manual-relative paths whose authority metadata is known-unparseable.
-
-    The baseline exists because every chapter predating this check carries one of the
-    two structural defects, and the frozen volumes may not be reformatted wholesale.
-    It may only shrink: a file that no longer has a defect must be removed from it,
-    which stale_front_matter_baseline enforces.
-    """
-    if not FRONT_MATTER_BASELINE_FILE.exists():
-        return set()
-    entries = set()
-    for line in FRONT_MATTER_BASELINE_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            entries.add(line)
-    return entries
 
 
 def front_matter_defect(text: str) -> str | None:
@@ -194,6 +233,7 @@ def validate(root: Path) -> list[Finding]:
         return [Finding(root, None, "missing_manual_root", "engineering/manual does not exist")]
 
     findings.extend(validate_front_matter_structure(root))
+    findings.extend(validate_product_authority(root))
 
     for volume, roman in ROMAN_BY_VOLUME.items():
         volume_dir = root / volume
@@ -332,36 +372,119 @@ def validate(root: Path) -> list[Finding]:
 def validate_front_matter_structure(root: Path) -> list[Finding]:
     """Enforce that authority metadata is parseable by a conforming reader.
 
-    Files listed in the baseline carry a known legacy defect and are not reported.
-    A baseline entry that no longer has a defect is reported so the baseline shrinks
-    as files are corrected and can never silently exempt a clean file.
+    Governance Pass 002 retired the legacy baseline: every chapter now conforms, so
+    this check has no exemptions and no file may opt out.
     """
     findings: list[Finding] = []
-    baseline = load_front_matter_baseline()
-    observed_clean_baseline_entries: set[str] = set()
-
     for path in sorted(root.rglob("*.md")):
         if not (path.name.startswith("CHAPTER-") or path.name.startswith("APPENDIX-")):
             continue
-        rel = path.relative_to(root).as_posix()
         defect = front_matter_defect(path.read_text(encoding="utf-8"))
-        if defect is None:
-            if rel in baseline:
-                observed_clean_baseline_entries.add(rel)
-            continue
-        if rel in baseline:
-            continue
-        findings.append(Finding(path, 1, defect, DEFECT_MESSAGES[defect]))
+        if defect is not None:
+            findings.append(Finding(path, 1, defect, DEFECT_MESSAGES[defect]))
+    return findings
 
-    for rel in sorted(observed_clean_baseline_entries):
-        findings.append(
-            Finding(
-                FRONT_MATTER_BASELINE_FILE,
-                None,
-                "stale_front_matter_baseline",
-                f"{rel} now parses; remove it from the front matter baseline",
-            )
-        )
+
+def validate_product_authority(root: Path) -> list[Finding]:
+    """Enforce PM-REQ-003.4: the manual establishes no product behaviour.
+
+    Each check corresponds to a defect Governance Pass 001 actually found, so a
+    regression is caught rather than re-discovered by a future audit.
+    """
+    findings: list[Finding] = []
+    for path in sorted(root.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+
+        for match in INVENTED_ENTITY_RE.finditer(text):
+            preceding = text[max(0, match.start() - 30):match.start()]
+            if INVENTED_ENTITY_ALLOWED_QUALIFIER.search(preceding):
+                continue  # "risk assessment" and friends are ordinary English
+            findings.append(Finding(
+                path, line_for(text, match.group(0)), "invented_canonical_entity",
+                f"{match.group(0)}: DM-REQ-001 does not define an Assessment entity",
+            ))
+
+        for match in PRODUCT_ROUTE_RE.finditer(text):
+            findings.append(Finding(
+                path, line_for(text, match.group(0)), "undefined_product_route",
+                f"{match.group(0).strip()}: Volume I owns F1 routes; the manual must not assert one",
+            ))
+
+        for pattern, reason in PENDING_OD_PREEMPTION_RES.items():
+            match = pattern.search(text)
+            if match:
+                findings.append(Finding(
+                    path, line_for(text, match.group(0)), "pending_od_preemption",
+                    f"{match.group(0)}: {reason}",
+                ))
+
+        for match in NONCANONICAL_SPELLING_RE.finditer(text):
+            if ORDINARY_ENGLISH_ADJECTIVE.match(match.group(0)):
+                continue  # "organisational units" is a different word
+            window = text[max(0, match.start() - 40):match.end()]
+            if ORDINARY_ENGLISH_ORGANISATION.search(window):
+                continue  # "directory organisation" is a different word
+            findings.append(Finding(
+                path, line_for(text, match.group(0)), "noncanonical_product_spelling",
+                f"{match.group(0)}: the canonical product spelling is Organization",
+            ))
+
+        for tag in SUPERSEDED_BASELINE_TAGS:
+            if tag in text:
+                findings.append(Finding(
+                    path, line_for(text, tag), "stale_authority_baseline",
+                    f"{tag} is superseded; the current Volume I baseline is {CURRENT_VOLUME_I_BASELINE}",
+                ))
+
+        findings.extend(contradictory_hierarchy_findings(path, text))
+    return findings
+
+
+def contradictory_hierarchy_findings(path: Path, text: str) -> list[Finding]:
+    """Detect a linear ladder that ranks the Engineering Manual above ADRs or ODs.
+
+    This is the exact contradiction ADR-021 resolved: EM-I-003 placed the Engineering
+    Manual at Level 2, above ADRs and Owner Decisions, while MANUAL_AUTHORITY.md
+    placed them above the manual. Scope-before-rank replaced both, so any numbered
+    list that reintroduces the ordering is a regression.
+    """
+    findings: list[Finding] = []
+    ranks: dict[str, int] = {}
+    in_authority_section = False
+    for line in text.splitlines():
+        if line.startswith("#"):
+            # Only a section about authority can contain a precedence ladder. A
+            # numbered reading order ("1. Read the Specification") is a sequence,
+            # not a ranking, and flagging it would be a false positive.
+            in_authority_section = bool(AUTHORITY_SECTION_RE.search(line))
+            ranks = {}
+            continue
+        match = re.match(r"^\s*(\d+)\.\s+(.*)$", line)
+        if not match:
+            if ranks and not line.strip():
+                continue  # a blank line does not end the list
+            if ranks and not re.match(r"^\s*\d+\.", line):
+                ranks = {}  # list ended
+            continue
+        if not in_authority_section:
+            continue
+        rank, body = int(match.group(1)), match.group(2)
+        low = body.lower()
+        if "engineering manual" in low:
+            ranks.setdefault("manual", rank)
+        if "adr" in low or "architectural decision record" in low:
+            ranks.setdefault("adr", rank)
+        if "owner decision" in low:
+            ranks.setdefault("od", rank)
+        for other in ("adr", "od"):
+            if "manual" in ranks and other in ranks and ranks["manual"] < ranks[other]:
+                findings.append(Finding(
+                    path, line_for(text, body), "contradictory_authority_hierarchy",
+                    f"Engineering Manual ranked {ranks['manual']} above {other.upper()} at {ranks[other]}; "
+                    "PM-REQ-003 resolves scope before rank and gives the manual no product-behaviour authority",
+                ))
+                ranks = {}
+                break
     return findings
 
 
@@ -382,7 +505,12 @@ def run_negative_controls() -> int:
         ("prohibited state reference", lambda root: append_text(root / "volume-x" / "README.md", "\nDocument quarantined\n"), "prohibited_state_reference"),
         ("front matter not at start", lambda root: prepend_text(root / "volume-i" / "CHAPTER-03-Authority-Hierarchy.md", "# engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md\n\n"), "front_matter_not_at_start"),
         ("indented front matter", lambda root: indent_front_matter(root / "volume-xii" / "CHAPTER-002-Authority-Hierarchy-and-Canonical-Ownership.md"), "indented_front_matter"),
-        ("stale front matter baseline", lambda root: dedent_lines(root / "volume-xii" / "CHAPTER-001-Repository-Stewardship-Philosophy.md"), "stale_front_matter_baseline"),
+        ("invented canonical entity", lambda root: append_text(root / "volume-iii" / "README.md", "\nThe Assessment aggregate owns evaluation state.\n"), "invented_canonical_entity"),
+        ("undefined product route", lambda root: append_text(root / "volume-vii" / "README.md", "\nPOST /projects/{id}/archive\n"), "undefined_product_route"),
+        ("pending OD pre-emption", lambda root: append_text(root / "volume-iii" / "README.md", "\n`project.archive!` completes the transition.\n"), "pending_od_preemption"),
+        ("stale authority baseline", lambda root: append_text(root / "volume-xii" / "README.md", "\nAuthority is checked against `v1.3-volume-i-corrected`.\n"), "stale_authority_baseline"),
+        ("contradictory authority hierarchy", lambda root: append_text(root / "volume-xii" / "README.md", "\n## Authority Precedence\n\n1. Product Specification\n2. Engineering Manual\n3. Accepted ADRs\n4. Owner Decisions\n"), "contradictory_authority_hierarchy"),
+        ("non-canonical product spelling", lambda root: append_text(root / "volume-viii" / "README.md", "\nAn Organisation owns its tenant boundary.\n"), "noncanonical_product_spelling"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-manual-negative-") as temp_name:
@@ -428,15 +556,6 @@ def indent_front_matter(path: Path) -> None:
     mutated = lines[: closing + 1]
     mutated = [mutated[0]] + [f"    {line}" for line in mutated[1:]]
     path.write_text("\n".join(mutated + lines[closing + 1 :]) + "\n", encoding="utf-8")
-
-
-def dedent_lines(path: Path) -> None:
-    """Correct an indented file so its baseline entry becomes stale."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    path.write_text(
-        "\n".join(line[4:] if line.startswith("    ") else line for line in lines) + "\n",
-        encoding="utf-8",
-    )
 
 
 def remove_first_line_containing(path: Path, needle: str) -> None:

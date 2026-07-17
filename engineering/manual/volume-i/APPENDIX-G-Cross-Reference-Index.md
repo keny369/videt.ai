@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-G-Cross-Reference-Index.md
-
 ---
 title: Appendix G — Cross-Reference Index
 identifier: EM-I-APP-G

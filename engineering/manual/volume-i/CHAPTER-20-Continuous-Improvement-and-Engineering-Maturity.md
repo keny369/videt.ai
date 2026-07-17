@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-20-Continuous-Improvement-and-Engineering-Maturity.md
-
 ---
 title: Continuous Improvement and Engineering Maturity
 identifier: EM-I-020
@@ -16,7 +14,7 @@ This chapter establishes the framework by which the F1 engineering organisation 
 
 Engineering maturity is not measured by the age of the platform, the number of engineers or the volume of code.
 
-Engineering maturity is measured by the organisation's ability to improve predictably while preserving architectural integrity, product correctness and operational reliability.
+Engineering maturity is measured by the organization's ability to improve predictably while preserving architectural integrity, product correctness and operational reliability.
 
 Continuous improvement SHALL be an intentional engineering discipline.
 

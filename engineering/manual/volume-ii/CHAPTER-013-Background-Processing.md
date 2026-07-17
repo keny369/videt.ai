@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-013-Background-Processing.md
-
 ---
 title: Background Processing
 identifier: EM-II-013

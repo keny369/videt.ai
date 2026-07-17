@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-016-Configuration-Management.md
-
 ---
 title: Configuration Management
 identifier: EM-II-016

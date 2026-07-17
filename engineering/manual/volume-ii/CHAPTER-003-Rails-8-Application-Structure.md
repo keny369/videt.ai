@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-003-Rails-8-Application-Structure.md
-
 ---
 title: Rails 8 Application Structure
 identifier: EM-II-003

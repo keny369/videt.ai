@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-018-Testing-Standards.md
-
 ---
 title: Testing Standards
 identifier: EM-III-018
@@ -115,8 +113,8 @@ End-to-end tests SHALL verify complete business workflows.
 Examples include:
 
 - account registration;
-- organisation creation;
-- assessment execution;
+- organization creation;
+- crawl execution;
 - evaluation completion.
 
 End-to-end tests SHALL exercise externally observable behaviour.

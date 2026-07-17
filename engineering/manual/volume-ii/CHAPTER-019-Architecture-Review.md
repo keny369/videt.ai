@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-019-Architecture-Review.md
-
 ---
 title: Architecture Review
 identifier: EM-II-019

@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-H-Version-History.md
-
 ---
 title: Appendix H — Version History
 identifier: EM-I-APP-H

@@ -2,16 +2,16 @@
 
 ## Snapshot
 
-- Date: 2026-07-16
-- Status: Corrected Volume I accepted as the behavioural baseline but NOT frozen; an RC1 release-candidate review recorded open normative defects and the RC1 correction programme under ADR-018 is in progress. Volume II Implementation Architecture Pass 001 complete for unblocked behavior and acceptance-blocked by demonstrated upstream ambiguities
+- Date: 2026-07-17
+- Status: Volume I is FROZEN at `v1.5-volume-i-frozen` and is the authoritative implementation baseline; the PM-REQ-010 gate for Volume I is satisfied. The RC1 correction programme under ADR-018 is closed and its decisions are integrated under ADR-019 and ADR-020. The Engineering Manual is ACCEPTED at `v1.7-engineering-manual-accepted` as the normative authority for engineering practice only, with no independent product-behaviour authority. Volume II Implementation Architecture Pass 001 is complete for unblocked behavior and acceptance-blocked by the two live upstream ambiguities
 - Foundation Baseline: 1.0
-- Current Volume I Baseline Tag: `v1.5-volume-i-frozen` (authoritative Volume I implementation baseline, ADR-020); predecessors `v1.4-volume-i-ratified-prelegal` at `b2cb4ca` and `v1.3-volume-i-corrected` at `5d725fa` are retained as history; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines. No successor frozen tag exists; the freeze is blocked pending the RC1 correction programme and an RC2 regression audit returning no Critical or High finding
+- Current Volume I Baseline Tag: `v1.5-volume-i-frozen` (authoritative Volume I implementation baseline, ADR-020); predecessors `v1.4-volume-i-ratified-prelegal` at `b2cb4ca` and `v1.3-volume-i-corrected` at `5d725fa` are retained as history; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines
 - Initial Volume II Draft Commit: `7213e9a`
 - Current Gate: Volume II cannot be frozen, and broad implementation cannot begin, while any frozen-Volume-I blocker in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) remains implementation-blocking for the work in question. Under ADR-021 this gate is measured by blocking status rather than by a count. Two blockers remain live: `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023), each pending under its deterministic neutral interim. The remaining Pass 001 blockers are retired by ratified Owner Decisions integrated under ADR-019 and ADR-020
 
 ## Current Objective
 
-Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volume II for every unblocked behavior, and report rather than invent the missing event scope, lifecycle, read, metering, reactivation-proof, comparison-event, Credential-rotation-token, reassessment-trigger-event, Role-expiry-blocked-event/notification, Document-lifecycle and Issue-fingerprint-collision semantics.
+Consume the accepted Engineering Manual baseline for Specification Volume II, complete Volume II for every unblocked behavior, and report rather than invent the Project lifecycle and Credential-rotation-token semantics that OD-014 and OD-023 still reserve.
 
 ## Operating Constraints
 
@@ -47,7 +47,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 
 ## Active Workstream
 
-1. Preserve the local `v1.3-volume-i-corrected` tag and initial Volume II draft commit.
+1. Preserve every established tag and commit; do not move or delete a baseline.
 2. Obtain narrow controlled Volume I corrections for the blockers recorded in the Volume II index that remain live: `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023).
 3. Reconcile only the affected Volume II contracts, rerun validation, then freeze the Volume II architecture baseline before broad implementation.
 4. Push the two existing commits and corrected tag only after the configured remote is explicitly confirmed as trusted.

@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-019-API-Implementation-Standards.md
-
 ---
 title: API Implementation Standards
 identifier: EM-III-019
@@ -125,16 +123,16 @@ Routes SHALL represent business capabilities.
 Examples:
 
 ```text
-POST /assessments
+POST /widgets
 
-GET /projects/{id}
+GET /widgets/{id}
 
-POST /evaluations
-
-DELETE /sessions/current
+POST /widgets/{id}/inspections
 ```
 
 Routes SHALL avoid implementation terminology.
+
+These are fictional routes from an unrelated domain, shown to illustrate the naming rule only. F1 routes are owned by the Volume I capability, workflow and permission contracts and their accepted API exposure. This manual SHALL NOT define, name or imply an F1 route, and no route may be inferred from an example here. A route whose read or command authority Volume I does not define SHALL NOT be implemented.
 
 ---
 

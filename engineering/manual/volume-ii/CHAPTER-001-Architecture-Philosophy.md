@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-001-Architecture-Philosophy.md
-
 ---
 title: Architecture Philosophy
 identifier: EM-II-001

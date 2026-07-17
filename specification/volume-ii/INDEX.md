@@ -128,7 +128,7 @@ Implementation may begin only for slices whose command/read/event dependencies d
 
 The Volume II architecture baseline may be frozen only when:
 
-1. all thirteen upstream Volume I blockers have accepted deterministic corrections;
+1. no upstream Volume I blocker recorded above remains implementation-blocking, measured by blocking status rather than by a count. A blocker is discharged when its governing Owner Decision is ratified and integrated into its canonical owner, or when that decision removes the governed behaviour entirely; a retired blocker requires no further correction. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live and pending under their deterministic neutral interims; the remainder are retired under ADR-019 and ADR-020;
 2. affected API/application/frontend/schema/job text is aligned without changing other behavior;
 3. cross-document, identifier, link, table and terminology validation passes;
 4. every physical operation maps to one Volume I behavior and every required behavior maps to one physical owner or explicit dormant gate;

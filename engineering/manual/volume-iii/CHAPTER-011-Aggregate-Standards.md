@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-011-Aggregate-Standards.md
-
 ---
 title: Aggregate Standards
 identifier: EM-III-011
@@ -85,13 +83,14 @@ Boundaries SHALL be intentionally designed.
 
 Every business invariant within an Aggregate SHALL be preserved before transaction completion.
 
-Examples include:
+The examples below use a fictional `Shipment` Aggregate from an unrelated domain, so that the pattern is illustrated without implying an F1 business rule:
 
-- an Assessment cannot simultaneously be Active and Completed;
-- an Organisation cannot transition directly from Suspended to Archived if the Product Specification forbids it;
-- an Evaluation cannot complete without satisfying mandatory completion criteria.
+- a Shipment cannot simultaneously be Dispatched and Cancelled;
+- a Shipment cannot be delivered before it is dispatched.
 
 The Aggregate Root SHALL enforce these rules.
+
+An F1 invariant SHALL be implemented only where an accepted authority states it. Canonical F1 states and permitted transitions are owned by `specification/016 STATE_MODEL.md`, and the invariants that bind them are owned by the Volume I product rules. This manual SHALL NOT state, infer or illustrate an F1 business rule that no accepted authority defines.
 
 ---
 
@@ -116,7 +115,7 @@ Entities contained within an Aggregate SHALL not be modified directly by externa
 Example:
 
 ```ruby
-assessment.complete!
+shipment.dispatch!
 ```
 
 is valid.
@@ -195,18 +194,16 @@ Created
 
 ↓
 
-Active
+Dispatched
 
 ↓
 
-Completed
-
-↓
-
-Archived
+Delivered
 ```
 
 Lifecycle transitions SHALL be performed through business methods.
+
+This is the fictional `Shipment` shape. An F1 Aggregate lifecycle SHALL be taken from `specification/016 STATE_MODEL.md`, which owns every F1 state and permitted transition.
 
 ---
 

@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-10-Definition-of-Done.md
-
 ---
 title: Definition of Done
 identifier: EM-I-010
@@ -346,5 +344,3 @@ Exceptions require explicit approval through the project's governance process an
 - EM-I-016 Traceability
 - Product Specification
 - Architectural Decision Records
-
-```

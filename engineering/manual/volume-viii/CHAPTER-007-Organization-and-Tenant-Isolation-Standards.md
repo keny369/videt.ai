@@ -1,31 +1,31 @@
 ---
-title: Event Serialization and External Event Standards
-identifier: EM-VII-014
+title: Organization and Tenant Isolation Standards
+identifier: EM-VIII-007
 version: 1.0
 status: Normative
 owner: Engineering Governance
 ---
 
-# Chapter 14 - Event Serialization and External Event Standards
+# Chapter 7 - Organization and Tenant Isolation Standards
 
 ## 1. Purpose
 
-This chapter defines the mandatory engineering standard for event serialization and external event standards in the F1 platform.
+This chapter defines the mandatory engineering standard for organization and tenant isolation standards in the F1 platform.
 
-The purpose of this standard is to make Event, Serialization, External, Event implementation predictable, reviewable and subordinate to the Product Specification. It establishes how engineers and AI coding agents SHALL apply the volume concern without inventing product behaviour, routes, states, events, schema objects, operational commitments or commercial values.
+The purpose of this standard is to make Organization, Tenant, Isolation implementation predictable, reviewable and subordinate to the Product Specification. It establishes how engineers and AI coding agents SHALL apply the volume concern without inventing product behaviour, routes, states, events, schema objects, operational commitments or commercial values.
 
 ## 2. Scope
 
-This chapter governs implementation decisions, design review, verification evidence and repository changes related to event serialization and external event standards.
+This chapter governs implementation decisions, design review, verification evidence and repository changes related to organization and tenant isolation standards.
 
 It applies to application code, tests, documentation, migration work, operational procedures and AI-assisted changes whenever those activities touch this concern. It does not authorise new product capability; missing product-specific values remain deferred to their canonical owner.
 
 ## 3. Governing Principles
 
-- Existing canonical API contracts are the only authority for routes, methods, fields and errors.
-- Transport semantics SHALL be separated from Domain behaviour.
-- Controllers SHALL remain thin adapters around Application Services.
-- OpenAPI documents describe canonical contracts; they do not create them.
+- Security defaults SHALL fail closed.
+- Tenant isolation SHALL be preserved across every interface, job, query and administrative path.
+- Cryptographic algorithms, rotation periods and legal retention values SHALL not be invented in this manual.
+- Defence in depth SHALL be required for identity, authorisation, data protection and audit evidence.
 
 The concern governed by this chapter SHALL be implemented only after the relevant authority sources have been inspected. A lower-level implementation convenience SHALL NOT override the Product Specification, ratified Owner Decisions, accepted ADRs or existing manual authority.
 
@@ -33,10 +33,10 @@ The concern governed by this chapter SHALL be implemented only after the relevan
 
 The principal authority sources for this chapter are:
 
-- specification/volume-ii/API_CONTRACTS.md
-- specification/017 ERROR_MODEL.md
 - specification/014 SECURITY_MODEL.md
-- Engineering Manual Volume III API implementation standards
+- specification/volume-ii/SECURITY_PERFORMANCE.md
+- specification/volume-i/WORKFLOW_SPECIFICATIONS.md
+- governance/QUALITY_STANDARD.md
 
 If these sources conflict, engineers SHALL stop the affected implementation path and escalate through repository governance. The Engineering Manual may define engineering rules, but it SHALL NOT create product semantics by implication.
 
@@ -52,7 +52,7 @@ Implementations SHALL satisfy the following requirements.
 - The implementation SHALL use examples only to illustrate an engineering pattern; examples SHALL NOT introduce unapproved routes, tables, events, permissions, states or providers.
 - The implementation SHALL record deferred product-specific values as deferred to the canonical owner rather than filling them with arbitrary numbers.
 
-For event serialization and external event standards, reviewers SHALL pay particular attention to Event, Serialization, External, Event. Any design that makes this concern the owner of business truth SHALL be rejected unless a higher-authority document explicitly grants that ownership.
+For organization and tenant isolation standards, reviewers SHALL pay particular attention to Organization, Tenant, Isolation. Any design that makes this concern the owner of business truth SHALL be rejected unless a higher-authority document explicitly grants that ownership.
 
 ## 6. Responsibility and Ownership Boundaries
 
@@ -88,7 +88,7 @@ Where product-specific recovery objectives, retention periods, capacity values o
 
 Implementations SHALL emit or preserve correlation identifiers, causation where canonically available, actor or service identity, tenant scope, result classification and failure reason without leaking protected payloads.
 
-Observability for event serialization and external event standards SHALL support review of whether the correct owner executed the work, whether authority was checked, whether idempotency or concurrency protections applied, and whether any deferred decision blocked execution.
+Observability for organization and tenant isolation standards SHALL support review of whether the correct owner executed the work, whether authority was checked, whether idempotency or concurrency protections applied, and whether any deferred decision blocked execution.
 
 ## 11. Testing and Verification Obligations
 
@@ -128,7 +128,7 @@ The following anti-patterns are prohibited:
 
 ## 15. Compliance
 
-Compliance with this chapter is mandatory for all repository changes touching event serialization and external event standards. Non-compliance SHALL be corrected before merge or explicitly waived through the accepted governance process with traceability to the approving authority.
+Compliance with this chapter is mandatory for all repository changes touching organization and tenant isolation standards. Non-compliance SHALL be corrected before merge or explicitly waived through the accepted governance process with traceability to the approving authority.
 
 ## 16. Cross-References
 

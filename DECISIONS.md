@@ -626,3 +626,70 @@ Risks And Mitigations:
 
 Review Checkpoint:
 The scoped model is reviewed if any future document proposes a linear authority ladder. The front matter baseline is reviewed whenever a listed file is edited for any reason. The Volume III ownership conflicts are reviewed before Volume II begins. Reassess no later than 2026-08-27.
+
+## ADR-022: Engineering Manual Product-Authority Remediation And Acceptance
+
+Status: Accepted
+Date: 2026-07-17
+Owner: Chief Architect
+Reversibility: Medium. The manual becomes the accepted engineering-practice authority that Specification Volume II consumes. No software, emitted event, persisted record or customer datum exists to unwind. Reverting would restore invented product contracts and is not recommended.
+
+Decision:
+Remove the residual product-behaviour breaches Governance Pass 001 recorded, retire the front matter debt at source, and accept the Engineering Manual at 12 volumes and 240 chapters as the normative authority for engineering practice only, with no independent product-behaviour authority. OD-014 and OD-023 remain pending under their deterministic neutral interims and are expressly not resolved.
+
+Context:
+ADR-021 reconciled authority and left one CONFLICT open: Engineering Manual Volume III established product behaviour it does not own. This ADR closes it. The audit understated the scope in two ways, both found by this pass and both verified before correction.
+
+First, the OD-014 pre-emption was not confined to EM-III-010. Five sites across four chapters presented Project archive as an accepted command: `project.archive!` and `Project#archive!` in EM-III-010, `archive_project` in EM-III-005, `ProjectService.archive()` in EM-II-008, and `ArchiveProject` twice in EM-II-009. The Volume I permission contract defines `project.create` and `project.activate` only; `specification/016 STATE_MODEL.md` names the pause, resume and archive transitions but supplies no command, which is precisely the question OD-014 reserves.
+
+Second, `Assessment` was never a Volume III defect alone. It appeared 65 times across 21 chapters in Volumes I through IV as a repository, service, command, DTO, factory, builder, job, cache key, module, table and route. `Assessment` occurs zero times as an entity anywhere in `specification/`; DM-REQ-001 does not define it. EM-III-003 and EM-II-005 both presented it in a list introduced as the terminology "defined by the Product Specification", so the manual invented an entity while claiming to quote its owner.
+
+Authority And Precedence:
+This ADR changes no foundation content and requires no PM-REQ-009 controlled change. It changes no product behaviour and creates no product semantics. Under PM-REQ-003 the manual is a derived implementation artifact with respect to product behaviour, so removing invented product contracts restores the boundary rather than altering it.
+
+Decisions Applied:
+
+- Product-behaviour breaches are removed. Every OD-014 pre-emption is corrected to the canonical `project.activate`, with the deferral stated and cited at the point of use. The invented `Assessment` entity is purged; naming and structure examples now use the canonical `Crawl` or `Evaluation` from DM-REQ-001, and behavioural examples use a fictional `Shipment` from an unrelated domain so that no example can imply an F1 transition. Invented events (`AssessmentCompleted`, `IssueDetected`, `RoleAssignmentExpired`, `OrganisationReactivated`) are replaced with the canonical `EvaluationCompleted`, `IssueCreated`, `IssueResolved` and `OrganizationReactivated`, each verified present in `specification/016 STATE_MODEL.md`. Asserted F1 routes are replaced with fictional ones. Invented state machines and cross-entity invariants in EM-III-010 and EM-III-011 are de-domained.
+- Canonical spelling is enforced. 204 product-domain occurrences of `Organisation` are corrected to `Organization` across 190 files, and EM-VIII-007 is renamed to match. The ordinary-English word, as in "directory organisation", is a different word and is deliberately left alone.
+- The front matter debt is retired at source rather than baselined. `textwrap.dedent` computed a longest-common indent that any column-zero interpolation collapsed to nothing, so the generator silently emitted indented front matter; `dedent_block` strips a fixed indent and cannot be defeated by interpolated content. All 237 remaining files are corrected mechanically under a proof that only structural syntax moved, `scripts/front_matter_baseline.txt` is deleted, and the structural check now has no exemptions.
+- Enforcement replaces attention. Six executable checks now cover the defect classes this programme found: `invented_canonical_entity`, `undefined_product_route`, `pending_od_preemption`, `noncanonical_product_spelling`, `stale_authority_baseline` and `contradictory_authority_hierarchy`. Each has a negative control and each control is proved load-bearing by mutation.
+- The Engineering Manual is ACCEPTED. It is the normative authority for engineering practice and holds no independent product-behaviour authority at any rank.
+
+Defects Found By This Pass And Not By The Audit:
+
+1. Four further OD-014 pre-emptions outside EM-III-010, found while verifying a rename rather than by the audit.
+2. EM-I-001 was wrapped in a stray code fence, so the entire chapter rendered as a code block, and its final cross-reference carried paste junk including a non-breaking space. Seven further Volume I chapters carried a stray trailing fence. None was visible while the fence check exempted Volume I, and the corruption predates this programme.
+
+Options Considered:
+
+1. Replace `Assessment` with the canonical `Evaluation` throughout. Rejected: `Assessment` and `Evaluation` appear side by side as two distinct example entities in eight chapters, so the rename would collapse them and produce duplicate or nonsensical examples.
+2. Replace every example entity with a fictional one. Rejected for terminology, event and schema chapters, whose purpose is to document real vocabulary; a fictional entity there would be actively misleading.
+3. Correct the two authority chapters and leave the front matter baseline in place. Rejected: the generator would reintroduce the defect on the next regeneration, and a baseline that never shrinks is a permanent exemption.
+4. Purge the invented entity, use canonical names where the manual documents vocabulary and fictional names where it illustrates behaviour, fix the generator, and retire the baseline. Accepted.
+
+Consequences:
+
+- The manual can be consumed by Specification Volume II without transmitting invented product contracts. This was the acceptance blocker.
+- No example can quietly become product authority: an invented entity, an F1 route, a pre-empted Owner Decision, a non-canonical identifier spelling, a stale baseline and a linear authority ladder each now fail validation.
+- Zero registered front matter debt. Every chapter and appendix carries authority metadata a conforming reader parses, proved by a reader written independently of the validator.
+- The generator can no longer reintroduce either defect class, and regression tests fail if the fix is reverted.
+- OD-014 and OD-023 remain pending. Their interims are unchanged and this acceptance resolves neither.
+
+Affected Downstream Documents:
+[ROADMAP.md](ROADMAP.md), [PROJECT_STATE.md](PROJECT_STATE.md), [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md), [specification/INDEX.md](specification/INDEX.md), [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md), and the Engineering Manual master controls: MANUAL_VALIDATION_REPORT, MANUAL_CHANGELOG, MANUAL_VERSION_HISTORY, MASTER_INDEX.
+
+Affected Tests, Diagrams, Schemas And Contracts:
+No product test, diagram, schema or contract changes, because no product behaviour changes. `scripts/validate_engineering_manual.py` gains six ownership checks and eight negative controls; `scripts/test_generate_engineering_manual.py` is added; `scripts/front_matter_baseline.txt` is deleted. No acceptance criterion changes.
+
+Compatibility And Migration:
+No shipped software, emitted event, persisted record or customer datum exists to migrate. No identifier is renumbered. EM-VIII-007 keeps its identifier across the filename correction, and its index, master-index and traceability references move with it. The `Assessment` name had no canonical authority to preserve, so nothing downstream depends on it. The mechanical front matter pass moved only structural syntax under a per-file proof that content was preserved.
+
+Risks And Mitigations:
+
+- A fictional `Shipment` in behavioural examples could read as a real F1 concept. Each site states that it is fictional and from an unrelated domain, and names the canonical owner of the real contract.
+- Purging an invented entity could remove genuine guidance. Only the entity name changed; every surrounding engineering rule is preserved verbatim, and the canonical replacements are verified present in DM-REQ-001.
+- The ownership checks could produce false positives and erode trust. Two were found and fixed during this pass: a numbered reading order in EM-I-016 is a sequence rather than a ladder, and "organisational units" is an ordinary-English adjective. The checks are scoped accordingly.
+- Accepting the manual could be read as authorising implementation or Volume II drafting. Acceptance is of engineering practice only; PM-REQ-010 and Gate C are unchanged, and both live blockers still block every slice that intersects them.
+
+Review Checkpoint:
+The ownership checks are reviewed if a false positive is reported or a new invented-entity class appears. Acceptance is revisited if OD-014 or OD-023 resolves in a way that changes engineering practice. Reassess no later than 2026-08-27.

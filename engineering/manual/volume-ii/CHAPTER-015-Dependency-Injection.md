@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-015-Dependency-Injection.md
-
 ---
 title: Dependency Injection
 identifier: EM-II-015
@@ -73,7 +71,7 @@ Constructor injection SHALL be the default dependency injection mechanism.
 Example:
 
 ```ruby
-class AssessmentService
+class CrawlService
   def initialize(repository:, publisher:)
     @repository = repository
     @publisher = publisher
@@ -94,11 +92,11 @@ Application Services SHOULD depend upon interfaces.
 Example:
 
 ```text
-AssessmentRepository
+CrawlRepository
 
 ↓
 
-PostgresAssessmentRepository
+PostgresCrawlRepository
 ```
 
 Business logic SHALL remain unaware of implementation classes.
@@ -155,7 +153,7 @@ Infrastructure SHALL construct concrete implementations.
 Examples include:
 
 ```text
-PostgresAssessmentRepository
+PostgresCrawlRepository
 
 MailgunNotificationGateway
 

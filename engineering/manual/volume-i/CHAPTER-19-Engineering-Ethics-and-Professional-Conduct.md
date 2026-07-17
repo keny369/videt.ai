@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-19-Engineering-Ethics-and-Professional-Conduct.md
-
 ---
 title: Engineering Ethics and Professional Conduct
 identifier: EM-I-019

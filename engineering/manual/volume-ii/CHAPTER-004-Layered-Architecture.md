@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-004-Layered-Architecture.md
-
 ---
 title: Layered Architecture
 identifier: EM-II-004

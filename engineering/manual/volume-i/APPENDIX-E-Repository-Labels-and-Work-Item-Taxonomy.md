@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-E-Repository-Labels-and-Work-Item-Taxonomy.md
-
 ---
 title: Appendix E — Repository Labels and Work Item Taxonomy
 identifier: EM-I-APP-E
@@ -232,7 +230,7 @@ Components SHOULD identify the implementation area.
 
 Examples:
 
-- component:assessment
+- component:evaluation
 - component:crawler
 - component:workflow-engine
 - component:identity
@@ -240,7 +238,7 @@ Examples:
 - component:notifications
 - component:search
 - component:evidence
-- component:organisation
+- component:organization
 - component:projects
 
 ---

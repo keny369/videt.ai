@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-02-Engineering-Objectives.md
-
 ---
 title: Engineering Objectives
 identifier: EM-I-002
@@ -251,5 +249,3 @@ Engineering reviews SHALL evaluate contributions against these objectives before
 - EM-I-011 Code Review Standard
 - Product Specification
 - Architectural Decision Records
-
-```

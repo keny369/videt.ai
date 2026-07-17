@@ -122,6 +122,7 @@ Implementation
 
 ## Cross-Cutting Governance
 
+- The Engineering Manual is ACCEPTED at `v1.7-engineering-manual-accepted` under ADR-022 and is the normative authority for engineering practice only. It holds no independent product-behaviour authority and MUST NOT be cited to settle a product-behaviour question.
 - [DECISIONS.md](DECISIONS.md) MUST be updated for architecture-impacting changes.
 - [PROJECT_STATE.md](PROJECT_STATE.md) MUST reflect gate and milestone status.
 - [specification/FOUNDATION_TRACEABILITY_MATRIX.md](specification/FOUNDATION_TRACEABILITY_MATRIX.md) MUST remain current.

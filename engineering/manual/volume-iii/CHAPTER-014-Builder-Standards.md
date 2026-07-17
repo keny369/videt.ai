@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-014-Builder-Standards.md
-
 ---
 title: Builder Standards
 identifier: EM-III-014
@@ -197,7 +195,7 @@ Builder names SHALL describe the constructed object.
 Examples:
 
 ```ruby
-AssessmentReportBuilder
+EvaluationReportBuilder
 
 SearchQueryBuilder
 

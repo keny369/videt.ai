@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-002-Ruby-Coding-Standards.md
-
 ---
 title: Ruby Coding Standards
 identifier: EM-III-002
@@ -116,7 +114,7 @@ Names SHALL communicate business meaning.
 Examples:
 
 ```ruby
-Assessment
+Crawl
 
 Project
 
@@ -134,7 +132,7 @@ Names SHALL avoid technical implementation language where business terminology e
 ## Good
 
 ```ruby
-AssessmentRepository
+CrawlRepository
 
 IssueDetectionService
 
@@ -190,9 +188,9 @@ rather than:
 
 ```ruby
 perform(
-  organisation,
+  organization,
   project,
-  assessment,
+  crawl,
   evidence,
   settings,
   options,

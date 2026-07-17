@@ -211,7 +211,7 @@
 - [volume-viii/CHAPTER-004-Authentication-Implementation-Standards.md](volume-viii/CHAPTER-004-Authentication-Implementation-Standards.md)
 - [volume-viii/CHAPTER-005-Session-and-Token-Security-Standards.md](volume-viii/CHAPTER-005-Session-and-Token-Security-Standards.md)
 - [volume-viii/CHAPTER-006-Authorisation-and-Permission-Enforcement-Standards.md](volume-viii/CHAPTER-006-Authorisation-and-Permission-Enforcement-Standards.md)
-- [volume-viii/CHAPTER-007-Organisation-and-Tenant-Isolation-Standards.md](volume-viii/CHAPTER-007-Organisation-and-Tenant-Isolation-Standards.md)
+- [volume-viii/CHAPTER-007-Organization-and-Tenant-Isolation-Standards.md](volume-viii/CHAPTER-007-Organization-and-Tenant-Isolation-Standards.md)
 - [volume-viii/CHAPTER-008-Emergency-Access-and-Break-Glass-Standards.md](volume-viii/CHAPTER-008-Emergency-Access-and-Break-Glass-Standards.md)
 - [volume-viii/CHAPTER-009-Secrets-and-Credential-Management-Standards.md](volume-viii/CHAPTER-009-Secrets-and-Credential-Management-Standards.md)
 - [volume-viii/CHAPTER-010-Encryption-and-Key-Management-Standards.md](volume-viii/CHAPTER-010-Encryption-and-Key-Management-Standards.md)

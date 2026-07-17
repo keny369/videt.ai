@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-017-Logging-and-Observability-Standards.md
-
 ---
 title: Logging and Observability Standards
 identifier: EM-III-017
@@ -157,8 +155,8 @@ Examples:
 
 Business:
 
-- AssessmentCompleted
-- IssueDetected
+- EvaluationCompleted
+- IssueCreated
 
 Operational:
 

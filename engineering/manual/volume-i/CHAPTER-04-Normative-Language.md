@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-04-Normative-Language.md
-
 ---
 title: Normative Language
 identifier: EM-I-004

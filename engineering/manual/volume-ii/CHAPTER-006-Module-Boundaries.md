@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-006-Module-Boundaries.md
-
 ---
 title: Module Boundaries
 identifier: EM-II-006
@@ -199,29 +197,29 @@ The dependency graph SHALL remain acyclic.
 Example:
 
 ```
-Assessment
+ModuleA
 
 ↓
 
-Evaluation
+ModuleB
 
 ↓
 
-Evidence
+ModuleC
 ```
 
 NOT
 
 ```
-Assessment
+ModuleA
 
 ↓
 
-Evaluation
+ModuleB
 
 ↓
 
-Assessment
+ModuleA
 ```
 
 Repository validation SHOULD detect dependency cycles automatically.
@@ -234,9 +232,8 @@ Modules SHOULD align with Product Specification capabilities.
 
 Examples include:
 
-- Organisations
+- Organizations
 - Projects
-- Assessments
 - Evaluations
 - Evidence
 - Issues

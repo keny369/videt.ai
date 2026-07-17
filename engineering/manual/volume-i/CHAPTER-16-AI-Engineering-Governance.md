@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-16-AI-Engineering-Governance.md
-
 ---
 title: AI Engineering Governance
 identifier: EM-I-016

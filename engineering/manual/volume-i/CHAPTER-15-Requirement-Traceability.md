@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-15-Requirement-Traceability.md
-
 ---
 title: Requirement Traceability
 identifier: EM-I-015

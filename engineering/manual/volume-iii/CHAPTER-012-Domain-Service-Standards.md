@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-012-Domain-Service-Standards.md
-
 ---
 title: Domain Service Standards
 identifier: EM-III-012
@@ -218,7 +216,7 @@ ConfidenceScoringService
 
 RecommendationRankingService
 
-OrganisationEligibilityService
+OrganizationEligibilityService
 ```
 
 Generic names are prohibited.

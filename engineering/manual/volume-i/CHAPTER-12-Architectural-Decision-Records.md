@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-12-Architectural-Decision-Records.md
-
 ---
 title: Architectural Decision Records
 identifier: EM-I-012
@@ -318,5 +316,3 @@ Architectural changes lacking appropriate ADR governance SHALL NOT be merged.
 - EM-I-007 Repository Governance
 - EM-I-016 Traceability
 - Product Specification
-
-```

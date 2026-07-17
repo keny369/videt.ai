@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-013-Factory-Standards.md
-
 ---
 title: Factory Standards
 identifier: EM-III-013
@@ -92,7 +90,7 @@ Factories MAY create Aggregate Roots.
 Example:
 
 ```ruby
-AssessmentFactory.create(
+CrawlFactory.create(
   command
 )
 ```
@@ -122,19 +120,19 @@ Factories MAY assemble multiple Value Objects into larger business structures.
 Example:
 
 ```text
-AssessmentFactory
+CrawlFactory
 
 ↓
 
-Assessment
+Crawl
 
 ↓
 
 ConfidenceScore
 
-AssessmentIdentifier
+CrawlIdentifier
 
-AssessmentStatus
+CrawlStatus
 ```
 
 Construction SHALL remain explicit.
@@ -188,7 +186,7 @@ Factory names SHALL describe the object constructed.
 Examples:
 
 ```ruby
-AssessmentFactory
+CrawlFactory
 
 ProjectFactory
 

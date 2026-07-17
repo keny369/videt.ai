@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-C-Architectural-Decision-Record-Template.md
-
 ---
 title: Appendix C — Architectural Decision Record Template
 identifier: EM-I-APP-C

@@ -93,7 +93,7 @@ Foundation Version: 1.0
 ### Volume II Implementation Architecture
 
 - [volume-ii/INDEX.md](volume-ii/INDEX.md)
-- Status: Pass 001 complete for unblocked behavior; architecture acceptance and broad implementation blocked by the thirteen upstream ambiguities in the Volume II index
+- Status: Pass 001 complete for unblocked behavior; architecture acceptance and broad implementation blocked for any slice intersecting a live upstream ambiguity in the Volume II index. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live; the remainder are retired under ADR-019 and ADR-020
 - Start Condition: Passed from `v1.3-volume-i-corrected`
 - Scope: implementation-facing experience and interaction design; detailed domain design; PostgreSQL and persistence design; search, crawl, and retrieval design; AI pipeline and evaluation design; physical API and event schemas; Rails application architecture; background processing; integration adapters; deployment and operational design; and TDD implementation sequencing.
 - Inheritance Rule: Volume II MUST inherit accepted Volume I behaviour and MUST NOT redefine product meaning without a controlled Volume I change.

@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-003-Naming-Conventions.md
-
 ---
 title: Naming Conventions
 identifier: EM-III-003
@@ -75,20 +73,30 @@ Names SHALL optimise readability rather than brevity.
 
 Business concepts SHALL use the canonical terminology defined in the Product Specification.
 
-Examples include:
+The canonical core entities are named by DM-REQ-001 in `specification/011 DOMAIN_MODEL.md`:
 
-- Organisation
+- Organization
+- Account
 - Project
-- Assessment
+- Source
+- Document
+- Crawl
+- IngestionJob
+- ParsingJob
+- IndexingJob
 - Evaluation
 - Issue
-- Evidence
-- Crawl
-- Workflow
-- Role Assignment
-- Emergency Access Grant
+- RecommendationArtifact
+- AIResponse
+- Citation
+- Export
+- BillingEntity
+- Integration
+- Credential
 
-Alternative terminology SHALL NOT be introduced without Specification authority.
+Evidence is a lifecycle-bearing auxiliary domain record rather than a DM-REQ-001 core entity, as that requirement expressly records. Role Assignment and Emergency Access Grant are defined by the Volume I identity and access contracts.
+
+DM-REQ-001 is the authority for this list. A name absent from it is not canonical terminology, and this chapter SHALL NOT be read as extending it. Alternative terminology SHALL NOT be introduced without Specification authority, and a term SHALL NOT be presented as canonical merely because it appears in an example.
 
 ---
 
@@ -103,13 +111,13 @@ Class names SHALL:
 Examples:
 
 ```ruby
-Assessment
+Evaluation
 
 EvidenceExtractor
 
 NotificationDispatcher
 
-OrganisationRepository
+OrganizationRepository
 
 IssueFingerprintDecision
 ```
@@ -139,7 +147,7 @@ Services SHALL end with **Service** only where they are genuine Application or D
 Examples:
 
 ```ruby
-AssessmentCreationService
+CrawlCreationService
 
 EvidenceAnalysisService
 
@@ -161,7 +169,7 @@ Repository
 Examples:
 
 ```ruby
-AssessmentRepository
+CrawlRepository
 
 ProjectRepository
 
@@ -173,7 +181,7 @@ Infrastructure implementations SHALL describe storage technology only where requ
 Example:
 
 ```ruby
-PostgresAssessmentRepository
+PostgresCrawlRepository
 ```
 
 ---
@@ -223,11 +231,11 @@ Variables SHALL:
 Good:
 
 ```ruby
-assessment
+crawl
 
 evaluation
 
-organisation
+organization
 
 confidence_score
 ```
@@ -283,7 +291,7 @@ snake_case.rb
 Examples:
 
 ```text
-assessment_repository.rb
+crawl_repository.rb
 
 issue_detection_service.rb
 
@@ -321,7 +329,7 @@ EvidenceExtractionJob
 
 NotificationDispatchJob
 
-AssessmentRecalculationJob
+CrawlExecutionJob
 ```
 
 Jobs SHALL describe business activity.
@@ -335,13 +343,13 @@ Domain Events SHALL describe completed business facts.
 Examples:
 
 ```text
-AssessmentCompleted
+EvaluationCompleted
 
-IssueDetected
+IssueCreated
 
-OrganisationReactivated
+IssueResolved
 
-RoleAssignmentExpired
+OrganizationReactivated
 ```
 
 Events SHALL:
@@ -349,6 +357,8 @@ Events SHALL:
 - use past tense;
 - remain immutable;
 - describe business outcomes.
+
+These are canonical event names taken from `specification/016 STATE_MODEL.md`, which owns the F1 event vocabulary. An event name SHALL NOT be introduced, renamed or inferred by this manual, and a name absent from the state model does not exist.
 
 ---
 
@@ -361,7 +371,7 @@ Examples:
 Tables:
 
 ```text
-assessments
+evaluations
 
 projects
 
@@ -373,10 +383,12 @@ Columns:
 ```text
 created_at
 
-organisation_id
+organization_id
 
 confidence_score
 ```
+
+Table and column names illustrate the naming rule only. The canonical physical schema is owned by `schemas/POSTGRESQL_SCHEMA.md` under the Volume I domain model; no table, column or constraint may be inferred from an example here.
 
 Join tables SHALL remain descriptive.
 

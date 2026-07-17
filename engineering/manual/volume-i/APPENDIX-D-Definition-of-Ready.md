@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/APPENDIX-D-Definition-of-Ready.md
-
 ---
 title: Appendix D — Definition of Ready
 identifier: EM-I-APP-D

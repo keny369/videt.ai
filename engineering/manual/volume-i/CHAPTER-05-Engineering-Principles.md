@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-05-Engineering-Principles.md
-
 ---
 title: Engineering Principles
 identifier: EM-I-005

@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-004-Class-Design-Standards.md
-
 ---
 title: Class Design Standards
 identifier: EM-III-004

@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-17-Engineering-Metrics-and-Quality-Gates.md
-
 ---
 title: Engineering Metrics and Quality Gates
 identifier: EM-I-017

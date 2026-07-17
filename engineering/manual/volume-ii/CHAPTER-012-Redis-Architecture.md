@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-012-Redis-Architecture.md
-
 ---
 title: Redis Architecture
 identifier: EM-II-012
@@ -112,7 +110,7 @@ Cache keys SHALL:
 Example:
 
 ```text
-assessment:12345
+evaluation:12345
 
 project:87
 

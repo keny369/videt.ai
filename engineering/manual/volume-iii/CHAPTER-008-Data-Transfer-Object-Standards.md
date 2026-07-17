@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-008-Data-Transfer-Object-Standards.md
-
 ---
 title: Data Transfer Object (DTO) Standards
 identifier: EM-III-008
@@ -88,7 +86,7 @@ Represents a request to perform business work.
 Example:
 
 ```ruby
-CreateAssessmentCommand
+CreateCrawlCommand
 ```
 
 ---
@@ -100,7 +98,7 @@ Represents a request for information.
 Example:
 
 ```ruby
-FindAssessmentQuery
+FindCrawlQuery
 ```
 
 ---
@@ -112,7 +110,7 @@ Represents information returned by the Application Layer.
 Example:
 
 ```ruby
-AssessmentResponse
+CrawlResponse
 ```
 
 ---
@@ -172,7 +170,7 @@ Valid:
 
 Invalid:
 
-- organisation lifecycle;
+- organization lifecycle;
 - workflow rules;
 - permissions;
 - pricing logic.
@@ -186,8 +184,8 @@ DTO construction SHALL be explicit.
 Example:
 
 ```ruby
-CreateAssessmentCommand.new(
-  organisation_id:,
+CreateCrawlCommand.new(
+  organization_id:,
   project_id:,
   initiated_by:
 )
@@ -204,9 +202,9 @@ DTO names SHALL describe their purpose.
 Examples:
 
 ```ruby
-CreateAssessmentCommand
+CreateCrawlCommand
 
-AssessmentSummaryResponse
+CrawlSummaryResponse
 
 IssueSearchQuery
 

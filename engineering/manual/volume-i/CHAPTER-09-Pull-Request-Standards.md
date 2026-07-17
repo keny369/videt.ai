@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-09-Pull-Request-Standards.md
-
 ---
 title: Pull Request Standards
 identifier: EM-I-009
@@ -307,5 +305,3 @@ Repository governance SHALL favour delayed integration over acceptance of uncert
 - EM-I-011 Code Review Standard
 - Product Specification
 - Architectural Decision Records
-
-```

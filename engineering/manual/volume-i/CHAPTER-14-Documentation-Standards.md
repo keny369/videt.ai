@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-14-Documentation-Standards.md
-
 ---
 title: Documentation Standards
 identifier: EM-I-014

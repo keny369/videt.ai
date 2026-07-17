@@ -6,18 +6,23 @@ This file is intended to be maintained automatically.
 
 Could an experienced engineering team build F1 without asking the product owner a single functional question?
 
-## Engineering Manual Governance Backlog (Pass 001, ADR-021)
+## Engineering Manual Governance Backlog (Passes 001-002, ADR-021 and ADR-022)
 
-Registered by Governance Pass 001. Items 1 and 2 are prerequisites for Volume II.
+CLEARED. Every blocker recorded by Governance Pass 001 is closed and enforced by an executable check with a load-bearing negative control:
 
-1. Correct Engineering Manual Volume III product-behaviour ownership conflicts by controlled change. EM-III-010 `Project#archive!`, `project.archive!` and the "archived Projects cannot accept new Assessments" invariant pre-empt pending OD-014 and its live blocker `UPSTREAM-V1-PROJECT-LIFECYCLE-003`; replace with an explicit deferral naming the canonical owner.
-2. Purge the invented `Assessment` entity from Volume III. DM-REQ-001 does not define it. It propagates to `AssessmentCompleted`, `IssueDetected`, `POST /assessments`, `AssessmentRecalculationJob` and an `assessments` table, and EM-III-003 presents it as canonical terminology while claiming to quote the Product Specification. Correct the non-canonical `Organisation` spelling, including `organisation_id`, at the same time.
-3. Correct or remove the invented event names in EM-III-003 and EM-III-017 and the routes in EM-III-019, none of which have Specification authority.
-4. Retire `scripts/front_matter_baseline.txt`. 247 files still carry a structural defect preventing authority metadata from being parsed. Volumes II through XII are not frozen and may be corrected directly; frozen Volume I requires its own controlled change. The baseline may only shrink.
-5. Correct the body indentation of the 177 files with indented front matter. The front matter is the parsing defect and is baselined; the indented body additionally renders as a code block. Fix `scripts/generate_engineering_manual.py` so regeneration stops reintroducing both.
-6. Add citation anchors to the manual. `PM-REQ`, `SEC-REQ` and `UPSTREAM-` are cited zero times across the manual, so its deferral boilerplate names no canonical owner. This is the structural reason Volume III filled the vacuum with invented specifics.
-7. Restate the two surviving count-based gates, both left untouched because this pass must not begin Volume II: `specification/volume-ii/INDEX.md` line 131 gates the Volume II architecture baseline on "all thirteen upstream Volume I blockers", and `specification/INDEX.md` line 96 reports Volume II as blocked by "the thirteen upstream ambiguities". Both carry the count defect corrected in Gate C.
-8. Reconcile the stale `PROJECT_STATE.md` snapshot header, which is dated 2026-07-16 and still describes Volume I as accepted but NOT frozen while the same document records the `v1.5-volume-i-frozen` baseline.
+- OD-014 pre-emption removed (5 sites; 4 were not in the original audit) - enforced by `pending_od_preemption`.
+- Invented `Assessment` entity purged (65 references, 21 chapters) - enforced by `invented_canonical_entity`.
+- Invented routes, events and tables removed - enforced by `undefined_product_route`.
+- Canonical `Organization` spelling enforced (204 corrections, 190 files) - enforced by `noncanonical_product_spelling`.
+- Front matter debt retired at source; baseline deleted; generator fixed with regression tests.
+- Count-based gates restated on blocking status in ROADMAP, PROJECT_STATE, specification/INDEX.md and specification/volume-ii/INDEX.md.
+- Stale PROJECT_STATE header reconciled to the Volume I freeze.
+
+Remaining, not blocking Specification Volume II:
+
+1. Broaden citation coverage. Governance Pass 002 added governing citations where product authority was being implied (DM-REQ-001, 016 STATE_MODEL.md, OD-014, UPSTREAM-V1-PROJECT-LIFECYCLE-003, PM-REQ-003, POSTGRESQL_SCHEMA.md). Chapters that make no product-specific claim remain uncited by design; extend only where a claim needs an owner.
+2. Consider narrowing the Volume I publication-placeholder exemption to the four files with legitimate template tokens, so a new placeholder in Volume I is caught rather than exempted by volume.
+3. Consider whether Volume I chapter titles should adopt the `CHAPTER-0NN` three-digit form used by Volumes II-XII; the two-digit form is currently special-cased in the validator.
 
 ## Adversarial Spec Defect Backlog (Volume I)
 

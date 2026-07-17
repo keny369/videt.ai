@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-07-Repository-Governance.md
-
 ---
 title: Repository Governance
 identifier: EM-I-007

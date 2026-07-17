@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-016-Error-Handling-Standards.md
-
 ---
 title: Error Handling Standards
 identifier: EM-III-016

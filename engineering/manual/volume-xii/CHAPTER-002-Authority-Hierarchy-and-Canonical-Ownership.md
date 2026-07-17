@@ -86,7 +86,7 @@ Execution SHALL be repeatable. Any administrative repair, replay, reconciliation
 
 ## 8. Security Considerations
 
-Security controls SHALL fail closed when authority, identity, scope or contract validity cannot be established. This chapter does not weaken tenant isolation, session invalidation, role-expiry behaviour, organisation reactivation requirements, emergency-access governance, input validation or audit evidence obligations.
+Security controls SHALL fail closed when authority, identity, scope or contract validity cannot be established. This chapter does not weaken tenant isolation, session invalidation, role-expiry behaviour, organization reactivation requirements, emergency-access governance, input validation or audit evidence obligations.
 
 Secret material, credentials, tokens and provider responses SHALL be handled only through approved secret and integration boundaries. Logs, metrics and traces SHALL avoid sensitive payloads while retaining correlation and diagnostic value.
 

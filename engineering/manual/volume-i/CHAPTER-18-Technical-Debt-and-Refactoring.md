@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-18-Technical-Debt-and-Refactoring.md
-
 ---
 title: Technical Debt and Refactoring
 identifier: EM-I-018

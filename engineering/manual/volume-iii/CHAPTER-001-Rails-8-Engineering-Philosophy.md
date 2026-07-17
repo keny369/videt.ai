@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-001-Rails-8-Engineering-Philosophy.md
-
 ---
 title: Rails 8 Engineering Philosophy
 identifier: EM-III-001

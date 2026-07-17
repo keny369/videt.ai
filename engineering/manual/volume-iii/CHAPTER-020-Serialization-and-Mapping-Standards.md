@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-020-Serialization-and-Mapping-Standards.md
-
 ---
 title: Serialization and Mapping Standards
 identifier: EM-III-020

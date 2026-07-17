@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-006-Service-Object-Standards.md
-
 ---
 title: Service Object Standards
 identifier: EM-III-006
@@ -100,7 +98,7 @@ Domain Services SHALL remain framework-independent.
 Every Service Object SHOULD follow this structure.
 
 ```ruby
-class AssessmentCreationService
+class CrawlCreationService
   def initialize(...)
   end
 
@@ -266,7 +264,7 @@ Service Objects SHALL describe business capability.
 Examples:
 
 ```ruby
-AssessmentCreationService
+CrawlCreationService
 
 EvaluationCompletionService
 

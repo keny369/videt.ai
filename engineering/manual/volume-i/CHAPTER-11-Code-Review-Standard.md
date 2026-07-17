@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-11-Code-Review-Standard.md
-
 ---
 title: Code Review Standard
 identifier: EM-I-011
@@ -355,5 +353,3 @@ Repeated failures to comply SHALL be addressed through engineering governance an
 - EM-I-012 Architectural Decision Records
 - EM-IX Quality Engineering & Testing
 - Product Specification
-
-```

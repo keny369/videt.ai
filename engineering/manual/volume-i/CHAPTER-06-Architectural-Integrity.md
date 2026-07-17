@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-06-Architectural-Integrity.md
-
 ---
 title: Architectural Integrity
 identifier: EM-I-006

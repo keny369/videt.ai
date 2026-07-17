@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-014-Event-Publication.md
-
 ---
 title: Event Publication
 identifier: EM-II-014

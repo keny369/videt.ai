@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-13-Engineering-Risk-Management.md
-
 ---
 title: Engineering Risk Management
 identifier: EM-I-013
@@ -336,5 +334,3 @@ Risk management is a mandatory engineering discipline.
 - EM-VIII Security Engineering
 - EM-X Release Engineering & Production Operations
 - Product Specification
-
-```

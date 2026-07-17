@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-08-Branch-Strategy.md
-
 ---
 title: Branch Strategy
 identifier: EM-I-008
@@ -307,5 +305,3 @@ Repeated violations SHALL trigger an engineering process review.
 - EM-I-011 Code Review Standard
 - Product Specification
 - Engineering Constitution (when adopted)
-
-```

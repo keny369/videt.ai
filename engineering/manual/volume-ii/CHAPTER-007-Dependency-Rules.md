@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-007-Dependency-Rules.md
-
 ---
 title: Dependency Rules
 identifier: EM-II-007
@@ -173,11 +171,11 @@ Low-level implementation SHALL depend upon those abstractions.
 Example:
 
 ```text
-AssessmentRepository (Domain Interface)
+CrawlRepository (Domain Interface)
 
 ▲
 
-AssessmentRepositoryPostgres (Infrastructure Implementation)
+CrawlRepositoryPostgres (Infrastructure Implementation)
 ```
 
 The abstraction owns the contract.
@@ -193,15 +191,15 @@ Circular dependencies are prohibited.
 Examples:
 
 ```text
-Assessment
+ModuleA
 
 ↓
 
-Evaluation
+ModuleB
 
 ↓
 
-Assessment
+ModuleA
 ```
 
 is prohibited.

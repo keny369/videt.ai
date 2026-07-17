@@ -1,5 +1,3 @@
-# engineering/manual/volume-iii/CHAPTER-005-Method-Design-Standards.md
-
 ---
 title: Method Design Standards
 identifier: EM-III-005
@@ -96,17 +94,17 @@ perform(command)
 Acceptable:
 
 ```ruby
-perform(project, assessment)
+perform(project, crawl)
 ```
 
 Avoid:
 
 ```ruby
 perform(
-  organisation,
+  organization,
   user,
   project,
-  assessment,
+  crawl,
   options,
   settings,
   retries,
@@ -182,11 +180,11 @@ Method names SHALL describe behaviour.
 Examples:
 
 ```ruby
-create_assessment
+create_crawl
 
 publish_event
 
-archive_project
+activate_project
 
 calculate_score
 ```

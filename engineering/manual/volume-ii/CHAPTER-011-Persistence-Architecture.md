@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-011-Persistence-Architecture.md
-
 ---
 title: Persistence Architecture
 identifier: EM-II-011
@@ -83,11 +81,11 @@ Infrastructure SHALL provide repository implementations.
 Example:
 
 ```text
-AssessmentRepository
+CrawlRepository
 
 ↓
 
-PostgresAssessmentRepository
+PostgresCrawlRepository
 ```
 
 Application Services SHALL depend upon repository interfaces rather than concrete implementations.
@@ -130,7 +128,7 @@ Repository implementations SHALL provide business-oriented operations.
 Examples:
 
 ```text
-save(assessment)
+save(crawl)
 
 find(project_id)
 

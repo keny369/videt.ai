@@ -33,7 +33,7 @@
 - CHAPTER-004-Authentication-Implementation-Standards.md: governed by Volume VIII principles and the authority sources listed above.
 - CHAPTER-005-Session-and-Token-Security-Standards.md: governed by Volume VIII principles and the authority sources listed above.
 - CHAPTER-006-Authorisation-and-Permission-Enforcement-Standards.md: governed by Volume VIII principles and the authority sources listed above.
-- CHAPTER-007-Organisation-and-Tenant-Isolation-Standards.md: governed by Volume VIII principles and the authority sources listed above.
+- CHAPTER-007-Organization-and-Tenant-Isolation-Standards.md: governed by Volume VIII principles and the authority sources listed above.
 - CHAPTER-008-Emergency-Access-and-Break-Glass-Standards.md: governed by Volume VIII principles and the authority sources listed above.
 - CHAPTER-009-Secrets-and-Credential-Management-Standards.md: governed by Volume VIII principles and the authority sources listed above.
 - CHAPTER-010-Encryption-and-Key-Management-Standards.md: governed by Volume VIII principles and the authority sources listed above.

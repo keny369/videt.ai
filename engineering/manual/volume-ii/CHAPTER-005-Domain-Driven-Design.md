@@ -1,5 +1,3 @@
-# engineering/manual/volume-ii/CHAPTER-005-Domain-Driven-Design.md
-
 ---
 title: Domain-Driven Design
 identifier: EM-II-005
@@ -57,17 +55,19 @@ The Domain SHALL NOT adapt itself to technology.
 
 Every Domain component SHALL use the terminology defined by the Product Specification.
 
-Examples include:
+The canonical core entities are named by DM-REQ-001 in `specification/011 DOMAIN_MODEL.md`. Examples include:
 
-- Assessment
-- Evaluation
-- Organisation
+- Organization
+- Account
 - Project
-- Evidence
+- Source
+- Document
+- Crawl
+- Evaluation
 - Issue
-- Workflow
-- Role Assignment
-- Emergency Access Grant
+- Export
+
+Evidence is a lifecycle-bearing auxiliary domain record rather than a DM-REQ-001 core entity. Role Assignment and Emergency Access Grant are defined by the Volume I identity and access contracts. A name absent from DM-REQ-001 is not canonical terminology and SHALL NOT be introduced by this manual.
 
 Alternative terminology SHALL NOT be introduced without an approved Product Specification or ADR change.
 
@@ -199,11 +199,11 @@ Repositories SHALL expose business-oriented operations rather than database mech
 Example:
 
 ```
-AssessmentRepository.find_for_project()
+CrawlRepository.find_for_project()
 
 NOT
 
-AssessmentRepository.find_by_sql(...)
+CrawlRepository.find_by_sql(...)
 ```
 
 ---

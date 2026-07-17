@@ -224,7 +224,7 @@ VOLUMES = {
             "CHAPTER-004-Authentication-Implementation-Standards.md",
             "CHAPTER-005-Session-and-Token-Security-Standards.md",
             "CHAPTER-006-Authorisation-and-Permission-Enforcement-Standards.md",
-            "CHAPTER-007-Organisation-and-Tenant-Isolation-Standards.md",
+            "CHAPTER-007-Organization-and-Tenant-Isolation-Standards.md",
             "CHAPTER-008-Emergency-Access-and-Break-Glass-Standards.md",
             "CHAPTER-009-Secrets-and-Credential-Management-Standards.md",
             "CHAPTER-010-Encryption-and-Key-Management-Standards.md",
@@ -404,6 +404,27 @@ SUPPORT_VOLUME_III = Volume(
 )
 
 
+TEMPLATE_INDENT = "    "
+
+
+def dedent_block(text: str) -> str:
+    """Strip the template's own fixed indent.
+
+    textwrap.dedent removes the longest *common* leading whitespace, so a single
+    interpolated line starting at column zero -- which every bullets() call
+    produces -- collapses the common prefix to nothing and leaves the whole block
+    indented. Combined with the trailing .strip(), that emitted an unindented
+    opening delimiter above indented front matter: an indented code block whose
+    closing delimiter is not a terminator. That is how 177 chapters shipped with
+    authority metadata no conforming reader could parse. Stripping a fixed indent
+    cannot be defeated by interpolated content.
+    """
+    return "\n".join(
+        line[len(TEMPLATE_INDENT):] if line.startswith(TEMPLATE_INDENT) else line
+        for line in text.splitlines()
+    )
+
+
 def write_if_missing(path: Path, content: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -426,7 +447,7 @@ def chapter_content(volume: Volume, ch: Chapter) -> str:
     subject = ch.title
     key_terms = [term for term in re.split(r" and | ", subject) if term and term.lower() not in {"standards", "standard", "the", "of"}]
     focus = ", ".join(key_terms[:4]) if key_terms else subject
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     ---
     title: {subject}
     identifier: {identifier}
@@ -497,7 +518,7 @@ def chapter_content(volume: Volume, ch: Chapter) -> str:
 
     ## 8. Security Considerations
 
-    Security controls SHALL fail closed when authority, identity, scope or contract validity cannot be established. This chapter does not weaken tenant isolation, session invalidation, role-expiry behaviour, organisation reactivation requirements, emergency-access governance, input validation or audit evidence obligations.
+    Security controls SHALL fail closed when authority, identity, scope or contract validity cannot be established. This chapter does not weaken tenant isolation, session invalidation, role-expiry behaviour, organization reactivation requirements, emergency-access governance, input validation or audit evidence obligations.
 
     Secret material, credentials, tokens and provider responses SHALL be handled only through approved secret and integration boundaries. Logs, metrics and traces SHALL avoid sensitive payloads while retaining correlation and diagnostic value.
 
@@ -595,7 +616,7 @@ def volume_chapters_on_disk(volume: Volume) -> list[tuple[str, str]]:
 
 
 def volume_readme(volume: Volume) -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Engineering Manual Volume {volume.roman} - {volume.title}
 
     ## Status
@@ -632,7 +653,7 @@ def volume_index(volume: Volume) -> str:
     rows = []
     for filename, title in volume_chapters_on_disk(volume):
         rows.append(f"- [{filename}]({filename}) - {title}")
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Volume {volume.roman} Index - {volume.title}
 
     ## Chapters
@@ -649,7 +670,7 @@ def volume_index(volume: Volume) -> str:
 
 
 def volume_traceability(volume: Volume) -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Volume {volume.roman} Traceability - {volume.title}
 
     ## Authority Sources
@@ -675,7 +696,7 @@ def volume_traceability(volume: Volume) -> str:
 
 
 def volume_validation_report(volume: Volume, status: str) -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Volume {volume.roman} Validation Report - {volume.title}
 
     ## Status
@@ -697,7 +718,7 @@ def volume_validation_report(volume: Volume, status: str) -> str:
 
 
 def volume_changelog(volume: Volume) -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Volume {volume.roman} Changelog - {volume.title}
 
     ## 1.0 - {DATE}
@@ -743,7 +764,7 @@ def volume_i_entries() -> list[str]:
 
 
 def master_readme() -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # F1 Engineering Manual
 
     ## Status
@@ -816,7 +837,7 @@ def master_traceability(volumes: list[Volume]) -> str:
 
 
 def manual_authority() -> str:
-    return textwrap.dedent("""
+    return dedent_block("""
     # Manual Authority
 
     ## Authority Hierarchy
@@ -841,7 +862,7 @@ def manual_authority() -> str:
 
 
 def manual_version_history() -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Manual Version History
 
     ## Purpose
@@ -859,7 +880,7 @@ def manual_version_history() -> str:
 
 
 def manual_changelog() -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Manual Changelog
 
     ## Purpose
@@ -880,7 +901,7 @@ def manual_changelog() -> str:
 
 
 def manual_validation_report() -> str:
-    return textwrap.dedent(f"""
+    return dedent_block(f"""
     # Manual Validation Report
 
     ## Status Vocabulary
@@ -912,7 +933,7 @@ def manual_validation_report() -> str:
 
 
 def implementation_agent_entrypoint() -> str:
-    return textwrap.dedent("""
+    return dedent_block("""
     # Implementation Agent Entrypoint
 
     ## Read First
