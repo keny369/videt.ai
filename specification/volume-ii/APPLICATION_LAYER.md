@@ -957,3 +957,58 @@ gate Evaluation**.
 The WF-006 parsing limb is owned by S-08 and the WF-017 incident limb by S-24. The OD-027 limb is
 withheld: the parsed-to-indexed exactly-once clause is contracted for the interim keys
 `indexing-interim-v1` pins, and the final multiplicity is not implemented.
+
+## WF-006 Process Parsing And Validation Pipeline
+
+Matrix row: MTX-031 (AC-WF-006). Slice: S-08.
+Structured contract: `specification/volume-ii/contracts/S-08.json`.
+Governing authority: WF-006, `parsing-interim-v1`, `indexing-interim-v1`, and the OD-027
+boundary established by S-07.
+
+This section is the canonical owner of the WF-006 application contract. It consumes the durable
+handoff owned by [CAP-008](#cap-008-crawl-progress-and-recovery): a succeeded IngestionJob with
+valid `source_document` Evidence.
+
+### Indexing never gates Evaluation
+
+This is the load-bearing separation. Readiness derives from the complete parse and Evidence
+manifest **without waiting for IndexingJob completion**, and an IndexingJob's result **never
+mutates the sealed snapshot**. Indexing is an asynchronous Retrieval Context projection: a
+missing or dead-letter index never disappears from telemetry and may block an explicitly
+retrieval-dependent future action, but cannot change a sealed Evaluation.
+
+Volume I closes the obvious loophole itself: an implementation **MUST NOT wait for indexing in
+one code path and bypass it in another**.
+
+### Two pinned keys, one withheld limb
+
+`parsing-interim-v1` pins exactly one ParsingJob per
+`(document_id, content_digest, parser_definition_version)`. `indexing-interim-v1` pins exactly
+one IndexingJob per `(parsed_artifact_id, normalized_payload_sha256, index_target_id=tenant-retrieval,
+index_schema_version=retrieval-index-interim-v1)`.
+
+OD-027 asks whether the final relation is that four-part key or `parsing_job_id`. Its withheld
+limb -- a `has_one` narrowing, a `unique (parsing_job_id)` constraint, any second IndexingJob per
+ParsingJob -- is carried forward from S-07 unchanged and is **not reopened here**. Both interim
+keys are pinned and working, so S-08 reaches its outcome and is not blocked.
+
+### The parser consumes attacker-controlled bytes
+
+Input sanitation and untrusted-content isolation are mandatory. JSON-LD remote contexts are
+**never** fetched; DTDs and external entities are disabled; malformed JSON-LD produces one
+malformed item with null name and url **rather than disappearing**. Quarantined or invalid
+Evidence cannot produce a Parsed Artifact.
+
+### Nothing is silently dropped
+
+An `input_manifest_invalid` predicate -- a missing tuple, duplicate Document, cross-Organization
+reference, digest mismatch, or a manifest omitting a succeeded IngestionJob -- **blocks readiness
+rather than dropping the member**. A derivation or schema failure is recorded by Document, Source
+and reason, creates no substitute Evidence, and becomes a handled Check input error rather than
+silently omitting the expected result key.
+
+### Sealed means sealed
+
+Later parsing success is visible **only** to a new Evaluation Input Snapshot and Evaluation;
+later indexing success advances **only** the Retrieval projection. Neither reaches back. The
+initial Evaluation starts only in WF-007, and reassessment emits no second start.

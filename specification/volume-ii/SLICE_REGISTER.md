@@ -92,7 +92,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-06 | **Contracts complete** | MTX-006, MTX-029, MTX-057, MTX-072 | `contracts/S-06.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-07 | **Contracts complete; OD-027 limb withheld** | MTX-007, MTX-008, MTX-030, MTX-058, MTX-059, MTX-060, MTX-073 | `contracts/S-07.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-08 .. S-24 | Pass B required | 0 | Next: S-08 Parsing and Validation, first row MTX-031 (AC-WF-006), which carries the OD-027 limb |
+| S-08 | **Contracts complete; OD-027 limb carried forward** | MTX-031 | `contracts/S-08.json`; canonical owner APPLICATION_LAYER.md |
+| S-09 .. S-24 | Pass B required | 0 | Next: S-09 Inspection, first row MTX-009 (AC-CAP-009); requires `check-catalog-v1` in SCORE_EVIDENCE_MODEL.md |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -208,6 +209,19 @@ boundaries explicitly and forbid inventing a broader exception. The OD-027 limb 
 narrowing, a `unique (parsing_job_id)` constraint, any second IndexingJob per ParsingJob) is
 withheld on MTX-008 and MTX-060 only; `indexing-interim-v1` pins both index keys, so the slice
 reaches its stated outcome and is **not** blocked.
+
+### S-08 cross-cutting application
+
+| Cross-cutting row | How S-08 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | The parser consumes attacker-controlled bytes: JSON-LD remote contexts never fetched, DTDs and external entities disabled, malformed JSON-LD yields a malformed item rather than disappearing; quarantined or invalid Evidence cannot produce a Parsed Artifact |
+| MTX-095 (AC-PRULE-044) | Every input and output reference is same-Organization; a cross-Organization manifest tuple is `input_manifest_invalid` and blocks readiness; cross-tenant external content is `F1-DATA-409 / tenant_mismatch` |
+| MTX-096 (AC-PRULE-045) | S-08 effects no Project transition; the OD-014 limb is untouched |
+| MTX-097 (AC-PRULE-046) | Every contract field, manifest and snapshot hash, attempt and replay generation, failed subset, readiness derivation, non-gating indexing outcome and Evaluation transition audited under one correlation |
+
+S-08 note: indexing never gates Evaluation, and Volume I closes the loophole itself -- an
+implementation MUST NOT wait for indexing in one code path and bypass it in another. The OD-027
+boundary is carried forward from S-07 unchanged, not reopened.
 
 ## Register
 

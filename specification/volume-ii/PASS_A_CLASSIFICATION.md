@@ -185,3 +185,39 @@ observation is status-only: none contradicts any behaviour, and none blocks a co
   correction pass with its own ADR and impact mapping. It MUST NOT happen silently inside Volume
   II Pass B. No pending-decision blocker is created for OD-001, and S-05 is not reclassified as
   provisional or withheld.
+
+### OBS-002 — Stale "pending" wording for the ratified OD-010 check catalogue
+
+- **Status:** open, upstream, non-blocking. Same class as OBS-001, found independently while
+  contracting S-08.
+- **Where:** the `parsing-interim-v1` contract in `WORKFLOW_SPECIFICATIONS.md`:
+  "`external-measurement-v1` intentionally bundles no active Measurement Set **while OD-010
+  remains pending**, so implementations MUST NOT invent queries, prompts, providers, listing
+  directories, thresholds, or an adapter."
+- **Canonical position:** the Owner Decision Register records OD-010 as `Current Status:
+  Ratified on 2026-07-17 ... ratified as specified`, Approved Option 1 (the seven-check baseline
+  catalogue, thresholds, impact mappings and measurement contracts), `Blocking Impact: None`.
+  OD-010 is not one of the five pending decisions.
+- **Why it matters:** the sentence attributes an approved baseline state to an unresolved
+  decision. A reader who trusts it would treat the whole check catalogue and the
+  score-unavailable outcome as provisional and withhold them, exactly as Continuation 003 was
+  briefed to do for OD-001.
+- **Behavioural impact:** none, and the distinction is worth stating precisely. OD-010's
+  Ratified Behavior **approves** the bundle-nothing state: "`external-measurement-v1` bundles no
+  query, intent, listing, provider, or adapter set before approval, so implementations do not
+  invent one ... The numeric score therefore remains unavailable." The unavailable score is
+  **approved baseline behaviour**, not a withheld limb. Only the word "pending" is stale.
+- **Containment:** the same executable rule that contains OBS-001. `validate_volume_ii.py`
+  resolves status only from `Current Status`, so a row citing OD-010 is not withheld and a
+  contract that withheld it would fail `ratified_decision_treated_as_pending`.
+- **Disposition:** a controlled Volume I correction, if authorized, belongs in a separate
+  governed correction pass. Not edited here.
+
+### Pattern
+
+Two independent instances of one defect class: OD-001 and OD-010 are both ratified, and both are
+still described as interim or pending by requirement prose written before the 2026-07-17
+ratification session. The register was updated; the prose that cites it was not. Any future pass
+that reads a rule's wording instead of the register will withhold approved behaviour. The
+executable check is the containment; a single governed correction pass over the stale wording
+would remove the trap at source.
