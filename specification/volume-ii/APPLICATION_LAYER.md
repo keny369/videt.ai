@@ -1012,3 +1012,64 @@ silently omitting the expected result key.
 Later parsing success is visible **only** to a new Evaluation Input Snapshot and Evaluation;
 later indexing success advances **only** the Retrieval projection. Neither reaches back. The
 initial Evaluation starts only in WF-007, and reassessment emits no second start.
+
+## WF-014 Deliver Notifications
+
+Matrix rows: MTX-021 (AC-CAP-021), MTX-039 (AC-WF-014). Slice: S-19.
+Structured contract: `specification/volume-ii/contracts/S-19.json`.
+Governing authority: CAP-021, WF-014, `notification-policy-v1`, PRULE-034, and OD-023 (pending).
+
+This section is the canonical owner of the WF-014 application contract.
+
+### Withheld under OD-023
+
+OD-023 is pending. The register maps it to CAP-021 and WF-014 because this is the capability
+whose Integration holds the Mailgun Credential -- not because notification delivery is itself
+undecided. The withheld limb is exactly credential rotation **begin** and **complete** under
+`UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`.
+
+Permitted and contracted: delivery, routing, retry and observability against an already-active
+Credential; representing a Credential; read-only status where Volume I authorises it.
+
+Prohibited: rotation initiation, rotation completion, token semantics that pre-empt the decision,
+and any route, command, job or event performing the withheld behaviour.
+
+Delivery is therefore fully contracted and the slice is **not** blocked.
+
+### Provider semantics are not product semantics
+
+Mailgun supplies no exactly-once guarantee, so none is promised. Product outcome semantics stay
+separate from provider transport semantics: a provider acceptance ambiguity is contracted as an
+ambiguous outcome with its reconciliation, never as a delivered fact. Provider webhooks, queue
+depth and delivery metrics are technical telemetry and are not domain events.
+
+## WF-017 Handle Incident And Recovery
+
+Matrix row: MTX-042 (AC-WF-017). Slice: S-24.
+Structured contract: `specification/volume-ii/contracts/S-24.json`.
+Governing authority: WF-017, the Incident Contract, the High-Risk Remediation Approval Contract,
+`emergency-access-v1`, PRULE-037, PRULE-038, and OD-012, OD-013 and OD-020 (all resolved).
+
+This section is the canonical owner of the WF-017 application contract.
+
+### "Recovery" here is diagnostic, not executional
+
+Despite the slice title, S-24 contracts no recovery command of its own. WF-017's
+`link_named_remediation` **links** an already-committed WF-005/006/013/014/016 result; it invokes
+nothing. `crawl.recover` and `ingestion.recover` belong to
+[WF-005](#wf-005-execute-crawl-and-ingestion) in S-07. The "Recovery" in this workflow is the
+diagnostic playbook's Recovery Path, which is operator-driven and carries no retry schedule.
+
+### Incident scope is Organization-owned
+
+Under OD-013 Option 1 there is no platform-owned canonical record. A platform-wide Incident is
+represented as coordinated per-Organization records linked by `correlation_id`. WF-017's Incident
+Contract field list still opens "Organization scope or explicit platform-wide scope", which is
+pre-ratification prose; its own Domain Events paragraph and AC-WF-017 impose Option 1, and Option
+1 prevails.
+
+### The operational escalation record has no defined home
+
+WF-017 requires exactly one operational escalation record per failed-step generation but names no
+table, event or permission for it. The obligation and its uniqueness key are contracted; the
+physical record is deferred to the Volume II baseline rather than invented here.

@@ -590,3 +590,14 @@ exact target and action is the grant, and a session naming a different target or
 Organization authorizes nothing.
 
 The WF-006 dead-letter replay limb is owned by S-08 and the WF-017 incident limb by S-24.
+
+## PRULE-034 Notification Delivery Authority
+
+Matrix row: MTX-085 (AC-PRULE-034). Slice: S-19.
+Structured contract: `specification/volume-ii/contracts/S-19.json`.
+Governing authority: PRULE-034; decision dependency OD-023 (pending).
+
+This section owns the notification delivery authority rule. Its OD-023 limb -- credential
+rotation begin and complete -- is withheld under
+`UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`; delivery against an already-active Credential is
+settled and contracted. The rule's WF-013 and S-23 limbs are owned by their slices.
