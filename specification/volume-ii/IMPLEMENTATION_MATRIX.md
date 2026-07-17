@@ -28,32 +28,53 @@ against an unchanged Volume I MUST reproduce this file byte for byte.
 Pass B fills the technical contract fields per row. It MUST NOT add a row that no Volume I
 source governs, and MUST NOT remove a row without a controlled Volume I change.
 
-## Pass B Contract Fields
+## Contract Fields
 
-Every row whose Status is `Pass B required` MUST acquire the following fields in Pass B.
-They are listed once here rather than repeated as empty columns, because Pass A has no
-authority to supply them and guessing them to make the matrix look complete is prohibited:
+A row is `Complete` when its contract is supplied in `specification/volume-ii/contracts/`
+and rendered under Completed Implementation Contracts below. A row is `Pass B required`
+until then. Fields carry exact ownership and behaviour; a field that genuinely does not
+apply carries `Not applicable - <reason>` rather than being left ambiguous.
 
+- contract owner
 - interface type
-- proposed route and method
-- controller/action
-- command or application service
-- domain entity or aggregate
-- persistence model/table
-- migration need
+- route
+- request schema
+- response schema
+- controller
+- command
+- command input
+- command output
+- actor
+- organization scope
+- aggregate
+- aggregate boundary
+- value objects
+- domain service
+- repository
+- persistence model
+- migration
+- transaction boundary
+- concurrency
+- idempotency
 - background job
-- domain event
-- serializer or response schema
-- permission and authorization enforcement
+- queue
+- retry policy
+- terminal failure
+- reconciliation
+- domain events
+- event payload
+- event producer
+- event consumers
+- serializer
+- authorization entry point
+- permission checks
+- tenant boundary
 - error contract
-- idempotency rule
-- concurrency rule
-- audit requirement
-- observability requirement
-- rollout or migration concern
-
-A field MAY be filled in Pass A only where an accepted authority already fixes it. Where
-it is not fixed, it remains `Pass B required` rather than being inferred.
+- audit record
+- observability
+- retention
+- test contracts
+- rollout
 
 ## Column Meanings
 
@@ -73,7 +94,7 @@ it is not fixed, it remains `Pass B required` rather than being inferred.
 
 | Row | AC | Source | PR-REQ | CAP | WF | PRULE | OD | EM | Slice | Tests | Status | Blocker |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| MTX-001 | AC-CAP-001 | CAP: CAP-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | - | - | OD-013, OD-016, OD-022, OD-026 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
+| MTX-001 | AC-CAP-001 | CAP: CAP-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | - | - | OD-013, OD-016, OD-022, OD-026 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-002 | AC-CAP-002 | CAP: CAP-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | - | - | OD-020, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-003 | AC-CAP-003 | CAP: CAP-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | - | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-004 | AC-CAP-004 | CAP: CAP-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-004 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-04 | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
@@ -98,7 +119,7 @@ it is not fixed, it remains `Pass B required` rather than being inferred.
 | MTX-023 | AC-CAP-023 | CAP: CAP-023 | PR-REQ-006..PR-REQ-028 (8) | CAP-023 | - | - | OD-011, OD-012, OD-013, OD-020 | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-21 | TYP-E2E, TYP-OBS, TYP-SEC, TYP-DATA | Pass B required | None |
 | MTX-024 | AC-CAP-024 | CAP: CAP-024 | PR-REQ-006..PR-REQ-029 (8) | CAP-024 | - | - | OD-005, OD-006, OD-008, OD-019, OD-020 | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-22 | TYP-INT, TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-025 | AC-CAP-025 | CAP: CAP-025 | PR-REQ-006..PR-REQ-025 (11) | CAP-025 | - | - | OD-011..OD-033 (10) | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-23 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | OD-031; OD-032 -- OD-031: routine retention-expiry destruction withheld under retention-destruction-trigger-interim-v1; OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
-| MTX-026 | AC-WF-001 | WF: WF-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | - | WF-001 | - | OD-013, OD-016, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
+| MTX-026 | AC-WF-001 | WF: WF-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | - | WF-001 | - | OD-013, OD-016, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
@@ -124,7 +145,7 @@ it is not fixed, it remains `Pass B required` rather than being inferred.
 | MTX-049 | AC-SM-006 | SM: Issue Deduplication | PR-REQ-004..PR-REQ-029 (7) | - | - | - | OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-050 | AC-SM-007 | SM: Visibility And Redaction | PR-REQ-001..PR-REQ-030 (10) | - | - | - | OD-011 | EM-VII (API), EM-V (read models), EM-III | S-16 | TYP-SEC, TYP-DATA, TYP-E2E | Pass B required | None |
 | MTX-051 | AC-SM-008 | SM: Verification Evidence | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
-| MTX-052 | AC-PRULE-001 | PRULE: PRULE-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | WF-001, WF-013 | PRULE-001 | OD-013, OD-016 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Pass B required | None |
+| MTX-052 | AC-PRULE-001 | PRULE: PRULE-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | WF-001, WF-013 | PRULE-001 | OD-013, OD-016 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-053 | AC-PRULE-002 | PRULE: PRULE-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002, CAP-024 | WF-001 | PRULE-002 | - | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02,S-22 | TYP-E2E, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required | None |
 | MTX-054 | AC-PRULE-003 | PRULE: PRULE-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | WF-002 | PRULE-003 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Pass B required; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
@@ -171,10 +192,116 @@ it is not fixed, it remains `Pass B required` rather than being inferred.
 | MTX-096 | AC-PRULE-045 | PRULE: PRULE-045 | PR-REQ-006..PR-REQ-029 (17) | CAP-020..CAP-024 (8) | WF-013..WF-011 (8) | PRULE-045 | OD-002, OD-003, OD-005, OD-006, OD-026 | EM-I (governance), EM-II (architecture), EM-III (implementation), EM-IX (testing) | ALL | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-097 | AC-PRULE-046 | PRULE: PRULE-046 | PR-REQ-006..PR-REQ-028 (15) | CAP-001..CAP-025 (25) | WF-001..WF-018 (18) | PRULE-046 | OD-013, OD-019, OD-024, OD-032 | EM-I (governance), EM-II (architecture), EM-III (implementation), EM-IX (testing) | ALL | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Pass B required; limb withheld | OD-032 -- OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
 
+## Completed Implementation Contracts
+
+Rendered from the canonical contract sources. Do not edit below by hand: this file is
+generated, and `python3 scripts/build_volume_ii_matrix.py --check` fails if it differs
+from what the sources produce.
+
+### MTX-001 - AC-CAP-001 (CAP: CAP-001)
+
+- Slice: S-01
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-001-onboard-organization-or-invited-account
+- interface type: Capability-level obligation satisfied entirely by the WF-001 contract. CAP-001 names WF-001 and WF-013 as its dependencies and defines no interface of its own.
+- route: Not applicable - CAP-001 defines no interface independent of WF-001; see MTX-026 for the reason no route is asserted.
+- command: As MTX-026. CAP-001 adds no command beyond the WF-001 branches.
+- actor: Validated self-service identity principal, invitation-bound identity principal, or existing Account identity principal; Organization Administrator after bootstrap.
+- organization scope: As MTX-026. The first OrganizationAdmin Assignment is created inside the self-service atomic commit with null expiry, under the bootstrap exception.
+- aggregate: As MTX-026.
+- aggregate boundary: As MTX-026 - one atomic multi-root product commit.
+- persistence model: As MTX-026.
+- transaction boundary: As MTX-026.
+- concurrency: As MTX-026.
+- idempotency: As MTX-026 - exact replay per branch.
+- domain events: As MTX-026.
+- event producer: `Workflows::Wf001`.
+- authorization entry point: The approved identity/bootstrap service. CAP-001 Security Implications require compliance with SEC-REQ-001 through SEC-REQ-024.
+- permission checks: As MTX-026. CAP-001 Preconditions additionally require that no pre-Organization Account is required or allowed for bootstrap, and that existing-account sign-in names one Organization and never creates or selects an Account implicitly.
+- tenant boundary: As MTX-026 - tenant boundary established before Project creation.
+- error contract: As MTX-026. CAP-001 Failure Condition additionally requires that pending Account, Organization and BillingEntity states are never externally visible after a failed atomic bootstrap or invited provisioning.
+- audit record: As MTX-026.
+- observability: Branch-specific identity/grant/invitation/sign-in, Account, Session, Role, policy, BillingEntity, Organization and Project events and audited no-state outcomes under one correlation ID.
+- retention: Account lifecycle events and audit records are persisted; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-E2E: every receipt purpose/field/normalization and the 10-minute freshness boundary (before, at, after per AC assertion rule 2). TYP-E2E: one-principal Bootstrap Grant lifecycle and derived Membership. TYP-SEC: protected and nonprotected Invitation lifecycle and race. TYP-DATA: pending Account/Organization/BillingEntity are never externally visible after a failed atomic branch. TYP-INT: sign-in never creates or selects an Account implicitly. The full assertion set is conjunctive per AC assertion rule 6.
+- rollout: As MTX-026 - first product slice, no predecessor behaviour.
+
+### MTX-026 - AC-WF-001 (WF: WF-001)
+
+- Slice: S-01
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-001-onboard-organization-or-invited-account
+- interface type: Four application commands behind the approved identity/bootstrap service. WF-001 authorization states that grant issuance and self-service authority belong only to the approved identity/bootstrap service and are not Role permissions held by the registrant, so no registrant-facing product route effects these transitions.
+- route: Not applicable - WF-001 names four logical commands (request_bootstrap_grant, self_service_bootstrap, accept_invitation, sign_in_existing_account) executed by the approved identity service. Volume I defines no HTTP exposure for them, and transport exposure is owned by API_CONTRACTS.md at the Volume II baseline; inventing a route here would assert a product contract Volume I does not define.
+- request schema: Per branch, exactly the WF-001 trigger envelope: versioned Identity Validation Receipt (purpose-bound, fresh, 10-minute boundary per AC-CAP-001); plus grant-request principal identity, or Bootstrap Grant ID/state version with complete `organization-profile-v1` and the WF-002 first-Project body, or Invitation ID/expected state version, or exact Organization identifier and optional logical return target; plus the logical command and idempotency envelope.
+- response schema: Grant branch returns Grant ID, state version and expiry only. Self-service returns Organization, Account, BillingEntity, Role Assignment, Access Policy, Entitlement Policy, Plan Assignment, draft Project and Session identifiers each with state version. Invitation acceptance returns existing Organization plus Account, Role Assignment, Invitation and Session identifiers. Decline returns only the terminal Invitation result. Sign-in returns Account and Session identifiers/state versions plus the destination decision. All responses are the authorized redacted result.
+- controller: Not applicable - no HTTP adapter is defined by Volume I for this workflow. The approved identity/bootstrap service is the only entry point.
+- command: `Workflows::Wf001::RequestBootstrapGrant`, `Workflows::Wf001::BootstrapOrganization`, `Workflows::Wf001::AcceptInvitation`, `Workflows::Wf001::DeclineInvitation`, `Workflows::Wf001::SignInExistingAccount`. Reconciled from the existing APPLICATION_LAYER inventory, which already names these five. Service-only lifecycle operations `ExpireBootstrapGrant`, `ExpireInvitation` and `ExpireSession` are ScheduledAction transitions, not principal commands.
+- command input: The branch envelope above, normalized. Normalized input hashes are recorded for audit per WF-001 Audit and Observability.
+- command output: The branch result above plus the ordered durable event result. Exact replay returns the stored authorized result and emits no event.
+- actor: Validated self-service identity principal, invitation-bound identity principal, or existing Account identity principal, always executed through the approved identity/bootstrap service. WF-001 forbids the registrant holding this authority as a Role permission.
+- organization scope: Grant issuance has no tenant scope and creates no tenant record. Self-service establishes the Organization within its atomic commit. Invitation acceptance and sign-in are bound to exactly one named Organization; sign-in MUST never search another Organization.
+- aggregate: Multi-root atomic commit. Roots: BootstrapGrant (grant branch); Organization, Account, BillingEntity, RoleAssignment, AccessPolicy, EntitlementPolicy, PlanAssignment, Project, Session (self-service); Invitation, Account, RoleAssignment, Session (invitation); Session only (sign-in).
+- aggregate boundary: WF-001 requires one atomic product commit across multiple roots, which the single-aggregate default in EM-III-011 does not cover. This is a product-specific specialisation: EM-II-010 permits a multi-root transaction where higher authority requires atomicity, and WF-001 requires that no partial onboarding branch is ever visible. Orchestration is in the Application Layer per EM-III-011 section 7.
+- value objects: IdentityValidationReceipt (purpose, freshness boundary, nonce), BootstrapGrantId, OrganizationId, AccountId, SessionId, ProjectId, ContentHash for `organization-profile-v1`, `access-policy-v1`, `entitlement-interim-v1`, `interim-baseline-plan-v1`.
+- domain service: Not applicable - WF-001 assigns validation and orchestration to the approved identity/bootstrap service at the application layer; no domain service is named by Volume I.
+- repository: `BootstrapGrantRepository`, `OrganizationRepository`, `AccountRepository`, `BillingEntityRepository`, `RoleAssignmentRepository`, `AccessPolicyRepository`, `EntitlementPolicyRepository`, `PlanAssignmentRepository`, `ProjectRepository`, `SessionRepository`, `InvitationRepository`. Persistence-adapter shape per EM-V-013.
+- persistence model: Canonical tables per schemas/POSTGRESQL_SCHEMA.md. The grant branch writes only the BootstrapGrant record and no tenant row. Pass B does not redefine the physical schema; it binds each command to the existing canonical owner.
+- migration: Not applicable at this row - the canonical schema already carries every table WF-001 names. Migration ordering is owned by schemas/POSTGRESQL_SCHEMA.md and S-00 supplies the migration harness only.
+- transaction boundary: One transaction per branch, covering exactly the records that branch materializes. Grant issuance commits the BootstrapGrant and receipt-nonce consumption only. Self-service commits the full thirteen-event ordered result. Sign-in commits receipt-nonce consumption and one Session and changes no other entity state. No billing provider is called inside any transaction; WF-001 states no billing provider is called at all in this workflow.
+- concurrency: Serialization on the branch uniqueness key with a race outcome recorded for audit. Self-service is guarded by current grant uniqueness and the consumed-self-service index, so a second concurrent bootstrap for the same principal loses and returns its first-match failure reason without partial write. Invitation acceptance is version-checked on Invitation state version; a stale version returns its first-match reason and changes nothing. At grant or invitation expiry equality the lifecycle transition wins, per WF-001 Failure Path.
+- idempotency: Idempotent by the logical command idempotency envelope, per branch. Grant issuance: exact replay returns the same grant and emits no event. Self-service, invitation and sign-in: exact replay returns the stored authorized result and emits no event, per WF-001 Recovery Path and Domain Events. Receipt nonce is single-use and consumed inside the atomic commit, so a replayed command never re-consumes a nonce. Altered payload against the same idempotency key is a mandatory failure fixture per AC assertion rule 4.
+- background job: Not applicable for the principal commands - all four branches commit synchronously. `ExpireBootstrapGrant`, `ExpireInvitation` and `ExpireSession` are service-only ScheduledAction transitions and are contracted with their owning lifecycle rows, not here.
+- queue: Not applicable - no principal branch of WF-001 enqueues work.
+- retry policy: Grant, bootstrap and Invitation branches only: initial attempt plus exactly two service retries at 1 second and 5 seconds after the preceding failure, for transient transaction or dependency failure only. Each retry rechecks receipt and grant/invitation expiry. Sign-in receives no automatic retry. There is no retry for validation, authentication, authorization, state, uniqueness or expiry outcomes.
+- terminal failure: Retry exhaustion on grant/bootstrap/invitation returns `F1-DEPENDENCY-503 / onboarding_transaction_unavailable` and exposes no partial write. Sign-in timeout returns `F1-TIMEOUT-504 / sign_in_timeout`, retryable=false, recovery `reauthenticate_and_submit_new_command`. Each transaction attempt has a 10-second elapsed deadline; at equality the timeout wins and rolls back the attempt.
+- reconciliation: Not applicable - every branch is atomic and exposes no partial state, so there is no divergent state to reconcile. Recovery is a new command against current state per WF-001 Recovery Path.
+- domain events: Grant: `BootstrapGrantIssued`. Self-service, in exactly this order: `AccountProvisionRequested`, `OrganizationCreated`, `BillingStateChanged(to_state=pending)`, `RoleGranted`, `AccessPolicyActivated`, `PlanAssigned`, `EntitlementPolicyActivated`, `BillingStateChanged(from_state=pending,to_state=active)`, `AccountActivated`, `OrganizationActivated`, `ProjectCreated`, `BootstrapGrantConsumed`, `SessionCreated`. New-Account invitation: `AccountProvisionRequested`, `AccountActivated`, `RoleGranted`, `InvitationAccepted`, `SessionCreated`. Existing-Account invitation: `RoleGranted` only when a new Assignment is created, then `InvitationAccepted`, `SessionCreated`. Sign-in: `SessionCreated` with its creation reason. Decline: no event beyond the terminal Invitation result. Exact replay emits none.
+- event payload: The canonical envelope per DM-REQ-013. Under OD-013 Option 1, `BootstrapGrantIssued` and `BootstrapGrantExpired` alone substitute the immutable `bootstrap_principal_id` into `organization_id`, because no Organization exists at grant issuance or expiry. The substitution is confined to those two types, is never available once an Organization exists, and `BootstrapGrantConsumed` and every later event carry the created Organization's real `organization_id`. No event carries null, a sentinel, an invented platform tenant, an omitted tenant field, or an `event_scope` field.
+- event producer: `Workflows::Wf001` is the sole producer of every event listed above. `BootstrapGrantExpired` is produced by the service-only `ExpireBootstrapGrant` ScheduledAction.
+- event consumers: Not applicable at this row - WF-001 defines no consumer. Consumers are contracted by the slices that own them (S-19 Notifications, S-22 Entitlements) and must not be inferred here.
+- serializer: Not applicable - no transport exposure is defined for WF-001 by Volume I. Response serialization is owned by API_CONTRACTS.md at the Volume II baseline.
+- authorization entry point: The approved identity/bootstrap service, before any mutation. Authorization precedes validation of the branch body and precedes the atomic commit. Because no route reaches these commands, there is no controller-only check to bypass; the service is the only entry point and enforces authority per branch.
+- permission checks: Grant issuance and self-service: the exact current receipt/eligibility predicate or the `organization.bootstrap` Grant. These are expressly not Role permissions held by the registrant. Invitation acceptance/decline: the single-use invitation-bound capability, recipient-bound, executed by the identity service for the matching principal. Sign-in: receipt-bound principal and exact Organization only. The resulting Session grants only the separately resolved current effective permissions and no path grants authority beyond its exact commit.
+- tenant boundary: Enforced before Project creation per WF-001 Security Notes. Sign-in MUST NOT search another Organization. Invitation acceptance reuses or creates only a same-Organization Account. The grant branch creates no tenant record at all, so no tenant boundary exists to cross.
+- error contract: Exhaustive `onboarding-interim-v1` first-match reasons. Named: `F1-DEPENDENCY-503 / onboarding_transaction_unavailable` (transient exhaustion, retryable=false at exhaustion, no partial write); `F1-TIMEOUT-504 / sign_in_timeout` (retryable=false, recovery reauthenticate_and_submit_new_command); `access_unavailable` returned by sign-in when the resolved effective-permission set contains no allowed protected action after explicit-deny precedence. Every failure carries error class/code, one declared reason, severity, retryability, recovery action and correlation/support reference per AC assertion rule 7. Any failure before commit exposes none of that branch's records, state changes, events, BillingEntity or Session.
+- audit record: Per WF-001 Audit and Observability: receipt/grant/invitation schema and state versions, normalized input hashes, Access/Entitlement/Plan approval and BillingEntity linkage hashes, serialization/race outcome, branch, exact event IDs and order, commit attempts and latency, Session and authorization context, sign-in destination decision, all under one correlation ID. A rejected no-state command emits only the standard audited command outcome.
+- observability: Branch-specific identity/grant/invitation/sign-in, Account, Session, Role, policy, BillingEntity, Organization and Project events plus audited no-state outcomes under one correlation ID, per CAP-001 Observability Requirements. Logs, metrics and traces MUST NOT carry raw identity assertion, email, token, credential or authentication factor.
+- retention: Account lifecycle events and audit records are persisted per CAP-001 Data Implications. Retention class is owned by specification/015 DATA_LIFECYCLE.md under the approved `retention-interim-v1` baseline (OD-011, ADR-020); this row does not restate a retention window.
+- test contracts: TYP-E2E: the exact thirteen-event self-service order and one atomic BillingEntity-linked tenant result. TYP-E2E: new-Account, existing-Account and no-Account invitation orders, and that no BillingEntity is created on any invitation branch. TYP-INT: grant issuance emits one `BootstrapGrantIssued` and writes no tenant record. TYP-SEC: existing-account active/suspended/disabled/revoked/deleted/changed-email/MFA/first-match/policy/no-role fixtures each yield the exact redacted result and no Session. TYP-SEC: sign-in never searches another Organization (cross-Organization fixture). TYP-SEC: effective-assignment-all-denied yields `access_unavailable`. TYP-DATA: exact replay of each branch returns the stored result, emits no event and consumes no second nonce. TYP-DATA: altered payload under the same idempotency key fails. TYP-OBS: the OD-013 substitution appears on `BootstrapGrantIssued`/`BootstrapGrantExpired` only, is absent from every other event type and from every event after an Organization exists, and no event carries null, a sentinel, an invented platform tenant or an `event_scope` field. TYP-OBS: concurrent bootstrap for the same principal produces one grant, one tenant result and no duplicate authority, state, Session or event. TYP-OBS: retry fires at exactly 1s and 5s, rechecks expiry, and exhaustion returns `onboarding_transaction_unavailable` with no partial write. TYP-OBS: at grant/invitation expiry equality the lifecycle transition wins. TYP-OBS: 10-second attempt deadline, timeout wins at equality and rolls back.
+- rollout: S-01 is the first product slice and has no predecessor behaviour to migrate. No compatibility concern: no shipped software, emitted event or persisted record exists.
+
+### MTX-052 - AC-PRULE-001 (PRULE: PRULE-001)
+
+- Slice: S-01
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-001-onboarding-interim-v1-enforcement
+- interface type: Cross-branch product rule enforced inside the WF-001 commands and the WF-013 lifecycle commands. PRULE-001 governs CAP-001 and applies to WF-001 and WF-013.
+- route: Not applicable - PRULE-001 is a rule, not an interface.
+- command: Enforced within `Workflows::Wf001::*` (this slice) and `Workflows::Wf013::*` (S-23). This row owns the WF-001 limb; the WF-013 limb is contracted in S-23.
+- actor: As MTX-026 - the approved identity service for each branch's bound principal.
+- organization scope: Exact Organization selection is mandatory; PRULE-001 forbids implicit Organization selection.
+- persistence model: Not applicable - PRULE-001 introduces no persistent concept of its own; it constrains the records MTX-026 writes.
+- transaction boundary: No active access or tenant record before the atomic authorized branch commits, per the rule.
+- concurrency: Concurrent-Session behaviour: concurrent Sessions are permitted and independent. Under OD-016, self-service sign-out terminates only the acting Session and never cascades to concurrent Sessions; sign-out-everywhere is absent from baseline behaviour and MUST NOT be implemented.
+- idempotency: Exact replay is required by the rule itself, per branch, returning the stored authorized result.
+- domain events: Not applicable - PRULE-001 emits no event of its own; it constrains the WF-001 event orders in MTX-026.
+- authorization entry point: The approved identity/bootstrap service, before any mutation, per SEC-REQ-001.
+- permission checks: Fresh purpose-bound identity proof; one-principal bootstrap eligibility; recipient-bound Invitation response; exact Organization selection; Account/Organization/assurance gating; current authorization-context initialization. Each is a distinct enforced predicate, not a single check.
+- tenant boundary: No active access or tenant record exists before the atomic authorized branch commits. This is the rule's core assertion and is enforced by the transaction boundary in MTX-026.
+- error contract: Deterministic logical destination: the authorized requested logical destination when supplied and allowed, `organization_home` otherwise, and `access_unavailable` when the resolved effective-permission set contains no allowed protected action after explicit-deny precedence.
+- audit record: As MTX-026 - the authorization-context initialization and destination decision are audited.
+- observability: As MTX-026, without raw identity assertion, email, token, credential or authentication factor.
+- retention: Not applicable - PRULE-001 defines no retention obligation; Account lifecycle retention is owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-SEC: no-refresh behaviour - a Session is never silently refreshed. TYP-SEC: Session concurrency and expiry fixtures. TYP-SEC: OD-016 sign-out terminates only the acting Session; sign-out-everywhere asserted absent. TYP-SEC: destination decision matrix - allowed requested destination, disallowed requested destination, none supplied, and all-denied yielding `access_unavailable`. TYP-DATA: no active access or tenant record is observable before commit, asserted against each failure fixture.
+- rollout: As MTX-026.
+
 ## Coverage Invariants
 
 - Volume I acceptance criteria: 97
 - Matrix rows: 97
+- Contracts complete: 3
+- Rows still `Pass B required`: 94
 - Every acceptance criterion maps to exactly one row, by construction.
 - Every row maps back to exactly one governing acceptance criterion and its source.
 - Cross-cutting rows (`ALL`): 4. These are enforced in every slice

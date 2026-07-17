@@ -30,6 +30,15 @@ SPEC = ROOT / "specification"
 V1 = SPEC / "volume-i"
 V2 = SPEC / "volume-ii"
 
+# Wording that looks like a contract and specifies nothing. The Pass B brief names
+# "idempotent", "uses locking" and "safe to retry" as inadequate precisely because they
+# state a category instead of the key material, the predicate or the outcome.
+VAGUE_CONTRACT_VALUE = re.compile(
+    r"(?i)^\s*(tbd|to be decided|to be determined|handled by service|standard validation|"
+    r"normal authorization|appropriate logging|retry as needed|tests required|existing model|"
+    r"as needed|pass b required|idempotent|uses locking|safe to retry|locking|retries|"
+    r"version[- ]checked|lock[- ]protected|duplicate[- ]tolerant)\s*\.?\s*$")
+
 CURRENT_VOLUME_I_BASELINE = "v1.5-volume-i-frozen"
 CURRENT_MANUAL_BASELINE = "v1.7-engineering-manual-accepted"
 SUPERSEDED_TAGS = {
@@ -248,6 +257,8 @@ def validate(root: Path) -> list[Finding]:
                 findings.append(Finding(path, line_of(text, tok), "permission_absent_from_model",
                                         f"{tok}: not in the Volume I permission model"))
 
+    findings.extend(validate_pass_b_contracts(root))
+
     # 9. an AC with no matrix row / 10. a matrix row with no governing source
     if matrix_path.exists():
         mtext = matrix_path.read_text(encoding="utf-8")
@@ -263,6 +274,53 @@ def validate(root: Path) -> list[Finding]:
             if not source.strip() or source.strip() == "-":
                 findings.append(Finding(matrix_path, None, "matrix_row_without_governing_source",
                                         f"{row_id} names no governing source"))
+    return findings
+
+
+def validate_pass_b_contracts(root: Path) -> list[Finding]:
+    """Enforce that a completed contract is actually complete and actually owned.
+
+    A row is only complete when its structured contract exists, names a canonical owner
+    document, and that owner exists and cites the row back. Without the back-citation a
+    contract can point at a document that never claims it, which reads as complete and
+    is not.
+    """
+    import json as _json
+    findings: list[Finding] = []
+    contracts_dir = root / "specification" / "volume-ii" / "contracts"
+    if not contracts_dir.exists():
+        return findings
+
+    # Mutations required by the Pass B brief for any state-changing contract.
+    REQUIRED = ["idempotency", "concurrency", "authorization_entry_point", "permission_checks",
+                "tenant_boundary", "error_contract", "audit_record", "observability",
+                "test_contracts", "contract_owner"]
+
+    for path in sorted(contracts_dir.glob("*.json")):
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        for row_id, fields in sorted(data.get("rows", {}).items()):
+            for req in REQUIRED:
+                if req not in fields:
+                    findings.append(Finding(path, None, "contract_missing_required_field",
+                                            f"{row_id} has no {req}"))
+            for name, value in sorted(fields.items()):
+                if VAGUE_CONTRACT_VALUE.match(str(value)):
+                    findings.append(Finding(path, None, "contract_field_vague",
+                                            f"{row_id}.{name} asserts nothing: {value!r}"))
+                if str(value).lower().startswith("not applicable") and "-" not in str(value):
+                    findings.append(Finding(path, None, "not_applicable_without_reason",
+                                            f"{row_id}.{name} is Not applicable with no reason"))
+
+            owner = fields.get("contract_owner", "")
+            if owner:
+                doc = owner.split("#", 1)[0]
+                owner_path = root / doc
+                if not owner_path.exists():
+                    findings.append(Finding(path, None, "contract_owner_missing",
+                                            f"{row_id} names {doc}, which does not exist"))
+                elif row_id not in owner_path.read_text(encoding="utf-8"):
+                    findings.append(Finding(owner_path, None, "contract_owner_does_not_cite_row",
+                                            f"{row_id} names this document as owner, but it does not cite {row_id}"))
     return findings
 
 
@@ -283,6 +341,31 @@ def blank_matrix_source(root: Path) -> None:
     t = p.read_text(encoding="utf-8")
     t = re.sub(r"^\| (MTX-002) \| (AC-[A-Z]+-\d{3}) \| [^|]+ \|", r"| \1 | \2 | - |", t, count=1, flags=re.M)
     p.write_text(t, encoding="utf-8")
+
+
+def _contract_file(root: Path) -> Path:
+    return root / "specification" / "volume-ii" / "contracts" / "S-01.json"
+
+
+def drop_contract_field(root: Path) -> None:
+    import json as _json
+    p = _contract_file(root)
+    data = _json.loads(p.read_text(encoding="utf-8"))
+    data["rows"]["MTX-026"].pop("idempotency", None)
+    p.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+
+
+def vague_contract_field(root: Path) -> None:
+    import json as _json
+    p = _contract_file(root)
+    data = _json.loads(p.read_text(encoding="utf-8"))
+    data["rows"]["MTX-026"]["concurrency"] = "uses locking"
+    p.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+
+
+def break_owner_citation(root: Path) -> None:
+    owner = root / "specification" / "volume-ii" / "APPLICATION_LAYER.md"
+    owner.write_text(owner.read_text(encoding="utf-8").replace("MTX-026", "MTX-XXX"), encoding="utf-8")
 
 
 def run_negative_controls() -> int:
@@ -319,6 +402,12 @@ def run_negative_controls() -> int:
          "acceptance_criterion_without_matrix_row"),
         ("matrix row without governing source", blank_matrix_source,
          "matrix_row_without_governing_source"),
+        ("contract missing required field", drop_contract_field,
+         "contract_missing_required_field"),
+        ("contract field vague", vague_contract_field,
+         "contract_field_vague"),
+        ("contract owner does not cite row", break_owner_citation,
+         "contract_owner_does_not_cite_row"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-v2-negative-") as tmp:

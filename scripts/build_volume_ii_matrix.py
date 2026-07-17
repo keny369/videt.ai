@@ -100,7 +100,8 @@ FIELD_LABELS = {f: f.replace("_", " ") for f in CONTRACT_FIELDS}
 VAGUE_VALUES = re.compile(
     r"(?i)^\s*(tbd|to be decided|to be determined|handled by service|standard validation|"
     r"normal authorization|appropriate logging|retry as needed|tests required|existing model|"
-    r"as needed|n/a|none|pass b required)\s*\.?\s*$"
+    r"as needed|n/a|none|pass b required|idempotent|uses locking|safe to retry|locking|"
+    r"retries|version[- ]checked|lock[- ]protected|duplicate[- ]tolerant)\s*\.?\s*$"
 )
 
 

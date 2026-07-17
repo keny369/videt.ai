@@ -80,6 +80,33 @@ S-21 Administration and Support Investigation (depends on S-02)
 S-24 Incident and Recovery (depends on S-07)
 ```
 
+## Pass B Status
+
+| Slice | Status | Rows complete | Evidence |
+| --- | --- | --- | --- |
+| S-00 | Specified; no matrix rows | n/a | This register. S-00 implements no product behaviour, so no acceptance criterion maps to it and it has no contract row. |
+| S-01 | **Contracts complete** | MTX-001, MTX-026, MTX-052 | `contracts/S-01.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
+| S-02 .. S-24 | Pass B required | 0 | Next: S-02, first row MTX-002 (AC-CAP-002) |
+
+MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
+respectively, and both carry a withheld limb. They are contracted with their owning slice
+rather than here, so that one row has one canonical contract.
+
+The four cross-cutting rows (MTX-094 to MTX-097) are not marked complete by S-01. A
+cross-cutting obligation is enforced in every slice, so it cannot be discharged by one
+slice's contract; each remains `Pass B required` until every slice records its application.
+S-01's application of them is recorded in `contracts/S-01.json` under the tenant_boundary,
+audit_record, observability and test_contracts fields of each row.
+
+### S-01 cross-cutting application
+
+| Cross-cutting row | Rule | How S-01 satisfies it |
+| --- | --- | --- |
+| MTX-094 (AC-PRULE-043) | see PRODUCT_RULES.md | Applied per row in `contracts/S-01.json`; verified by the S-01 TYP-SEC and TYP-DATA test contracts |
+| MTX-095 (AC-PRULE-044) | see PRODUCT_RULES.md | Tenant boundary established before Project creation; sign-in never searches another Organization |
+| MTX-096 (AC-PRULE-045) | see PRODUCT_RULES.md | Guards read Project state only; S-01 creates the first Project in `draft` and never activates it |
+| MTX-097 (AC-PRULE-046) | see PRODUCT_RULES.md | Audit and correlation obligations contracted on every S-01 row |
+
 ## Register
 
 | Slice | Title | Outcome | Prerequisites | Dependants | Independent | Withheld |

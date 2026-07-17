@@ -347,3 +347,67 @@ CI architecture checks MUST fail when:
 ## Verification
 
 The implementation MUST provide architecture specs for package imports, command and query registry completeness, aggregate/table ownership, no nested transactions, repository return types, presenter query count, projection idempotency/order, and authenticated-request Session behavior. These tests implement existing Volume I requirements; they do not add acceptance behavior.
+
+## WF-001 Onboard Organization Or Invited Account
+
+Matrix rows: MTX-001 (AC-CAP-001), MTX-026 (AC-WF-001). Slice: S-01.
+Structured contract: `specification/volume-ii/contracts/S-01.json`.
+Governing authority: CAP-001, WF-001, PRULE-001, PRULE-018 in `v1.5-volume-i-frozen`.
+
+This section is the canonical owner of the WF-001 application contract. The matrix indexes
+it and carries the same structured facts; it does not duplicate this narrative.
+
+### Entry point and authority
+
+WF-001 assigns grant issuance and self-service authority to the approved identity/bootstrap
+service alone, and states expressly that these are not Role permissions held by the
+registrant. There is therefore no registrant-facing route, and no controller. The service is
+the only entry point, so authorization cannot be reduced to a transport-layer check.
+
+### Commands
+
+`RequestBootstrapGrant`, `BootstrapOrganization`, `AcceptInvitation`, `DeclineInvitation`,
+`SignInExistingAccount`. These five are reconciled from the existing Pass 001 inventory
+rather than renamed. `ExpireBootstrapGrant`, `ExpireInvitation` and `ExpireSession` are
+service-only ScheduledAction transitions and are not principal commands.
+
+### Transaction boundary
+
+One transaction per branch, covering exactly the records that branch materializes. WF-001
+requires one atomic product commit across multiple roots, so the single-aggregate default in
+EM-III-011 does not apply. This is an explicit product-specific specialisation: EM-II-010
+permits a multi-root transaction where higher authority requires atomicity, and WF-001
+requires that no partial onboarding branch is ever visible and that pending Account,
+Organization and BillingEntity states are never externally observable after failure.
+Orchestration stays in the Application Layer, as EM-III-011 section 7 requires.
+
+No billing provider is called; WF-001 states this expressly. No external effect sits inside
+any of these transactions.
+
+### Event order
+
+The self-service order is exact and asserted by AC-WF-001:
+`AccountProvisionRequested`, `OrganizationCreated`, `BillingStateChanged(to=pending)`,
+`RoleGranted`, `AccessPolicyActivated`, `PlanAssigned`, `EntitlementPolicyActivated`,
+`BillingStateChanged(pending->active)`, `AccountActivated`, `OrganizationActivated`,
+`ProjectCreated`, `BootstrapGrantConsumed`, `SessionCreated`.
+
+Under OD-013 Option 1, `BootstrapGrantIssued` and `BootstrapGrantExpired` alone substitute
+the immutable `bootstrap_principal_id` into `organization_id`, because no Organization
+exists at grant issuance or expiry. The substitution is confined to those two event types
+and is never available once an Organization exists.
+
+### Retry, timeout and failure
+
+Grant, bootstrap and Invitation branches take the initial attempt plus exactly two service
+retries at 1 second and 5 seconds, for transient transaction or dependency failure only, each
+rechecking receipt and grant/invitation expiry. Exhaustion returns
+`F1-DEPENDENCY-503 / onboarding_transaction_unavailable` with no partial write. Sign-in has
+no automatic retry and returns `F1-TIMEOUT-504 / sign_in_timeout` on its 10-second deadline.
+At grant or invitation expiry equality, the lifecycle transition wins.
+
+### Withheld
+
+Nothing in WF-001 is withheld. OD-014 governs Project pause/resume/archive, which WF-001
+does not perform: it creates the first Project in `draft` and states that Project activation
+is not part of WF-001.

@@ -313,3 +313,35 @@ CI and release evidence MUST include:
 - protected render-after-commit and no-lazy-record tests;
 - Export Checkpoint A/open/Checkpoint B races for expiry, revoke, policy contraction, disconnect and exact byte count;
 - CAP-018/WF-012 zero-provider-call and zero-narrative-path assertions.
+
+## PRULE-001 onboarding-interim-v1 Enforcement
+
+Matrix row: MTX-052 (AC-PRULE-001). Slice: S-01.
+Structured contract: `specification/volume-ii/contracts/S-01.json`.
+Governing authority: PRULE-001, sourced from SEC-REQ-001 and PM-REQ-003.
+
+This section is the canonical owner of the PRULE-001 enforcement contract for the WF-001
+limb. The WF-013 limb is owned by S-23 and is not contracted here.
+
+PRULE-001 is a conjunction of distinct predicates, each enforced separately rather than as a
+single check: fresh purpose-bound identity proof; one-principal bootstrap eligibility;
+recipient-bound Invitation response; exact Organization selection; Account, Organization and
+assurance gating; current authorization-context initialization; deterministic logical
+destination; concurrent-Session and no-refresh behaviour; exact replay; and no active access
+or tenant record before the atomic authorized branch commits.
+
+The last predicate is the load-bearing one and is satisfied by the transaction boundary in
+[APPLICATION_LAYER.md](APPLICATION_LAYER.md#wf-001-onboard-organization-or-invited-account):
+nothing of a branch is observable until that branch commits.
+
+### Destination decision
+
+The authorized requested logical destination when supplied and allowed; `organization_home`
+otherwise; `access_unavailable` when the resolved effective-permission set contains no
+allowed protected action after explicit-deny precedence.
+
+### Session behaviour
+
+Concurrent Sessions are permitted and independent. Under OD-016, self-service sign-out
+terminates only the acting Session and never cascades. Sign-out-everywhere is absent from
+baseline behaviour and MUST NOT be implemented. Sessions are never silently refreshed.
