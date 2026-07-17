@@ -3,7 +3,7 @@
 ## Status And Database Baseline
 
 - Status: Volume II Implementation Architecture Pass 001; complete for unblocked behavior
-- Behavioural baseline: immutable tag `v1.3-volume-i-corrected`
+- Behavioural baseline: frozen tag `v1.5-volume-i-frozen`; historical `v1.3-volume-i-corrected` is retained as predecessor history
 - Engine: Heroku PostgreSQL 17; Heroku controls the minor patch
 - Encoding/collation: UTF-8, database and connection time zone UTC, deterministic `C` collation for canonical keys
 - Extensions: `pgcrypto`, `citext` is not used, `pg_trgm`, `btree_gin`

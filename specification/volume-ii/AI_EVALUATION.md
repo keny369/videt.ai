@@ -3,7 +3,8 @@
 ## Status And Authority
 
 - Status: Volume II Implementation Architecture Pass 001
-- Behavioural baseline: immutable tag `v1.3-volume-i-corrected`
+- Behavioural baseline: frozen Volume I at `v1.5-volume-i-frozen` (commit `c6b3853`, ADR-020). Historical `v1.3-volume-i-corrected` is retained as predecessor history and is not the baseline.
+- Engineering-practice baseline: accepted Engineering Manual at `v1.7-engineering-manual-accepted` (commit `b049a41`, ADR-022), normative for engineering practice only.
 - Evidence and Check authority: [Volume I Score and Evidence Model](../volume-i/SCORE_EVIDENCE_MODEL.md)
 - Workflow authority: [WF-006 through WF-012](../volume-i/WORKFLOW_SPECIFICATIONS.md)
 - Integration boundary: [Integration Contracts](INTEGRATION_CONTRACTS.md)

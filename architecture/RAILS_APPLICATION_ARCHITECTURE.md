@@ -6,7 +6,7 @@
 - Runtime: Ruby 3.4.10, Rails 8.1.3
 - Architecture: modular monolith
 - Background runtime: Sidekiq, not Solid Queue
-- Source behaviour: immutable corrected Volume I baseline `v1.3-volume-i-corrected` under ADR-017
+- Source behaviour: frozen Volume I baseline `v1.5-volume-i-frozen` under ADR-020; historical `v1.3-volume-i-corrected` under ADR-017 is retained as predecessor history
 
 This document fixes the Rails module, bounded-context, aggregate, dependency, transaction, and concurrency architecture. It does not define new product behaviour.
 

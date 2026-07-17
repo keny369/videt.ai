@@ -3,7 +3,8 @@
 ## Status And Scope
 
 - Status: Volume II implementation contract
-- Behavioral baseline: Git tag `v1.3-volume-i-corrected`
+- Behavioural baseline: frozen Volume I at `v1.5-volume-i-frozen` (commit `c6b3853`, ADR-020). Historical `v1.3-volume-i-corrected` is retained as predecessor history and is not the baseline.
+- Engineering-practice baseline: accepted Engineering Manual at `v1.7-engineering-manual-accepted` (commit `b049a41`, ADR-022), normative for engineering practice only.
 - Platform: Heroku stack `heroku-26`
 - Database: PostgreSQL `17`
 - Background runtime: Sidekiq `8.1.6`

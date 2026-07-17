@@ -3,7 +3,8 @@
 ## Status And Authority
 
 - Status: Implementation Architecture Pass 001 complete for all unblocked behavior; baseline freeze blocked by frozen Volume I ambiguities below
-- Volume I authority: annotated tag `v1.3-volume-i-corrected` at commit `5d725fa`
+- Behavioural baseline: frozen Volume I at `v1.5-volume-i-frozen` (commit `c6b3853`, ADR-020). Historical `v1.3-volume-i-corrected` is retained as predecessor history and is not the baseline.
+- Engineering-practice baseline: accepted Engineering Manual at `v1.7-engineering-manual-accepted` (commit `b049a41`, ADR-022), normative for engineering practice only.
 - Initial Volume II draft commit: `7213e9a`
 - Foundation dependency: 1.0
 - Last updated: 2026-07-16
@@ -67,6 +68,39 @@ Changing one of these choices requires an implementation-architecture change and
 | RSpec layers, factories, system/contract/acceptance tests and TDD slices | Testing Architecture | complete; blocked acceptance paths identified |
 
 ## Frozen Volume I Blockers
+
+### Status Against `v1.5-volume-i-frozen`
+
+Pass 001 recorded thirteen blockers. Eleven are retired: their governing Owner Decision is
+ratified and integrated under ADR-019 or ADR-020, so no further correction is required and
+they do not gate any slice. Two remain live and implementation-blocking. The per-blocker
+prose below is retained as the historical record of why each blocker existed; where a
+blocker is retired, that prose describes a resolved question and MUST NOT be read as a
+live constraint.
+
+| Blocker | Governing OD | Status |
+| --- | --- | --- |
+| `UPSTREAM-V1-EVENT-SCOPE-001` | OD-013 | Retired under ADR-020 |
+| `UPSTREAM-V1-SESSION-REVOCATION-002` | OD-016 | Retired under ADR-019 |
+| `UPSTREAM-V1-PROJECT-LIFECYCLE-003` | OD-014 | **LIVE** — pending owner approval |
+| `UPSTREAM-V1-READ-AUTHORIZATION-004` | OD-020 | Retired under ADR-019 |
+| `UPSTREAM-V1-LOW-COST-METERING-005` | OD-019 | Retired under ADR-019 |
+| `UPSTREAM-V1-REACTIVATION-PROOF-006` | OD-021 | Retired under ADR-019 |
+| `UPSTREAM-V1-COMPARISON-EVENT-007` | OD-024 | Retired under ADR-019 |
+| `UPSTREAM-V1-ORGANIZATION-REACTIVATION-PROOF-008` | OD-022 | Retired under ADR-019 |
+| `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` | OD-023 | **LIVE** — pending owner approval |
+| `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010` | OD-025 | Retired under ADR-019 |
+| `UPSTREAM-V1-ROLE-EXPIRY-BLOCKED-EVENT-011` | OD-026 | Retired under ADR-019 |
+| `UPSTREAM-V1-DOCUMENT-LIFECYCLE-012` | OD-015 | Retired under ADR-019 |
+| `UPSTREAM-V1-ISSUE-COLLISION-013` | OD-017 | Retired under ADR-019 |
+
+The two live blockers withhold a limb, not a capability. The Owner Decision Register records
+both as `Volume II — no` for blocking impact under their interims, so neither blocks this
+baseline. Withheld limbs and their slices are recorded in
+[SLICE_REGISTER.md](SLICE_REGISTER.md) and [IMPLEMENTATION_MATRIX.md](IMPLEMENTATION_MATRIX.md).
+
+### Historical Blocker Records
+
 
 ### `UPSTREAM-V1-EVENT-SCOPE-001`
 
