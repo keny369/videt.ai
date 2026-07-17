@@ -100,8 +100,8 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-004 | AC-CAP-004 | CAP: CAP-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-004 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-04 | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-005 | AC-CAP-005 | CAP: CAP-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-006 | AC-CAP-006 | CAP: CAP-006 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-006 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
-| MTX-007 | AC-CAP-007 | CAP: CAP-007 | PR-REQ-026, PR-REQ-029 | CAP-007 | - | - | OD-005, OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
-| MTX-008 | AC-CAP-008 | CAP: CAP-008 | PR-REQ-026, PR-REQ-029 | CAP-008 | - | - | OD-005, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
+| MTX-007 | AC-CAP-007 | CAP: CAP-007 | PR-REQ-026, PR-REQ-029 | CAP-007 | - | - | OD-005, OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Complete | None |
+| MTX-008 | AC-CAP-008 | CAP: CAP-008 | PR-REQ-026, PR-REQ-029 | CAP-008 | - | - | OD-005, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Complete; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
 | MTX-009 | AC-CAP-009 | CAP: CAP-009 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011 | CAP-009 | - | - | OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required | None |
 | MTX-010 | AC-CAP-010 | CAP: CAP-010 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011 | CAP-010 | - | - | OD-003, OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS, TYP-AI | Pass B required | None |
 | MTX-011 | AC-CAP-011 | CAP: CAP-011 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011 | CAP-011 | - | - | OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required | None |
@@ -123,7 +123,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
-| MTX-030 | AC-WF-005 | WF: WF-005 | PR-REQ-026, PR-REQ-029 | - | WF-005 | - | OD-005, OD-011, OD-015, OD-018, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
+| MTX-030 | AC-WF-005 | WF: WF-005 | PR-REQ-026, PR-REQ-029 | - | WF-005 | - | OD-005, OD-011, OD-015, OD-018, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Complete | None |
 | MTX-031 | AC-WF-006 | WF: WF-006 | PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | - | WF-006 | - | OD-011, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-08 | TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
 | MTX-032 | AC-WF-007 | WF: WF-007 | PR-REQ-004..PR-REQ-029 (9) | - | WF-007 | - | OD-003, OD-009, OD-010, OD-017, OD-029, OD-030 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS, TYP-AI | Pass B required | None |
 | MTX-033 | AC-WF-008 | WF: WF-008 | PR-REQ-004..PR-REQ-029 (10) | - | WF-008 | - | OD-002, OD-003, OD-005, OD-009, OD-010, OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-13 | TYP-INT, TYP-DATA, TYP-OBS | Pass B required | None |
@@ -151,9 +151,9 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-056 | AC-PRULE-005 | PRULE: PRULE-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-005 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-057 | AC-PRULE-006 | PRULE: PRULE-006 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-006 | WF-004 | PRULE-006 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Complete | None |
-| MTX-058 | AC-PRULE-007 | PRULE: PRULE-007 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-007 | WF-005 | PRULE-007 | OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
-| MTX-059 | AC-PRULE-008 | PRULE: PRULE-008 | PR-REQ-026, PR-REQ-029 | CAP-007, CAP-008 | WF-005 | PRULE-008 | OD-005 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-INT, TYP-OBS, TYP-DATA | Pass B required | None |
-| MTX-060 | AC-PRULE-009 | PRULE: PRULE-009 | PR-REQ-026 | CAP-008 | WF-005, WF-006, WF-017 | PRULE-009 | OD-005, OD-015, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-OBS, TYP-DATA, TYP-INT | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
+| MTX-058 | AC-PRULE-007 | PRULE: PRULE-007 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-007 | WF-005 | PRULE-007 | OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
+| MTX-059 | AC-PRULE-008 | PRULE: PRULE-008 | PR-REQ-026, PR-REQ-029 | CAP-007, CAP-008 | WF-005 | PRULE-008 | OD-005 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-INT, TYP-OBS, TYP-DATA | Complete | None |
+| MTX-060 | AC-PRULE-009 | PRULE: PRULE-009 | PR-REQ-026 | CAP-008 | WF-005, WF-006, WF-017 | PRULE-009 | OD-005, OD-015, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-OBS, TYP-DATA, TYP-INT | Complete; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
 | MTX-061 | AC-PRULE-010 | PRULE: PRULE-010 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011 | CAP-009, CAP-010, CAP-011 | WF-007 | PRULE-010 | OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09 | TYP-INT, TYP-DATA, TYP-AI, TYP-OBS | Pass B required | None |
 | MTX-062 | AC-PRULE-011 | PRULE: PRULE-011 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | CAP-009, CAP-013, CAP-014 | WF-007 | PRULE-011 | OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09,S-11,S-12 | TYP-DATA, TYP-SEC | Pass B required | None |
 | MTX-063 | AC-PRULE-012 | PRULE: PRULE-012 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011, PR-REQ-029 | CAP-010, CAP-014 | WF-007 | PRULE-012 | OD-003, OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09,S-12 | TYP-INT, TYP-DATA | Pass B required | None |
@@ -166,7 +166,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-070 | AC-PRULE-019 | PRULE: PRULE-019 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | WF-001, WF-013 | PRULE-019 | OD-021, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-071 | AC-PRULE-020 | PRULE: PRULE-020 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-020 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-INT | Complete | None |
 | MTX-072 | AC-PRULE-021 | PRULE: PRULE-021 | PR-REQ-027, PR-REQ-028 | CAP-006 | WF-004, WF-005 | PRULE-021 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-073 | AC-PRULE-022 | PRULE: PRULE-022 | PR-REQ-018, PR-REQ-019 | CAP-008, CAP-023 | WF-005, WF-006, WF-017 | PRULE-022 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-07,S-21 | TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required | None |
+| MTX-073 | AC-PRULE-022 | PRULE: PRULE-022 | PR-REQ-018, PR-REQ-019 | CAP-008, CAP-023 | WF-005, WF-006, WF-017 | PRULE-022 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-07,S-21 | TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Complete | None |
 | MTX-074 | AC-PRULE-023 | PRULE: PRULE-023 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | CAP-014 | WF-007 | PRULE-023 | OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-075 | AC-PRULE-024 | PRULE: PRULE-024 | PR-REQ-004..PR-REQ-029 (8) | CAP-015 | WF-008 | PRULE-024 | OD-002, OD-003, OD-005, OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-13 | TYP-INT, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-076 | AC-PRULE-025 | PRULE: PRULE-025 | PR-REQ-004..PR-REQ-029 (10) | CAP-015, CAP-019 | WF-008, WF-012 | PRULE-025 | OD-002, OD-003, OD-005, OD-009, OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-13,S-17 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
@@ -452,6 +452,97 @@ from what the sources produce.
 - test contracts: TYP-SEC: contraction and admin/non-admin same-host expansion each produce the exact request, policy, Source, work and event outcome. TYP-DATA: a cross-host request is denied. TYP-DATA: approval, rejection and cancellation each produce their exact outcome. TYP-OBS: the before/at/after 24-hour expiry race. TYP-DATA: stale request and stale policy versions each reject. TYP-DATA: replay returns the stored result. TYP-INT: the running-Crawl restriction applies on disable and remove. TYP-DATA: every Source transition fixture produces its exact outcome. TYP-SEC: no disallowed URL becomes valid Evidence - the scope predicate is the gate, asserted against an out-of-scope URL reaching evaluation input.
 - rollout: As MTX-029.
 
+### MTX-007 - AC-CAP-007 (CAP: CAP-007)
+
+- Slice: S-07
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#cap-007-crawl-initiation
+- interface type: Capability-level obligation discharged by the WF-005 contract; CAP-007 defines no interface of its own.
+- route: Not applicable - CAP-007 defines no interface independent of WF-005; see MTX-030.
+- request schema: Authorized initial root or reassessment-child Crawl command, active Sources, request-time Source Scope and Crawl Policy Snapshots, and Entitlement policy and counter context, per CAP-007 Inputs.
+- response schema: Crawl attempt; exactly one new pending Evaluation for an accepted root start or the existing reassessment Evaluation reference; Source outcomes, IngestionJobs, coverage and completion, limit records, and the entitlement reservation outcome, per CAP-007 Outputs.
+- controller: Not applicable - no HTTP adapter.
+- command: As MTX-030 - `QueueCrawl`, `StartCrawl`, `CancelCrawl`, `RecoverCrawl`.
+- command input: As MTX-030.
+- command output: As MTX-030.
+- actor: Organization Administrator, Marketing Operator, or scheduler service identity.
+- organization scope: The Project's Organization; CAP-007 Preconditions require CAP-006 complete and the Project active.
+- aggregate: Crawl, with Evaluation created in the accepted root start commit.
+- aggregate boundary: As MTX-030.
+- value objects: As MTX-030.
+- domain service: Not applicable - CAP-007 names no domain service.
+- repository: As MTX-030.
+- persistence model: Crawl attempts and execution metadata are persisted per CAP-007 Data Implications.
+- migration: Not applicable - no product schema object added.
+- transaction boundary: As MTX-030 - the `crawl.start` Decision and reservation are resolved immediately before execution, per CAP-007 Inputs.
+- concurrency: As MTX-030 - reservation-safe concurrent accounting and the serialized terminal checkpoint.
+- idempotency: As MTX-030 - command replay returns the stored result.
+- background job: As MTX-030.
+- queue: As MTX-030.
+- retry policy: As MTX-030 - fetch retry follows its fixed schedule.
+- terminal failure: CAP-007 Failure Condition: zero valid Documents, all Source roots fail, or a nonrecoverable pre-output policy or integrity failure produces failed. No terminal Crawl is moved back to running.
+- reconciliation: As MTX-030.
+- domain events: `CrawlQueued`, `CrawlStarted`, soft and hard limit events, retry, per-Source coverage, `CrawlCompleted`, `CrawlFailed`, `CrawlCanceled`, each with exact policy versions and counts.
+- event payload: As MTX-030.
+- event producer: `Workflows::Wf005`.
+- event consumers: Not applicable - CAP-007 names no consumer.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, and again at the start commit where the `crawl.start` Decision and reservation are resolved immediately before execution.
+- permission checks: As MTX-030 - trigger authorization enforced per CAP-007 Security Implications.
+- tenant boundary: As MTX-030.
+- error contract: As MTX-030.
+- audit record: As MTX-030.
+- observability: As MTX-030.
+- retention: Crawl attempts and execution metadata persisted; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: a root is rejected when a promoted Evaluation pair already exists. TYP-DATA: an accepted root start atomically creates one pending initial Evaluation; a reassessment child creates none and uses its running parent. TYP-DATA: the per-attempt and per-run byte formula, the sentinel boundary and reservation-safe concurrent accounting. TYP-DATA: canonical breadth, sitemap and queue retention order. TYP-OBS: fetch retry and terminal race and reason precedence hold independent of completion order. TYP-DATA: success is completed with full or explicitly partial coverage and at least one valid Document, or an auditable canceled state by authorized request. TYP-SEC: trigger authorization is enforced for every branch.
+- rollout: As MTX-030.
+
+### MTX-008 - AC-CAP-008 (CAP: CAP-008)
+
+- Slice: S-07
+- Status: Complete; limb withheld
+- Withheld limb: OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#cap-008-crawl-progress-and-recovery
+- interface type: Capability-level obligation for progress visibility and recovery, discharged by the WF-005 contract plus the durable parsing handoff. CAP-008 defines no interface of its own.
+- route: Not applicable - CAP-008 defines no interface independent of WF-005 and WF-006; see MTX-030. Progress is surfaced by the read models owned by S-16, not by a route here.
+- request schema: Crawl, IngestionJob, ParsingJob and IndexingJob telemetry; complete parse manifest; platform-derived Evidence and Measurement Evidence intake; the exact failed subset, reason codes, attempt and replay counts, the recovery command, and the expected state version, per CAP-008 Inputs.
+- response schema: Immutable Crawl, parse and index attempt history; Parsed Artifacts and Index Receipts; exact ingested-to-parsed and parsed-to-indexed Document outcomes; the exact Evaluation Input Snapshot; the terminal, coverage and readiness result; and the linked recovery outcome, per CAP-008 Outputs.
+- controller: Not applicable - no HTTP adapter.
+- command: Recovery commands as MTX-030: `RecoverCrawl` and `ReplayIngestionJob`. CAP-008 adds no command; its parsing and indexing recovery limbs are WF-006 commands owned by S-08.
+- command input: The recovery command with its expected state version, reason, idempotency key and audit envelope, per PRULE-022.
+- command output: The linked recovery outcome carrying `recovery_of_id` and the replay generation.
+- actor: Organization Administrator or Marketing Operator, or an approved time-bounded SecurityOperator support session for recovery only.
+- organization scope: The Crawl's Organization.
+- aggregate: Crawl, IngestionJob and Document as separate roots; ParsingJob and IndexingJob are WF-006 roots owned by S-08 and are referenced here only at the handoff boundary.
+- aggregate boundary: S-07 owns the crawl-to-ingestion boundary and the durable handoff into parsing. It does not own parsing or indexing execution: WF-006 is S-08's. This row contracts only the obligations CAP-008 places on the crawl side plus the handoff.
+- value objects: AttemptNumber, ReplayGeneration, RecoveryOfId, FailedSubset, ReasonCode, CoverageStatus, ReadinessState.
+- domain service: Not applicable - CAP-008 names no domain service.
+- repository: `CrawlRepository`, `IngestionJobRepository`, `DocumentRepository`; `ParsingJobRepository` and `IndexingJobRepository` read-only at the handoff boundary.
+- persistence model: Immutable Crawl, parse and index attempt history. The durable handoff record is the succeeded IngestionJob with its valid `source_document` Evidence: `ingestion-interim-v1` requires that only a succeeded job with valid Evidence enters parsing, so the job record itself is the handoff rather than a separate queue message. Attempt, lease and replay records are implementation-owned technical infrastructure and are not product entities.
+- migration: Not applicable at this row - no product schema object is added. The `unique (parsing_job_id)` constraint that would narrow ParsingJob-to-IndexingJob is WITHHELD under OD-027 and MUST NOT be added.
+- transaction boundary: The durable handoff commits with the IngestionJob success, so a parsing consumer can never observe a succeeded job without its Evidence. Recovery commands each commit in their own transaction and never transition a terminal Crawl or a succeeded job backward.
+- concurrency: Each successful same-version job advances the Document exactly once, per CAP-008 Success Condition. Concurrent completion or replay cannot change an earlier snapshot: the Evaluation Input Snapshot is derived from the complete parse and Evidence manifest and is immutable once taken.
+- idempotency: Recovery is idempotent by its idempotency key and expected state version. A duplicate queue delivery re-enters the same job identity and produces no second Document advance, because the same-version advance-exactly-once rule is enforced on the Document rather than on the delivery.
+- background job: As MTX-030 for crawl and ingestion. Parsing and indexing jobs are WF-006 work owned by S-08.
+- queue: As MTX-030.
+- retry policy: Only the bounded WF-005, `parsing-interim-v1` or `indexing-interim-v1` retry and authorized recovery contracts apply, per CAP-008 Product Behavior. No hidden retry exists: CAP-008's Non-goal is automatic hidden retries without audit trace.
+- terminal failure: Exhausted or nonretryable parse or indexing, blocked readiness, missing external input, or denied recovery creates the enumerated state, reason, subset and events without hidden retry, dropped manifest member, stale Evaluation mutation, or unclassified persistence.
+- reconciliation: Every admitted Crawl and parse member and every created IndexingJob has an exact terminal or scheduled outcome. Readiness -- ready-full, ready-partial or blocked -- derives from the complete parse and Evidence manifest without waiting for the Retrieval projection, so a lagging projection never blocks or falsifies readiness.
+- domain events: Crawl, ingestion, parsing attempt and replay, failed-subset, readiness, Evaluation-transition and correlation telemetry per CAP-008. The crawl-side events are the MTX-030 set; parsing and indexing events belong to S-08.
+- event payload: As MTX-030, plus the exact failed subset, reason codes and attempt and replay counts.
+- event producer: `Workflows::Wf005` for the crawl and ingestion limbs; `Workflows::Wf006` for the parsing and indexing limbs, owned by S-08.
+- event consumers: Parsing consumes the durable handoff, not an event. S-16 read models consume progress state.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The recovery command, before mutation. A SecurityOperator reaches it only through an active Support Session naming the target and action.
+- permission checks: `crawl.recover` and `ingestion.recover`, per CAP-008 Security Implications that recovery actions require authorized roles. A SecurityOperator has no standing recovery authority; the Support Session is the grant.
+- tenant boundary: As MTX-030.
+- error contract: As MTX-030 for the crawl limb. Recovery denial produces the enumerated state and reason with no side effect, per PRULE-022: an unauthorized, stale or altered replay MUST have no side effect.
+- audit record: Failure lineage and recovery attempts are retained per CAP-008 Data Implications. Every recovery carries its named permission, scoped support or incident authority, expected state version, reason, idempotency key and audit envelope.
+- observability: Crawl, ingestion, parsing attempt and replay, failed-subset, readiness, Evaluation-transition and correlation telemetry.
+- retention: Failure lineage and recovery attempts retained; the ingestion dead-letter staging bound is 24 hours. Window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: every admitted Crawl and parse member and every created IndexingJob has an exact terminal or scheduled outcome. TYP-DATA: each successful same-version job advances the Document exactly once. TYP-DATA: readiness derives from the complete parse and Evidence manifest WITHOUT waiting for the Retrieval projection - a lagging projection changes no readiness value. TYP-DATA: concurrent completion or replay cannot change an earlier Evaluation Input Snapshot. TYP-DATA: exhausted or nonretryable parse or indexing, blocked readiness, missing external input and denied recovery each create the enumerated state, reason, subset and events. TYP-SEC: no hidden retry exists - every retry is one of the bounded WF-005, `parsing-interim-v1` or `indexing-interim-v1` schedules and appears in the audit trace. TYP-DATA: no dropped manifest member, no stale Evaluation mutation, no unclassified persistence. TYP-SEC: recovery requires its named permission and, for a SecurityOperator, an active Support Session naming target and action; an unauthorized, stale or altered replay has no side effect. TYP-DATA: worker crash before retrieval - the lease expires and the work is reclaimed with no Document, no Evidence and no accounted bytes. TYP-DATA: crash during retrieval - the attempt is retried under the fixed schedule and accounted bytes are released. TYP-DATA: crash after retrieval but before durable handoff - no succeeded IngestionJob exists, so parsing never observes the artifact and the fetch is retried. TYP-DATA: crash after durable handoff - the succeeded job and its Evidence are committed, redelivery re-enters the same job identity and advances the Document no more than once. TYP-DATA: duplicate queue delivery produces no duplicate downstream effect. TYP-DATA: expired lease and stale heartbeat each release the claim without advancing state. TYP-DATA: partial frontier progress survives restart; successful subsets are preserved. TYP-DATA: `ingestion.recover` outside the 24-hour staging bound is denied. WITHHELD under OD-027 and asserted ABSENT: any test asserting a second IndexingJob per ParsingJob, a `has_one` narrowing, or a `unique (parsing_job_id)` constraint.
+- rollout: The parsing handoff is consumed by S-08. The indexing multiplicity remains under `indexing-interim-v1` until OD-027 is ratified; completing the withheld limb requires that ratification and a controlled Volume I integration, not an implementation choice.
+
 ### MTX-026 - AC-WF-001 (WF: WF-001)
 
 - Slice: S-01
@@ -632,6 +723,51 @@ from what the sources produce.
 - retention: Source lineage and state transitions are persisted per CAP-006 Data Implications. Every terminal request and every policy version is immutable. The retention window is owned by 015 DATA_LIFECYCLE.md; this row states none.
 - test contracts: TYP-SEC: contraction by an OrganizationAdmin or MarketingOperator approves and activates atomically in its creation transaction without dual control. TYP-SEC: a TechnicalImplementer may propose a contraction but cannot approve or activate it. TYP-SEC: same-host expansion by a non-admin remains pending and requires a different OrganizationAdmin Account; the same Account cannot approve its own non-admin request. TYP-SEC: an OrganizationAdmin requester may approve its own expansion atomically. TYP-DATA: a cross-host request is denied and cannot be approved as a policy expansion; a new host requires a new Source through WF-003. TYP-DATA: HTTP or any non-HTTPS scheme is `unsupported_source_scheme` and creates no second same-host Source. TYP-OBS: the 24-hour expiry race - before, at exactly, and after `due_at_utc`; at exact equality expiry wins over approval, rejection and cancellation, emits `SourceScopeChangeExpired` once and changes no policy or Source state. TYP-DATA: approval and rejection each require the expected request state version and the expected active-policy version; either stale value rejects with no side effect. TYP-DATA: rejection requires a 20-2,000 character reason; the 19/20/2,000/2,001 boundaries are asserted. TYP-DATA: cancellation by the requester or an OrganizationAdmin from pending only, with expected state version and a 20-2,000 character reason. TYP-DATA: exact replay returns the stored request or decision; changed content under the same key is `idempotency_conflict`. TYP-DATA: every terminal request is immutable - a second decision on an approved, rejected, expired or canceled request changes nothing. TYP-DATA: approval activates exactly one new immutable policy version; rejection, expiry, cancellation, stale version and unauthorized approval each activate none. TYP-DATA: valid Source transitions - `Verified -> Active`, `Active -> Disabled`, `Disabled -> Active`, `Disabled -> Removed` - each succeed exactly once. TYP-DATA: invalid transitions are denied and audited - direct `Active -> Removed` and `Active -> Verified` are rejected. TYP-INT: activation of an unverified Source is denied. TYP-INT: disable and remove immediately apply the running-Crawl restriction - no new URL is scheduled, in-flight content is discarded from Evaluation input, already immutable history remains, and the affected running Crawls are recorded in the decision record. TYP-OBS: only a transaction dependency failure retries, at exactly 1 and 5 seconds, and each retry rechecks Organization, Project, Source and policy state. TYP-OBS: the 10-second attempt deadline; at equality timeout wins and rolls back. TYP-SEC: a Source in another Project or Organization cannot be scoped, decided or transitioned.
 - rollout: S-06 depends on S-05 for a verified Source and its materialized `source-scope-interim-v1` policy, and gates S-07: no Crawl may schedule a URL outside the active policy intersection. No predecessor behaviour exists.
+
+### MTX-030 - AC-WF-005 (WF: WF-005)
+
+- Slice: S-07
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-005-execute-crawl-and-ingestion
+- interface type: Application commands plus asynchronous execution: queue a Crawl, start it, cancel it, recover it, replay a dead-lettered IngestionJob, and activate a narrowing Crawl Policy. Execution is worker-driven under leases; the policy subflow is a separate synchronous command that shares no permission with crawl execution.
+- route: Not applicable - Volume I defines the commands, their exact permissions and their envelopes but no HTTP path, method or transport. Transport exposure is owned by API_CONTRACTS.md at the Volume II baseline. No inbound callback or crawler endpoint exists: every fetch is outbound and every result is committed by the worker that performed it, so an inbound endpoint would be an unauthenticated surface with no authority behind it.
+- request schema: Crawl request: Project ID, branch (root initial-assessment or reassessment child with its parent Evaluation and reservation), idempotency key, correlation ID. Cancel: Crawl ID, expected state version. Recover: Crawl ID, expected state version, reason, idempotency key. Ingestion replay: dead-lettered IngestionJob ID, expected state version, reason, idempotency key. Policy activation: Organization or Project scope, expected current policy version, complete proposed limits, parent and global safety versions.
+- response schema: The Crawl attempt with its state and version; for an accepted root start, exactly one new pending Evaluation reference; for a reassessment child, the existing parent Evaluation reference. Recovery returns the new linked Crawl attempt. Policy activation returns the new immutable policy version.
+- controller: Not applicable - no HTTP adapter is defined by Volume I; see route.
+- command: `Workflows::Wf005::QueueCrawl`, `Workflows::Wf005::StartCrawl` (service, at the Queued -> Running commit), `Workflows::Wf005::CancelCrawl`, `Workflows::Wf005::RecoverCrawl`, `Workflows::Wf005::ReplayIngestionJob`, `Workflows::Wf005::ActivateCrawlPolicy`. Worker paths: `Workflows::Wf005::ExecuteFetchAttempt`, `Workflows::Wf005::CommitFetchResult`, `Workflows::Wf005::CompleteCrawlAtTerminalCheckpoint`.
+- command input: As request_schema. Queueing pins the request-time scope, crawl, entitlement and policy versions onto the Crawl.
+- command output: A queued Crawl that reserves no usage and creates no Evaluation; then, at the accepted start commit only, for a root Crawl exactly one pending Evaluation keyed by `(crawl_id, evaluation_kind=initial_assessment)`.
+- actor: Organization Administrator or Marketing Operator holding `crawl.trigger`; the scheduler service identity for configured Project schedules. Cancellation requires `crawl.cancel`. Terminal recovery requires `crawl.recover` or `ingestion.recover`, including a SecurityOperator only through an active Support Session naming the target and action. Only the ingestion services write jobs and Evidence.
+- organization scope: The Project's Organization. The Project MUST be active and at least one Source MUST be active.
+- aggregate: Crawl as the execution root; Evaluation, Document and IngestionJob as separate roots; CrawlPolicy as an immutable versioned record.
+- aggregate boundary: The accepted root start commit spans Crawl and Evaluation because WF-005 requires the pending Evaluation to be created in that same commit. Fetch results commit per URL against the Crawl root. Document and IngestionJob are separate roots created per retained successful fetch. This is a bounded multi-root specialisation of the EM-III-011 default, required by the workflow rather than chosen.
+- value objects: CrawlId, CrawlState, CoverageStatus, CompletionReason, CanonicalUrl, UrlDepth, AttemptNumber, AccountedResponseBytes, LimitProbeBytes, PolicySnapshotVersion, ScopeSnapshotVersion, EntitlementReservationId, LeaseToken, RecoveryOfId, ReplayGeneration.
+- domain service: Not applicable - WF-005 names no domain service. The dequeue order, byte formula, coverage classification and terminal precedence are pure functions applied by the worker; the scope predicate is owned by S-06 and consumed here.
+- repository: `CrawlRepository`, `EvaluationRepository`, `DocumentRepository`, `IngestionJobRepository`, `CrawlPolicyRepository`, `SourceScopePolicyRepository` read-only, `EntitlementReservationRepository`.
+- persistence model: Canonical `crawls`, `documents`, `ingestion_jobs`, `evaluations` and `crawl_policies` per schemas/POSTGRESQL_SCHEMA.md, each carrying `organization_id`, `project_id`, state and state version. Technical execution records -- the crawl frontier queue, the per-URL attempt record, the worker lease and the byte reservation -- are implementation-owned infrastructure and MUST NOT be promoted to product entities: Volume I names no frontier, lease or reservation entity, and DM-REQ-001 does not define one.
+- migration: Not applicable at this row - the canonical schema owns the product tables. Technical execution tables are implementation-owned and are declared by S-00's migration harness rather than by a product migration.
+- transaction boundary: Queue: one transaction creating the queued Crawl with its pinned versions, reserving no usage and creating no Evaluation. Start: one transaction re-resolving policy, atomically obtaining the `crawl.start` Decision and reservation for a root or validating the parent `reassessment.start` reservation, creating exactly one pending Evaluation for a root only, and transitioning Queued -> Running. Fetch: the network call is outside every transaction; only its recorded outcome is committed, per URL. Terminal checkpoint: one serialized transaction deriving Crawl state, coverage status and the single completion reason, and committing or releasing the root reservation exactly once. No external call sits inside a database transaction.
+- concurrency: Byte reservation is the concurrency control for the run-wide budget: before body reading the scheduler reserves up to the per-URL maximum from the remaining run-wide budget in canonical dequeue order, concurrent reservations MUST NOT sum above the run-wide maximum, unused bytes are released in the same order, and an attempt cannot add accounted bytes beyond its reservation. Per-host request rate is the count of request starts in the rolling half-open interval `(start_time - 1 second, start_time]`; a start that would make the count exceed 2 is delayed. The terminal checkpoint is serialized so concurrent completion cannot produce two completion reasons. Under OD-018 the single-initial-orchestration guard is re-checked at the Queued -> Running commit, and concurrent root requests resolve so exactly one initiates the initial Evaluation and every other receives that result.
+- idempotency: Queue and recovery are idempotent by their idempotency key; a replayed root command returns its stored result rather than a rejection, which OD-018 states expressly. The pending Evaluation is keyed by `(crawl_id, evaluation_kind=initial_assessment)`: exact replay returns it and concurrent altered creation is `evaluation_creation_conflict`. Document and IngestionJob creation is create-or-replay per retained successful fetch, keyed by the canonical URL within the Crawl. The root reservation is committed or released exactly once at the listed Crawl durable point.
+- background job: `CrawlExecutionWorker` per running Crawl, claiming frontier work under a lease; `IngestionJobWorker` per queued IngestionJob. `CrawlWallClockJob` enforces the 60-minute ceiling: at 60 elapsed minutes no new request starts and incomplete requests are canceled. Wall-clock duration starts at the atomic `Crawl.Queued -> Crawl.Running` transition, not at queueing.
+- queue: The crawl execution queue and the ingestion queue, per the Volume I Background Processing action registry. Queue identity and worker topology are owned by BACKGROUND_PROCESSING.md; this row does not rename them.
+- retry policy: Per-fetch and ingestion retry follow their separate fixed schedules, per WF-005 Recovery Path. Retryable: exhausted timeout, `408`, `429`, `5xx`, and transient DNS, TLS and connection failure, each within the per-URL bounds. Nonretryable: `destination_address_prohibited`, robots denial, scope denial, redirect-limit exhaustion, over-limit body, unsupported media type. A retry performs a new full destination resolution and check; it never reuses the prior attempt's resolution.
+- terminal failure: Crawl failed when there are zero valid Documents, every active Source root fails, a nonrecoverable policy or integrity error occurs before useful output, or run-level recovery is exhausted; the existing initial or reassessment Evaluation then goes through WF-006's exact blocked-input terminal path. A current-policy or Entitlement Block before start transitions the queued Crawl to failed with its exact reason and no fetch, provider side effect, reservation or Evaluation. No terminal Crawl is moved back to running.
+- reconciliation: A failed Crawl recovery creates a new linked `Crawl.Queued` attempt rather than transitioning the old record, and for a root recovery creates a new linked pending Evaluation only at its accepted start. `ingestion.recover` replays only a retained dead-letter job under its 24-hour staging bound. Neither moves a terminal Crawl or a succeeded job backward. Successful recovery completion carries `recovery_of_id` and the replay generation as the recovery-complete signal, which is what links the new attempt to the failure it recovers.
+- domain events: `CrawlPolicyActivated`, `CrawlQueued`, `IngestionQueued`, `EvaluationPending` (accepted root start only), `CrawlStarted`, `CrawlSoftLimitApproaching`, `CrawlLimitReached`, `CrawlCompleted`, `CrawlFailed`, `CrawlCanceled`, `DocumentDiscovered`, `IngestionStarted`, `DocumentIngested`, `IngestionSucceeded`, `IngestionFailed`, `IngestionDeadLettered`, `IngestionReplayRequested`. `CrawlSoftLimitApproaching` fires once per dimension and run; `CrawlLimitReached` fires exactly once per dimension and run.
+- event payload: The canonical envelope with the real `organization_id`, plus Project, Source and Crawl references, the attempt or replay identity, all policy versions and effective limits, and for limit events the dimension, configured value, observed value and affected Source and URL counts. Raw resolved addresses are restricted telemetry and MUST NOT appear in any event payload or customer output.
+- event producer: `Workflows::Wf005` is the sole producer of all seventeen events. Queue depth, worker lease and scheduler timing are technical telemetry and MUST NOT be emitted as domain events.
+- event consumers: Not applicable at this row - WF-005 names no consumer. Parsing consumes succeeded IngestionJobs through the durable handoff in MTX-008, not by reacting to `IngestionSucceeded`.
+- serializer: Not applicable - no transport exposure is defined by Volume I; see route.
+- authorization entry point: The application command, before mutation, and again at the Queued -> Running commit where policy, entitlement and the OD-018 guard are re-resolved. An authorization or scope result established at queue time is never trusted at execution time: WF-005 requires re-resolution immediately before the running transition, and every URL is validated against the pinned AND current restrictive scope.
+- permission checks: `crawl.trigger` for a manual Crawl, held by an OrganizationAdmin or MarketingOperator; the scheduler service identity for configured Project schedules. `crawl.cancel` for cancellation. `crawl.recover` and `ingestion.recover` for terminal recovery, a SecurityOperator only through an active Support Session naming the target and action. `policy.crawl.manage` for policy narrowing, at Organization scope for an OrganizationAdmin and Project scope for a MarketingOperator; it implies no crawl-execution permission. Only the ingestion services write jobs and Evidence.
+- tenant boundary: The Crawl belongs to the Project's Organization, and every fetch target must pass the S-06 scope predicate against that Source's verified policy. A worker claims work only within the Crawl it leases. Raw resolved addresses never leave restricted telemetry.
+- error contract: Request rejection: `reassessment_required` (a promoted Evaluation/Issue-set/ScoreSnapshot pair exists) creating no Crawl, Entitlement Decision, reservation or Evaluation; `F1-DOMAIN-409 / initial_evaluation_already_running` under the OD-018 guard, severity `warning`, `retryable=false`, recovery `await_running_initial_evaluation_or_submit_new_command`, creating none of those either; `evaluation_creation_conflict` on concurrent altered creation. Pre-execution gate: a current-policy or Entitlement Block transitions the queued Crawl to failed with its exact reason and no side effect. Transient execution: exhausted timeout, `408`, `429`, `5xx`, DNS, TLS and connection failure. Terminal execution: `destination_address_prohibited` (nonretryable), `robots_unavailable_fail_closed`, `sitemap_xml_unsafe`, `sitemap_xml_limit`, `sitemap_unavailable`, `content_fetch_failed`, redirect-limit exhaustion, over-limit body. Conflict: stale expected state version, worker lease conflict.
+- audit record: Crawl, fetch, Document, IngestionJob, Evidence, attempt and replay identities; command and correlation IDs; all policy versions and effective limits; body count and digest validation; per-Source root status; retries; accepted pages and bytes; coverage and completion reason; every limit observation; staging deletion; entitlement outcome; recovery-complete linkage; and terminal state, per WF-005 Audit and Observability.
+- observability: `CrawlQueued`, `CrawlStarted`, soft and hard limit events, retry, per-Source coverage, `CrawlCompleted`, `CrawlFailed` and `CrawlCanceled` with exact policy versions and counts, per CAP-007. Saturation is observable through the soft-limit events, which fire when the observed or reserved value first equals the soft limit.
+- retention: Crawl attempts and execution metadata are persisted per CAP-007 Data Implications. `ingestion.recover` operates under a 24-hour staging bound, after which the retained dead-letter body is no longer replayable. The retention window is owned by 015 DATA_LIFECYCLE.md; this row states none.
+- test contracts: TYP-SEC: `crawl.trigger` absent denies a manual Crawl; the scheduler service identity may start only a configured Project schedule; `policy.crawl.manage` implies no crawl-execution permission. TYP-SEC: recovery requires `crawl.recover` or `ingestion.recover`; a SecurityOperator without an active Support Session naming target and action is denied. TYP-DATA: queueing reserves no usage and creates no Evaluation. TYP-DATA: an accepted root start atomically creates exactly one pending Evaluation keyed by `(crawl_id, evaluation_kind=initial_assessment)`; a reassessment child creates none and reuses its running parent. TYP-DATA: `reassessment_required` when a promoted pair exists, creating no Crawl, reservation or Evaluation. TYP-DATA: the OD-018 guard - a second root request while an initial Evaluation is pending or running returns `initial_evaluation_already_running` with no Crawl, reservation or Evaluation; concurrent root requests resolve so exactly one initiates; a replayed root command returns its stored result rather than a rejection; a root `crawl.recover` after a FAILED initial Evaluation remains admissible. TYP-DATA: the guard is re-checked at the Queued -> Running commit, not only at queue time. TYP-SEC: destination safety - a private, loopback, link-local, CGNAT, multicast, reserved, broadcast or `169.254.169.254` answer is `destination_address_prohibited` and nonretryable; an empty answer likewise; mixed public and prohibited answers fail closed. TYP-SEC: IPv6 unspecified, loopback, IPv4-mapped after conversion, unique-local, link-local, multicast and non-global ranges are each prohibited. TYP-SEC: DNS rebinding - the connector pins the first sorted allowed address, sends the canonical host as HTTP Host and TLS SNI, verifies the transport peer equals the pinned address, and does not re-resolve inside the attempt. TYP-SEC: every retry and every redirect performs a NEW full resolution and check; a redirect never inherits the prior host's decision. TYP-SEC: raw resolved addresses never appear in Evidence or customer output. TYP-SEC: robots - `F1DiscoverabilityBot` exact token matched ASCII-case-insensitively, falling back to `*`; longest matching rule wins; allow wins equal-length ties. TYP-SEC: robots `404`/`410` means no restrictions; `401`/`403`, a body over 1 MiB, or exhausted timeout/`5xx` retries denies ALL content fetching for that host for the run and records `robots_unavailable_fail_closed`, which makes that Source root failed and coverage partial. TYP-DATA: a positive robots crawl-delay makes the rate more restrictive and never increases it. TYP-DATA: robots-disallowed URLs are skipped, excluded from the coverage denominator and Evidence, and are not fetch failures. TYP-SEC: redirects are rechecked against robots AND the S-06 scope predicate before following; an out-of-scope redirect is not followed. TYP-DATA: redirect limits 5 soft / 10 hard; an eleventh redirect fails that URL without retaining its body as Evidence; redirects do not add crawl depth and do not count as accepted pages. TYP-DATA: the byte formula - `accounted_response_bytes_i = max(received_after_transfer_coding, expanded_after_content_decoding)`; run-wide is the sum in canonical dequeue order. TYP-DATA: the one-byte sentinel probe - EOF at the maximum is allowed; observing one sentinel byte fails the URL as over-limit; `limit_probe_bytes` are recorded separately, never parsed or retained, and enter neither accounted counter. TYP-DATA: reservation-safe concurrent accounting - concurrent reservations never sum above the run-wide maximum, unused bytes release in canonical order, and an attempt cannot exceed its reservation. TYP-DATA: every `crawl-policy-v1` bound - accepted pages 8,000/10,000; discovered queue 16,000/20,000; depth 8/10; run bytes 1,000/1,250 MiB; per-URL body 8/10 MiB; wall clock 45/60 min; redirects 5/10; rate 1/2 per second per host; concurrency 2/4 per host; per-request 10/15 s; sitemaps 40/50; sitemap-index depth 2/3. TYP-OBS: a soft event fires once per dimension and run when the observed or reserved value first equals the soft limit; a hard event fires before the action would exceed the maximum and the exceeding page, URL or bytes are not accepted; `CrawlLimitReached` fires exactly once per dimension and run with dimension, configured value, observed value and affected counts, and sets `coverage_status=partial`, `completion_reason=limit_reached`. TYP-DATA: at 60 elapsed minutes no new request starts and incomplete requests are canceled; wall clock starts at the Queued -> Running transition. TYP-DATA: per-host rate - the rolling half-open interval `(start-1s, start]`, a start exceeding 2 is delayed; 2 starts/second and 4 concurrent are nonexceedable ceilings, not targets. TYP-DATA: sitemap XML safety - DTD, external and internal general entities, parameter entities, XInclude, external schemas and network/file resolution are all disabled; any prohibited construct is `sitemap_xml_unsafe`. TYP-DATA: streaming parse stops before the 65th nesting level, the 50,001st start element, or 10 MiB of decoded character data, recording `sitemap_xml_limit`. TYP-DATA: `sitemap_absent` when robots declares none and the default returns `404`/`410` - covered, coverage not reduced. TYP-DATA: `sitemap_unavailable` when a declared sitemap exists or the default returns non-`404`/`410` and no candidate succeeds - coverage partial. TYP-DATA: coverage classification is exhaustive - an accepted page requires a distinct canonical in-scope URL, terminal `2xx`, within the response maximum, media type `text/html` or `application/xhtml+xml`, and a valid Document; a terminal `404`/`410` creating a valid body-free `crawl_observation` with reason `content_absent` is covered. TYP-DATA: a Source root succeeds only when its depth-zero URL ultimately creates a valid Document after in-scope redirects; every other root outcome is a Source-root failure even if another URL for that Source succeeds. TYP-DATA: `completion_reason=partial_source_failure` for any Source-root failure, `content_fetch_failed` or `sitemap_unavailable` on a completed run with no limit hit; `limit_reached` takes higher precedence. TYP-DATA: no terminal Crawl is moved back to running. TYP-DATA: `crawl.recover` creates a NEW linked `Crawl.Queued` attempt and does not transition the old record; a root recovery creates a new linked pending Evaluation only at its accepted start. TYP-DATA: `ingestion.recover` replays only a retained dead-letter job within its 24-hour staging bound. TYP-DATA: recovery completion carries `recovery_of_id` and the replay generation. TYP-DATA: IngestionJob `Queued -> Running -> Succeeded|Failed`; retryable `Failed -> Queued`; exhausted or nonretryable `Failed -> DeadLetter`; authorized `DeadLetter -> Queued`. TYP-DATA: `Document.Discovered -> Document.Ingested` only with valid Evidence. TYP-SEC: a new restriction affects queued work immediately and running work at the next checkpoint. TYP-SEC: policy activation must be more restrictive - every value at or below the resolved parent and global bounds, soft never above hard; a stale, broader, incomplete or unauthorized version changes nothing. TYP-OBS: queue depth, lease and scheduler timing are technical telemetry and are asserted absent from the domain event stream.
+- rollout: S-07 depends on S-06 for the active scope policy and on S-05 for a verified Source. It gates S-08 (parsing) and S-24 (incident recovery). No predecessor behaviour exists.
 
 ### MTX-051 - AC-SM-008 (SM: Verification Evidence)
 
@@ -925,6 +1061,142 @@ from what the sources produce.
 - test contracts: TYP-DATA: each allowed transition succeeds exactly once - `Verified -> Active`, `Active -> Disabled`, `Disabled -> Active`, `Disabled -> Removed`. TYP-DATA: every unlisted transition is denied and audited - direct `Active -> Removed`, `Active -> Verified`, `Proposed -> Active`, `Removed -> Active`, and any transition from `Removed`. TYP-DATA: a stale Source state version is denied and audited. TYP-INT: disable and remove immediately apply the exact running-Crawl restriction and discard behaviour - no new URL scheduled, in-flight content discarded from Evaluation input, immutable history retained. TYP-DATA: removal is allowed only from disabled; re-registration never attaches to the removed lineage. TYP-SEC: a TechnicalImplementer cannot mutate lifecycle.
 - rollout: As MTX-029.
 
+### MTX-058 - AC-PRULE-007 (PRULE: PRULE-007)
+
+- Slice: S-07
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#prule-007-crawl-command-and-reservation-contract
+- interface type: Command and reservation rule enforced across the WF-005 crawl commands. PRULE-007 governs CAP-007 and applies to WF-005 only.
+- route: Not applicable - PRULE-007 is a rule, not an interface.
+- request schema: Not applicable - constrains the MTX-030 schema.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `QueueCrawl`, `StartCrawl`, `CancelCrawl` and `RecoverCrawl`. This row adds no command.
+- command input: Not applicable - constrains the MTX-030 input.
+- command output: Not applicable - constrains the MTX-030 output.
+- actor: As MTX-030 per command.
+- organization scope: The Project's Organization.
+- aggregate: Crawl and Evaluation.
+- aggregate boundary: The rule's atomicity clause is what makes the root start a two-root commit: an accepted root start atomically creates one pending initial Evaluation.
+- value objects: EntitlementReservationId, EvaluationKind, CrawlState.
+- domain service: Not applicable - enforced in the application commands.
+- repository: `CrawlRepository`, `EvaluationRepository`, `EntitlementReservationRepository`.
+- persistence model: Not applicable - PRULE-007 introduces no persistent concept; it constrains the records MTX-030 writes.
+- migration: Not applicable - no schema object.
+- transaction boundary: The rule's own words: queueing may persist an authorized no-usage Crawl, but current policy AND an allowed root or parent entitlement reservation are mandatory BEFORE `Queued -> Running` or any fetch or provider side effect. The gate is at the running transition, not at queueing.
+- concurrency: An accepted root start atomically creates exactly one pending initial Evaluation; concurrent starts cannot create two.
+- idempotency: The named permission and command replay contract: exact replay returns the stored result for every command.
+- background job: Not applicable - the rule constrains commands, not workers.
+- queue: Not applicable - no queue of its own.
+- retry policy: Not applicable - the rule defines no retry; the commands it constrains carry their own.
+- terminal failure: An existing promoted pair requires WF-011 and creates no root Crawl and no Evaluation.
+- reconciliation: Not applicable - no partial state.
+- domain events: Not applicable - PRULE-007 emits no event of its own; it gates `CrawlQueued`, `CrawlStarted` and `EvaluationPending`.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: Each command, before mutation, and again at the running transition.
+- permission checks: Each command uses its named permission: `crawl.trigger`, `crawl.cancel`, `crawl.recover`. The rule's point is that the permission is named per command rather than a single crawl permission.
+- tenant boundary: As MTX-030.
+- error contract: `reassessment_required` before queue, Entitlement or Evaluation creation. A policy or Entitlement Block before start fails the queued Crawl with no side effect.
+- audit record: Command and correlation IDs, policy versions, entitlement outcome and reservation identity.
+- observability: `CrawlQueued`, `CrawlStarted` and `EvaluationPending` mark the gated transitions.
+- retention: Not applicable - PRULE-007 defines no retention obligation.
+- test contracts: TYP-DATA: queueing persists an authorized no-usage Crawl - no reservation, no Evaluation, no fetch. TYP-DATA: current policy AND an allowed root or parent reservation are both mandatory before `Queued -> Running`; missing either produces no fetch or provider side effect. TYP-DATA: an accepted root start atomically creates exactly one pending initial Evaluation. TYP-DATA: an existing promoted pair requires WF-011 and creates no root Crawl or Evaluation. TYP-SEC: each command uses its own named permission; holding `crawl.trigger` grants neither cancel nor recover. TYP-DATA: exact replay returns the stored result for each command.
+- rollout: As MTX-030.
+
+### MTX-059 - AC-PRULE-008 (PRULE: PRULE-008)
+
+- Slice: S-07
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-008-crawl-policy-bounds
+- interface type: Numeric bound rule enforced throughout crawl execution. PRULE-008 governs CAP-007 and CAP-008 and applies to WF-005. Its decision dependency OD-005 is resolved.
+- route: Not applicable - PRULE-008 is a rule, not an interface.
+- request schema: Not applicable - the rule constrains execution, not a request.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced by the crawl scheduler and worker within `Workflows::Wf005`. This row adds no command.
+- command input: Not applicable - constrains execution.
+- command output: Not applicable - constrains execution.
+- actor: Not applicable - the bounds are actor-independent; they constrain the run, not a principal.
+- organization scope: The Crawl's Organization; bounds resolve from the Organization or Project policy version pinned on the Crawl.
+- aggregate: Crawl.
+- aggregate boundary: The bounds constrain the Crawl root and its per-URL attempts; they cross no boundary.
+- value objects: AccountedResponseBytes, LimitProbeBytes, ByteReservation, SoftLimit, HardLimit, DimensionName.
+- domain service: Not applicable - the byte formula and limit precedence are pure functions.
+- repository: `CrawlPolicyRepository` read-only; the byte reservation is an implementation-owned technical record.
+- persistence model: Not applicable as a product concept - the byte reservation and limit records are implementation-owned technical infrastructure. The limit observations recorded on the Crawl are product data.
+- migration: Not applicable - no product schema object.
+- transaction boundary: Reservation is taken before body reading and released in canonical order; accounting commits with the attempt result.
+- concurrency: Reservation-safe concurrent accounting is the rule's own term: concurrent reservations MUST NOT sum above the run-wide maximum, and an attempt cannot add accounted bytes beyond its reservation. This is what makes the run-wide byte bound true under concurrency rather than approximately true.
+- idempotency: A retried attempt takes a new reservation; accounting applies to every content, robots and sitemap attempt including retries and bodies later rejected, so a retry consumes budget rather than being free.
+- background job: Not applicable - enforced inside the worker, not a separate job. The 60-minute wall-clock ceiling is enforced by `CrawlWallClockJob` in MTX-030.
+- queue: Not applicable - no queue of its own.
+- retry policy: Not applicable - the rule constrains retries rather than defining them; every retry is accounted.
+- terminal failure: At a capacity hard limit the exceeding page, URL or accounted bytes are not accepted; at any other hard limit, stop scheduling affected work, preserve successful artifacts, record the dimension, configured value, observed value and affected Source and URL counts, set `coverage_status=partial` and `completion_reason=limit_reached`, and emit `CrawlLimitReached` exactly once per dimension and run.
+- reconciliation: Unused reserved bytes are released in the same canonical order, so an abandoned attempt returns its budget rather than stranding it.
+- domain events: `CrawlSoftLimitApproaching` once per dimension and run; `CrawlLimitReached` exactly once per dimension and run.
+- event payload: Dimension, configured value, observed value, affected Source and URL counts.
+- event producer: `Workflows::Wf005`.
+- event consumers: Not applicable - no consumer is named.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: Not applicable - the bounds are not an authorization check. Policy activation authority is MTX-030's `policy.crawl.manage`.
+- permission checks: Not applicable - PRULE-008 adds no permission. Narrowing the bounds requires `policy.crawl.manage` and may only be more restrictive.
+- tenant boundary: Bounds resolve per Organization or Project policy version; one tenant's run cannot consume another's budget because accounting is per run.
+- error contract: A URL deeper than 10, a response with a sentinel beyond 10 MiB on either byte path, a request exceeding 15 seconds, a fourth-level sitemap index, a fifty-first sitemap, or an eleventh redirect fails that URL without retaining its body as valid Evidence.
+- audit record: Every limit observation with its dimension, configured value, observed value and affected counts; `limit_probe_bytes` recorded separately as detection telemetry.
+- observability: Soft-limit crossing emits `CrawlSoftLimitApproaching` once per dimension and run, which is the saturation signal.
+- retention: Not applicable - PRULE-008 defines no retention obligation.
+- test contracts: TYP-DATA: every numeric bound in `crawl-policy-v1` at its soft and hard values, asserted at the boundary and one either side. TYP-DATA: the per-attempt byte formula uses `max(received_after_transfer_coding, expanded_after_content_decoding)` - a highly compressed body is accounted at its expanded size. TYP-DATA: run-wide bytes are the sum in canonical dequeue and attempt order. TYP-DATA: the one-byte limit probe - EOF at the maximum is allowed; one sentinel byte fails the URL as over-limit; `limit_probe_bytes` never enter either accounted counter and are never parsed or retained. TYP-DATA: reservation-safe concurrent accounting - N concurrent attempts never sum above the run-wide maximum; an attempt cannot exceed its reservation; unused bytes release in canonical order. TYP-DATA: accounting applies to content, robots and sitemap attempts including retries and bodies later rejected. TYP-DATA: canonical retained-work order - root, sitemap, breadth-first. TYP-OBS: a soft event fires when the observed OR RESERVED value first equals the soft limit, once per dimension and run. TYP-OBS: a capacity hard-limit event fires BEFORE the action would exceed the maximum and the exceeding item is not accepted. TYP-DATA: at any other hard limit, scheduling stops for affected work, successful artifacts are preserved, and `coverage_status=partial` with `completion_reason=limit_reached`. TYP-OBS: `CrawlLimitReached` fires exactly once per dimension and run. TYP-DATA: limits are inclusive maxima; `limit_probe_bytes` are not accepted or accounted capacity.
+- rollout: As MTX-030.
+
+### MTX-060 - AC-PRULE-009 (PRULE: PRULE-009)
+
+- Slice: S-07
+- Status: Complete; limb withheld
+- Withheld limb: OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#prule-009-partial-outcome-preservation
+- interface type: Partial-outcome and progression rule spanning crawl, parsing and incident recovery. PRULE-009 governs CAP-008 and applies to WF-005, WF-006 and WF-017. This row owns its WF-005 limb; the WF-006 parsing limb is owned by S-08 and the WF-017 incident limb by S-24.
+- route: Not applicable - PRULE-009 is a rule, not an interface.
+- request schema: Not applicable - constrains outcomes.
+- response schema: Not applicable - constrains outcomes.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf005` at the terminal checkpoint and in the Document advance. This row adds no command.
+- command input: Not applicable - constrains outcomes.
+- command output: Not applicable - constrains outcomes.
+- actor: Not applicable - the rule constrains outcomes, not principals.
+- organization scope: The Crawl's Organization.
+- aggregate: Crawl, Document, IngestionJob; ParsingJob and IndexingJob at the boundary only.
+- aggregate boundary: The rule's 'exactly once' clause binds the Document root: a successful same-version job advances the Document exactly once, so the advance is guarded on the Document rather than on the job delivery.
+- value objects: CoverageStatus, CompletionReason, ReadinessState, FailedSubset, ReasonCode.
+- domain service: Not applicable - coverage and readiness derivation are pure functions over the manifest.
+- repository: `CrawlRepository`, `DocumentRepository`, `IngestionJobRepository`.
+- persistence model: Every failed Source, URL, Document, ParsingJob, count and reason is retained. The WITHHELD limb: no `unique (parsing_job_id)` constraint and no `has_one` narrowing may be added to the ParsingJob-to-IndexingJob relation while OD-027 is pending; `indexing-interim-v1` pins both index keys.
+- migration: The `unique (parsing_job_id)` constraint is WITHHELD under OD-027 and MUST NOT be migrated. No other schema object is added by this row.
+- transaction boundary: The terminal checkpoint is serialized; coverage and completion derive there. The Document advance commits with its job success.
+- concurrency: Transition successful same-version Documents ingested-to-parsed and parsed-to-indexed exactly once. Concurrent same-version jobs cannot advance the Document twice.
+- idempotency: The exactly-once advance is the rule's idempotency guarantee, enforced on the Document by its version rather than by delivery deduplication.
+- background job: Not applicable - the rule constrains job outcomes, not a job of its own.
+- queue: Not applicable - no queue of its own.
+- retry policy: Not applicable - the rule constrains retries rather than defining them.
+- terminal failure: Partial outcomes preserve successful subsets. Blocked or partial input MUST NOT be presented as full, and Indexing MUST NOT gate Evaluation.
+- reconciliation: Coverage and completion derive exactly from the retained manifest, so a partial run is auditable rather than approximated.
+- domain events: Not applicable - PRULE-009 emits no event of its own; it constrains the coverage, completion and readiness values carried by the MTX-030 events.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: Not applicable - the rule is not an authorization check.
+- permission checks: Not applicable - PRULE-009 adds no permission.
+- tenant boundary: As MTX-030.
+- error contract: Every failed Source, URL, Document, ParsingJob, count and reason is retained rather than collapsed into a single failure.
+- audit record: The complete failed subset with counts and reasons; the derived coverage and completion; the readiness state.
+- observability: Failed-subset, readiness and Evaluation-transition telemetry.
+- retention: Failure lineage retained; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: partial Crawl outcomes preserve successful subsets - a run with some failed roots still yields its valid Documents. TYP-DATA: every failed Source, URL, Document, ParsingJob, count and reason is retained and individually addressable. TYP-DATA: a successful same-version job advances the Document ingested-to-parsed exactly once; a duplicate delivery advances nothing further. TYP-DATA: coverage and completion derive exactly from the retained manifest. TYP-DATA: partial or blocked input is never presented as full. TYP-DATA: Indexing does not gate Evaluation - a Document with no IndexingJob outcome does not block Evaluation readiness. WITHHELD under OD-027 and asserted ABSENT: any test asserting a second IndexingJob per ParsingJob, a `has_one` narrowing, or a `unique (parsing_job_id)` constraint. The parsed-to-indexed exactly-once clause is contracted for the interim keys that `indexing-interim-v1` pins; the final multiplicity is not implemented and MUST NOT be inferred.
+- rollout: The WF-006 parsing limb lands with S-08 and the WF-017 incident limb with S-24. The OD-027 limb requires ratification and controlled Volume I integration before it can be completed.
+
 ### MTX-070 - AC-PRULE-019 (PRULE: PRULE-019)
 
 - Slice: S-02
@@ -1055,12 +1327,57 @@ from what the sources produce.
 - test contracts: TYP-DATA: normalization order - host lowercase IDNA ASCII without trailing dot; default port removed; path dot segments and unreserved percent encoding normalized; fragment and user information prohibited; query pairs retained and sorted by decoded key then value while preserving duplicates. TYP-DATA: path prefix matches exactly or at a `/` segment boundary - `/shop` matches `/shop` and `/shop/item` but NOT `/shopping`. TYP-DATA: exclusion wins over inclusion - a URL matching both an include and an exclude prefix is rejected. TYP-DATA: query handling - `retain_all` retains every pair; an explicit allowlist retains only listed keys. TYP-SEC: a subdomain is out of scope unless separately present in the verified policy. TYP-SEC: an alternate apex or `www` host is out of scope unless separately present. TYP-SEC: a non-HTTPS scheme and a nondefault port are each out of scope. TYP-SEC: an out-of-scope redirect is not followed and the target does not become Evidence. TYP-DATA: a URL must match EVERY active policy intersection - passing one policy and failing another is rejected. TYP-DATA: every out-of-bound discovered URL is rejected or quarantined with a reason and never enters valid Evidence or evaluation input. TYP-DATA: the predicate is pure - the same URL under the same policy version always yields the same decision.
 - rollout: The predicate is defined here and applied by S-07 at crawl time against the pinned policy version. S-07 does not redefine it.
 
+### MTX-073 - AC-PRULE-022 (PRULE: PRULE-022)
+
+- Slice: S-07,S-21
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-022-recovery-authority-envelope
+- interface type: Authority envelope rule for every recovery action. PRULE-022 governs CAP-008 and CAP-023 and applies to WF-005, WF-006 and WF-017. This row owns its WF-005 limb; the WF-006 dead-letter replay limb is owned by S-08 and the WF-017 incident limb by S-24.
+- route: Not applicable - PRULE-022 is a rule, not an interface.
+- request schema: Not applicable - constrains the MTX-030 recovery schema.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `RecoverCrawl` and `ReplayIngestionJob`. This row adds no command.
+- command input: The mandatory envelope: named permission, scoped support or incident authority, expected state version, reason, idempotency key, audit envelope.
+- command output: The linked recovery outcome, or a denial with no side effect.
+- actor: Organization Administrator or Marketing Operator; a SecurityOperator only through an active Support Session naming the target and action.
+- organization scope: The target record's Organization.
+- aggregate: Crawl or IngestionJob as the recovery target.
+- aggregate boundary: Recovery creates a new linked attempt rather than mutating the terminal record, so the old root is never reopened.
+- value objects: RecoveryReason, RecoveryOfId, ReplayGeneration, SupportSessionId, ExpectedStateVersion.
+- domain service: Not applicable - enforced in the recovery commands.
+- repository: `CrawlRepository`, `IngestionJobRepository`, `SupportSessionRepository` read-only.
+- persistence model: Not applicable - PRULE-022 introduces no persistent concept; it constrains the recovery records MTX-030 writes.
+- migration: Not applicable - no schema object.
+- transaction boundary: The complete envelope is validated before any mutation, so an unauthorized, stale or altered replay commits nothing.
+- concurrency: The expected state version is mandatory: a stale replay is rejected without side effect, so two operators cannot both recover the same terminal record.
+- idempotency: The idempotency key is part of the mandatory envelope; a repeated recovery command returns its stored result rather than creating a second linked attempt.
+- background job: Not applicable - recovery is a synchronous command; the attempt it creates is queued work.
+- queue: Not applicable - no queue of its own.
+- retry policy: Not applicable - a denied recovery is terminal for that command and is never auto-retried.
+- terminal failure: An unauthorized, stale or altered replay MUST have no side effect. This is the rule's whole point and is asserted rather than described.
+- reconciliation: The audit envelope is what makes recovery reconcilable after the fact: every action carries its permission, authority, version, reason, key and envelope.
+- domain events: Not applicable - PRULE-022 emits no event of its own; it gates `IngestionReplayRequested` and the recovery-complete signal.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The recovery command, before mutation. A SecurityOperator's authority comes from the Support Session, not from the role.
+- permission checks: The named permission per action - `crawl.recover`, `ingestion.recover` - plus, for a SecurityOperator, an active Support Session naming the exact target and action. Scope is per action rather than a general recovery grant.
+- tenant boundary: The Support Session names the target, so a session for one Organization can never authorize recovery in another.
+- error contract: Unauthorized, stale or altered replay: denied with no side effect. Each denial is enumerated and audited.
+- audit record: The full envelope is the audit record: permission, authority, expected version, reason, idempotency key and correlation.
+- observability: Recovery attempts and their outcomes, with the authority that permitted them.
+- retention: Recovery attempts retained per CAP-008; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-SEC: recovery without the named permission has no side effect. TYP-SEC: a SecurityOperator without an active Support Session has no side effect; with a session naming a DIFFERENT target or action, also no side effect. TYP-DATA: a stale expected state version has no side effect. TYP-DATA: an altered replay under the same idempotency key has no side effect. TYP-DATA: a repeated recovery command returns its stored result and creates no second linked attempt. TYP-SEC: every recovery carries its full envelope in the audit record; a recovery with a missing envelope element is rejected. TYP-SEC: a Support Session for another Organization authorizes nothing.
+- rollout: The WF-006 and WF-017 limbs land with S-08 and S-24.
+
 ## Coverage Invariants
 
 - Volume I acceptance criteria: 97
 - Matrix rows: 97
-- Contracts complete: 20
-- Rows still `Pass B required`: 77
+- Contracts complete: 27
+- Rows still `Pass B required`: 70
 - Every acceptance criterion maps to exactly one row, by construction.
 - Every row maps back to exactly one governing acceptance criterion and its source.
 - Cross-cutting rows (`ALL`): 4. These are enforced in every slice

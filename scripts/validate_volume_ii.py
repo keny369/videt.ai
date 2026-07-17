@@ -53,6 +53,19 @@ VAGUE_CONTRACT_VALUE = re.compile(
 DECISION_STATUS_PENDING = re.compile(r"(?i)^\s*pending\b")
 DECISION_STATUS_SETTLED = re.compile(r"(?i)^\s*(ratified|resolved|withdrawn|superseded|retired)\b")
 
+# OD-027 feature-blocks exactly three artifacts until approval: a has_one narrowing, a
+# unique (parsing_job_id) constraint, and any second IndexingJob per ParsingJob. Contracting
+# any of them as settled would resolve a pending decision by implementation; the limb is
+# withheld, not undecided-but-probably-fine.
+OD_027_WITHHELD_ARTIFACT = re.compile(
+    r"(?i)(unique\s*\(\s*parsing_job_id\s*\)|has_one\s+:?indexing_job|"
+    r"second\s+IndexingJob\s+per\s+ParsingJob)")
+# Naming the artifact to withhold it is the correct contract; naming it without citing the
+# decision that blocks it is the defect. A proximity window was tried first and proved
+# untrustworthy: an unrelated "blocked" 218 characters away in neighbouring prose exempted a
+# real violation. Requiring the document to cite OD-027 is precise and has no such accident.
+OD_027_CITATION = re.compile(r"\bOD-027\b")
+
 RATIFIED_VERIFICATION_METHODS = {"dns_txt", "http_file"}
 CANDIDATE_VERIFICATION_METHOD = re.compile(
     r"`(meta_tag|html_meta|email_verification|email_token|manual_review|manual_verification|"
@@ -253,6 +266,13 @@ def validate(root: Path) -> list[Finding]:
                 findings.append(Finding(path, line_of(text, m.group(0)), "unauthorized_verification_method",
                                         f"{method}: OD-001 ratifies dns_txt and http_file only; "
                                         "other methods are outside baseline scope"))
+
+        # OD-027 withheld limb contracted as settled
+        if OD_027_WITHHELD_ARTIFACT.search(text) and not OD_027_CITATION.search(text):
+            m = OD_027_WITHHELD_ARTIFACT.search(text)
+            findings.append(Finding(path, line_of(text, m.group(0)), "withheld_limb_contracted_as_settled",
+                                    f"{m.group(0).strip()}: OD-027 feature-blocks this until approval; "
+                                    "it may be named as withheld, never contracted as settled"))
 
         # 7. non-canonical Organization terminology
         for m in NONCANONICAL_SPELLING.finditer(text):
@@ -559,6 +579,10 @@ def run_negative_controls() -> int:
          "pending_decision_treated_as_ratified"),
         ("decision status unrecognized", corrupt_od_status_vocabulary,
          "decision_status_unrecognized"),
+        ("withheld limb contracted as settled",
+         lambda r: append(r / "specification" / "volume-ii" / "BACKGROUND_PROCESSING.md",
+                          "\n\nThe indexing table carries `unique (parsing_job_id)` to enforce the relation.\n\n"),
+         "withheld_limb_contracted_as_settled"),
         ("unauthorized verification method",
          lambda r: append(r / "specification" / "volume-ii" / "SECURITY_PERFORMANCE.md",
                           "\nOwnership may also be proved by `meta_tag` placement.\n"),

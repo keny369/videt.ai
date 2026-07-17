@@ -462,3 +462,131 @@ separately present in the verified policy. An out-of-scope redirect is not follo
 Every out-of-bound discovered URL is rejected or quarantined with its reason and can never become
 valid Evidence or evaluation input. The predicate is a scope check, not an authorization check:
 it is evaluated after authorization, and both must pass.
+
+## Outbound Crawl Security
+
+Matrix rows: MTX-030 (AC-WF-005), MTX-059 (AC-PRULE-008). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+Governing authority: `destination-safety-v1`, the robots and sitemap contracts, `crawl-policy-v1`
+and WF-005 Security Notes.
+
+S-07 owns the only outbound surface in the product. Every control below is Volume I authority,
+not a generic crawler convention: WF-005 Security Notes require the crawler to enforce "the exact
+verified Source, Source Scope Policy, robots, redirect, and current restrictive-policy
+boundaries defined above" and add that "it invents no broader legal exception or bypass".
+
+### Destination safety applies to every connection
+
+`destination-safety-v1` applies to robots, sitemap, content and **every redirect** connection.
+Immediately before each connection attempt: resolve the exact canonical host, normalize
+IPv4-mapped IPv6 to IPv4, sort unique address bytes, and reject as nonretryable
+`destination_address_prohibited` if the answer is empty or any answer is not public
+global-unicast.
+
+Prohibited space is enumerated, not inferred: IPv4 unspecified/current-network, private,
+carrier-grade NAT, loopback, link-local, protocol-assignment, documentation, benchmarking,
+multicast, reserved, broadcast, and `169.254.169.254`; IPv6 unspecified, loopback, IPv4-mapped
+after conversion, discard-only, documentation, unique-local, link-local, multicast, and
+reserved/non-global ranges.
+
+**Mixed public and prohibited answers fail closed.**
+
+### DNS rebinding is closed by pinning, not by re-checking
+
+The connector pins the first sorted allowed address for that attempt, sends the canonical host as
+HTTP Host and TLS SNI, and **MUST verify that the transport peer equals the pinned address**. It
+does not re-resolve inside the attempt. Every retry or redirect performs a **new full
+resolution and check**, and a redirect **never inherits the prior host's decision**.
+
+Raw resolved addresses are restricted telemetry: never Evidence, never customer output.
+
+### Robots is fail-closed
+
+User-agent token `F1DiscoverabilityBot`. Before any content URL on a host, fetch
+`https://<canonical_host>/robots.txt` under the same request timeout and retry bounds with a
+1 MiB response maximum. A valid `2xx` body is decoded as UTF-8 with invalid sequences replaced,
+unrecognized or malformed lines ignored, and parsed with ASCII-case-insensitive token comparison
+for the exact token, falling back to `*`. The longest matching allow/disallow normalized path
+rule wins; **allow wins equal-length ties**.
+
+`404` or `410` means no restrictions. `401` or `403`, a body over 1 MiB, or exhausted timeout or
+`5xx` retries **denies all content fetching for that host for the run** and records
+`robots_unavailable_fail_closed`, which makes that Source root failed and coverage partial.
+
+A positive crawl-delay makes the request rate **more** restrictive and never increases it.
+Robots-disallowed URLs are skipped, excluded from the coverage denominator and Evidence, and are
+**not** fetch failures. Redirects are rechecked against robots **and** Source Scope before
+following.
+
+### Sitemap XML is parsed hostile-first
+
+DTD declarations, external and internal general entities, parameter entities, XInclude, external
+schemas, and network and file resolution are all disabled; any prohibited construct is
+`sitemap_xml_unsafe`. Streaming parse stops before a 65th nesting level, a 50,001st start
+element, or 10 MiB of decoded character data, recording `sitemap_xml_limit`. Because no
+entity-expanded or remotely obtained bytes exist, the received 10 MiB bound is also the
+expanded-input bound.
+
+### A timeout is an observed outcome
+
+Exhausted timeout, `408`, `429`, `5xx`, DNS, TLS and connection failure are
+`content_fetch_failed`: they remain in the coverage denominator and make coverage partial. A
+timeout is never treated as proof the content does not exist. Only a terminal `404`/`410`
+creating a valid body-free `crawl_observation` with reason `content_absent` is a covered absence.
+
+## PRULE-008 Crawl Policy Bounds
+
+Matrix row: MTX-059 (AC-PRULE-008). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+Governing authority: PRULE-008; decision dependency OD-005 (resolved).
+
+Every numeric soft and hard bound in `crawl-policy-v1` is enforced: accepted pages 8,000/10,000;
+discovered queue 16,000/20,000; depth 8/10; run bytes 1,000/1,250 MiB; per-URL body 8/10 MiB;
+wall clock 45/60 minutes; redirects 5/10; request rate 1/2 per second per host; concurrency 2/4
+per host; connect-plus-response 10/15 seconds; sitemaps 40/50; sitemap-index depth 2/3.
+
+### The byte formula and the sentinel
+
+`accounted_response_bytes_i = max(received_entity_body_bytes_i_after_transfer_coding,
+expanded_body_bytes_i_after_content_decoding)`. A highly compressed body is accounted at its
+expanded size, which is what makes a decompression bomb a limit hit rather than a memory event.
+Run-wide bytes are the sum in canonical dequeue and attempt order.
+
+To distinguish an exact-maximum body from an over-limit body the reader may inspect **at most one
+nonretained sentinel byte** on each accounting path. Sentinel bytes are recorded separately as
+`limit_probe_bytes`, are never parsed or retained, and enter neither accounted counter. EOF at
+the maximum is allowed; observing a sentinel byte fails that URL as over-limit.
+
+### Reservation-safe concurrent accounting
+
+Before body reading the scheduler reserves up to the per-URL maximum from the remaining run-wide
+budget in canonical order. Concurrent reservations **MUST NOT sum above the run-wide maximum**,
+unused bytes are released in the same order, and an attempt cannot add accounted bytes beyond its
+reservation. This is what makes the run-wide bound true under concurrency rather than
+approximately true.
+
+Accounting applies to every content, robots and sitemap attempt, **including retries and bodies
+later rejected**: a retry consumes budget rather than being free.
+
+### Rate is a ceiling, not a target
+
+Per canonical host, request-rate observation is the count of request starts in the rolling
+half-open interval `(start_time - 1 second, start_time]`; a start that would make the count
+exceed 2 is delayed. The baseline scheduler targets at most 1 start per interval and at most 2
+concurrent requests; **2 starts per rolling second and 4 concurrent requests are nonexceedable
+safety ceilings, not normal scheduling targets**.
+
+## PRULE-022 Recovery Authority Envelope
+
+Matrix row: MTX-073 (AC-PRULE-022). Slice: S-07 (WF-005 limb).
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+
+Every recovery action MUST carry its named permission, scoped support or incident authority,
+expected state version, reason, idempotency key and audit envelope. An unauthorized, stale or
+altered replay MUST have **no side effect**.
+
+A SecurityOperator has no standing recovery authority: the active Support Session naming the
+exact target and action is the grant, and a session naming a different target or another
+Organization authorizes nothing.
+
+The WF-006 dead-letter replay limb is owned by S-08 and the WF-017 incident limb by S-24.

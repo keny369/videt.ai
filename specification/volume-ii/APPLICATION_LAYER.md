@@ -831,3 +831,129 @@ Source lifecycle transitions MUST follow defined valid state paths only. Every a
 transition succeeds exactly once; every unlisted or stale transition is denied **and audited**.
 The audit obligation is part of the rule, not an addition: a silently rejected transition would
 satisfy the first clause and breach the second.
+
+## WF-005 Execute Crawl And Ingestion
+
+Matrix rows: MTX-007 (AC-CAP-007), MTX-030 (AC-WF-005). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+Governing authority: CAP-007, CAP-008, WF-005, `crawl-policy-v1`, `destination-safety-v1`, the
+robots and sitemap contracts, PRULE-007, PRULE-008, PRULE-009, PRULE-022.
+
+This section is the canonical owner of the WF-005 application contract. S-07 owns the outbound
+crawl surface; the scope predicate it evaluates against is owned by
+[PRULE-021](SECURITY_PERFORMANCE.md#prule-021-source-scope-predicate) in S-06 and is consumed
+here without redefinition.
+
+### The gate is at the running transition, not at queueing
+
+Queueing persists an authorized no-usage Crawl: no reservation, no Evaluation, no fetch.
+Immediately before `Queued -> Running` the workflow re-resolves policy and either atomically
+obtains the `crawl.start` Decision and reservation for a root, or validates the parent
+`reassessment.start` reservation. An accepted root start creates exactly one pending Evaluation
+keyed by `(crawl_id, evaluation_kind=initial_assessment)` **in that same commit**.
+
+An authorization or scope result from queue time is never trusted at execution time. Every URL is
+validated against the **pinned and current restrictive** scope, and a new restriction affects
+queued work immediately and running work at the next checkpoint.
+
+### Two distinct root guards
+
+`reassessment_required` keys on an existing promoted Evaluation/Issue-set/ScoreSnapshot pair.
+Under OD-018 a second guard keys on a **pending or running** initial Evaluation and returns
+`F1-DOMAIN-409 / initial_evaluation_already_running`. They are different: the second never keys
+on a completed Evaluation, so a root `crawl.recover` after a *failed* initial Evaluation stays
+admissible. It is re-checked at the running commit, and a replayed root command returns its
+stored result rather than a rejection.
+
+### Recovery creates, never reopens
+
+`crawl.recover` creates a **new linked** `Crawl.Queued` attempt; it does not transition the old
+record. A root recovery creates a new linked pending Evaluation only at its accepted start.
+`ingestion.recover` replays only a retained dead-letter job within its 24-hour staging bound.
+Neither moves a terminal Crawl or a succeeded job backward. Recovery completion carries
+`recovery_of_id` and the replay generation.
+
+### Technical records are not product entities
+
+The crawl frontier, the per-URL attempt, the worker lease and the byte reservation are
+implementation-owned infrastructure. Volume I names no frontier, lease or reservation entity and
+DM-REQ-001 defines none, so none may be promoted into the domain model. Queue depth, lease state
+and scheduler timing are technical telemetry and MUST NOT be emitted as domain events.
+
+## CAP-007 Crawl Initiation
+
+Matrix row: MTX-007 (AC-CAP-007). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+
+CAP-007 defines no interface of its own; its obligations are discharged by the WF-005 contract
+above. Its Failure Condition is exact: zero valid Documents, all Source roots fail, or a
+nonrecoverable pre-output policy or integrity failure produces failed, and no terminal Crawl is
+moved back to running.
+
+## CAP-008 Crawl Progress And Recovery
+
+Matrix row: MTX-008 (AC-CAP-008). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+Governing authority: CAP-008, WF-005, PRULE-009, PRULE-022, and OD-027 (pending).
+
+This section owns the crawl-side progress and recovery obligations and the durable handoff into
+parsing. Parsing and indexing execution is WF-006, owned by S-08.
+
+### The durable handoff is the succeeded job
+
+`ingestion-interim-v1` requires that only a succeeded IngestionJob with valid `source_document`
+Evidence enters parsing. The job record with its Evidence **is** the handoff; there is no
+separate queue message to lose. That is what makes the crash matrix answerable: a crash after
+retrieval but before the job succeeds leaves nothing for parsing to observe and the fetch is
+retried; a crash after it succeeds leaves a committed job whose redelivery re-enters the same
+identity and advances the Document no more than once.
+
+### Readiness does not wait for the projection
+
+Ready-full, ready-partial and blocked derive from the complete parse and Evidence manifest
+**without waiting for the Retrieval projection**. A lagging projection therefore never blocks or
+falsifies readiness, and concurrent completion or replay cannot change an earlier Evaluation
+Input Snapshot.
+
+### Withheld under OD-027
+
+OD-027 asks whether ParsingJob-to-IndexingJob persists as one-to-many keyed by
+`(parsed_artifact_id, content_sha256, index_target_id, index_schema_version)` or as at most one
+keyed by `parsing_job_id`. Its Blocking Impact records Volume II **no**, implementation **no**
+under the safe interim, production **no** while `indexing-interim-v1` pins both index keys, and
+feature-blocks exactly three artifacts:
+
+- a `has_one` narrowing,
+- a `unique (parsing_job_id)` constraint,
+- any second IndexingJob per ParsingJob.
+
+Those three are withheld and MUST NOT be implemented, migrated or tested as settled. Everything
+else in CAP-008 is contracted. The slice is **not** blocked: `indexing-interim-v1` pins both
+index keys, which is a working interim, and completing the withheld limb requires ratification
+plus controlled Volume I integration rather than an implementation choice.
+
+## PRULE-007 Crawl Command And Reservation Contract
+
+Matrix row: MTX-058 (AC-PRULE-007). Slice: S-07.
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+
+Queueing may persist an authorized no-usage Crawl, but current policy **and** an allowed root or
+parent entitlement reservation are mandatory before `Queued -> Running` or any fetch or provider
+side effect. An accepted root start atomically creates one pending initial Evaluation; an
+existing promoted pair requires WF-011 and creates no root Crawl or Evaluation.
+
+## PRULE-009 Partial Outcome Preservation
+
+Matrix row: MTX-060 (AC-PRULE-009). Slice: S-07 (WF-005 limb).
+Structured contract: `specification/volume-ii/contracts/S-07.json`.
+
+Partial outcomes preserve successful subsets. Every failed Source, URL, Document, ParsingJob,
+count and reason is retained rather than collapsed. Successful same-version Documents advance
+ingested-to-parsed and parsed-to-indexed **exactly once**, guarded on the Document by its version
+rather than by delivery deduplication. Coverage, completion and readiness derive exactly from the
+retained manifest, partial or blocked input is never presented as full, and **Indexing does not
+gate Evaluation**.
+
+The WF-006 parsing limb is owned by S-08 and the WF-017 incident limb by S-24. The OD-027 limb is
+withheld: the parsed-to-indexed exactly-once clause is contracted for the interim keys
+`indexing-interim-v1` pins, and the final multiplicity is not implemented.

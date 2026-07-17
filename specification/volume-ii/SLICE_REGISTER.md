@@ -91,7 +91,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-04 | **Contracts complete** | MTX-004 (MTX-055 owned by S-03) | `contracts/S-04.json`; canonical owner APPLICATION_LAYER.md |
 | S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-06 | **Contracts complete** | MTX-006, MTX-029, MTX-057, MTX-072 | `contracts/S-06.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-07 .. S-24 | Pass B required | 0 | Next: S-07 Crawl Execution and Recovery, first row MTX-007 (AC-CAP-007) |
+| S-07 | **Contracts complete; OD-027 limb withheld** | MTX-007, MTX-008, MTX-030, MTX-058, MTX-059, MTX-060, MTX-073 | `contracts/S-07.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
+| S-08 .. S-24 | Pass B required | 0 | Next: S-08 Parsing and Validation, first row MTX-031 (AC-WF-006), which carries the OD-027 limb |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -187,6 +188,26 @@ a TechnicalImplementer can neither approve a policy nor mutate lifecycle.
 S-06 note: "discovery" means scope control, not crawling. WF-004 performs no outbound retrieval;
 outbound crawling is CAP-007/WF-005 in S-07. PRULE-004's WF-004 limb, deferred by S-03, is closed
 here by MTX-029.
+
+### S-07 cross-cutting application
+
+| Cross-cutting row | How S-07 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | `destination-safety-v1` on every robots, sitemap, content and redirect connection; address pinning with transport-peer verification closes DNS rebinding; new full resolution on every retry and redirect; mixed answers fail closed; robots fail-closed on `401`/`403`/oversize/exhausted; sitemap XML parsed with DTD, entities, XInclude and external resolution disabled; the byte formula accounts expanded size, so a decompression bomb is a limit hit |
+| MTX-095 (AC-PRULE-044) | Every URL validated against the pinned AND current restrictive S-06 scope; a worker claims work only within its leased Crawl; raw resolved addresses never leave restricted telemetry |
+| MTX-096 (AC-PRULE-045) | S-07 reads Project active state as a precondition and effects no Project transition; the OD-014 limb is untouched |
+| MTX-097 (AC-PRULE-046) | Every limit observation, per-Source root status, retry, coverage and completion reason, entitlement outcome, recovery linkage and terminal state audited under one correlation; every recovery carries its full authority envelope; no hidden retry exists |
+
+Saturation and failure signals: `CrawlSoftLimitApproaching` once per dimension and run when the
+observed or reserved value first equals the soft limit; `CrawlLimitReached` exactly once per
+dimension and run with dimension, configured value, observed value and affected counts.
+
+S-07 note: this is the only outbound surface in the product, and every control is Volume I
+authority rather than crawler convention -- WF-005 Security Notes name robots and redirect
+boundaries explicitly and forbid inventing a broader exception. The OD-027 limb (a `has_one`
+narrowing, a `unique (parsing_job_id)` constraint, any second IndexingJob per ParsingJob) is
+withheld on MTX-008 and MTX-060 only; `indexing-interim-v1` pins both index keys, so the slice
+reaches its stated outcome and is **not** blocked.
 
 ## Register
 
