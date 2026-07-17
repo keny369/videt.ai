@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -70,7 +71,31 @@ def test_unrelated_rows_do_not_regress() -> None:
     uncontracted = [r for r in rows if not r.contract]
     check(all(r.status.startswith("Pass B required") for r in uncontracted),
           "every row without a contract is untouched and still Pass B required")
-    check(len(stats["withheld"]) == 18, f"18 limb-withheld rows preserved ({len(stats['withheld'])})")
+    # Pinned by identity, not by count. A count catches a row appearing or vanishing and says
+    # nothing about WHICH row, so a limb silently migrating from one row to another passes it. The
+    # 18 Pass B rows are listed explicitly; ADR-023 added exactly four more by registering the two
+    # successor decisions that OD-020 and OD-019 each delegate in their own ratified text. Nothing
+    # was withdrawn to produce them: MTX-095 was withheld against a decision that did not exist,
+    # and MTX-024/040/091 against a retired blocker tag.
+    PASS_B_WITHHELD = {
+        "MTX-003", "MTX-008", "MTX-013", "MTX-015", "MTX-021", "MTX-025", "MTX-027", "MTX-031",
+        "MTX-038", "MTX-039", "MTX-045", "MTX-054", "MTX-055", "MTX-060", "MTX-069", "MTX-085",
+        "MTX-093", "MTX-097",
+    }
+    ADR_023_WITHHELD = {"MTX-024", "MTX-040", "MTX-091", "MTX-095"}
+    expected = PASS_B_WITHHELD | ADR_023_WITHHELD
+    observed = set(stats["withheld"])
+    check(observed == expected,
+          f"exactly the 22 expected rows carry a withheld limb "
+          f"(unexpected: {sorted(observed - expected) or 'none'}; "
+          f"missing: {sorted(expected - observed) or 'none'})")
+    check(PASS_B_WITHHELD <= observed,
+          f"every Pass B withheld row is preserved ({len(PASS_B_WITHHELD & observed)}/18)")
+    # A withheld limb must name its decision. "Withheld" with no citable owner is the exact defect
+    # OD-020's unregistered successor was: nothing to withhold against and nothing to implement.
+    by_id = {r.row_id: r for r in rows}
+    check(all(re.search(r"OD-\d{3}", by_id[r].blocker) for r in observed),
+          "every withheld row names the owner decision that reserves its limb")
 
 
 def test_vague_values_are_rejected() -> None:
