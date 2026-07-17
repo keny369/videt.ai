@@ -12,7 +12,7 @@ Deliver a complete Product Architecture Manual before implementation with consti
 
 - Gate A: Foundation layer 000 through 020 MUST be accepted at version 1.0 before any downstream domain specification work proceeds.
 - Gate B: The current accepted Volume I baseline, including any validated controlled correction, MUST be committed and tagged before Volume II technical design starts or resumes. Passed by `v1.3-volume-i-corrected`.
-- Gate C: Volume II technical design may proceed from Gate B; broad implementation additionally requires controlled correction of all thirteen upstream Volume I blockers recorded by Pass 001, an accepted Volume II baseline with zero critical/high implementation-disagreement risks, and approved slices.
+- Gate C: Volume II technical design may proceed from Gate B. Broad implementation additionally requires that no upstream Volume I blocker remains implementation-blocking for the work in question, an accepted Volume II baseline with zero critical/high implementation-disagreement risks, and approved slices. This gate is measured by implementation-blocking status, not by a count of blockers. A blocker ceases to be implementation-blocking when its governing Owner Decision is ratified and integrated into its canonical owner, or when that decision removes the governed behaviour entirely; a retired blocker requires no further correction. A slice whose command, read and event dependencies do not intersect a live blocker is not gated by that blocker. Two blockers recorded by Pass 001 remain live and implementation-blocking: `UPSTREAM-V1-PROJECT-LIFECYCLE-003`, governed by OD-014, and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`, governed by OD-023. Both Owner Decisions remain pending under their deterministic neutral interims, and this gate MUST NOT be read as resolving either.
 - Gate D: Normative foundation changes MUST include ADR governance and impact mapping.
 
 ## Canonical Dependency Sequence
@@ -117,7 +117,7 @@ Implementation
 
 ### M11 Implementation Planning
 
-- Status: TDD sequencing complete; implementation gate blocked by the thirteen upstream Volume I corrections recorded in the Volume II index
+- Status: TDD sequencing complete; implementation gate blocked for any slice intersecting a live upstream Volume I blocker recorded in the Volume II index. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live; the remaining Pass 001 blockers are retired by ratified Owner Decisions integrated under ADR-019 and ADR-020
 - Start Condition: Volume II acceptance, zero critical/high disagreement risk, and approved implementation slices
 
 ## Cross-Cutting Governance

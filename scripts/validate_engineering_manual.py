@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANUAL_ROOT = ROOT / "engineering" / "manual"
+FRONT_MATTER_BASELINE_FILE = Path(__file__).resolve().parent / "front_matter_baseline.txt"
 
 ROMAN_BY_VOLUME = {
     "volume-i": "I",
@@ -89,6 +90,58 @@ def expected_chapters(volume: str) -> list[str]:
     return [f"CHAPTER-{number:03d}-" for number in range(1, 21)]
 
 
+FRONT_MATTER_DELIMITER = "---"
+
+
+def load_front_matter_baseline() -> set[str]:
+    """Load the manual-relative paths whose authority metadata is known-unparseable.
+
+    The baseline exists because every chapter predating this check carries one of the
+    two structural defects, and the frozen volumes may not be reformatted wholesale.
+    It may only shrink: a file that no longer has a defect must be removed from it,
+    which stale_front_matter_baseline enforces.
+    """
+    if not FRONT_MATTER_BASELINE_FILE.exists():
+        return set()
+    entries = set()
+    for line in FRONT_MATTER_BASELINE_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            entries.add(line)
+    return entries
+
+
+def front_matter_defect(text: str) -> str | None:
+    """Return the structural defect blocking authority-metadata parsing, or None.
+
+    Conforming front matter begins at byte 0 and delimits with an unindented `---`.
+    A conforming reader takes the file verbatim, so a preceding heading hides the
+    block entirely and a four-space indent makes it an indented code block whose
+    closing delimiter is not a terminator.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return "front_matter_missing"
+    if lines[0] != FRONT_MATTER_DELIMITER:
+        if lines[0].strip() == FRONT_MATTER_DELIMITER:
+            return "indented_front_matter"
+        return "front_matter_not_at_start"
+    for line in lines[1:]:
+        if line.strip() == FRONT_MATTER_DELIMITER:
+            return None if line == FRONT_MATTER_DELIMITER else "indented_front_matter"
+        if line and line != line.lstrip(" \t"):
+            return "indented_front_matter"
+    return "front_matter_unterminated"
+
+
+DEFECT_MESSAGES = {
+    "front_matter_missing": "File is empty; authority metadata cannot be parsed",
+    "front_matter_not_at_start": "Front matter does not start at byte 0; a conforming reader sees no authority metadata",
+    "indented_front_matter": "Front matter is indented; the block is an indented code block and its delimiter is not a terminator",
+    "front_matter_unterminated": "Front matter has no closing delimiter",
+}
+
+
 def parse_front_matter(path: Path, text: str) -> tuple[dict[str, str], int | None]:
     lines = text.splitlines()
     start = 0
@@ -139,6 +192,8 @@ def validate(root: Path) -> list[Finding]:
 
     if not root.exists():
         return [Finding(root, None, "missing_manual_root", "engineering/manual does not exist")]
+
+    findings.extend(validate_front_matter_structure(root))
 
     for volume, roman in ROMAN_BY_VOLUME.items():
         volume_dir = root / volume
@@ -274,6 +329,42 @@ def validate(root: Path) -> list[Finding]:
     return findings
 
 
+def validate_front_matter_structure(root: Path) -> list[Finding]:
+    """Enforce that authority metadata is parseable by a conforming reader.
+
+    Files listed in the baseline carry a known legacy defect and are not reported.
+    A baseline entry that no longer has a defect is reported so the baseline shrinks
+    as files are corrected and can never silently exempt a clean file.
+    """
+    findings: list[Finding] = []
+    baseline = load_front_matter_baseline()
+    observed_clean_baseline_entries: set[str] = set()
+
+    for path in sorted(root.rglob("*.md")):
+        if not (path.name.startswith("CHAPTER-") or path.name.startswith("APPENDIX-")):
+            continue
+        rel = path.relative_to(root).as_posix()
+        defect = front_matter_defect(path.read_text(encoding="utf-8"))
+        if defect is None:
+            if rel in baseline:
+                observed_clean_baseline_entries.add(rel)
+            continue
+        if rel in baseline:
+            continue
+        findings.append(Finding(path, 1, defect, DEFECT_MESSAGES[defect]))
+
+    for rel in sorted(observed_clean_baseline_entries):
+        findings.append(
+            Finding(
+                FRONT_MATTER_BASELINE_FILE,
+                None,
+                "stale_front_matter_baseline",
+                f"{rel} now parses; remove it from the front matter baseline",
+            )
+        )
+    return findings
+
+
 def run_negative_controls() -> int:
     source = MANUAL_ROOT
     if not source.exists():
@@ -289,6 +380,9 @@ def run_negative_controls() -> int:
         ("missing master-index entry", lambda root: remove_first_line_containing(root / "MASTER_INDEX.md", "volume-viii/CHAPTER-001-Security-Engineering-Philosophy.md"), "missing_master_index_entry"),
         ("removed-event reference", lambda root: append_text(root / "volume-ix" / "README.md", "\nComparisonGenerated\n"), "removed_reference"),
         ("prohibited state reference", lambda root: append_text(root / "volume-x" / "README.md", "\nDocument quarantined\n"), "prohibited_state_reference"),
+        ("front matter not at start", lambda root: prepend_text(root / "volume-i" / "CHAPTER-03-Authority-Hierarchy.md", "# engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md\n\n"), "front_matter_not_at_start"),
+        ("indented front matter", lambda root: indent_front_matter(root / "volume-xii" / "CHAPTER-002-Authority-Hierarchy-and-Canonical-Ownership.md"), "indented_front_matter"),
+        ("stale front matter baseline", lambda root: dedent_lines(root / "volume-xii" / "CHAPTER-001-Repository-Stewardship-Philosophy.md"), "stale_front_matter_baseline"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-manual-negative-") as temp_name:
@@ -319,6 +413,30 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 def append_text(path: Path, text: str) -> None:
     path.write_text(path.read_text(encoding="utf-8") + text, encoding="utf-8")
+
+
+def prepend_text(path: Path, text: str) -> None:
+    path.write_text(text + path.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def indent_front_matter(path: Path) -> None:
+    """Re-introduce the indented front matter defect on a corrected file."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if lines[0] != FRONT_MATTER_DELIMITER:
+        raise RuntimeError(f"Expected conforming front matter in {path}")
+    closing = lines.index(FRONT_MATTER_DELIMITER, 1)
+    mutated = lines[: closing + 1]
+    mutated = [mutated[0]] + [f"    {line}" for line in mutated[1:]]
+    path.write_text("\n".join(mutated + lines[closing + 1 :]) + "\n", encoding="utf-8")
+
+
+def dedent_lines(path: Path) -> None:
+    """Correct an indented file so its baseline entry becomes stale."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text(
+        "\n".join(line[4:] if line.startswith("    ") else line for line in lines) + "\n",
+        encoding="utf-8",
+    )
 
 
 def remove_first_line_containing(path: Path, needle: str) -> None:

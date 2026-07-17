@@ -11,7 +11,11 @@
 
 ## Authority Precedence
 
-Product Specification and integrated decisions outrank the Engineering Manual. Existing manual content outranks generated summaries and indexes. Examples are non-authoritative.
+Authority is resolved by scope before rank, as required by PM-REQ-003 and restated in [MANUAL_AUTHORITY.md](MANUAL_AUTHORITY.md). Classify the decision into exactly one scope before applying any ladder.
+
+On product behaviour, the Product Specification and integrated decisions are canonical and the Engineering Manual has no authority at any rank. On engineering practice, the Engineering Manual is canonical and existing manual content outranks generated summaries and indexes.
+
+An artefact cited outside its own scope is inapplicable, not merely outranked. Examples are non-authoritative. A pending Owner Decision retains its deterministic interim behaviour and SHALL NOT be resolved by implication.
 
 ## Traceability Requirements
 

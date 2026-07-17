@@ -545,3 +545,84 @@ No shipped software, emitted event, persisted record or customer datum exists to
 
 Review Checkpoint:
 Volume I is frozen. Reopening any contract in this change set requires a new ADR and the PM-REQ-009 process where foundation content is affected. The five pending decisions are reviewed at their own latest responsible decision points. Reassess no later than 2026-08-27.
+
+## ADR-021: Scoped Authority Model, Engineering Manual Structural Correction, And Gate C Blocking-Status Basis
+
+Status: Accepted
+Date: 2026-07-17
+Owner: Chief Architect
+Reversibility: Medium. PM-REQ-003 is cited by the manual, the entrypoint and the ADR registry, and the scoped model changes how future conflicts resolve. No software, emitted event, persisted record or customer datum exists to unwind. Reverting would restore three mutually contradictory hierarchies and is not recommended.
+
+Decision:
+Replace the linear authority ladder with a scoped authority model in which scope is resolved before rank; reconcile the three conflicting hierarchies onto that single canonical model; correct the two structural defect classes that prevent authority metadata from being parsed, in the two authority chapters that carry them; and restate Roadmap Gate C on implementation-blocking status rather than a literal count of upstream blockers. OD-014 and OD-023 remain pending under their deterministic neutral interims and are expressly not resolved by this ADR.
+
+Context:
+Governance Pass 001 discovery established that the repository carried three mutually contradictory statements of authority precedence:
+
+1. PM-REQ-003 in [specification/001 PRODUCT_ARCHITECTURE_MANUAL.md](specification/001%20PRODUCT_ARCHITECTURE_MANUAL.md): constitution, foundation, ADR registry, volume specifications, derived artifacts. It never places the Engineering Manual, Owner Decisions or canonical contracts, and that silence is what permitted the divergence below.
+2. [engineering/manual/MANUAL_AUTHORITY.md](engineering/manual/MANUAL_AUTHORITY.md), echoed by [engineering/manual/IMPLEMENTATION_AGENT_ENTRYPOINT.md](engineering/manual/IMPLEMENTATION_AGENT_ENTRYPOINT.md): ratified ADRs and Owner Decisions rank above Engineering Manual content.
+3. EM-I-003 in [engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md](engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md), echoed by EM-I-016 and the Volume I README: the Engineering Manual is Level 2, above ADRs at Level 3 and Owner Decisions at Level 4.
+
+Models 2 and 3 are directly contradictory. An engineer holding a manual chapter that disagrees with a ratified Owner Decision obtained opposite answers depending on which document was consulted, and model 3 favoured the manual, which is the artifact with no product authority at all.
+
+The root cause is the linear form itself. A single ladder must rank the Engineering Manual against the Product Specification, and any such ranking implies the manual carries product authority at some rank. That implication is false in every case, and no reordering of a linear ladder can remove it.
+
+Authority And Precedence:
+This ADR does not supersede any unchanged foundation requirement. Under PM-REQ-003 the foundation layer outranks the ADR registry. The change to PM-REQ-003 is therefore made in the foundation document itself with its impact mapping in the same change set, exactly as ADR-006, ADR-012 and PM-REQ-003.5 require. This ADR does not change product behaviour and creates no product semantics.
+
+Controlled Foundation Change Under PM-REQ-009:
+
+1. PM-REQ-003 - [specification/001 PRODUCT_ARCHITECTURE_MANUAL.md](specification/001%20PRODUCT_ARCHITECTURE_MANUAL.md). PM-REQ-003 becomes a scope-before-rank rule with six subrequirements. PM-REQ-003.1 names four scopes and their canonical owners. PM-REQ-003.2 preserves the accepted five-tier ordering verbatim as the product-behavior ladder, with the ADR registry stated to comprise accepted ADRs and ratified Owner Decisions integrated into their canonical owner. PM-REQ-003.3 adds the engineering-practice ladder. PM-REQ-003.4 excludes the Engineering Manual from product-behavior authority absolutely rather than by rank. PM-REQ-003.5 restates the existing ADR-006 and ADR-012 rule that an ADR authorizes controlled change but does not itself change foundation content. PM-REQ-003.6 requires implementation to stop on disputed scope. PM-REQ-014 is amended to cite scope as well as precedence. DEC-001-04 records the rationale. No tier of the accepted ordering is reordered, renumbered or removed.
+
+Decisions Applied:
+
+- The canonical model is scope-before-rank. An artifact outside its scope is inapplicable rather than outranked, and MUST NOT be cited to settle a decision belonging to another scope.
+- Model 3 is corrected. EM-I-003 no longer ranks the Engineering Manual above ADRs and Owner Decisions; it holds no product-behavior authority at any rank. EM-I-016 and the Volume I README are corrected to match.
+- Model 2 is preserved in substance and restated in scoped form. Its ordering was already correct for product behavior.
+- Gate C is restated on implementation-blocking status. A blocker is discharged when its governing Owner Decision is ratified and integrated, or when that decision removes the governed behaviour. Eleven of the thirteen blockers recorded by Pass 001 are retired on that basis under ADR-019 and ADR-020, so a literal count of thirteen could never be satisfied and misstated the gate.
+- OD-014 and OD-023 remain pending. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` remain live and implementation-blocking under their deterministic neutral interims.
+
+Structural Defects Corrected:
+Authority metadata is carried in front matter that a conforming reader takes from byte 0 with unindented delimiters. Two defect classes made that metadata unparseable, and every one of the 249 chapters and appendices carries exactly one of them:
+
+- `front_matter_not_at_start`, 70 files across Volumes I, II, III and two Volume IV chapters: a repository-path heading precedes the block, so a conforming reader sees no front matter and the identifier, status and owner are invisible.
+- `indented_front_matter`, 177 files across Volumes IV through XII: the block is indented four spaces, making it an indented code block whose closing delimiter is not a terminator.
+
+The manual validator passed throughout because it was written around both defects: it special-cased the path heading and stripped indentation before parsing. The bespoke workaround concealed the defect from the only tool that could have reported it.
+
+The two authority chapters that carry the defects are corrected: EM-I-003 for the first class and EM-XII-002 for the second. The remaining 247 files are recorded in `scripts/front_matter_baseline.txt`. The check is enforced for every file not listed, the baseline may only shrink, and a listed file that begins to parse is reported as `stale_front_matter_baseline`. Volume I is frozen and MUST NOT be reformatted wholesale, which is why the baseline exists rather than a repository-wide rewrite.
+
+Options Considered:
+
+1. Pick one of the three hierarchies and delete the others. Rejected: every linear candidate retains the defect that ranking the manual against the Specification implies the manual holds product authority at some rank.
+2. Reorder EM-I-003 to place ADRs and Owner Decisions above the Engineering Manual, keeping the ladder linear. Rejected: it resolves the contradiction between models 2 and 3 but preserves the root cause, and still implies a rank at which manual content could outrank a specification on some question.
+3. Correct all 249 files' front matter. Rejected: it requires reformatting frozen Volume I wholesale against the freeze, for a defect class that a baselined check contains without touching frozen content.
+4. Adopt scoped authority, correct the two named authority chapters, and baseline the rest. Accepted.
+
+Consequences:
+
+- Authority conflicts now resolve identically regardless of which document an engineer opens first, because all five statements restate one canonical model.
+- The Engineering Manual can never outrank a ratified Owner Decision or an accepted ADR on product behaviour. PM-REQ-003.4 makes the exclusion absolute rather than a matter of rank.
+- Gate C no longer requires correcting eleven already-retired blockers, and no longer moves when a blocker count changes.
+- The manual validator enforces authority-metadata parseability for every corrected file and cannot silently exempt a clean file.
+- 247 files retain a known, recorded structural defect. This is technical debt, not conformance, and it is registered as remaining work.
+- Engineering Manual Volume III is recorded as carrying product-behaviour ownership conflicts, including examples that pre-empt pending OD-014. Remediation requires its own controlled change and does not occur in this pass.
+
+Affected Downstream Documents:
+[specification/001 PRODUCT_ARCHITECTURE_MANUAL.md](specification/001%20PRODUCT_ARCHITECTURE_MANUAL.md), [ROADMAP.md](ROADMAP.md), [engineering/manual/MANUAL_AUTHORITY.md](engineering/manual/MANUAL_AUTHORITY.md), [engineering/manual/IMPLEMENTATION_AGENT_ENTRYPOINT.md](engineering/manual/IMPLEMENTATION_AGENT_ENTRYPOINT.md), [engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md](engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md), [engineering/manual/volume-i/CHAPTER-16-AI-Engineering-Governance.md](engineering/manual/volume-i/CHAPTER-16-AI-Engineering-Governance.md), [engineering/manual/volume-i/README.md](engineering/manual/volume-i/README.md), [engineering/manual/volume-xii/CHAPTER-002-Authority-Hierarchy-and-Canonical-Ownership.md](engineering/manual/volume-xii/CHAPTER-002-Authority-Hierarchy-and-Canonical-Ownership.md), [engineering/manual/MANUAL_CHANGELOG.md](engineering/manual/MANUAL_CHANGELOG.md), [engineering/manual/MANUAL_VERSION_HISTORY.md](engineering/manual/MANUAL_VERSION_HISTORY.md), [engineering/manual/MANUAL_VALIDATION_REPORT.md](engineering/manual/MANUAL_VALIDATION_REPORT.md), [CHANGELOG.md](CHANGELOG.md), [PROJECT_STATE.md](PROJECT_STATE.md), [TODO.md](TODO.md).
+
+Affected Tests, Diagrams, Schemas And Contracts:
+No product test, diagram, schema or contract changes. `scripts/validate_engineering_manual.py` gains the `front_matter_not_at_start`, `indented_front_matter`, `front_matter_unterminated`, `front_matter_missing` and `stale_front_matter_baseline` checks, and `scripts/front_matter_baseline.txt` records the outstanding population. Three negative controls are added, one per new failure mode. No acceptance criterion changes, because no product behaviour changes.
+
+Compatibility And Migration:
+No shipped software, emitted event, persisted record or customer datum exists to migrate. No identifier is renumbered and no tier of the accepted PM-REQ-003 ordering is reordered or removed. The scoped model is a strict clarification of the accepted ordering for product behaviour and an addition for engineering practice; every conflict that previously resolved correctly under model 2 resolves identically now. Conflicts that previously resolved under model 3 in favour of the Engineering Manual now resolve in favour of the canonical owner, which is the correction being made. Gate C becomes satisfiable where the literal count made it unsatisfiable; it is not loosened, because a live blocker still blocks every slice that intersects it.
+
+Risks And Mitigations:
+
+- Scoped authority could be misread as granting the Engineering Manual product authority within its own scope. PM-REQ-003.4 states the exclusion absolutely rather than as a rank, and EM-I-003 repeats it at the point of use.
+- A decision could be classified into the engineering-practice scope to escape product authority. PM-REQ-003.6 stops implementation on disputed scope and forbids selecting the scope that produces the preferred outcome.
+- Restating Gate C on status could be read as weakening it or as resolving OD-014 or OD-023. The gate still blocks every slice intersecting a live blocker, both blockers are named as live, both decisions are named as pending under their interims, and the gate text expressly denies resolving either.
+- Baselining 247 files could be read as accepting the defect permanently. The baseline may only shrink, a corrected file is reported as stale until delisted, entries are forbidden, and the population is registered as remaining work.
+
+Review Checkpoint:
+The scoped model is reviewed if any future document proposes a linear authority ladder. The front matter baseline is reviewed whenever a listed file is edited for any reason. The Volume III ownership conflicts are reviewed before Volume II begins. Reassess no later than 2026-08-27.

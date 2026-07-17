@@ -55,13 +55,18 @@ Confidence, fluency or sophistication of generated output SHALL NOT be treated a
 
 # 4. Authority
 
-AI SHALL derive engineering behaviour from:
+AI SHALL resolve authority by scope before rank, as required by PM-REQ-003 and defined normatively in [CHAPTER-03-Authority-Hierarchy.md](CHAPTER-03-Authority-Hierarchy.md).
 
-1. Product Specification;
-2. Engineering Manual;
-3. Accepted ADRs;
-4. Approved Owner Decisions;
-5. Repository source code.
+AI SHALL derive product behaviour only from the Product Specification, the foundation layer, and accepted ADRs and ratified Owner Decisions integrated into their canonical owner. The Engineering Manual SHALL NOT be used as a source of product behaviour at any rank.
+
+AI SHALL derive engineering practice from:
+
+1. Constitution and governance;
+2. Accepted ADRs;
+3. Engineering Manual;
+4. Repository source code and tests.
+
+AI SHALL NOT resolve a pending Owner Decision by implication, and SHALL stop where the scope of a decision is disputed.
 
 AI SHALL NOT derive engineering behaviour from:
 

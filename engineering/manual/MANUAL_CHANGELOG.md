@@ -4,6 +4,13 @@
 
 This changelog records repository changes to the Engineering Manual. It is separate from product release notes and does not describe application implementation.
 
+## 1.1 - 2026-07-17 - Governance Pass 001
+
+- Reconciled three conflicting authority hierarchies onto one canonical scoped model under ADR-021. MANUAL_AUTHORITY.md, IMPLEMENTATION_AGENT_ENTRYPOINT.md, EM-I-003, EM-I-016, the Volume I README and EM-XII-002 now restate the same model.
+- Corrected the two structural defect classes preventing authority metadata from being parsed, in EM-I-003 and EM-XII-002. The remaining 247 affected files are recorded in `scripts/front_matter_baseline.txt` as registered debt.
+- Added front matter structure checks and three negative controls to scripts/validate_engineering_manual.py.
+- Recorded product-behaviour ownership conflicts in Volume III. Remediation requires its own controlled change and did not occur in this pass.
+
 ## 1.0 - 2026-07-17
 
 - Completed Engineering Manual Volumes IV through XII.

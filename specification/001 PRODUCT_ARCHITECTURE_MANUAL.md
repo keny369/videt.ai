@@ -60,13 +60,36 @@ PM-REQ-001: The immutable foundation layer MUST include [000 OVERVIEW.md](000%20
 
 PM-REQ-002: All downstream specifications MUST reference foundation definitions, principles, and policies instead of redefining them.
 
-PM-REQ-003: Manual authority precedence MUST be:
+PM-REQ-003: Manual authority MUST be resolved by scope before rank. Every decision MUST first be classified into exactly one authority scope; only that scope's precedence ladder MUST then be applied. An artifact holds no authority outside its own scope. Outside its scope an artifact is not merely outranked, it is inapplicable, and it MUST NOT be cited to settle a decision belonging to another scope.
+
+PM-REQ-003.1: The authority scopes and their canonical owners MUST be:
+
+1. Repository governance, owned by the constitution and governance documents. This scope is superior to every other scope.
+2. Product behavior, owned by the foundation layer 000 through 020 and the volume specifications, as amended only by ratified Owner Decisions and accepted ADRs integrated into their canonical owner. Product behavior comprises behavior, business rules, state models, workflows, permissions, routes, API contracts, schemas, security rules, commercial values, legal obligations, operational commitments, acceptance criteria, and canonical terminology.
+3. Architectural decision, owned by the ADR registry and bounded by product behavior.
+4. Engineering practice, owned by the Engineering Manual. Engineering practice comprises architectural patterns, coding, testing, repository, review, and deployment standards.
+
+PM-REQ-003.2: Within the product-behavior scope, precedence MUST be:
 
 1. Constitution and governance
 2. Foundation layer 000 through 020
-3. ADR registry
+3. ADR registry, comprising accepted ADRs and ratified Owner Decisions integrated into their canonical owner
 4. Volume specifications
 5. Derived implementation artifacts
+
+PM-REQ-003.3: Within the engineering-practice scope, precedence MUST be:
+
+1. Constitution and governance
+2. Accepted ADRs
+3. Engineering Manual
+4. Source code and tests
+5. Operational documentation and informative material
+
+PM-REQ-003.4: The Engineering Manual MUST NOT establish product behavior. It holds no product-behavior authority at any rank and MUST reference the canonical owner instead of restating, resolving, or implying product behavior. Source code, tests, operational documentation, indexes, generated summaries, and examples MUST NOT establish behavior in any scope.
+
+PM-REQ-003.5: An accepted ADR authorizes the PM-REQ-009 controlled-change process; it MUST NOT by itself change foundation content. Where a change alters foundation content, the change MUST be made in the foundation document itself with its impact mapping in the same change set.
+
+PM-REQ-003.6: Where a conflict cannot be resolved because the scope of the decision is itself disputed, affected implementation MUST stop until the canonical owner resolves the scope. Scope ambiguity MUST NOT be resolved by assumption or by selecting the more convenient ladder.
 
 PM-REQ-004: Domain coverage MUST include business, market, product, UX, architecture, database, AI, APIs, engineering, operations, finance, security, infrastructure, and implementation.
 
@@ -142,13 +165,14 @@ PM-REQ-012: Upstream constitutional documents MUST NOT silently depend on downst
 
 PM-REQ-013: Any foundation document that relies on centralized section mapping MUST include non-applicable section rationale in [FOUNDATION_SECTION_MAPPINGS.md](FOUNDATION_SECTION_MAPPINGS.md).
 
-PM-REQ-014: Intra-foundation cross-references MAY be bidirectional for consistency, but they MUST NOT alter authority precedence defined by PM-REQ-003. Contradictions MUST be resolved through ADR-governed updates.
+PM-REQ-014: Intra-foundation cross-references MAY be bidirectional for consistency, but they MUST NOT alter the authority scope or precedence defined by PM-REQ-003. Contradictions MUST be resolved through ADR-governed updates.
 
 ## Decisions
 
 - DEC-001-01: Foundation layer scope is extended to 000 through 020 and declared baseline 1.0.
 - DEC-001-02: Dependency sequencing is constitutional and enforced through roadmap and review gates.
 - DEC-001-03: Controlled change is mandatory for all normative foundation updates.
+- DEC-001-04: Authority is scoped rather than linear. A single global ladder was proved unsound because it forced the Engineering Manual to be ranked against the Product Specification, which invited manual content to be read as product authority at some rank. Scope classification precedes rank, and the Engineering Manual holds no product-behavior authority at any rank.
 
 ## Non-goals
 
@@ -161,6 +185,10 @@ PM-REQ-014: Intra-foundation cross-references MAY be bidirectional for consisten
   Mitigation: review gates MUST enforce reference and traceability checks.
 - Risk: uncontrolled foundation edits.
   Mitigation: ADR and impact mapping requirements MUST block ungoverned changes.
+- Risk: scoped authority is misread as granting the Engineering Manual product authority within its own scope.
+  Mitigation: PM-REQ-003.4 MUST be enforced as an absolute exclusion rather than a ranking, and review MUST reject manual text that establishes product behavior.
+- Risk: a decision is classified into the wrong scope to reach a preferred outcome.
+  Mitigation: PM-REQ-003.6 MUST stop implementation on disputed scope, and scope classification MUST be stated in the change set.
 
 ## Verification
 
@@ -171,6 +199,8 @@ PM-REQ-014: Intra-foundation cross-references MAY be bidirectional for consisten
 | Controlled change governance | ADR and traceability matrix checks | Chief Architect | PR review |
 | Foundation section conformance mappings | Mapping registry and structure review | Chief Architect | PR review |
 | Intra-foundation dependency precedence | Cross-reference and contradiction review | Chief Architect | PR review |
+| Authority scope classification and ladder application | Scope statement and precedence review against PM-REQ-003 | Chief Architect | PR review |
+| Engineering Manual product-behavior exclusion | Manual ownership audit against PM-REQ-003.4 | Chief Architect | PR review |
 
 ## Open Questions
 

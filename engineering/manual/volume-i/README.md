@@ -47,15 +47,27 @@ This volume intentionally does **not** redefine product behaviour.
 
 # Authority Hierarchy
 
-Authority SHALL be interpreted in the following order.
+Authority SHALL be resolved by scope before rank, as required by PM-REQ-003 and defined normatively in [CHAPTER-03-Authority-Hierarchy.md](CHAPTER-03-Authority-Hierarchy.md).
 
-1. Product Specification
-2. Engineering Manual
-3. Approved Architectural Decision Records
-4. Source Code
-5. Internal implementation notes
+On product behaviour, the canonical owner is the Product Specification, and precedence SHALL be:
 
-No lower authority may contradict a higher authority.
+1. Constitution and governance
+2. Foundation layer 000 through 020
+3. ADR registry, comprising accepted ADRs and ratified Owner Decisions integrated into their canonical owner
+4. Volume specifications
+5. Derived implementation artefacts
+
+The Engineering Manual holds no product-behaviour authority at any rank.
+
+On engineering practice, the canonical owner is the Engineering Manual, and precedence SHALL be:
+
+1. Constitution and governance
+2. Accepted ADRs
+3. Engineering Manual
+4. Source code and tests
+5. Operational documentation and internal implementation notes
+
+No lower authority may contradict a higher authority within the same scope. An artefact cited outside its own scope is inapplicable rather than outranked.
 
 ---
 

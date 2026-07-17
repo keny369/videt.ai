@@ -7,7 +7,7 @@
 - Foundation Baseline: 1.0
 - Current Volume I Baseline Tag: `v1.5-volume-i-frozen` (authoritative Volume I implementation baseline, ADR-020); predecessors `v1.4-volume-i-ratified-prelegal` at `b2cb4ca` and `v1.3-volume-i-corrected` at `5d725fa` are retained as history; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines. No successor frozen tag exists; the freeze is blocked pending the RC1 correction programme and an RC2 regression audit returning no Critical or High finding
 - Initial Volume II Draft Commit: `7213e9a`
-- Current Gate: Volume II cannot be frozen or broad implementation begun until the thirteen demonstrated frozen-Volume-I blockers in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) receive controlled deterministic corrections
+- Current Gate: Volume II cannot be frozen, and broad implementation cannot begin, while any frozen-Volume-I blocker in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) remains implementation-blocking for the work in question. Under ADR-021 this gate is measured by blocking status rather than by a count. Two blockers remain live: `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023), each pending under its deterministic neutral interim. The remaining Pass 001 blockers are retired by ratified Owner Decisions integrated under ADR-019 and ADR-020
 
 ## Current Objective
 
@@ -48,7 +48,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 ## Active Workstream
 
 1. Preserve the local `v1.3-volume-i-corrected` tag and initial Volume II draft commit.
-2. Obtain narrow controlled Volume I corrections for the thirteen blockers recorded in the Volume II index.
+2. Obtain narrow controlled Volume I corrections for the blockers recorded in the Volume II index that remain live: `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023).
 3. Reconcile only the affected Volume II contracts, rerun validation, then freeze the Volume II architecture baseline before broad implementation.
 4. Push the two existing commits and corrected tag only after the configured remote is explicitly confirmed as trusted.
 
@@ -71,7 +71,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 
 ## Next Checkpoints
 
-- Resolve only the thirteen recorded Volume I blockers through controlled change; do not reopen unrelated product behavior.
+- Resolve only the recorded Volume I blockers that remain live through controlled change — `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023); do not reopen unrelated product behavior or a retired blocker.
 - Obtain OD-010 owner approval and exact Measurement Set bytes before complete customer-facing numeric score release.
 - OD-011 is closed on 2026-07-17 under ADR-020: `retention-interim-v1` is the approved fixed retention baseline for worldwide availability with principal markets United States, United Kingdom, Australia, New Zealand, Canada and South Africa; qualified external counsel reviewed the position and raised no objection. Its Qualified Legal Approval element was narrowly amended to accept an append-only owner approval record plus a factual counsel-review record, excluding privileged material from this repository by design. See `specification/volume-i/OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md`.
 - Revalidate and freeze Volume II only after the blocked contracts are deterministic; accept later Volume I changes only for demonstrated defects or approved owner decisions.

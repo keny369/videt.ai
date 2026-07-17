@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-17 — Engineering Manual Governance Pass 001 (ADR-021)
+
+- reconciled three mutually contradictory authority hierarchies onto one canonical scoped model. PM-REQ-003, `engineering/manual/MANUAL_AUTHORITY.md` and EM-I-003 each stated a different precedence; MANUAL_AUTHORITY ranked ratified ADRs and Owner Decisions above Engineering Manual content while EM-I-003 ranked the Engineering Manual above both, so an engineer got opposite answers depending on which document was opened first
+- amended PM-REQ-003 by PM-REQ-009 controlled foundation change: authority is now resolved by scope before rank. The accepted five-tier ordering is preserved verbatim as the product-behavior ladder; an engineering-practice ladder is added; PM-REQ-003.4 excludes the Engineering Manual from product-behavior authority absolutely rather than by rank. No tier is reordered, renumbered or removed
+- corrected the two structural defect classes that prevented authority metadata from being parsed, in the two authority chapters carrying them. Every one of the 249 chapters and appendices carried one: 70 with a path heading before the front matter, 177 with indented front matter. The validator passed only because it was written around both defects. The outstanding 247 files are recorded in `scripts/front_matter_baseline.txt` as registered debt; frozen Volume I is not reformatted wholesale
+- restated Roadmap Gate C on implementation-blocking status rather than a literal count of thirteen upstream blockers. Eleven are retired under ADR-019 and ADR-020, so the count could never be satisfied. OD-014 and OD-023 remain pending under their deterministic neutral interims and are expressly not resolved
+- added front matter structure checks and three negative controls to the manual validator; both suites pass and the new controls are proved load-bearing by mutation testing
+- recorded a CONFLICT: Engineering Manual Volume III establishes product behaviour it does not own, including `Project#archive!` examples that pre-empt pending OD-014, and an invented `Assessment` entity presented as canonical terminology that DM-REQ-001 does not define. Remediation requires its own controlled change and did not occur in this pass
+
 ## 2026-07-17 — Volume I frozen (ADR-020)
 
 - closed the six decisions that blocked the freeze — OD-011, the OD-012 notification limb, OD-013, OD-029, OD-030 and OD-033 — on explicit owner decision recorded in the new append-only `specification/volume-i/OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md`; the earlier legal-review record is superseded on the evidence-standard point only and is not rewritten

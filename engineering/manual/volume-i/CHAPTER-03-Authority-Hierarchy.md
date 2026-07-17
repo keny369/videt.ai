@@ -1,5 +1,3 @@
-# engineering/manual/volume-i/CHAPTER-03-Authority-Hierarchy.md
-
 ---
 title: Authority Hierarchy
 identifier: EM-I-003
@@ -58,32 +56,53 @@ Engineering SHALL NEVER resolve product ambiguity by assumption.
 
 ---
 
-# 4. Authority Levels
+# 4. Authority Scopes
 
-## Level 1 — Product Specification
+Authority SHALL be resolved by scope before rank, as required by PM-REQ-003.
 
-The Product Specification is the highest engineering authority.
+Every decision SHALL first be classified into exactly one authority scope. Only that scope's precedence ladder SHALL then be applied.
 
-It defines:
+An artefact holds no authority outside its own scope. Outside its scope an artefact is not merely outranked, it is inapplicable, and it SHALL NOT be cited to settle a decision belonging to another scope.
+
+A single global ladder is prohibited. Ranking the Engineering Manual against the Product Specification implies that manual content carries product authority at some rank, which is false in every case.
+
+---
+
+## 4.1 Scope A — Product Behaviour
+
+The canonical owner is the Product Specification, comprising the foundation layer and the volume specifications, as amended only by ratified Owner Decisions and accepted ADRs integrated into their canonical owner.
+
+This scope covers:
 
 - product behaviour
 - business rules
 - state models
 - workflows
+- permissions and routes
 - API contracts
+- schemas
 - security rules
+- commercial values, legal obligations and operational commitments
 - acceptance criteria
 - canonical terminology
 
-The Specification SHALL NOT be contradicted by any lower-level artefact.
+Precedence within this scope SHALL be:
+
+1. Constitution and governance
+2. Foundation layer 000 through 020
+3. ADR registry, comprising accepted ADRs and ratified Owner Decisions integrated into their canonical owner
+4. Volume specifications
+5. Derived implementation artefacts
+
+The Engineering Manual holds no authority in this scope at any rank. This chapter SHALL NOT be read as granting the Engineering Manual a product-behaviour rank above, below or alongside any artefact in this scope. The Engineering Manual SHALL reference the canonical owner instead of restating, resolving or implying product behaviour.
 
 ---
 
-## Level 2 — Engineering Manual
+## 4.2 Scope B — Engineering Practice
 
-The Engineering Manual defines implementation standards.
+The canonical owner is the Engineering Manual.
 
-It specifies:
+This scope covers:
 
 - architectural patterns
 - engineering practices
@@ -92,13 +111,31 @@ It specifies:
 - repository governance
 - deployment practices
 
-The Engineering Manual SHALL support the Product Specification.
+Precedence within this scope SHALL be:
 
-It SHALL NOT redefine product behaviour.
+1. Constitution and governance
+2. Accepted ADRs
+3. Engineering Manual
+4. Source code and tests
+5. Operational documentation and informative material
+
+The Product Specification does not define engineering practice. In this scope it is inapplicable rather than superior.
 
 ---
 
-## Level 3 — Architectural Decision Records (ADRs)
+## 4.3 Artefact Rules
+
+### Owner Decisions
+
+Owner Decisions (ODs) record authorised product and governance decisions.
+
+An OD is authoritative only when integrated into its canonical owner.
+
+A standalone register entry SHALL NOT be treated as implemented behaviour.
+
+A pending OD SHALL retain its deterministic interim behaviour. No artefact in any scope SHALL resolve a pending OD by implication, example or convenience.
+
+### Architectural Decision Records
 
 ADRs record approved architectural decisions.
 
@@ -110,25 +147,13 @@ Each ADR SHALL:
 - document consequences;
 - identify approval.
 
-ADRs SHALL NOT contradict the Specification.
+ADRs SHALL NOT contradict the Product Specification.
 
-Where an ADR changes architecture, the Specification SHALL be updated first or concurrently according to repository governance.
+An accepted ADR authorises the PM-REQ-009 controlled-change process. It SHALL NOT by itself change foundation content. Where a change alters foundation content, the change SHALL be made in the foundation document itself with its impact mapping in the same change set.
 
----
+### Source Code
 
-## Level 4 — Owner Decisions
-
-Owner Decisions (ODs) record authorised product and governance decisions.
-
-An OD is authoritative only when integrated into its canonical owner.
-
-A standalone register entry SHALL NOT be treated as implemented behaviour.
-
----
-
-## Level 5 — Source Code
-
-Source code is the implementation of the authorities above.
+Source code is the implementation of the authority governing it.
 
 Source code SHALL:
 
@@ -137,13 +162,11 @@ Source code SHALL:
 - never extend;
 - never weaken
 
-the higher authorities.
+that authority.
 
-If source code conflicts with a higher authority, the source code is defective.
+If source code conflicts with its governing authority, the source code is defective.
 
----
-
-## Level 6 — Tests
+### Tests
 
 Automated tests verify implementation.
 
@@ -151,11 +174,9 @@ Tests SHALL verify behaviour.
 
 Tests SHALL NOT define behaviour.
 
-Where a test conflicts with the Specification, the test SHALL be corrected unless the conflict reveals a genuine Specification defect.
+Where a test conflicts with the Product Specification, the test SHALL be corrected unless the conflict reveals a genuine Specification defect.
 
----
-
-## Level 7 — Operational Documentation
+### Operational Documentation
 
 Operational documentation includes:
 
@@ -168,13 +189,11 @@ These documents SHALL describe implemented behaviour.
 
 They SHALL NOT establish behaviour.
 
----
-
-## Level 8 — Informative Material
+### Informative Material
 
 Examples, notes, diagrams, presentations and discussion documents are informative.
 
-Informative material SHALL NOT override normative content.
+Informative material SHALL NOT override normative content in any scope.
 
 Where inconsistency exists, informative material SHALL be corrected.
 
@@ -185,11 +204,15 @@ Where inconsistency exists, informative material SHALL be corrected.
 When conflicting information is identified, engineers SHALL:
 
 1. identify the conflicting artefacts;
-2. determine the highest authoritative source;
-3. implement according to the highest authority;
-4. correct the lower-authority artefact through normal governance.
+2. classify the decision into exactly one authority scope;
+3. discard artefacts that are inapplicable to that scope;
+4. determine the highest authoritative source within that scope;
+5. implement according to that source;
+6. correct the lower-authority artefact through normal governance.
 
-Conflicts SHALL NOT be resolved by choosing the most convenient interpretation.
+Conflicts SHALL NOT be resolved by choosing the most convenient interpretation, nor by selecting the scope that produces the preferred outcome.
+
+Where the scope of the decision is itself disputed, affected implementation SHALL stop until the canonical owner resolves the scope.
 
 ---
 
