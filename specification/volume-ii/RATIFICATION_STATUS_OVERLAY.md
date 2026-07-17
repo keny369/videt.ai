@@ -132,6 +132,36 @@ citation withholds behaviour the owner ratified.
 mutation-killed control). It is **reported, not suppressed** — the findings are real and the
 correct replacement text is a product-visible question, not a mechanical substitution.
 
+#### Why a bulk replacement is unsound
+
+Each citation asserts *"this capability is disabled because OD-XXX is not complete."* Where
+OD-XXX has since landed, that sentence has silently become a **product decision**. Removing it
+may enable behaviour, change security posture, change an API guarantee or change an operational
+expectation. One validator signal covers at least three different defects, and only a governed
+review can tell which one each occurrence is:
+
+| Class | What is true | Corrective action |
+| --- | --- | --- |
+| **Stale label** | Behaviour is already correct; only the retired reference is obsolete. | Replace or remove the citation. |
+| **Masked dependency** | The retired blocker was hiding a capability that still lacks a required dependency. | Implement the dependency **before** removing the citation. |
+| **Right outcome, wrong reason** | Behaviour must stay exactly as it is, but under a different ratified decision. | Re-anchor the rationale; change no behaviour. |
+
+Worked examples of each, found by slice workers rather than by the check:
+
+- **Stale label** — `QRY-008` is disabled under COMPARISON-EVENT-007 while OD-024 records
+  "comparison reads are unblocked". `API_CONTRACTS.md` asserts "no `project.read` action exists";
+  it exists, in the Permission Baseline, under ratified OD-020.
+- **Masked dependency** — OD-019 requires every metered read route to statically declare one of
+  five low-cost operations or fail `operation_unknown`. **No route in Volume II carries such a
+  declaration and the route table has no column for one.** Clearing the metering marker would
+  assert an enablement nothing can honour. The citation is accidentally load-bearing.
+- **Right outcome, wrong reason** — `QRY-017`, `QRY-019`, `QRY-020`, `QRY-029`–`QRY-035` must
+  stay deny-by-default, but on OD-020's own ratified carve-out, not on a retired tag. Citing the
+  retired tag here invites someone to "unblock" objects the ratified decision says stay denied.
+
+Note the failure runs in **both** directions. The same wrong label withholds behaviour the owner
+approved *and* risks exposing objects the owner denied.
+
 Distinguish two things the prose conflates:
 
 - **The upstream ambiguity** each tag named — resolved. The semantic contract is canonical in
