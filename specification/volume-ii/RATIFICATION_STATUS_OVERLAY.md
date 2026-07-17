@@ -97,6 +97,61 @@ These are **settled authority**. Do not withhold them. Do not reopen them.
   the customer-notification limb as withheld under its recorded gate.
 - Stale prose: WF-017's "until OD-012 is approved".
 
+#### OD-017 — Issue Fingerprint Collision (OBS-004)
+
+- `Current Status`: Ratified 2026-07-17, resolved by owner decision. `Blocking Impact: None.`
+- Approved: `issue-collision-v1`. On a collision — `fingerprint_sha256` equal AND retained
+  preimage unequal within the same `(evaluation_id, fingerprint_version)` — **the second Issue
+  MUST NOT be created and the affected Evaluation fails closed** as
+  `F1-DATA-409 / issue_fingerprint_key_collision`, `retryable=false`.
+- **Stale prose, and note the direction.** `SCORE_EVIDENCE_MODEL.md` "Replay And Collision
+  Behavior" still reads: "The second full tuple **may create** its own Issue in the hash bucket."
+  Unlike OBS-001 to OBS-003, this does not withhold approved behaviour — it *permits behaviour
+  the owner forbade*. A reader who trusts it persists a customer-visible finding from a
+  fingerprint scheme that has demonstrably failed.
+- Position: OD-017's own `Why The Decision Exists` names that exact permissive keyword as the
+  defect it was raised to fix, and WF-007 Primary Path step 4 carries the ratified branch.
+  WF-007/OD-017 prevail. PRULE-023's only MUST (never merge) is satisfied either way, so
+  implementing the ratified branch breaches nothing.
+
+### Retired blocker tags cited as live (OBS-005)
+
+`INDEX.md`'s registry is the status authority for `UPSTREAM-V1-*` blocker tags, exactly as each
+decision's `Current Status` is for Owner Decisions. **Only two tags are LIVE:**
+`UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`
+(OD-023).
+
+Every other tag is retired under ADR-019 or ADR-020, and each of their decisions records
+`Blocking Impact: None`. Volume II nonetheless still cites eight retired tags as live reasons to
+defer, disable or refuse to route — 69 sites across `API_CONTRACTS.md`, `APPLICATION_LAYER.md`,
+`FRONTEND_ARCHITECTURE.md`, `BACKGROUND_PROCESSING.md`, `INDEX.md` and
+`schemas/POSTGRESQL_SCHEMA.md`. This is the OBS-001 trap at scale: a worker who trusts the
+citation withholds behaviour the owner ratified.
+
+`scripts/validate_volume_ii.py` now detects this (`retired_blocker_cited_as_live`,
+mutation-killed control). It is **reported, not suppressed** — the findings are real and the
+correct replacement text is a product-visible question, not a mechanical substitution.
+
+Distinguish two things the prose conflates:
+
+- **The upstream ambiguity** each tag named — resolved. The semantic contract is canonical in
+  Volume I.
+- **The Volume II transport/application exposure** — the correction packages say this "remains
+  intentionally deferred until the Volume II baseline". Pass B **is** that baseline, so this
+  resolves *to this pass*, and a slice contracting the surface supersedes the deferral.
+
+**One residual is genuinely open and is not a labelling error.** OD-020 ratified explicit read
+rows for customer-facing objects (Organization home data, Project, Source, Crawl, Evaluation,
+Notification inbox, Export enumeration) — "Deny-by-default is no longer the answer for
+customer-facing objects." But read authority for **security, administrative and internal
+operational objects** (Support Session, Incident, Investigation, Legal Hold, LifecycleDeletionJob,
+privileged Billing) "remains deny-by-default **pending a separate owner decision**, and is out of
+scope for this decision rather than resolved by it." That separate decision **has no OD number and
+is absent from the register's pending set**. Deferring a customer-facing read under
+`UPSTREAM-V1-READ-AUTHORIZATION-004` is a defect; deferring a security or administrative read is
+substantively correct but mis-attributed — its authority is an unregistered pending decision, not
+a retired tag.
+
 ### Other ratified decisions referenced by remaining slices
 
 Settled authority; implement as ratified. `OD-003` (numeric confidence `0.0000`-`1.0000` with
