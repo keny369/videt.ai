@@ -1073,3 +1073,829 @@ pre-ratification prose; its own Domain Events paragraph and AC-WF-017 impose Opt
 WF-017 requires exactly one operational escalation record per failed-step generation but names no
 table, event or permission for it. The obligation and its uniqueness key are contracted; the
 physical record is deferred to the Volume II baseline rather than invented here.
+
+## PRULE-010 Check Materialization, Canonical Order And Determinism
+
+
+Matrix row: MTX-061 (AC-PRULE-010). Slice: S-09.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+Governing authority: PRULE-010, CAP-009, CAP-010, CAP-011, WF-007 Primary Path steps 1-3, the Check
+Result Contract, the Check Definition And Check Catalog Contract, the Frozen Check Applicability
+Snapshot, `check-executor-interim-v1`, and OD-010 (**ratified**).
+
+This section is the canonical owner of the Check catalogue, applicability, identity and executor
+contract. It consumes the sealed Evaluation Input Snapshot owned by
+[WF-006](#wf-006-process-parsing-and-validation-pipeline) in S-08 and is consumed by
+[WF-007](#wf-007-generate-issues-from-checks-and-adjudicate) in S-12.
+
+### The ownership line between S-09 and S-12
+
+WF-007 spans two slices. S-09 owns Primary Path steps 1 through 3 — catalogue validation,
+applicability sealing, result-key materialization and pure execution. S-12 owns everything the
+orchestration does around them: the Evaluation lifecycle transitions, Issue derivation and
+fingerprinting, the adjudication subflow and the Issue-set seal. Both use the `Workflows::Wf007::`
+command namespace and neither redefines the other's commands.
+
+### OD-010 is ratified; the unavailable score is the approved baseline
+
+`Current Status` records OD-010 **Ratified 2026-07-17, ratified as specified. Blocking Impact:
+None.** Option 1 is approved: `check-catalog-v1` with exactly `CHK-TI-001`, `CHK-CQ-001`,
+`CHK-TR-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001` and `CHK-LP-001`.
+
+Read the ratified behaviour precisely. It **approves** the bundle-nothing state *and its
+consequence*: `external-measurement-v1` bundles no query, intent, listing, provider or adapter set,
+so implementations do not invent one, and **the numeric score therefore remains unavailable**. That
+is settled baseline behaviour, not a withheld limb. Concretely:
+
+- `CHK-SP-001`, `CHK-AIP-001` and `CHK-AS-001` are always applicable, deterministically select no
+  Evidence, and each persists a handled one-attempt `input_evidence_missing` error.
+- `CHK-LP-001` does the same **only** when its frozen applicability decision is true, and otherwise
+  persists its canonical `not_applicable/local_presence_not_applicable` Result without Evidence.
+- Those insufficient pillars make the overall score unavailable, and no Recommendation or Priority
+  Decision publishes from an unavailable calculation.
+
+Frozen prose calling the catalogue `status: active_interim` or "the mandatory deterministic interim
+Catalog pending OD-010 approval" is pre-ratification wording. It does **not** reopen the decision,
+and a contract that withholds behaviour on its authority withholds behaviour the owner approved.
+Equally, the ratification does **not** broaden the catalogue: seven Definitions, no more.
+
+A Measurement Set may later activate as exact signed configuration. Check execution still makes no
+provider call.
+
+### The preimage is the authority; the hash is an index
+
+The Check Result uniqueness preimage is exactly Evaluation ID, Evaluation Input Snapshot ID, Check
+Applicability Snapshot ID, Check Catalog version, Check Definition ID and version, canonical subject
+type and key, and pillar ID **in that order**. `check_result_key_sha256` is its canonical-JSON
+SHA-256. The **complete retained preimage, not the hash**, is uniqueness authority within the
+Evaluation, so the unique index MUST NOT be built on the hash alone.
+
+Materialization atomically creates or returns one Check Result identity for that preimage **before
+execution**. Exact or concurrent replay with the same deterministic input returns that identity and
+its terminal semantic output and emits no second `CheckResultCreated`. A *different* deterministic
+input for the same preimage is `F1-DATA-409 / check_result_input_conflict` and changes neither
+Result. A same hash with a *different* retained preimage never merges: it creates distinct collision
+records, emits restricted `CheckResultFingerprintCollision` telemetry, and fails the affected
+Evaluation as `check_result_key_collision` **before** Check execution.
+
+### Checks make no provider call. Ever.
+
+This is product authority, not a performance preference. `check-executor-interim-v1` states that
+Checks are pure evaluations of the frozen applicability entry and Evidence and MUST NOT perform a
+network request, provider call, mutable read, clock-dependent query or tenant-policy mutation.
+CAP-010's Non-goal names external-provider selection and network collection during Check execution.
+`external-observation-v1` opens "No Check selects or calls a network provider." Collection is WF-006
+intake, owned by S-08; S-09 consumes only frozen Evidence.
+
+### Two error classes that must not be confused
+
+A **handled** Check error is terminal and does **not** fail the Evaluation: the first-match semantic
+order `input_evidence_missing`, `input_evidence_stale`, `input_evidence_indeterminate`,
+`input_evidence_invalid`, `normalized_input_invalid`, `output_schema_invalid`, plus retryable
+`check_dependency_unavailable` and `check_internal_timeout`. It makes its pillar insufficient and the
+overall score unavailable, and creates no Issue.
+
+A **boundary** failure fails the Evaluation before any Check or Issue write:
+`check_catalog_unavailable`, `check_catalog_integrity_failure`,
+`check_applicability_snapshot_invalid`, `check_result_input_conflict`, `check_result_key_collision`,
+`check_nondeterministic_output`, `idempotency_conflict`, and any cross-Organization reference. No
+partially validated Catalog executes.
+
+The distinction is load-bearing: an implementation that promotes a handled error into an Evaluation
+failure destroys the eligible subset, and one that demotes a boundary failure into a handled error
+publishes a finding from a scheme that has demonstrably failed.
+
+### The bounded retry is the only retry inside an Evaluation
+
+Each attempt has five elapsed seconds; at exactly five seconds `check_internal_timeout` wins over
+completion and a later completion is discarded. Only `check_dependency_unavailable` and
+`check_internal_timeout` retry — one initial attempt plus exactly one retry starting one second
+after the failed attempt completes, reusing the identical applicability entry, Evidence tuple, input
+hash and attempt identity lineage. No other reason retries.
+
+### Technical records are not product entities
+
+The executor's per-attempt telemetry record is implementation-owned infrastructure. It carries
+Definition, subject, attempt number, queued, started and completed times, terminal reason, input hash
+and correlation ID, and it MUST NOT be emitted as a domain event. `CheckResultCreated` is emitted
+only with the one persisted Result; retrying or completing late cannot duplicate it.
+
+
+## CAP-009 Technical Inspection
+
+
+Matrix row: MTX-009 (AC-CAP-009). Slice: S-09.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+
+CAP-009 defines no interface of its own; its obligations are discharged by the PRULE-010 contract
+above. It executes `CHK-TI-001@1.0.0` once per active Source, subject type `source`, key the opaque
+Source ID unchanged, pillar `technical_integrity`.
+
+Its outcome order is exact and the error **precedes** failed and pass evaluation:
+`error/internal_link_coverage_incomplete` with `error_reason_code=input_evidence_indeterminate` when
+relevant coverage is partial or any target is unobserved; `failed/broken_internal_links` when
+coverage is full and one or more targets are absent; `passed/internal_links_resolve` when coverage is
+full, every target is reachable and the absent set is empty. An implementation that evaluates the
+absent set before checking coverage reports a pass on a partial crawl.
+
+CAP-009's Failure Condition is exact: missing, invalid or cross-tenant input yields the
+catalog-defined `error`; catalog, integrity or cardinality failure follows the WF-007 Evaluation
+failure path and never silently omits a Result.
+
+
+## CAP-010 Content And External Presence Inspection
+
+
+Matrix row: MTX-010 (AC-CAP-010). Slice: S-09.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+Governing authority: CAP-010, `CHK-CQ-001`, `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`, `CHK-LP-001`,
+`external-observation-v1`, and OD-010 (**ratified**).
+
+CAP-010 defines no interface of its own. It owns five Definitions: `CHK-CQ-001` one Result per
+successfully parsed Document with subject type `url`, and `CHK-SP-001`, `CHK-AIP-001`, `CHK-AS-001`
+and `CHK-LP-001` one Project Result each with Source and Document IDs null.
+
+### CAP-009 is not a prerequisite
+
+CAP-010's Preconditions say so expressly: CAP-009 completion is not a prerequisite and concurrent
+completion order is irrelevant. Each Definition is materialized on its own key and executes against
+its own frozen tuple, so the two capabilities may interleave freely without changing either output.
+
+### Four Definitions read a Measurement Set that the baseline does not bundle
+
+Under the ratified OD-010 baseline this is the approved outcome, described in full at
+[PRULE-010](#prule-010-check-materialization-canonical-order-and-determinism). The intake mapping is
+exact and is the reason the outcome is *deterministic* rather than merely absent: a missing payload
+is `input_evidence_missing`; a stale payload is `input_evidence_stale`; partial coverage, any
+indeterminate item or a key-set mismatch is `input_evidence_indeterminate`; invalid same-tenant
+digest, schema or provenance is `input_evidence_invalid`. All four are handled errors with no Issue
+that make the applicable pillar insufficient.
+
+Freshness is an equality boundary, not an approximation: an Evaluation Input Snapshot may consume an
+observation only when `observed_at_utc <= snapshot_sealed_at_utc < fresh_until_utc`, and equality at
+`fresh_until_utc` is **stale**.
+
+The one place the measurement path escalates instead of degrading: a cross-Organization,
+cross-Project or cross-Evaluation `external-observation-v1` payload is tenant-integrity failure and
+fails the Evaluation through the applicability boundary rather than creating a handled Result.
+
+`external_measurement.submit` and `measurement_set.activate` govern WF-006 intake and are owned by
+S-08. Neither is reachable from Check execution.
+
+### `not_applicable` belongs to exactly one Definition
+
+`not_applicable` is valid only for `CHK-LP-001`, and only from a validly false frozen applicability
+decision carrying its nonblank reason. `CHK-TI-001`, `CHK-CQ-001`, `CHK-TR-001`, `CHK-SP-001`,
+`CHK-AIP-001` and `CHK-AS-001` MUST return passed, failed or error, and an attempted not-applicable
+from any of them is `check_catalog_integrity_failure`.
+
+
+## CAP-011 Structured-Data Inspection
+
+
+Matrix row: MTX-011 (AC-CAP-011). Slice: S-09.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+
+CAP-011 defines no interface of its own. It executes `CHK-TR-001@1.0.0` once per active Source,
+subject type `source`, key the Source ID, pillar `trust_signals`.
+
+Its outputs are **first-match ordered**: `failed/organization_schema_missing` for zero nodes;
+`passed/organization_identity_consistent` when at least one node is schema-valid and both normalized
+values exactly match; `failed/organization_schema_invalid` when no node is schema-valid; otherwise
+`failed/organization_identity_mismatch`. The order matters where two branches would both match.
+
+Zero observed nodes is a **valid observation**, not an invalid payload: it produces a failed Result
+at `medium` impact. What invalidates the payload is different — missing expected identity or profile
+values, an ambiguous profile version, an invalid locator, or inconsistent normalization.
+
+A Source whose root input is missing still has an expected entry, so it produces an explicit handled
+error rather than disappearing from the applicability set.
+
+
+## PRULE-013 CHK-TR-001 Result Context
+
+
+Matrix row: MTX-064 (AC-PRULE-013). Slice: S-09.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+
+Every `CHK-TR-001` Check Result MUST persist its exact subject, outcome code, normalized identity
+observation, catalog, definition and schema versions, input hash, and valid Source-root Evidence
+context. Any omission prevents decision-grade status and is `output_schema_invalid`.
+
+The rule's point is that the persisted context is the **sole** authority for that Result's history:
+`impact-CHK-TR-001-v1` mapping and `REC-CHK-TR-001-v1` rendering resolve entirely from
+`outcome_code`, `canonical_subject_key` and the normalized observation on this record, so a later
+public-identity-profile change cannot retroactively reinterpret it. Completeness is therefore asserted
+one required field at a time, because an aggregate fixture passes while a single field is silently
+defaulted.
+
+
+## PRULE-012 Impact And Confidence Metadata
+
+
+Matrix row: MTX-063 (AC-PRULE-012). Slice: S-09 (owner). Consumed by S-12 at Issue derivation.
+Structured contract: `specification/volume-ii/contracts/S-09.json`.
+Governing authority: PRULE-012, `confidence-policy-v1`, `effort-interim-v1`, the impact rule of each
+Definition, OD-003 (**ratified**) and OD-010 (**ratified**).
+
+Every failed catalog Check used for Issue creation or downstream decisioning carries the Definition's
+exact impact and valid interim confidence metadata, or the explicit missing/invalid fallback, with
+exact band boundaries and policy versions.
+
+### OD-003 as ratified
+
+Numeric confidence `0.0000`-`1.0000`, rounded half up to four decimal places **before** band mapping:
+`low` for `0.0000 <= value < 0.6000`, `medium` for `0.6000 <= value < 0.8500`, `high` for
+`0.8500 <= value <= 1.0000`. All seven catalog Definitions use `1.0000`, `confidence_status=valid`,
+band `high` for passed, failed and not-applicable results; handled errors use the null value,
+`confidence_status=missing`, band `low` fallback.
+
+Missing or invalid confidence maps to display band `low`, creates an Issue with adjudication status
+`review_required`, and records `confidence_status`. The raw invalid value MUST NOT be used
+downstream. Under the ratified OD-009 policy that withheld candidate contributes zero to score and
+priority until it becomes eligible.
+
+All decimal calculations use base-10 decimal arithmetic. Binary floating-point output MUST NOT
+determine a persisted score.
+
+### The metadata is copied, never re-derived
+
+`impact_band` is required for `failed` and null for `passed`, `not_applicable` and `error`. It is
+frozen on the Check Result and copied onto the Issue, and from the Issue onto the Recommendation
+Artifact — `expected_impact_band`, `confidence_value` and `confidence_band` equal the origin Issue
+values and are not independently inferred. Mutating a Definition's rule after Issue creation
+therefore changes nothing already persisted.
+
+Manual and AI post-hoc impact changes are **prohibited**. No actor — including one holding
+`issue.adjudicate` — may alter a persisted `impact_band` or `confidence_value`. Adjudication changes
+`adjudication_status` and eligibility, never the metadata. A changed mapping requires a new Check
+Definition version, a new impact-rule version, and a new Evaluation or explicit policy recalculation.
+
+### Two failures that stop different things
+
+A Definition with a missing or nonexhaustive impact mapping cannot enter an active Catalog; an
+unmapped failed outcome discovered after activation is `check_catalog_integrity_failure`, fails the
+Evaluation, creates no Issue and does **not** silently downgrade the outcome.
+
+An unlisted failed outcome under `effort-interim-v1` is `effort_policy_unavailable`. It blocks
+Recommendation publication and Priority Decision creation **without changing the Issue or the
+score**. `effort_basis` is exactly `effort-interim-v1:<check_definition_id>:<outcome_code>:<matched-rule>`.
+
+---
+
+
+## CAP-012 AI Discoverability Analysis
+
+
+Matrix row: MTX-012 (AC-CAP-012). Slice: S-10.
+Structured contract: `specification/volume-ii/contracts/S-10.json`.
+Governing authority: CAP-012, `citation-policy-v1`, the Interim Entitlement Contract's `ai.generate`
+operation rule, PRULE-014, PRULE-015, and OD-007 (**ratified**).
+
+This section is the canonical owner of the AIResponse and Citation contract. It consumes the origin
+Issue owned by [CAP-014](#cap-014-issue-creation-adjudication-deduplication-and-supersession) in S-12
+and the Check Result metadata owned by
+[PRULE-012](#prule-012-impact-and-confidence-metadata) in S-09. Recommendation Artifact families,
+versions, templates and publication are WF-009 and CAP-016, owned by S-14; the binding point is the
+only place the two meet.
+
+### The `ai_assisted` path is gated closed, and that is settled Volume I behaviour
+
+`citation-policy-v1` states it directly. AI-assisted generation requires active signed
+`ai-response-interim-v1` and `ai-safety-interim-v1` artifacts naming an approved provider adapter and
+model, data-handling approval, allowed Evidence Classifications, prompt-template hash, output schema,
+prohibited-content scanner and contract-review reference. **No such provider artifact is bundled**
+while provider, model and data-handling selection remains unapproved. The deterministic interim
+behaviour is therefore `deterministic_template` generation from the exact catalog templates, and an
+`ai_assisted` request fails **before entitlement reservation or provider call** as
+`F1-AI-422 / ai_provider_unapproved`, creates no AIResponse or Citation, and may recover only by
+selecting deterministic generation or by activating an approved signed artifact.
+
+This is **not** a pending owner decision and **not** a withheld limb. The register lists exactly
+OD-014, OD-023, OD-027, OD-031 and OD-032 as pending; none of them is this gate. So S-10 contracts
+the **complete** AIResponse and Citation contract — it is fully specified normative behaviour that
+the gate protects — plus the gate itself. Its acceptance fixtures are mandatory now, because the
+contract is specified now and the gate defers only its reachability.
+
+An implementation MUST NOT choose a provider, send Evidence, or silently weaken the gate. No feature
+flag, tenant setting, configuration value or implementation choice opens it.
+
+### OD-007 as ratified: the missing column is structural
+
+One-directional Citation: exactly one AIResponse, exactly one Evidence, **no direct Evaluation write
+link**. Evaluation traversal is `AIResponse -> Recommendation Artifact -> origin Issue -> Check
+Result/Evidence`. A read-model projection MAY denormalize that traversal but MUST NOT become write
+authority.
+
+The `evaluation_id` column is therefore asserted **absent** from `ai_responses` and `citations`, not
+merely null. A nullable column invites the join the decision removed.
+
+### The preimage is the authority; the hash is an index
+
+As with the Check Result in [PRULE-010](#prule-010-check-materialization-canonical-order-and-determinism),
+both fingerprints here retain their preimage and it is the uniqueness authority. Exact preimage
+replay returns the original attempt and never calls the provider or validates twice. Idempotency-key
+reuse with a different preimage is `idempotency_conflict`. A same hash with a different retained
+preimage never merges and emits restricted `AIResponseFingerprintCollision` or
+`CitationFingerprintCollision` telemetry.
+
+### Four instants, four boundaries, and the equality rule for each
+
+- `generation_due_at_utc` is exactly 90 seconds after request. At exactly that instant **timeout
+  wins** over provider completion.
+- `validation_due_at_utc` is exactly two minutes after request. Validation **and** the `ai.generate`
+  durable entitlement commit must commit **strictly before** it. At exactly that maximum-execution
+  instant, lease expiry and `validation_timeout` win over validation.
+- `publication_expires_at_utc` is exactly 24 hours after validation. At exactly that instant expiry
+  wins over publication.
+- Publication atomically binds the validated AIResponse to the target Artifact version and cancels
+  expiry; a bound response remains `validated` as immutable lineage.
+
+### One validation transaction decides every Citation
+
+The validation transaction persists a terminal decision for **every** proposed Citation and changes
+the response to `validated` on full coverage or `rejected` on failure. A partially decided set is not
+observable. AIResponse rejection or validation timeout changes any remaining proposed Citation to
+`invalid` with `response_rejected` or `validation_timeout` in that same transaction — so no Citation
+is ever left proposed behind a terminal response.
+
+Coverage passes only when every claim has at least one verified Citation, **and** every Citation
+targets a manifest claim, **and** no Citation for the response remains proposed or invalid. Three
+clauses, three independent failures.
+
+### No customer-visible value exists outside the claim manifest
+
+The manifest has exactly one entry per customer-visible value — `problem_statement`, `rationale`,
+`expected_impact_band`, `confidence_value`, `confidence_band`, `effort_band`, `effort_basis`,
+`platform_applicability`, and each `implementation_steps[i]` and `verification_steps[i]` — each with a
+unique `claim_key` equal to that logical path and `claim_sha256` over its canonical UTF-8 value. That
+is what makes citation coverage a decidable property rather than a review opinion.
+
+### Provider semantics stay out of the domain event stream
+
+Provider text, prompts, unrestricted responses, credentials and opaque error strings are never
+retained in a payload and never appear in an event or customer output. Provider latency, queue depth
+and lease state are technical telemetry and are not domain events. No hidden provider retry exists:
+every retry is a new attempt linked by causation ID and visible in the audit trace.
+
+
+## PRULE-014 AIResponse And Citation Integrity
+
+
+Matrix row: MTX-065 (AC-PRULE-014). Slice: S-10.
+Structured contract: `specification/volume-ii/contracts/S-10.json`.
+
+AI-assisted output applies `citation-policy-v1`: one fingerprinted, replay-safe AIResponse attempt;
+one AIResponse and one Evidence per Citation; no direct Evaluation write link; complete claim
+coverage; exhaustive decisions and states; and a validated, unexpired response before publication.
+
+The rule's one-parent clause is what fixes the aggregate boundary. A Citation cannot be a join table,
+and with the Evaluation link absent, evaluation traversal must go through the Artifact and the origin
+Issue. No grant authorizes a Citation with two parents, a direct Evaluation link, or an uncovered
+claim: PRULE-014 is an invariant on the records, not a check in one command.
+
+No **incomplete** response supplies published content. Only a validated, unexpired, **bound**
+response with complete verified coverage may supply an AI-assisted Artifact — and the expired case is
+asserted separately, because expiry wins at exactly `publication_expires_at_utc`.
+
+---
+
+
+## CAP-013 Evidence Capture And Provenance
+
+
+Matrix row: MTX-013 (AC-CAP-013). Slice: S-11.
+Structured contract: `specification/volume-ii/contracts/S-11.json`.
+Governing authority: CAP-013, the Evidence Contract, PRULE-011, PRULE-016, OD-011, OD-029 and OD-030
+(**all resolved**), and OD-032 (**pending**).
+
+This section is the canonical owner of the Evidence envelope, validation authority and propagation
+contract. The producer contracts for each `evidence_type` are owned by the workflows that observe
+them — WF-003 in S-05, WF-005 in S-07, WF-006 in S-08 — and are consumed here without redefinition.
+The origination predicate that governs which Evidence may support an Issue is
+[PRULE-011](SECURITY_PERFORMANCE.md#prule-011-issue-origination-and-evidence-integrity), owned by
+S-09.
+
+### There is no Evidence-creation command
+
+Evidence creation is producer-driven: each producer-enabled type is created by the workflow that
+observes it, and CAP-013 contributes the envelope contract those producers must satisfy. The only
+principal-reachable path in this capability is the Evidence Validation Decision command. An
+out-of-band creation endpoint would bypass the producer contract that binds each type to its
+observing workflow, so none exists.
+
+### Two type literals that fail differently
+
+`operator_attestation` is **recognized but reserved**: Volume I defines no creation command, actor
+authority, applicability, payload schema, provenance profile, validation rule or downstream
+eligibility for it, so every attempted creation returns `F1-DOMAIN-409 / evidence_type_unavailable`
+and creates no Evidence. Enabling it requires controlled Volume I change defining all those
+contracts.
+
+An unknown or legacy alias, **including `operator_submission`**, returns
+`F1-VALIDATION-400 / evidence_type_invalid`. No implementation may normalize an alias into a
+recognized type.
+
+The two produce different error classes, so they are asserted separately. Collapsing them is the
+defect.
+
+### `validation_status` is immutable; effective status is the Decision history
+
+`validation_status` is the creation-time decision made by the tenant-scoped integrity-validation
+service and never changes. A later determination **appends** an immutable Evidence Validation
+Decision. The transition and authority table is exhaustive:
+
+- `valid -> quarantined` for `security_restriction`, `consent_review`, `retention_review`,
+  `digest_recheck_required` or `schema_recheck_required`. The integrity-validation service may use
+  **any** listed reason; a SecurityOperator in authorized scope may use **only the first three**.
+- `quarantined -> valid` only by the integrity-validation service, reason `revalidation_passed`, and
+  only after retained bytes, digest, schema, tenant references, consent and retention state, and
+  authority all pass again.
+- `valid -> invalid` and `quarantined -> invalid` only by the integrity-validation service, for
+  `immutable_bytes_missing`, `digest_mismatch`, `schema_unsupported` or `legal_deletion_completed`,
+  after the condition is conclusive.
+
+No same-status Decision is created. `invalid` is terminal; corrected content is new Evidence. A
+SecurityOperator attempting `digest_recheck_required` is denied — asserted separately, because it is
+the boundary a permissive implementation crosses.
+
+### The commit is deliberately wide
+
+A transition away from `valid` performs **every applicable current effect before the Decision
+commits**. A narrow commit would leave a window in which a current read returns a numeric score
+supported by Evidence the system has already decided is not valid.
+
+Two suppression limbs run and neither subsumes the other:
+
+1. If the Evidence supports a selected current Issue **or** any passed/failed Check Result supplying
+   current pillar coverage: mark the Current Score Projection unavailable, add `invalid_evidence` to
+   its de-duplicated fixed-precedence reason set, and suppress every published Recommendation
+   Artifact whose **origin Issue** is affected.
+2. **Independently**, suppress every published Artifact whose **rationale or Citation** references
+   that Evidence.
+
+The event then triggers idempotent recalculation, which **replaces** the complete reason set with all
+and only reasons applicable to the recalculated inputs — it does not subtract one code and leave the
+rest. A later `quarantined -> valid` removes `invalid_evidence` only when no selected score input has
+invalid Evidence, and no automatic republication occurs until every publication predicate passes
+again.
+
+Check Results and historical snapshots retain the Validation Decision IDs and statuses **frozen when
+they were created** and never mutate.
+
+### The retention split
+
+`payload_retention_class` classifies **only** the referenced Evidence Payload, and for every
+producer-enabled type it is exactly `product_evidence_payload` — no caller may choose another value
+and an unknown class rejects Evidence creation. The envelope, digest, provenance, Validation
+Decisions and downstream lineage are always `product_history`, **including after payload
+destruction**. Staging bytes before Evidence creation use `temporary_processing`; Verification
+challenge plaintext remains `ephemeral_secret` and is never part of Evidence.
+
+### OD-029 and OD-030 as resolved
+
+Under **OD-029 Option 2**, `EvidenceRetentionExpiring` has exactly one producer — WF-007 under the
+integrity-validation service authority — and is emitted once per Evidence Payload at 30 days before
+its current `product_evidence_payload` retention maximum, carrying the Evidence identity, its
+Organization, the capture cursor, the maximum instant and the correlation ID. It requests
+reassessment through the accepted WF-011 path when the Project remains active, and creates no new
+workflow, capability, decision record, Payload state or notification route variant.
+
+Under **OD-030 Option 3**, destruction of an already-`invalid` payload happens at the 24-month
+elapsed maximum on the capture cursor, is **not** accelerated to the accrued 30-day minimum, appends
+**no** Evidence Validation Decision — `invalid` is terminal and a same-status Decision is forbidden —
+and is proved by exactly one immutable `security_audit` deletion audit record. The LifecycleDeletionJob
+and its Deletion Evidence stay the Account-deletion and Organization-closure mechanism only and are
+asserted **absent** from this path. A legal hold suspends destruction; the payload is destroyed at the
+first eligible instant after release.
+
+### Withheld under OD-032
+
+OD-032 is pending. Its question is which lifecycle owner and canonical identifier namespace
+011 DOMAIN_MODEL.md assigns to the lifecycle-bearing records DM-REQ-001 does not name, and which
+bounded context owns LegalHold — 016 STATE_MODEL.md names a "Security Context" that 011 does not
+define. Its Blocking Impact records Volume II **no for behaviour, yes for any artifact requiring a
+canonical namespace**; implementation **no** under the interim; production **no**; feature **no**.
+
+The withheld limb at S-11 is exactly:
+
+- a canonical identifier namespace declared for LegalHold or Check Result,
+- a lifecycle owner inferred for either,
+- a bounded-context assignment for LegalHold.
+
+Those are withheld and MUST NOT be implemented, migrated, logged as telemetry labels, or tested as
+settled. **Evidence itself is not affected**: OD-032's own text records that 011 DOMAIN_MODEL.md
+already admits Evidence as a lifecycle-bearing auxiliary record with owner Evidence Context and
+namespace `evd_id`, and cites that admission as the precedent the pending decision would follow.
+Where 016 already names a lifecycle owner, that assignment stands and is not reopened.
+
+Everything else in CAP-013 is contracted, and the slice is **not** blocked: behaviour is permitted
+under the interim and Volume I's existing logical field names remain authoritative for it. Completing
+the limb requires ratification plus a PM-REQ-009 controlled change to 011 DOMAIN_MODEL.md rather than
+an implementation choice.
+
+### Declassification does not exist
+
+Classification order is `public < internal < confidential < restricted`. A derived field inherits the
+**strongest** classification of any source value or Evidence used to derive it. Unknown classification
+is treated as `restricted`. Volume I defines no declassification permission or workflow, so
+declassification is prohibited: no actor, service or policy may lower a persisted or derived
+classification, and a future capability would need its own protected authority, approval, transition,
+expiry/recalculation, event and acceptance contract before use.
+
+`evidence.restricted.read` is not an exception to this. It raises **only** the granted
+OrganizationAdmin's Evidence payload access to `restricted`; it broadens no resource scope, no other
+field permission, and authorizes no validation transition.
+
+---
+
+
+## WF-018 Investigate And Audit Security Or Compliance Events
+
+
+Matrix rows: MTX-023 (AC-CAP-023), MTX-043 (AC-WF-018). Slice: S-21.
+Structured contract: `specification/volume-ii/contracts/S-21.json`.
+Governing authority: CAP-023, WF-018, the Investigation Contract, the Support Session Lifecycle,
+`emergency-access-v1`, PRULE-037, PRULE-038, and OD-011, OD-012, OD-013 and OD-020.
+
+This section is the canonical owner of the WF-018 application contract. S-21 owns the
+investigation surface and the Emergency Access Grant; the WF-017 limb of CAP-023 is owned by
+[WF-017](#wf-017-handle-incident-and-recovery) in S-24 and is consumed here without redefinition.
+
+### Entry point and authority
+
+`OpenInvestigation`, `CollectInvestigationInput`, `PublishInvestigationReport` and
+`CloseInvestigation` under `Workflows::Wf018`. Volume I fixes their permissions and envelopes but
+no HTTP path; transport is owned by API_CONTRACTS.md. The collector is service-only and has no
+route at all.
+
+Authority is `security.investigate`, Organization-scoped and protected. A one-Organization request
+is confined to that permission scope; a cross-Organization request additionally requires one
+active Support Session **per affected Organization**. Closure always requires a different holder
+of protected `security.investigation.approve`. The canonical tokens across the investigation and
+incident surfaces are exactly `incident.respond`, `security.investigate`,
+`security.investigation.approve` and `security.notice.read`; no broader management token exists.
+
+### Authority is resolved per query, not per Investigation
+
+The non-obvious finding. Every page revalidates the frozen Support Session, `security.investigate`,
+the Organization and resource set, the interval, the classification ceiling and the query hash at
+the read transaction's server timestamp. A session valid at open and expired at collection denies
+**that query** and creates its explicit gap; another Organization's session never substitutes. A
+report therefore becomes `partial` or `insufficient` rather than complete, and no out-of-session
+read ever occurs. Degradation is the mechanism by which the boundary holds.
+
+### The Support Session lifecycle is not owned here
+
+`SupportSessionRequested`, `SupportSessionActivated`, `SupportSessionRejected`,
+`SupportSessionExpired` and `SupportSessionRevoked` are enumerated in **WF-013's** Domain Events,
+so the session's own transitions and events land with WF-013 on MTX-038 in S-23. S-21 freezes an
+already-active session as the per-Organization collection authority and emits none of them.
+
+The Emergency Access Grant is different and **is** owned here on MTX-023: no workflow's Domain
+Events enumeration claims the five `EmergencyAccess*` events, and AC-CAP-023 carries the whole
+OD-012 Option 3 clause.
+
+### OD-012: architecture ratified, notification withheld
+
+Option 3 is settled and permanent, not interim. Emergency access is authorized **outside** the
+Incident by the Grant: distinct requesting and approving SecurityOperators, an open
+severity-critical Incident predicate, enumerated resource and action scope within exactly one
+Organization, a bounded lifetime resolved from the active `emergency-access-v1` policy version,
+revocation, immutability, and immutable `security_audit` Audit Evidence written in the same
+transaction as its transition. `emergency_customer_access` does not exist and the fail-closed
+outcome is permanent baseline. The Grant substitutes for exactly one thing — the affected tenant's
+`support.session.customer_approve` — and never for the mandatory distinct SecurityOperator
+approval or any target-workflow permission.
+
+**Withheld limb:** customer notification on emergency access, blocked pending qualified legal
+review. S-21 asserts no customer-notification behaviour on any emergency-access path and makes no
+contractual claim about it. This is the only limb S-21 withholds.
+
+### Recorded, not corrected
+
+Six Volume II artifacts diverge from ratified Volume I and are outside S-21's authority: the
+pre-OD-013 nullable-Organization and cross-org shape on `investigations`; the checkpoint-creation
+gate citing the retired `UPSTREAM-V1-EVENT-SCOPE-001`; the three investigation routes and five
+Investigation events deferred under that same retired blocker; BACKGROUND_PROCESSING.md's
+"blocked by event-scope ambiguity"; APPLICATION_LAYER.md's deferral of cross-Organization
+Investigation event persistence; and the complete absence of an `emergency_access_grants` table,
+of `emergency_access_grant` in `EventEntityType`, of the five `EmergencyAccess*` names in
+`EventType`, and of any emergency-access policy type to back `emergency-access-v1`. The Grant is
+not implementable until its owning documents close those gaps. That is a completeness gap, not a
+withheld limb — nothing about it awaits an owner.
+
+
+## WF-015 Enforce Entitlements
+
+
+Matrix rows: MTX-024 (AC-CAP-024), MTX-040 (AC-WF-015). Slice: S-22.
+Structured contract: `specification/volume-ii/contracts/S-22.json`.
+Governing authority: CAP-024, WF-015, the Interim Entitlement Contract (`entitlement-interim-v1`,
+`interim-baseline-plan-v1`, `plan-approval-interim-baseline-v1`), PRULE-039, PRULE-040, OD-006,
+OD-019, OD-005, OD-008, OD-020.
+
+### Entry point and authority
+
+Two surfaces, one workflow, no shared authority.
+
+**Enforcement** has no actor-facing entry point and must not acquire one. The tenant-scoped
+entitlement service identity is the only actor that makes a Decision; the human Account or service
+identity in the envelope is the Decision's *subject*, not its author. WF-015's Security Notes admit
+no client-side trust, and CAP-024 lists a client-side decision as a Failure Condition rather than a
+quality concern. The checkpoints — `DecideEntitlement`, `ReserveEntitlement`,
+`HeartbeatEntitlement`, `CommitEntitlement`, `ReleaseEntitlement`, `RecordLowCostUsage` — are
+internal to the operation being gated.
+
+**Policy management** is a routed command: `POST /api/v1/organizations/:organization_id/entitlement-policies`
+→ `ActivateEntitlementPolicy`, `policy.entitlement.manage`, policy-conditional `If-Match`, `201`,
+`ATTR-ActivateEntitlementPolicy`. The Permission Baseline grants `policy.entitlement.manage` to
+**BillingOperator alone**. An OrganizationAdmin has no entitlement-policy mutation authority at all
+and reaches this area only through `entitlement.notice.read`.
+
+Entitlement is not authorization. A read is authorized by its own named permission and metered
+separately by its declared operation; a Block is a capacity outcome, not a denial of authority.
+
+### Non-obvious findings
+
+**The five low-cost operation strings are not permissions.** `report.view`, `history.view` and
+`score.read` do not exist in the Permission Baseline at all — its reads are `issue.read`,
+`score.summary.read`, `score.detail.read`, `history.read`, `recommendation.read`, the three Evidence
+reads, `entitlement.notice.read`, `security.notice.read`, `export.retrieve`, plus the OD-020 rows.
+That `issue.read` and `recommendation.read` appear in both maps is a coincidence, and inferring a
+permission from an operation name would grant authority Volume I never wrote.
+
+**Rejection and Decision are different outcomes.** An inactive Organization, inactive actor,
+unauthorized service, unknown operation, inactive entitlement, missing policy or unavailable counter
+is *evaluated into an immutable Block Decision* and is auditable. Only an invalid tenant reference,
+both or neither actor form, malformed units, or a malformed envelope is a request-schema rejection
+that creates no Decision. Collapsing the first set into the second would destroy the audit trail
+CAP-024 requires.
+
+**The counter window row is the whole concurrency story.** Unique per
+`(organization_id, counter_group, window_start, window_end)`, it is what makes "never reserve or
+commit above hard limits" true under concurrency rather than true on average. The check and the
+reserve are one serialized operation against it.
+
+**Reservation races have fixed winners, not arrival order.** At exactly the prestart expiry,
+execution-start loses to expiry. At exactly 15 minutes since the last accepted heartbeat, and at the
+maximum execution instant, the lease-expiry handler wins over both a new heartbeat and a protected
+side effect. It commits exactly once **only if** the durable commit point committed *strictly
+before* that instant; otherwise it releases exactly once. A commit point reached exactly at the
+instant releases.
+
+**A partial artifact is not a usage commitment.** Cancellation or terminal failure before the listed
+durable commit point releases even when Documents or other partial artifacts exist.
+
+**The Decision is immutable and the reservation is not** — hence separate rows. The Decision records
+counters *as decided* and never mutates to reflect a later commit, release or expiry.
+
+**Nesting cannot double meter.** `reassessment.start` subsumes its internal WF-005–WF-008 core, and
+those stages MUST NOT also reserve or commit `crawl.start`. Every stage records the root
+Decision/reservation ID. S-07's MTX-058 already contracts the `crawl.start` Decision and reservation
+at the `Queued -> Running` commit; S-22 supplies the machinery it consumes and does not redefine
+when a Crawl reserves.
+
+### OD-006 and OD-019 are ratified — implemented, not withheld
+
+Both carry `Current Status: Ratified 2026-07-17 … ratified as specified` and `Blocking Impact: None`.
+
+WF-015's own prose still says "the OD-006 **interim** policy" and "this interim classification does
+not approve the final grace policy". That prose predates the ratification session and is not a status
+source. **Low-cost reads at and above the 1,000 hard limit remain allowed with an over-limit warning**
+— approved baseline behaviour, implemented exactly. High-cost blocks only when
+`committed + active_reserved + requested` would *exceed* the hard limit; **equality is allowed**.
+
+OD-019's `read-metering-v1` is likewise settled: one record per accepted top-level document read;
+every metered read route statically declares exactly one of the five operations; an undeclared route
+resolves `operation_unknown` → Block → `contact_support`, so it is unreachable rather than silently
+unmetered; Turbo Frames and partials carry the root Decision ID and append nothing, while a Frame
+reached by direct navigation is itself a root; Decision IDs are server-minted deterministically from
+Organization, human Account or service identity, declared operation, resolved target identity and
+state version, and counter window, so **no client idempotency key exists on GET** and a transport
+retry cannot be counted twice.
+
+OD-005 makes the numerals versioned policy configuration bound to an approved policy version, not
+Volume I constants. The current approved values are `entitlement-interim-v1`'s.
+
+### Recorded contradiction — `UPSTREAM-V1-LOW-COST-METERING-005`
+
+`APPLICATION_LAYER.md` states that composite page/frame charging and the physical metered-read replay
+identity "remain disabled until controlled Volume I clarification", and that
+`Workflows::Wf015::LowCostRead` "is not executable until `UPSTREAM-V1-LOW-COST-METERING-005` resolves
+its durable-response identity". **OD-019's Ratified Behavior supplies every one of those answers.**
+`API_CONTRACTS.md` already reads the register correctly: "deferred under
+`UPSTREAM-V1-LOW-COST-METERING-005`, which OD-019 resolves by ratifying the metered-read unit; their
+transport exposure is intentionally deferred to the Volume II baseline."
+
+S-22 adopts that division: the metering **semantics** are ratified and are contracted here in full;
+only the physical GET path exposure is deferred to the Volume II transport baseline owned by
+`API_CONTRACTS.md` — the ordinary route answer, not an owner-decision block. Treating the stale
+blocker prose as a live gate would withhold behaviour the owner approved, which is precisely the
+failure mode `RATIFICATION_STATUS_OVERLAY.md` exists to prevent. Correcting the two
+`APPLICATION_LAYER.md` paragraphs is a separate governed edit and is not performed by this contract.
+
+### Withheld
+
+**Nothing.** No decision governing these rows is pending. MTX-024 and MTX-040 cite OD-005, OD-006,
+OD-008, OD-019 and OD-020; every one is ratified in the register with `Blocking Impact: None`, and
+none of the five pending decisions (OD-014, OD-023, OD-027, OD-031, OD-032) touches this slice.
+
+
+## WF-013 Manage Tenant Lifecycle
+
+
+Matrix rows: MTX-025 (AC-CAP-025), MTX-038 (AC-WF-013). Slice: S-23.
+Structured contract: `specification/volume-ii/contracts/S-23.json`.
+Governing authority: CAP-025, WF-013 and its five subflows, the Support Session Lifecycle,
+`onboarding-interim-v1`, `organization-reactivation-v1`, `session-termination-v1`,
+`role-expiry-block-v1`, `emergency-access-v1`, the Permission Baseline, PRULE-018, PRULE-041,
+PRULE-042, and `retention-interim-v1` in [015 DATA_LIFECYCLE.md](../../015%20DATA_LIFECYCLE.md).
+
+This section is the canonical owner of the WF-013 application contract. S-23 owns the
+transitions. It does not own the gate those transitions move state behind: that is
+[PRULE-019](SECURITY_PERFORMANCE.md#prule-019-organization-state-authorization-gate), MTX-070 in
+S-02, consumed here without redefinition. It does not own notification delivery: that is
+[PRULE-034](SECURITY_PERFORMANCE.md#prule-034-notification-delivery-authority), MTX-085 in S-19,
+invoked at the WF-014 boundary. MTX-085 lists S-23 among its slices but is complete and owned by
+S-19 — it is referenced here and is not contracted.
+
+### Interfaces
+
+None. Volume I defines WF-013's commands, permissions, envelopes and persisted deadlines and
+defines no HTTP path, method or transport. Nothing in WF-013 demands an interface: every
+trigger is an authorized actor's command or a deadline reached by a named lifecycle service.
+Transport exposure is owned by [API_CONTRACTS.md](API_CONTRACTS.md) at the Volume II baseline.
+
+### The five subflows
+
+- **Invitation** — creation, open-tuple duplicate handling, existing-member and ineligible-Account
+  checks, protected approval, rejection, revocation, acceptance, recipient decline, reissue,
+  expiry and wrong-identity handling, per `onboarding-interim-v1`. The invitation lifecycle
+  service alone writes timed expiry. Equality belongs to expiry. A failed Delivery does not roll
+  back or extend an active Invitation.
+- **Account** — suspend, reactivate, revoke, delete. Suspension revokes Sessions **before success
+  returns**. Under ratified OD-021, `ReactivateAccount` applies `reactivation-proof-v1`: it proves
+  only the **acting** administrator's MFA-satisfied Session, consults no target identity, accepts
+  no Identity Validation Receipt, and creates no Session.
+- **Organization** — suspend, reactivate, request closure, decide closure, execute closure.
+  Reactivation is the sole ordinary mutation admitted while suspended and requires an
+  `organization_reactivation` receipt bound to the target Organization with `mfa_satisfied=true`
+  under OD-022. Closure emits `BillingStateChanged(from_state=active,to_state=closed)` **before**
+  `OrganizationClosed`; that order is normative. Closed is terminal.
+- **Legal Hold and Deletion** — two-person `legal_hold.manage` authority, exact scope intersection
+  re-evaluated at **every** destructive checkpoint, and the idempotent LifecycleDeletionJob under
+  `retention-interim-v1`.
+- **Support Session** — 24-hour approval due, four-hour active life on the final approval, expiry
+  winning at equality, and no standing cross-tenant access.
+
+### Load-bearing invariants
+
+- Every command on an existing record carries its **expected record state version**, and its
+  **expected Organization authorization epoch** whenever effective access could change.
+- The authorization epoch serializes the last-admin invariant, so competing commands against
+  different Accounts cannot both pass from the same epoch. Every accepted effective-access
+  mutation increments it exactly once.
+- No actor approves its own protected request. A SecurityOperator Account action additionally
+  requires one active Support Session naming the Account and exact action; an Incident without
+  such a session is insufficient.
+- Under ratified OD-026, a timed expiry that would remove the last effective OrganizationAdmin
+  writes one immutable `RoleExpiryBlockDecision` and leaves the Assignment `active` and effective
+  past `expires_at_utc`. `expiry_blocked_last_admin` is a block reason, never an Assignment status.
+- Under ratified OD-033, no LifecycleDeletionJob transitions `queued` directly to `completed`.
+  Every job enters `running` first — including one whose manifest is empty or already destroyed.
+- Under ratified OD-016, `RevokeSession` revokes exactly one identified Session with reason
+  `security_revocation` and never cascades. Sign-out-everywhere is absent from baseline behaviour.
+
+### Stale prose not treated as authority
+
+Owner Decision status comes only from `Current Status` in the register. Three Volume II
+statements are stale and are corrected in the contract rather than obeyed: `ReactivateAccount` is
+**not** unreachable (OD-021 is ratified and supplies the proof contract); the last-admin expiry
+block is **not** deferred (`UPSTREAM-V1-ROLE-EXPIRY-BLOCKED-EVENT-011` is retired under ADR-019);
+and `retention-interim-v1` is **not** interim (OD-011 resolved it as the fixed baseline).
+
+### Withheld under OD-031
+
+Routine retention-expiry destruction, under `retention-destruction-trigger-interim-v1`. When a
+`product_history`, `identity_commercial` or `security_audit` record reaches its 7-year maximum
+**with no accepted Account deletion or Organization closure request**, the lifecycle service
+performs no destruction, creates no job, produces no Deletion Evidence and emits no domain event.
+The record is retained in full subject to legal hold; the condition is recorded as Audit Evidence
+and operational telemetry and raises one critical compliance escalation. Retention-cursor-driven
+partition drop is blocked by the same limb. Everything else — the LifecycleDeletionJob created by
+accepted deletion or closure, its manifest, deadlines, tombstones, recovery and Deletion Evidence
+— is contracted in full.
+
+### Withheld under OD-032 (MTX-025)
+
+The canonical DM-REQ-001 identifier namespace and lifecycle owner for Session, LegalHold and
+LifecycleDeletionJob. Behaviour is permitted and contracted in full; only the namespace is
+withheld. The lifecycle owners [016 STATE_MODEL.md](../../016%20STATE_MODEL.md) already names
+stand and are not reopened.
+
+### Referenced, not restated
+
+OD-023 (credential rotation begin and complete) is owned and withheld by S-19 under
+`UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`. No S-23 command touches a Credential.
+
