@@ -25,21 +25,27 @@ No implementation guidance contained in later volumes supersedes this volume unl
 ## Part I — Foundations
 
 ### Chapter 1
+
 Engineering Philosophy
 
 ### Chapter 2
+
 Engineering Objectives
 
 ### Chapter 3
+
 Authority Hierarchy
 
 ### Chapter 4
+
 Normative Language
 
 ### Chapter 5
+
 Engineering Principles
 
 ### Chapter 6
+
 Architectural Integrity
 
 ---
@@ -47,27 +53,35 @@ Architectural Integrity
 ## Part II — Governance
 
 ### Chapter 7
+
 Repository Governance
 
 ### Chapter 8
+
 Branch Strategy
 
 ### Chapter 9
+
 Pull Request Standards
 
 ### Chapter 10
+
 Definition of Done
 
 ### Chapter 11
+
 Code Review Standard
 
 ### Chapter 12
+
 Engineering Decision Making
 
 ### Chapter 13
+
 Architectural Decision Records
 
 ### Chapter 14
+
 Risk Management
 
 ---
@@ -75,21 +89,27 @@ Risk Management
 ## Part III — Engineering Standards
 
 ### Chapter 15
+
 Documentation Standards
 
 ### Chapter 16
+
 Traceability
 
 ### Chapter 17
+
 Quality Gates
 
 ### Chapter 18
+
 Engineering Metrics
 
 ### Chapter 19
+
 Technical Debt
 
 ### Chapter 20
+
 Refactoring Policy
 
 ---
@@ -97,21 +117,27 @@ Refactoring Policy
 ## Part IV — AI Engineering
 
 ### Chapter 21
+
 AI Engineering Principles
 
 ### Chapter 22
+
 AI Coding Agent Responsibilities
 
 ### Chapter 23
+
 Human Review Requirements
 
 ### Chapter 24
+
 AI Escalation Rules
 
 ### Chapter 25
+
 Prompt Governance
 
 ### Chapter 26
+
 Context Management
 
 ---
@@ -119,15 +145,19 @@ Context Management
 ## Part V — Professional Practice
 
 ### Chapter 27
+
 Engineering Ethics
 
 ### Chapter 28
+
 Communication Standards
 
 ### Chapter 29
+
 Knowledge Management
 
 ### Chapter 30
+
 Continuous Improvement
 
 ---
@@ -235,3 +265,43 @@ Changes to this volume SHALL:
 
 No engineering practice becomes mandatory until incorporated into this volume or another normative Engineering Manual volume.
 
+---
+
+# Exact File Inventory
+
+This inventory records the canonical filenames preserved for Volume I and supports whole-manual index validation.
+
+## Chapters
+
+- [CHAPTER-01-Engineering-Philosophy.md](CHAPTER-01-Engineering-Philosophy.md)
+- [CHAPTER-02-Engineering-Objectives.md](CHAPTER-02-Engineering-Objectives.md)
+- [CHAPTER-03-Authority-Hierarchy.md](CHAPTER-03-Authority-Hierarchy.md)
+- [CHAPTER-04-Normative-Language.md](CHAPTER-04-Normative-Language.md)
+- [CHAPTER-05-Engineering-Principles.md](CHAPTER-05-Engineering-Principles.md)
+- [CHAPTER-06-Architectural-Integrity.md](CHAPTER-06-Architectural-Integrity.md)
+- [CHAPTER-07-Repository-Governance.md](CHAPTER-07-Repository-Governance.md)
+- [CHAPTER-08-Branch-Strategy.md](CHAPTER-08-Branch-Strategy.md)
+- [CHAPTER-09-Pull-Request-Standards.md](CHAPTER-09-Pull-Request-Standards.md)
+- [CHAPTER-10-Definition-of-Done.md](CHAPTER-10-Definition-of-Done.md)
+- [CHAPTER-11-Code-Review-Standard.md](CHAPTER-11-Code-Review-Standard.md)
+- [CHAPTER-12-Architectural-Decision-Records.md](CHAPTER-12-Architectural-Decision-Records.md)
+- [CHAPTER-13-Engineering-Risk-Management.md](CHAPTER-13-Engineering-Risk-Management.md)
+- [CHAPTER-14-Documentation-Standards.md](CHAPTER-14-Documentation-Standards.md)
+- [CHAPTER-15-Requirement-Traceability.md](CHAPTER-15-Requirement-Traceability.md)
+- [CHAPTER-16-AI-Engineering-Governance.md](CHAPTER-16-AI-Engineering-Governance.md)
+- [CHAPTER-17-Engineering-Metrics-and-Quality-Gates.md](CHAPTER-17-Engineering-Metrics-and-Quality-Gates.md)
+- [CHAPTER-18-Technical-Debt-and-Refactoring.md](CHAPTER-18-Technical-Debt-and-Refactoring.md)
+- [CHAPTER-19-Engineering-Ethics-and-Professional-Conduct.md](CHAPTER-19-Engineering-Ethics-and-Professional-Conduct.md)
+- [CHAPTER-20-Continuous-Improvement-and-Engineering-Maturity.md](CHAPTER-20-Continuous-Improvement-and-Engineering-Maturity.md)
+
+## Appendices
+
+- [APPENDIX-A-Engineering-Checklists.md](APPENDIX-A-Engineering-Checklists.md)
+- [APPENDIX-B-Pull-Request-Template.md](APPENDIX-B-Pull-Request-Template.md)
+- [APPENDIX-C-Architectural-Decision-Record-Template.md](APPENDIX-C-Architectural-Decision-Record-Template.md)
+- [APPENDIX-D-Definition-of-Ready.md](APPENDIX-D-Definition-of-Ready.md)
+- [APPENDIX-E-Repository-Labels-and-Work-Item-Taxonomy.md](APPENDIX-E-Repository-Labels-and-Work-Item-Taxonomy.md)
+- [APPENDIX-F-Engineering-Glossary.md](APPENDIX-F-Engineering-Glossary.md)
+- [APPENDIX-G-Cross-Reference-Index.md](APPENDIX-G-Cross-Reference-Index.md)
+- [APPENDIX-H-Version-History.md](APPENDIX-H-Version-History.md)
+- [APPENDIX-I-Change-Log.md](APPENDIX-I-Change-Log.md)
