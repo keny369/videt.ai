@@ -345,3 +345,45 @@ allowed protected action after explicit-deny precedence.
 Concurrent Sessions are permitted and independent. Under OD-016, self-service sign-out
 terminates only the acting Session and never cascades. Sign-out-everywhere is absent from
 baseline behaviour and MUST NOT be implemented. Sessions are never silently refreshed.
+
+## PRULE-019 Organization State Authorization Gate
+
+Matrix row: MTX-070 (AC-PRULE-019). Slice: S-02.
+Structured contract: `specification/volume-ii/contracts/S-02.json`.
+Governing authority: PRULE-019, sourced from SM-REQ-002 and SEC-REQ-005. Applies to WF-001 and
+WF-013.
+
+This section is the canonical owner of the Organization-state authorization gate. It owns the
+gate; it does not own the transitions, which are WF-013 commands owned by S-23.
+
+### The predicate
+
+- An active Organization permits protected behaviour **only within** the resolved permission
+  set. Active is necessary, never sufficient.
+- A suspended or closed Organization **denies every protected mutation**, regardless of the
+  resolved permissions.
+- Reactivation restores **only unexpired explicit grants**. An expired grant stays expired and
+  is never revived by reactivation.
+
+### Where it is enforced
+
+In the application command, before the mutation. Not in a controller: "every protected
+mutation" includes mutations reached through services, event consumers and lifecycle jobs, and
+a transport-layer check would leave each of those paths ungated. The application command is the
+single shared path.
+
+### The exception the gate must not override
+
+WF-013 Preconditions admit the Organization reactivation and closure lifecycle, and protected
+Legal Hold and deletion execution, in suspended or closed state exactly as their own contracts
+require. A gate that denied everything in those states would make a suspended Organization
+impossible to reactivate. The gate denies protected *mutations*; it does not deny the lifecycle
+commands that exist to leave those states.
+
+### Authorization epoch
+
+WF-013 requires every command on an existing record to carry its expected Organization
+authorization epoch whenever effective access could change. A command carrying a stale epoch is
+rejected without side effects, as a conflict rather than an authorization denial. This is what
+prevents a mutation authorized under superseded permissions from committing after a concurrent
+policy change or suspension.

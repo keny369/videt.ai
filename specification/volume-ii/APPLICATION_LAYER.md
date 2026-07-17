@@ -411,3 +411,76 @@ At grant or invitation expiry equality, the lifecycle transition wins.
 Nothing in WF-001 is withheld. OD-014 governs Project pause/resume/archive, which WF-001
 does not perform: it creates the first Project in `draft` and states that Project activation
 is not part of WF-001.
+
+## CAP-002 Organization Setup
+
+Matrix row: MTX-002 (AC-CAP-002). Slice: S-02.
+Structured contract: `specification/volume-ii/contracts/S-02.json`.
+Governing authority: CAP-002, WF-001 self-service branch, WF-013 Organization limb, PRULE-002,
+PRULE-019 in `v1.5-volume-i-frozen`.
+
+This section is the canonical owner of the CAP-002 Organization-establishment contract. The
+transaction that carries it is owned by
+[WF-001](#wf-001-onboard-organization-or-invited-account); this section does not restate it.
+
+### No separate creation path
+
+CAP-002 Product Behavior places Organization establishment "In the self-service WF-001
+transaction". There is therefore no Organization-creation command, route or transaction of its
+own. This row contracts the Organization-specific obligations that transaction carries. The
+Organization lifecycle limb -- suspend, reactivate, closure -- is reached through WF-013 and is
+owned by S-23.
+
+### The bootstrap-service-only exception
+
+CAP-002 names the Organization Administrator as its actor, but that Assignment is created by
+the same commit, so no administrator exists to authorize it. AC-CAP-002 resolves this with the
+`bootstrap-service-only exception`: the approved bootstrap service is the only actor that may
+create an Organization, and the first OrganizationAdmin Assignment is an output of the commit
+rather than its authority. No Role permission authorizes Organization creation.
+
+### Ordering inside the transaction
+
+Organization pending; BillingEntity pending; Access and Entitlement policies and the
+same-Organization Plan Assignment activated; BillingEntity activated; then Organization
+activated only when every tenant invariant passes. `OrganizationCreated`, two ordered
+`BillingStateChanged` transitions and `OrganizationActivated` occupy fixed positions in the
+WF-001 thirteen-event order under one bootstrap correlation.
+
+Activating Organization before `ProjectCreated` is what satisfies the WF-001 requirement that
+the tenant boundary is established before Project creation.
+
+### Prohibitions carried by AC-CAP-002
+
+No provider call. No lazy, callback, background, first-use or Invitation path may create the
+BillingEntity. Exactly one active baseline BillingEntity per Organization, linked to the
+same-Organization active Plan Assignment. The reserved `past_due` and `suspended` BillingEntity
+values have no baseline transition and MUST be unreachable. `pending` is never returned as
+current state, though its immutable transition event is retained.
+
+## PRULE-002 Organization Creation Invariants
+
+Matrix row: MTX-053 (AC-PRULE-002). Slice: S-02.
+Structured contract: `specification/volume-ii/contracts/S-02.json`.
+Governing authority: PRULE-002, sourced from DM-REQ-001.
+
+This section is the canonical owner of the PRULE-002 invariant for the WF-001 creation limb.
+PRULE-002 also lists CAP-024, because the BillingEntity it creates is the entitlement subject;
+that consumption limb is owned by S-22 and is not contracted here.
+
+The rule is a conjunction, and its last clause is the load-bearing one:
+
+- Organization creation MUST atomically assign an accountable administrator.
+- Exactly one active baseline BillingEntity, linked to the active same-Organization Plan
+  Assignment, with no provider call and no lazy creation.
+- The first active Organization Membership MUST be derived from the active Account and the
+  active Role Assignment.
+- Account existence, or a separate mutable membership record, MUST NOT grant access.
+
+### Membership is derived, never stored as a grant
+
+The final clause forbids a mutable membership record from granting access. Membership is
+therefore a projection of the active Account plus the active Role Assignment, resolved at
+authorization time. It MUST NOT be a writable row, because a writable row can drift from the
+Account and Assignment it is meant to reflect, and that drift would itself become a grant.
+An implementation that caches Membership MUST treat the cache as non-authoritative.
