@@ -38,7 +38,7 @@ flowchart LR
     VALIDATE -->|Validation fails| REJECT[Remain Draft or Reject AIResponse]
 ```
 
-The solid deterministic-template route is the current baseline. The dashed AI-assisted route is optional and remains closed unless active signed provider/model, data-handling, Evidence-classification, prompt, output-schema, and safety artifacts pass the pre-call gate. Provider access occurs only after that gate; no failure silently weakens the deterministic publication predicates.
+The solid deterministic-template route is the current baseline. The dashed AI-assisted route is optional and remains closed unless active signed provider/model, data-handling, Evidence Classification, prompt, output-schema, and safety artifacts pass the pre-call gate. Provider access occurs only after that gate; no failure silently weakens the deterministic publication predicates.
 
 ## Related Documents
 

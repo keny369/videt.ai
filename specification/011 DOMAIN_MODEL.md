@@ -55,6 +55,8 @@ This document MUST NOT define database tables, migration strategies, or storage-
 
 Canonical term meanings inherit from [002 GLOSSARY.md](002%20GLOSSARY.md).
 
+Evidence is the immutable governed record defined by the glossary and the Volume I Evidence contract. Evidence Type, Evidence Payload, Evidence Provenance, and Evidence Classification are attributes or referenced content of that record, not separate entities. Evidence Source is the conceptual origin view over `source_system` and applicable `source_id` within Evidence Provenance, not another field or entity. Measurement Evidence means Evidence with `evidence_type=external_measurement`; Verification Evidence means Evidence with `evidence_type=verification_observation`. Audit Evidence is a separate audit/security record and MUST NOT be modeled as Evidence or used as score input solely because it proves an action.
+
 ## Assumptions
 
 - Project F1 remains a Discoverability Intelligence Platform.
@@ -124,12 +126,16 @@ DM-REQ-006: Identifier namespaces MUST appear in logs, audit events, and telemet
 | Evaluation to Issue | 1 to many | Issue MUST reference one Evaluation origin. |
 | Issue to RecommendationArtifact | 1 to many | RecommendationArtifact MUST reference exactly one origin Issue; optional related-Issue references are informational and never govern eligibility, priority, or lifecycle. |
 | RecommendationArtifact to AIResponse | 0 to many | AIResponse MUST reference one RecommendationArtifact context when generated for remediation. |
-| AIResponse to Citation | 0 to many | Citation MUST reference exactly one AIResponse and exactly one Evidence object; baseline writes contain no direct Evaluation link. |
-| Organization to BillingEntity | 1 to many | BillingEntity MUST reference one Organization. |
+| AIResponse to Citation | 0 to many | Citation MUST reference exactly one AIResponse and exactly one Evidence record; baseline writes contain no direct Evaluation link. |
+| Project to Evidence | 1 to many | Every Evidence record belongs to exactly one Project; `source_id` and `evaluation_id` follow the exact nullable cases in the Volume I Evidence contract. |
+| Evidence to Citation | 0 to many | Every Citation references exactly one Evidence record; an Evidence record may support zero or more Citations. |
+| Organization to BillingEntity | 1 to many over retained history | BillingEntity MUST reference one Organization. WF-001 creates exactly one active baseline BillingEntity; at most one BillingEntity for that Organization may be nonclosed, and every Plan Assignment MUST reference a BillingEntity in the same Organization. |
 | Organization to Integration | 1 to many | Integration MUST reference one Organization. |
 | Integration to Credential | 1 to many | Credential MUST reference one Integration owner. |
 
 DM-REQ-007: Cardinality exceptions MUST be documented with ADR traceability.
+
+Evidence is a lifecycle-bearing auxiliary domain record rather than an additional DM-REQ-001 core entity. Its responsibility is immutable observation identity, payload digest/reference, provenance, classification, validation, and lineage; its lifecycle owner is Evidence Context and its canonical identifier namespace is `evd_id` exposed through the logical field `evidence_id`. Evidence Validation Decisions append to that record's effective validation lifecycle under the Volume I contract. This classification preserves the accepted core-entity catalogue while preventing Evidence from being mistaken for a payload, provenance field, Audit Evidence, or unnamed implementation object.
 
 ### Aggregate Boundaries
 
@@ -155,9 +161,10 @@ DM-REQ-011: The following invariants MUST hold:
 
 - An Issue MUST reference a valid Evaluation.
 - A RecommendationArtifact MUST reference exactly one valid origin Issue; optional related Issue references are non-governing.
-- An AIResponse used in customer output MUST include complete verified Citation coverage, with each Citation linked to exactly one AIResponse and one Evidence object and no direct Evaluation write link under the Volume I interim contract.
+- An AIResponse used in customer output MUST include complete verified Citation coverage, with each Citation linked to exactly one AIResponse and one Evidence record and no direct Evaluation write link under the Volume I interim contract.
 - A Credential MUST NOT exist without an owning Integration.
 - An Account MUST reference exactly one Organization; pre-Organization identity receipts and Bootstrap Grants are authorization artifacts, not Accounts.
+- Under the accepted baseline, an active Organization MUST have exactly one active BillingEntity linked to its active Plan Assignment; reserved `past_due`/`suspended` states have no executable transition until a controlled Volume I adapter change defines their consequences. No provider callback, first use, background action, or lazy read may create a BillingEntity.
 - A Project MUST NOT transition to active without one active Source.
 
 DM-REQ-012: Invariant checks MUST be represented in automated tests before implementation changes merge.
@@ -215,7 +222,7 @@ DM-REQ-019: Unresolved modeling questions MUST include owner, decision deadline,
 
 Current pending decisions and deterministic interim behavior:
 
-- OD-007 Citation linkage is pending Chief Architect approval by 2026-08-01; until approval, each Citation references exactly one AIResponse and one Evidence object, and no Citation writes a direct Evaluation link. ADR trigger: before Volume IV acceptance or before approving a many-to-many model.
+- OD-007 Citation linkage is pending Chief Architect approval by 2026-08-01; until approval, each Citation references exactly one AIResponse and one Evidence record, and no Citation writes a direct Evaluation link. ADR trigger: before Volume IV acceptance or before approving a many-to-many model.
 - OD-008 BillingEntity decomposition is pending Chief Product approval by 2026-08-15; until approval, BillingEntity remains the core commercial aggregate and invoice/payment detail remains adapter-level with no inferred F1 sub-entity. ADR trigger: before Volume V commercial architecture acceptance or before approving core invoice/payment entities.
 
 ## Decisions

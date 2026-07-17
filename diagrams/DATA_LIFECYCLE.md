@@ -33,8 +33,8 @@ flowchart LR
     HOLD -->|No| TOMBSTONE[Write Backup Tombstone]
     TOMBSTONE --> PHYSDEL[Delete Primary, Index, Cache And Key]
     PHYSDEL --> BACKUPPURGE[Backup Purge Or Cryptographic Erasure]
-    BACKUPPURGE --> EVIDENCE[Persist Immutable Deletion Evidence]
-    EVIDENCE --> DESTROY[Irreversible Destruction Complete]
+    BACKUPPURGE --> DELETION_AUDIT[Persist Immutable Deletion Evidence - Audit Evidence]
+    DELETION_AUDIT --> DESTROY[Irreversible Destruction Complete]
     ARCHIVE --> RESTORE[Restore]
     RESTORE --> RESTOREGUARD[Apply Tombstones Before Read]
     RESTOREGUARD --> RETRIEVE

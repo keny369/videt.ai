@@ -4,7 +4,7 @@
 
 - Status: Accepted baseline
 - Version: 1.0.0
-- Last updated: 2026-07-15
+- Last updated: 2026-07-16
 - Owner: Chief Architect
 - Classification: Canonical
 
@@ -94,11 +94,21 @@ Canonical domain events in specifications MUST use PascalCase naming, for exampl
 | Discoverability Intelligence Platform | SEO tool | category clarity |
 | Discoverability Score | SEO score, visibility score | preserve model identity |
 | Issue | finding, problem item, defect note | sole canonical customer and product deficiency object |
+| Evidence Type | evidence kind, evidence class, `evidence_class` | use only the exhaustive `evidence_type` literals defined by Volume I |
+| Evidence Classification | Evidence class, `evidence_class` | distinguish handling/visibility classification from Evidence Type |
+| Evidence Source | source evidence, evidence origin type | nonpersisted provenance-origin view over `source_system` and applicable `source_id`; never an alias for the Source entity, Evidence Type, or Evidence Payload |
+| Evidence Payload | evidence body, evidence blob | distinguish immutable referenced content from the Evidence metadata envelope |
+| Evidence Provenance | evidence source data | immutable origin and collection metadata, not payload or type |
+| Measurement Evidence | measurement evidence type | shorthand only for Evidence with `evidence_type=external_measurement` |
+| Verification Evidence | verification evidence type | shorthand only for Evidence with `evidence_type=verification_observation` |
+| Audit Evidence | Evidence record, Evidence Payload | separate audit/security proof; not the Evidence domain record or a score input |
 | Recommendation Artifact | output file, generated fix | consistent implementation object |
 | Monitoring Run | weekly scan, re-crawl | stable lifecycle term |
 | Technical Integrity | technical health score | pillar consistency |
 | AI Presence | LLM visibility | pillar consistency |
 | Authority Signals | authority score | pillar consistency |
+
+`closure`, `rationale`, `input`, `origin`, `internal`, `external`, and `derived` describe a relationship, provenance, or processing role only. They MUST NOT be capitalized or serialized as an Evidence Type. Use `platform-derived Evidence` for F1-produced records and Measurement Evidence for `external_measurement`; name every other Evidence Type explicitly.
 
 ## Abbreviation Policy
 
