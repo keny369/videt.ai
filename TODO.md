@@ -6,6 +6,31 @@ This file is intended to be maintained automatically.
 
 Could an experienced engineering team build F1 without asking the product owner a single functional question?
 
+## Volume II Freeze And Implementation Readiness (ADR-023)
+
+CLEARED. Volume II is implementation-ready. Every blocker is closed and enforced by an executable check with a load-bearing negative control:
+
+- 72 retired blockers cited as live: classified individually in `specification/volume-ii/RETIRED_BLOCKER_CLASSIFICATION.md` (30 stale label, 29 masked dependency, 11 right outcome/wrong reason, 2 check artefact) and reconciled. No finding changed product behaviour - enforced by `retired_blocker_cited_as_live`, now scoped to the sentence and widened to the whole in-scope tree.
+- Missing successor decision: OD-034 registered as the successor OD-020's ratified text delegates; OD-035 registered for the same reason against OD-019 - enforced by `unresolved_successor_decision`.
+- Seven broken Markdown anchors that Pass B recorded as resolving: asserted, never executed. Fixed - enforced by `anchor_target_missing`.
+- The prior `unauthorized_verification_method` vacuity: line scoping left it reachable. Closed by segment scoping - enforced by a regression control proven to kill the superseded rule.
+
+## Owner Decisions Awaiting Approval
+
+Seven, none blocking implementation. Each withholds one named limb under a deterministic fail-closed interim:
+
+- OD-014 (Chief Product) - Project pause/resume/archive transition.
+- OD-023 (Chief Security) - Credential rotation begin and complete.
+- OD-027 (Chief Architect) - ParsingJob/IndexingJob cardinality: three named artifacts.
+- OD-031 (Chief Architect) - Routine retention-expiry destruction trigger.
+- OD-032 (Chief Architect) - Canonical namespace for an unassigned record.
+- OD-034 (Chief Product and Chief Security) - Read authority for security, administrative and internal operational objects. Until approved, no operator or administrator can read Support Session, Incident, Investigation, Legal Hold, Emergency Access Grant, deletion-job or privileged Billing state through a defined permission.
+- OD-035 (Chief Product) - Low-cost read route-to-operation declaration and `report.view`'s read surface. Until approved, every metered read route Blocks with `operation_unknown`.
+
+## Known Completeness Gap
+
+The Emergency Access Grant has no `emergency_access_grants` table, no `emergency_access_grant` `EventEntityType` member and no `EmergencyAccess*` `EventType` rows, and Volume I's Versioned Policy Resolution enumeration names no artifact type to back `emergency-access-v1`. Not an authority gap and not a withheld limb: OD-012's architecture is ratified and nothing about it awaits an owner. Bounds S-21 only; blocks no earlier slice. Outside ADR-023's authorised scope.
+
 ## Engineering Manual Governance Backlog (Passes 001-002, ADR-021 and ADR-022)
 
 CLEARED. Every blocker recorded by Governance Pass 001 is closed and enforced by an executable check with a load-bearing negative control:
