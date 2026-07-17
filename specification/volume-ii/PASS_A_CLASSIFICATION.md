@@ -152,3 +152,36 @@ Stated so that Pass B does not inherit a false sense of completeness:
 
 Each is a per-row Pass B obligation, and each matrix row carries its own acceptance criterion
 against which it will be decided.
+
+## Upstream Authority-Status Observations (Pass B)
+
+Recorded here rather than corrected. Volume I is frozen at `v1.5-volume-i-frozen`, and changing
+an immutable behavioural baseline inside Volume II Pass B would weaken the governance model. Each
+observation is status-only: none contradicts any behaviour, and none blocks a contract.
+
+### OBS-001 — Stale "interim" wording for the ratified OD-001 method set
+
+- **Status:** open, upstream, non-blocking.
+- **Where:** PRULE-005 and PRULE-020 in `PRODUCT_RULES.md`; the preamble of the
+  Ownership-Verification Evidence Contract in `SCORE_EVIDENCE_MODEL.md`
+  ("This logical contract operationalizes the OD-001 interim method set without resolving the
+  owner approval").
+- **Canonical position:** the Owner Decision Register records OD-001 as
+  `Current Status: Ratified on 2026-07-17 ... ratified as specified`, Approved Option 2 (DNS TXT
+  and HTTPS file), `Blocking Impact: None`, integrated by ADR-019. OD-001 is not one of the five
+  pending decisions.
+- **Why it matters:** the wording predates ratification. Read without checking the register it
+  invites a reader to treat settled authority as unresolved and withhold behaviour the owner has
+  approved — the mirror image of pre-empting an open decision, and just as wrong. Pass B
+  Continuation 003 was briefed on exactly that premise.
+- **Behavioural impact:** none. ADR-019 ratified OD-001 "as specified", so the content those
+  documents carry **is** the ratified baseline. Only the status prose is stale.
+- **Containment:** the trap is now closed by execution rather than by attention.
+  `scripts/validate_volume_ii.py` resolves decision status only from each decision's own
+  `Current Status` field in the register, never from requirement prose, and fails a contract that
+  treats a ratified decision as pending or a pending decision as ratified. Three mutation-killed
+  negative controls prove it.
+- **Disposition:** a controlled Volume I correction, if authorized, belongs in a separate governed
+  correction pass with its own ADR and impact mapping. It MUST NOT happen silently inside Volume
+  II Pass B. No pending-decision blocker is created for OD-001, and S-05 is not reclassified as
+  provisional or withheld.

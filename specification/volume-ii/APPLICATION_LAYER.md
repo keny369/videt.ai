@@ -744,3 +744,90 @@ It is naturally idempotent through its state guard: it fires only from `proposed
 matched observation after success does not re-transition, re-emit or re-materialize the scope
 policy. A concurrent second completion finds the Source no longer proposed. A stale Source state
 version rejects the completion with no side effect.
+
+## WF-004 Manage Source Scope
+
+Matrix rows: MTX-006 (AC-CAP-006), MTX-029 (AC-WF-004). Slice: S-06.
+Structured contract: `specification/volume-ii/contracts/S-06.json`.
+Governing authority: CAP-006, WF-004, the Source Scope Change Contract, PRULE-006, PRULE-021,
+and the WF-004 limb of PRULE-004.
+
+This section is the canonical owner of the WF-004 application contract. Registration is WF-004's
+first path but is owned by [CAP-004](#cap-004-website-or-property-onboarding) in S-04.
+
+### Discovery here means scope, not crawling
+
+CAP-006 Product Behavior is "Resolve scope as the intersection of verified Source, Organization,
+and Project policy". WF-004 performs no outbound retrieval: its paths are registration, scope
+change and Source lifecycle. Outbound crawling is CAP-007/WF-005 and belongs to S-07.
+
+"Discovered canonical URLs" is an **input** to the scope predicate, produced by the S-07 crawler
+and evaluated against the policy this slice owns. S-06 therefore defines no crawler, sitemap,
+redirect-following or URL-expansion behaviour. Importing generic crawler conventions here would
+invent product behaviour that Volume I does not define.
+
+### Dual control is asymmetric
+
+A contraction within an already verified boundary, submitted by an OrganizationAdmin or
+MarketingOperator, may be approved and activated atomically in its creation transaction, without
+dual control. Narrowing scope cannot leak a boundary, so it needs no second party.
+
+A same-host expansion by a non-admin remains pending for an OrganizationAdmin decision, and the
+approving OrganizationAdmin MUST be a different Account. An OrganizationAdmin requester may
+approve its own expansion atomically. A TechnicalImplementer may propose either but can neither
+approve nor activate a policy, and cannot mutate Source lifecycle at all.
+
+The dual-control predicate lives in `DecideSourceScopeChange`, not at a transport edge, so no
+service or job path can reach an approval without it.
+
+### A new host is never an expansion
+
+A new host is a new Source and MUST pass WF-003 verification. It cannot be approved as a policy
+expansion. HTTP or any other scheme is `unsupported_source_scheme` and does not create a second
+same-host Source. This, plus the one-exact-`canonical_host` rule, is what makes scope incapable
+of crossing a tenant boundary by URL rather than by permission.
+
+### Expiry wins
+
+At exactly `due_at_utc` the source-scope lifecycle service's expiry transition wins over
+approval, rejection and cancellation. It emits `SourceScopeChangeExpired` once and changes no
+policy or Source state. Every terminal request is immutable.
+
+### Valid Source paths only
+
+`Verified -> Active`; `Active -> Disabled`; `Disabled -> Active` or `Disabled -> Removed`.
+Direct `Active -> Removed` and `Active -> Verified` are invalid. Removal is allowed only from
+disabled, and re-registration never attaches to the removed lineage.
+
+Disable and remove apply the same next-checkpoint restriction semantics as a scope contraction:
+no new URL is scheduled, in-flight content is discarded from Evaluation input, and already
+immutable history remains. The affected running Crawls are recorded in the decision record rather
+than reached into.
+
+### PRULE-004's second limb closes here
+
+S-03 owns MTX-055 (AC-PRULE-004) and contracted its WF-002 limb -- a Project may not activate
+outside verified Source boundaries -- deferring the WF-004 limb to this slice. MTX-029 owns that
+limb: a Source Scope Policy may not be widened outside the verified boundary. The rule is not
+copied into both slices; each owns one limb, and both use the same canonical terms and version
+semantics.
+
+## CAP-006 Source Discovery And Scope Control
+
+Matrix row: MTX-006 (AC-CAP-006). Slice: S-06.
+Structured contract: `specification/volume-ii/contracts/S-06.json`.
+
+CAP-006 defines no interface of its own; its obligations are discharged by the WF-004 contract
+above. Its Failure Condition is that the Source remains disabled or removed -- both canonical
+Source states, neither an invented failure state.
+
+## PRULE-006 Source Lifecycle Transitions
+
+Matrix row: MTX-057 (AC-PRULE-006). Slice: S-06.
+Structured contract: `specification/volume-ii/contracts/S-06.json`.
+Governing authority: PRULE-006, sourced from SM-REQ-001.
+
+Source lifecycle transitions MUST follow defined valid state paths only. Every allowed
+transition succeeds exactly once; every unlisted or stale transition is denied **and audited**.
+The audit obligation is part of the rule, not an addition: a silently rejected transition would
+satisfy the first clause and breach the second.

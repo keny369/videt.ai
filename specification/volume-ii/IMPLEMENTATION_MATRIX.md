@@ -99,7 +99,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-003 | AC-CAP-003 | CAP: CAP-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | - | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-004 | AC-CAP-004 | CAP: CAP-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-004 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-04 | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-005 | AC-CAP-005 | CAP: CAP-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
-| MTX-006 | AC-CAP-006 | CAP: CAP-006 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-006 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
+| MTX-006 | AC-CAP-006 | CAP: CAP-006 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-006 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-007 | AC-CAP-007 | CAP: CAP-007 | PR-REQ-026, PR-REQ-029 | CAP-007 | - | - | OD-005, OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-008 | AC-CAP-008 | CAP: CAP-008 | PR-REQ-026, PR-REQ-029 | CAP-008 | - | - | OD-005, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
 | MTX-009 | AC-CAP-009 | CAP: CAP-009 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011 | CAP-009 | - | - | OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-09 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Pass B required | None |
@@ -122,7 +122,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-026 | AC-WF-001 | WF: WF-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | - | WF-001 | - | OD-013, OD-016, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
-| MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
+| MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-030 | AC-WF-005 | WF: WF-005 | PR-REQ-026, PR-REQ-029 | - | WF-005 | - | OD-005, OD-011, OD-015, OD-018, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-031 | AC-WF-006 | WF: WF-006 | PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | - | WF-006 | - | OD-011, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-08 | TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
 | MTX-032 | AC-WF-007 | WF: WF-007 | PR-REQ-004..PR-REQ-029 (9) | - | WF-007 | - | OD-003, OD-009, OD-010, OD-017, OD-029, OD-030 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS, TYP-AI | Pass B required | None |
@@ -150,7 +150,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-054 | AC-PRULE-003 | PRULE: PRULE-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | WF-002 | PRULE-003 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-056 | AC-PRULE-005 | PRULE: PRULE-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-005 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-057 | AC-PRULE-006 | PRULE: PRULE-006 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-006 | WF-004 | PRULE-006 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Pass B required | None |
+| MTX-057 | AC-PRULE-006 | PRULE: PRULE-006 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-006 | WF-004 | PRULE-006 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Complete | None |
 | MTX-058 | AC-PRULE-007 | PRULE: PRULE-007 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-007 | WF-005 | PRULE-007 | OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-059 | AC-PRULE-008 | PRULE: PRULE-008 | PR-REQ-026, PR-REQ-029 | CAP-007, CAP-008 | WF-005 | PRULE-008 | OD-005 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-INT, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-060 | AC-PRULE-009 | PRULE: PRULE-009 | PR-REQ-026 | CAP-008 | WF-005, WF-006, WF-017 | PRULE-009 | OD-005, OD-015, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-OBS, TYP-DATA, TYP-INT | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
@@ -165,7 +165,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-069 | AC-PRULE-018 | PRULE: PRULE-018 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001, CAP-025 | WF-001, WF-013 | PRULE-018 | OD-016, OD-032 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01,S-23 | TYP-OBS, TYP-DATA, TYP-SEC | Pass B required; limb withheld | OD-032 -- OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
 | MTX-070 | AC-PRULE-019 | PRULE: PRULE-019 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | WF-001, WF-013 | PRULE-019 | OD-021, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-071 | AC-PRULE-020 | PRULE: PRULE-020 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-020 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-INT | Complete | None |
-| MTX-072 | AC-PRULE-021 | PRULE: PRULE-021 | PR-REQ-027, PR-REQ-028 | CAP-006 | WF-004, WF-005 | PRULE-021 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
+| MTX-072 | AC-PRULE-021 | PRULE: PRULE-021 | PR-REQ-027, PR-REQ-028 | CAP-006 | WF-004, WF-005 | PRULE-021 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-073 | AC-PRULE-022 | PRULE: PRULE-022 | PR-REQ-018, PR-REQ-019 | CAP-008, CAP-023 | WF-005, WF-006, WF-017 | PRULE-022 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-07,S-21 | TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required | None |
 | MTX-074 | AC-PRULE-023 | PRULE: PRULE-023 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | CAP-014 | WF-007 | PRULE-023 | OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-075 | AC-PRULE-024 | PRULE: PRULE-024 | PR-REQ-004..PR-REQ-029 (8) | CAP-015 | WF-008 | PRULE-024 | OD-002, OD-003, OD-005, OD-010 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-13 | TYP-INT, TYP-DATA, TYP-OBS | Pass B required | None |
@@ -407,6 +407,51 @@ from what the sources produce.
 - test contracts: TYP-SEC: the exact method predicate succeeds once and the Source atomically transitions proposed to verified; replay returns the same result. TYP-SEC: unauthorized redelivery is denied. TYP-DATA: on-demand concurrency, rate and count denials never verify and never disable the Source. TYP-DATA: an unresolved request expires after exactly 24 hours. TYP-SEC: terminal challenge material cannot be recovered. TYP-SEC: verification cannot be initiated for a Source in another Organization, which is what prevents unauthorized domain scanning.
 - rollout: As MTX-028.
 
+### MTX-006 - AC-CAP-006 (CAP: CAP-006)
+
+- Slice: S-06
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#cap-006-source-discovery-and-scope-control
+- interface type: Capability-level obligation discharged by the WF-004 contract; CAP-006 defines no interface of its own.
+- route: Not applicable - CAP-006 defines no interface independent of WF-004; see MTX-029.
+- request schema: Versioned Source Scope Policy; normalized, timestamped and versioned boundary-change request with reason and idempotency; expected policy and Source state versions; discovered canonical URLs, per CAP-006 Inputs. Discovered canonical URLs are an input to the scope predicate, produced by the S-07 crawler; S-06 evaluates them and does not produce them.
+- response schema: Immutable pending or terminal Source Scope Change Request, the active policy version when approved, a valid Source state, and the affected-run decision record, per CAP-006 Outputs.
+- controller: Not applicable - no HTTP adapter.
+- command: As MTX-029. CAP-006 adds no command.
+- command input: As MTX-029.
+- command output: As MTX-029.
+- actor: Organization Administrator, Marketing Operator or Technical Implementer, per the permission split in MTX-029.
+- organization scope: As MTX-029; CAP-006 Preconditions require CAP-005 complete, so the Source is verified and carries `source-scope-interim-v1`.
+- aggregate: As MTX-029.
+- aggregate boundary: As MTX-029.
+- value objects: As MTX-029.
+- domain service: Not applicable - CAP-006 names no domain service.
+- repository: As MTX-029.
+- persistence model: As MTX-029 - Source lineage and state transitions are persisted.
+- migration: Not applicable - no schema object added.
+- transaction boundary: As MTX-029.
+- concurrency: As MTX-029 - expected policy and Source state versions on every decision.
+- idempotency: As MTX-029.
+- background job: As MTX-029 - the 24-hour expiry job only.
+- queue: As MTX-029.
+- retry policy: As MTX-029.
+- terminal failure: CAP-006 Failure Condition: the Source remains disabled or removed. Neither is an invented failure state; both are canonical Source states.
+- reconciliation: As MTX-029 - the affected-run decision record.
+- domain events: `SourceActivated`, `SourceDisabled`, `SourceRemoved` per CAP-006 Observability Requirements, plus the scope-change request events from MTX-029.
+- event payload: As MTX-029.
+- event producer: `Workflows::Wf004`.
+- event consumers: Not applicable - CAP-006 names no consumer.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before mutation.
+- permission checks: As MTX-029.
+- tenant boundary: As MTX-029. CAP-006 Security Implications: scope constraints prevent boundary leakage, which the one-exact-canonical_host rule and the new-host-is-a-new-Source rule together enforce.
+- error contract: As MTX-029.
+- audit record: As MTX-029.
+- observability: As MTX-029.
+- retention: As MTX-029.
+- test contracts: TYP-SEC: contraction and admin/non-admin same-host expansion each produce the exact request, policy, Source, work and event outcome. TYP-DATA: a cross-host request is denied. TYP-DATA: approval, rejection and cancellation each produce their exact outcome. TYP-OBS: the before/at/after 24-hour expiry race. TYP-DATA: stale request and stale policy versions each reject. TYP-DATA: replay returns the stored result. TYP-INT: the running-Crawl restriction applies on disable and remove. TYP-DATA: every Source transition fixture produces its exact outcome. TYP-SEC: no disallowed URL becomes valid Evidence - the scope predicate is the gate, asserted against an out-of-scope URL reaching evaluation input.
+- rollout: As MTX-029.
+
 ### MTX-026 - AC-WF-001 (WF: WF-001)
 
 - Slice: S-01
@@ -542,6 +587,51 @@ from what the sources produce.
 - retention: Verification Evidence and its Audit Evidence are retained under their separate contracts per CAP-005 Data Implications; the window is owned by 015 DATA_LIFECYCLE.md. Challenge key and ciphertext are destroyed within 60 seconds of the terminal transaction, while the digest and access audit remain. No plaintext challenge token and no raw observation content is retained at rest.
 - test contracts: TYP-SEC: an unsupported `method` is rejected as `unsupported_method` before any token is generated. TYP-SEC: the challenge token carries >=128 bits of entropy and never appears in a column, log, event payload or Evidence payload. TYP-SEC: exact creation replay by the original actor while pending returns the same token and changes no Request field, expiry, count or event set. TYP-SEC: pending-challenge retrieval by the initiator and by an OrganizationAdmin holding `source.verify` both succeed; a different Organization's Request yields nothing; both paths append a restricted security access log and change no domain state. TYP-SEC: on terminal transition, redelivery is unavailable immediately and the key and ciphertext are destroyed within 60 seconds while digest and access audit remain; terminal replay returns identifiers and status but never challenge material. TYP-SEC: decryption failure returns `challenge_redelivery_unavailable`, changes no state, and permits cancellation plus a new Request. TYP-DATA: at most one pending Request per Source - a second nonreplay request is `verification_in_progress` before token issuance. TYP-DATA: a Request for a verified, active, disabled or removed Source is `source_not_proposed`. TYP-DATA: DNS - exact ASCII `f1-verification=<token>` matches; multiple TXT records where any complete value matches succeeds; segment concatenation follows DNS semantics before comparison; case, whitespace, prefix and suffix differences fail. TYP-DATA: DNS `observed_value_sha256` joins segments in resolver-returned order, UTF-8 encodes, concatenates records separated by one line feed, and hashes those bytes; an absent response has a null hash. TYP-DATA: HTTP requires 200, body <=4 KiB and UTF-8 equality after removal of at most one trailing line feed; redirects are not followed and yield `http_redirect_rejected`. TYP-DATA: the 4,096/4,097-byte boundary - reading stops at exactly 4,097 received entity-body bytes, 4,097 proves `http_body_too_large`, no later byte is read, and declared `Content-Length` is ignored. TYP-DATA: `observed_value_sha256` is over raw received bytes before decode and trailing-line-feed removal - the complete body at <=4,096 bytes, exactly the first 4,097 when oversized; `received_byte_count` follows the same rule. TYP-OBS: status mapping - 408 and transport timeout to `http_timeout`, 429 to `http_rate_limited`, 5xx to `http_server_error`, every other non-200 to `http_status_mismatch`; each remains pending. TYP-OBS: automated slots at 0, 5, 15, 30, 60, 120, 240, 480, 960 and 1,380 minutes; each starts only in its half-open window; an unstarted slot is recorded once as `observation_slot_skipped` and never runs late; at an exact boundary the earlier slot is skipped and the later is eligible; terminal state cancels remaining slots without skipped events. TYP-DATA: on-demand limit 10 - the 10th succeeds, the 11th is `on_demand_limit_reached`. TYP-DATA: `on_demand_observation_in_progress` while the marker is set; concurrent on-demand commands cannot reserve the same slot. TYP-DATA: `on_demand_rate_limited` before 5 minutes; equality at exactly 5 minutes is allowed. TYP-DATA: `attempt_count` increments only when an observation starts, and never on a skipped slot or a rejected request. TYP-DATA: completion persistence failure retries the same reserved attempt and consumes no second count. TYP-DATA: success is atomic - Request `verified`/`matched`, redelivery disabled, `SourceVerified`, `source-scope-interim-v1` materialized and `Source.Proposed -> Source.Verified` all commit together, and a fixture proves none appears without the others. TYP-DATA: an observation completing at or after `expires_at_utc` cannot verify; at exact equality expiry wins. TYP-DATA: mismatch and dependency failure change no Source lifecycle state and never disable the Source. TYP-SEC: cancellation by requester uses `canceled_by_requester`, by an admin uses `canceled_by_admin`, only from pending, only with the expected state version, and leaves the Source proposed. TYP-SEC: `failed` is writable only by the integrity-validation service and only with `request_digest_unavailable` or `request_schema_unsupported`; a DNS or HTTP outcome can never produce `failed`. TYP-SEC: Evidence payload retains no plaintext token and no raw DNS or HTTP content; header values, body, DNS value, host addresses and error text are discarded. TYP-OBS: expiry, cancellation, skipped slots and integrity failure produce Request decisions or scheduler records and never fabricate Verification Evidence.
 - rollout: S-05 depends on S-04 for a proposed Source and gates S-06 and S-07: no Crawl may run against an unverified Source. No predecessor behaviour exists to migrate.
+
+### MTX-029 - AC-WF-004 (WF: WF-004)
+
+- Slice: S-06
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
+- interface type: Application commands over Source Scope Policy and Source lifecycle: propose a scope change, decide it, cancel it, and activate/disable/reactivate/remove the Source. Registration is the same workflow's first path but is owned by S-04 (MTX-004), so this row does not restate it.
+- route: Not applicable - Volume I defines the commands, their exact permissions and their envelopes but no HTTP path, method or transport. Transport exposure is owned by API_CONTRACTS.md at the Volume II baseline. Nothing in WF-004 requires an external interface of its own: every path is a principal command already reachable through the accepted command envelope.
+- request schema: Scope-change request: request ID, Organization, Project and Source IDs, current and proposed normalized host/path/query rules and their content hashes, expected active policy version, requester, nonblank 20-2,000 character request reason, `requested_at_utc`, `due_at_utc` = `requested_at_utc` + 24 hours, idempotency key, state version, correlation ID. Decision: request ID, expected request state version, expected active-policy version, and for rejection a 20-2,000 character reason. Cancellation: request ID, expected state version, 20-2,000 character reason. Source lifecycle: Source ID, expected Source state version.
+- response schema: An immutable pending or terminal Source Scope Change Request with its status, nullable decision actor/time/reason and nullable activated policy version; the active policy version when approved; the Source state and version; and the affected-run decision record.
+- controller: Not applicable - no HTTP adapter is defined by Volume I; see route.
+- command: `Workflows::Wf004::ProposeSourceScopeChange`, `Workflows::Wf004::DecideSourceScopeChange`, `Workflows::Wf004::CancelSourceScopeChange`, `Workflows::Wf004::ActivateSource`, `Workflows::Wf004::DisableSource`, `Workflows::Wf004::ReactivateSource`, `Workflows::Wf004::RemoveSource`. Service-only: `Workflows::Wf004::ExpireSourceScopeChange`, executed by the source-scope lifecycle service at `due_at_utc`. Registration is `Workflows::Wf004::RegisterSource`, owned by S-04.
+- command input: As request_schema, with host, path and query rules normalized before hashing so the content hash is over the canonical form rather than the submitted form.
+- command output: The request or Source in its exact resulting state with its version, plus the emitted event. A rejected command changes nothing and emits one audited command outcome.
+- actor: Organization Administrator, Marketing Operator or Technical Implementer may propose a scope change. Only an Organization Administrator may approve or reject an expansion, and the approver MUST be a different Account from a non-admin requester. A Technical Implementer may propose but can neither approve nor activate a policy, and cannot mutate Source lifecycle.
+- organization scope: The Project MUST belong to the actor's active Organization, and an existing-Source action requires the Source to belong to that Project. Source scope must not cross tenant boundaries, per WF-004 Security Notes.
+- aggregate: SourceScopeChangeRequest and Source as separate roots; SourceScopePolicy as an immutable versioned record.
+- aggregate boundary: A contraction approved by an OrganizationAdmin or MarketingOperator activates atomically in its creation transaction, so the request and the new policy version commit together. An expansion by a non-admin creates a pending request only, and the later decision activates the policy in the decision transaction. Source is a separate root: a lifecycle transition pins the policy version rather than embedding the policy.
+- value objects: SourceScopePolicyVersion, CanonicalHost, AllowedSchemeSet, AllowedPortSet, IncludedPathPrefixSet, ExcludedPathPrefixSet, QueryHandling (`retain_all` or an explicit retained-key allowlist), ContentHash of the normalized rules, RequestStateVersion, SourceStateVersion.
+- domain service: Not applicable - WF-004 names no domain service. Normalization and the scope predicate are pure functions; the dual-control rule is an application-layer authorization decision.
+- repository: `SourceScopeChangeRequestRepository`, `SourceScopePolicyRepository`, `SourceRepository`, `ProjectRepository` read-only, `CrawlRepository` read-only for the affected-run decision record.
+- persistence model: `source_scope_change_requests` carrying every field in request_schema plus status, nullable decision actor/time/reason and nullable activated policy version; every terminal request is immutable. `source_scope_policies` carrying one exact `canonical_host`, allowed schemes, allowed port set, one or more included path prefixes, zero or more excluded path prefixes, query handling, policy version and scope; each version is immutable and a new version is inserted rather than updated. `sources` carries the pinned policy version on lifecycle transition.
+- migration: Not applicable at this row - the canonical schema owns these tables. `source-scope-interim-v1` is materialized by the S-05 verification success transaction, not by a migration.
+- transaction boundary: Contraction by an authorized actor: request creation, approval and policy activation in one transaction. Non-admin expansion: request creation only; the later decision activates the policy in the decision transaction. Cancellation: one transaction, no policy change. Source lifecycle: one transaction per transition, persisting the pinned policy version. Expiry: the lifecycle service's own transaction, emitting `SourceScopeChangeExpired` once and changing no policy or Source state.
+- concurrency: Approval, rejection and cancellation each require the expected request state version AND the expected active-policy version; a stale value on either rejects without side effects, so a decision can never activate against a policy that moved underneath it. At exactly `due_at_utc` the expiry transition wins over approval, rejection and cancellation. Source lifecycle transitions require the expected Source state version. Disable and remove apply the running-Crawl restriction at the next checkpoint rather than mutating in-flight runs.
+- idempotency: The scope-change request is idempotent by its idempotency key: exact replay returns the stored request or decision, and changed content under the same key is `idempotency_conflict`. Decisions are guarded by request status: only `pending` may transition, so a replayed approval on an approved request is rejected rather than activating a second policy version. Source lifecycle transitions are guarded by state: a repeated `ActivateSource` on an active Source is denied as an invalid transition rather than re-emitting `SourceActivated`.
+- background job: `SourceScopeChangeExpiryJob` at `due_at_utc`, the only asynchronous work in this row. It emits `SourceScopeChangeExpired` once and changes no policy or Source state.
+- queue: The source-scope lifecycle queue, per the Volume I Background Processing action registry. Queue identity is owned by BACKGROUND_PROCESSING.md.
+- retry policy: Only a transaction dependency failure receives two retries at exactly 1 and 5 seconds, and each retry rechecks Organization, Project, Source and policy state rather than reusing the earlier read. Logical failures -- cross-host expansion, unverified activation, stale version, boundary violation, unauthorized decision, expired request -- are nonretryable.
+- terminal failure: A registration or lifecycle mutation transaction attempt has a 10-second deadline; at equality the timeout wins and the attempt rolls back. Retry exhaustion changes no scope or Source state. An expired request is terminal and immutable.
+- reconciliation: Not applicable for the scope and lifecycle commands - each is atomic and single-decision, and a failure changes nothing. The affected-run decision record is the reconciliation artifact for running Crawls: disable and remove record which runs were restricted rather than reaching into them.
+- domain events: `SourceScopeChangeRequested` on proposal. `SourceScopeChangeApproved` in the activation transaction. `SourceScopeChangeRejected` on rejection, which requires a 20-2,000 character reason. `SourceScopeChangeCanceled` on cancellation. `SourceScopeChangeExpired` once at `due_at_utc`. `SourceActivated`, `SourceDisabled`, `SourceRemoved` on their transitions. `SourceRegistered` belongs to S-04.
+- event payload: The canonical envelope with the real `organization_id`, plus Project and Source references, the request identity, expected and activated policy versions, decision reason where applicable, and the affected running Crawls for a disable or remove.
+- event producer: `Workflows::Wf004` is the sole producer of all nine events. `SourceScopeChangeExpired` is produced by the source-scope lifecycle service under the same workflow.
+- event consumers: Not applicable at this row - Volume I names no consumer. The running-Crawl restriction is applied by S-07 reading the pinned policy at its next checkpoint, not by reacting to a `SourceDisabled` event.
+- serializer: Not applicable - no transport exposure is defined by Volume I; see route.
+- authorization entry point: The application command, before any mutation. The dual-control predicate is evaluated there, not at a transport edge: an expansion decision is reachable only through `DecideSourceScopeChange`, so the different-Account rule cannot be bypassed by a service or job path.
+- permission checks: `source.scope.propose` to propose a scope change. `policy.source_scope.manage` to activate a policy. `source.lifecycle.manage`, held by an OrganizationAdmin or MarketingOperator only, to activate, disable, reactivate or remove. `source.register` for registration (S-04). Only an OrganizationAdmin may approve or reject an expansion; when the requester is not an OrganizationAdmin the approving OrganizationAdmin MUST be a different Account. A TechnicalImplementer holding `source.scope.propose` may propose but can neither approve nor activate, and cannot mutate lifecycle.
+- tenant boundary: The Project belongs to the actor's active Organization, and the Source belongs to that Project. A policy names one exact `canonical_host`; a new host is a new Source requiring WF-003 verification and can never be reached by widening an existing policy. This is what makes scope incapable of crossing a tenant boundary.
+- error contract: Registration reuses the exhaustive first-match `source-registration-v1` reasons (S-04). Existing-Source commands additionally reject: cross-host expansion; unverified activation; stale request, policy or Source version; boundary violation; unauthorized decision; expired request. `unsupported_source_scheme` for HTTP or any non-HTTPS scheme, which does not create a second same-host Source. `idempotency_conflict` for changed content under the same key. Every rejection changes no scope and no Source state.
+- audit record: Scope and lifecycle records normalized prior and proposed rules, request and approver identities, expected and activated versions, decision reason, effective time, affected running Crawls, and attempt/timeout data, plus the full Source lifecycle events, per WF-004 Audit and Observability.
+- observability: `SourceActivated`, `SourceDisabled` and `SourceRemoved` per CAP-006 Observability Requirements, plus the scope-change request lifecycle events, the decision outcome and the affected-run decision record.
+- retention: Source lineage and state transitions are persisted per CAP-006 Data Implications. Every terminal request and every policy version is immutable. The retention window is owned by 015 DATA_LIFECYCLE.md; this row states none.
+- test contracts: TYP-SEC: contraction by an OrganizationAdmin or MarketingOperator approves and activates atomically in its creation transaction without dual control. TYP-SEC: a TechnicalImplementer may propose a contraction but cannot approve or activate it. TYP-SEC: same-host expansion by a non-admin remains pending and requires a different OrganizationAdmin Account; the same Account cannot approve its own non-admin request. TYP-SEC: an OrganizationAdmin requester may approve its own expansion atomically. TYP-DATA: a cross-host request is denied and cannot be approved as a policy expansion; a new host requires a new Source through WF-003. TYP-DATA: HTTP or any non-HTTPS scheme is `unsupported_source_scheme` and creates no second same-host Source. TYP-OBS: the 24-hour expiry race - before, at exactly, and after `due_at_utc`; at exact equality expiry wins over approval, rejection and cancellation, emits `SourceScopeChangeExpired` once and changes no policy or Source state. TYP-DATA: approval and rejection each require the expected request state version and the expected active-policy version; either stale value rejects with no side effect. TYP-DATA: rejection requires a 20-2,000 character reason; the 19/20/2,000/2,001 boundaries are asserted. TYP-DATA: cancellation by the requester or an OrganizationAdmin from pending only, with expected state version and a 20-2,000 character reason. TYP-DATA: exact replay returns the stored request or decision; changed content under the same key is `idempotency_conflict`. TYP-DATA: every terminal request is immutable - a second decision on an approved, rejected, expired or canceled request changes nothing. TYP-DATA: approval activates exactly one new immutable policy version; rejection, expiry, cancellation, stale version and unauthorized approval each activate none. TYP-DATA: valid Source transitions - `Verified -> Active`, `Active -> Disabled`, `Disabled -> Active`, `Disabled -> Removed` - each succeed exactly once. TYP-DATA: invalid transitions are denied and audited - direct `Active -> Removed` and `Active -> Verified` are rejected. TYP-INT: activation of an unverified Source is denied. TYP-INT: disable and remove immediately apply the running-Crawl restriction - no new URL is scheduled, in-flight content is discarded from Evaluation input, already immutable history remains, and the affected running Crawls are recorded in the decision record. TYP-OBS: only a transaction dependency failure retries, at exactly 1 and 5 seconds, and each retry rechecks Organization, Project, Source and policy state. TYP-OBS: the 10-second attempt deadline; at equality timeout wins and rolls back. TYP-SEC: a Source in another Project or Organization cannot be scoped, decided or transitioned.
+- rollout: S-06 depends on S-05 for a verified Source and its materialized `source-scope-interim-v1` policy, and gates S-07: no Crawl may schedule a URL outside the active policy intersection. No predecessor behaviour exists.
 
 ### MTX-051 - AC-SM-008 (SM: Verification Evidence)
 
@@ -710,7 +800,7 @@ from what the sources produce.
 - request schema: Not applicable - constrains the MTX-027 schema.
 - response schema: Not applicable - see request_schema.
 - controller: Not applicable - no HTTP adapter.
-- command: Enforced within `Workflows::Wf002::ActivateProject` (this slice). Its WF-004 limb, Source scope management, is owned by S-06 and is not contracted here.
+- command: Enforced within `Workflows::Wf002::ActivateProject` (this slice). Its WF-004 limb, Source scope management, is owned by MTX-029 in S-06 and is enforced there against the active Source Scope Policy; this row does not restate it.
 - command input: Not applicable - constrains the MTX-027 input.
 - command output: Not applicable - constrains the MTX-027 output.
 - actor: As MTX-027 for the WF-002 limb.
@@ -743,7 +833,7 @@ from what the sources produce.
 - observability: The selected active Source IDs and the activation check outcome are observable per attempt.
 - retention: Not applicable - PRULE-004 defines no retention obligation.
 - test contracts: TYP-SEC: a Project cannot activate against a Source in another Project. TYP-SEC: a Project cannot activate against a Source in another Organization. TYP-INT: a Project cannot activate against an unverified or inactive Source. TYP-DATA: the selected active Source IDs are recorded at activation and match the Sources that satisfied the boundary. TYP-DATA: a scope change concurrent with activation is `source_membership_changed` and activates nothing.
-- rollout: As MTX-027. The WF-004 limb of this invariant lands with S-06.
+- rollout: As MTX-027. The WF-004 limb of this invariant is owned by MTX-029 in S-06, which closes the deferral this row recorded.
 
 ### MTX-056 - AC-PRULE-005 (PRULE: PRULE-005)
 
@@ -789,6 +879,51 @@ from what the sources produce.
 - retention: Restricted Evidence retained under its separate contract; challenge material destroyed within 60 seconds of terminal transition.
 - test contracts: TYP-SEC: the exact active method predicate - `dns_txt` and `http_file` succeed on an exact match; every other method is rejected before challenge issuance. TYP-SEC: pending challenge delivery is recoverably protected - the plaintext exists only in the authorized creation response and the two authorized redelivery paths, and decryption failure yields `challenge_redelivery_unavailable` rather than a lost Request. TYP-DATA: on-demand cursor and count reservations serialize - concurrent commands cannot reserve the same slot and cannot double-count. TYP-DATA: exactly one restricted decision Evidence per started observation, for matched, not-matched and indeterminate alike. TYP-INT: verification completes before Source activation - an unverified Source can never satisfy an activation prerequisite. TYP-DATA: mismatch, dependency failure, denial and expiry each leave the Source proposed, asserted as four separate fixtures.
 - rollout: As MTX-028.
+
+### MTX-057 - AC-PRULE-006 (PRULE: PRULE-006)
+
+- Slice: S-06
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#prule-006-source-lifecycle-transitions
+- interface type: State-path rule enforced on every Source lifecycle transition. PRULE-006 governs CAP-006 and applies to WF-004 only.
+- route: Not applicable - PRULE-006 is a rule, not an interface.
+- request schema: Not applicable - constrains the MTX-029 commands.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf004::ActivateSource`, `DisableSource`, `ReactivateSource` and `RemoveSource`. This row adds no command.
+- command input: Not applicable - constrains the MTX-029 input.
+- command output: Not applicable - constrains the MTX-029 output.
+- actor: OrganizationAdmin or MarketingOperator holding `source.lifecycle.manage`.
+- organization scope: The Source's Organization.
+- aggregate: Source.
+- aggregate boundary: The rule constrains the Source root only; the pinned policy version is a reference, not a child.
+- value objects: SourceState (`proposed`, `verified`, `active`, `disabled`, `removed`), SourceStateVersion, PinnedPolicyVersion.
+- domain service: Not applicable - a guarded aggregate transition.
+- repository: `SourceRepository`.
+- persistence model: The `sources` lifecycle status column with a CHECK constraint admitting only the canonical states, and the pinned policy version persisted on transition. No Boolean substitutes for a canonical state.
+- migration: Not applicable - the canonical column already exists.
+- transaction boundary: One transaction per transition, persisting the pinned policy version with the new state so the two can never disagree.
+- concurrency: Guarded by the expected Source state version. A concurrent second transition finds the state moved and is denied as an invalid transition rather than applying twice.
+- idempotency: Naturally idempotent through the state guard: each allowed transition succeeds exactly once, and a repeat from the new state is an unlisted transition and is denied.
+- background job: Not applicable - lifecycle transitions are synchronous commands. The running-Crawl restriction they trigger is applied by S-07 at its next checkpoint.
+- queue: Not applicable - not queued.
+- retry policy: As MTX-029 - dependency failure only, at 1 and 5 seconds, each retry rechecking state.
+- terminal failure: Removed is terminal. An unlisted or stale transition is denied and audited, and changes nothing.
+- reconciliation: Not applicable - atomic; no partial transition.
+- domain events: `SourceActivated`, `SourceDisabled`, `SourceRemoved`, each exactly once with its transition.
+- event payload: The canonical envelope with the Source identity, resulting state version and pinned policy version.
+- event producer: `Workflows::Wf004`.
+- event consumers: Not applicable - no consumer is named; S-07 reads the pinned policy rather than reacting to the event.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before the transition.
+- permission checks: `source.lifecycle.manage`, held by an OrganizationAdmin or MarketingOperator only. A TechnicalImplementer cannot mutate lifecycle regardless of other permissions.
+- tenant boundary: The Source belongs to the actor's Project and Organization.
+- error contract: An unlisted transition is denied with its invalid-transition reason and audited. Direct `Active -> Removed` and `Active -> Verified` are explicitly invalid. A stale Source state version rejects without side effects.
+- audit record: Every denied transition is audited with its reason, per the rule's own requirement that unlisted and stale transitions are denied AND audited.
+- observability: The full Source lifecycle events plus the audited denial reason for every rejected transition.
+- retention: Source lineage and state transitions are persisted; window owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: each allowed transition succeeds exactly once - `Verified -> Active`, `Active -> Disabled`, `Disabled -> Active`, `Disabled -> Removed`. TYP-DATA: every unlisted transition is denied and audited - direct `Active -> Removed`, `Active -> Verified`, `Proposed -> Active`, `Removed -> Active`, and any transition from `Removed`. TYP-DATA: a stale Source state version is denied and audited. TYP-INT: disable and remove immediately apply the exact running-Crawl restriction and discard behaviour - no new URL scheduled, in-flight content discarded from Evaluation input, immutable history retained. TYP-DATA: removal is allowed only from disabled; re-registration never attaches to the removed lineage. TYP-SEC: a TechnicalImplementer cannot mutate lifecycle.
+- rollout: As MTX-029.
 
 ### MTX-070 - AC-PRULE-019 (PRULE: PRULE-019)
 
@@ -875,12 +1010,57 @@ from what the sources produce.
 - test contracts: TYP-SEC: `dns_txt` and `http_file` are accepted; `meta_tag`, `email`, `manual_review`, an empty value and an unknown value are each `unsupported_method`. TYP-SEC: rejection occurs before challenge issuance - no token is generated, no Request row is written and no ciphertext is stored for an unsupported method. TYP-SEC: no method bypasses exact validation - an accepted `http_file` still fails on redirect, non-200, oversize body and content mismatch, and an accepted `dns_txt` still fails on case, whitespace, prefix and suffix differences. TYP-DATA: the persistence layer cannot represent an unsupported method, asserted by attempting a direct write.
 - rollout: OD-001 is ratified as Option 2, so the method set is the approved baseline rather than a provisional choice. Adding a third method would be a controlled Volume I change, not an implementation decision.
 
+### MTX-072 - AC-PRULE-021 (PRULE: PRULE-021)
+
+- Slice: S-06
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-021-source-scope-predicate
+- interface type: Scope predicate evaluated wherever a discovered URL is admitted. PRULE-021 governs CAP-006 and applies to WF-004 and WF-005. This row owns the predicate; its WF-005 enforcement at crawl time is applied by S-07 against the policy defined here.
+- route: Not applicable - PRULE-021 is a predicate, not an interface.
+- request schema: Not applicable - the predicate's input is a candidate canonical URL plus the active policy intersection.
+- response schema: Not applicable - the predicate returns allowed or a denial reason.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf004` when a policy version is activated, and applied by the S-07 crawl scheduler against the pinned policy. This row adds no command.
+- command input: Not applicable - a pure function, not a command.
+- command output: Not applicable - a pure function, not a command.
+- actor: Not applicable - the predicate is actor-independent. It tests a URL against a policy, not a principal against a permission.
+- organization scope: The Source's Organization; a policy names one exact `canonical_host` within it.
+- aggregate: SourceScopePolicy as the predicate subject; the candidate URL is not persisted by this row.
+- aggregate boundary: The predicate reads active policy versions and mutates nothing.
+- value objects: CanonicalUrl, CanonicalHost, NormalizedPath, NormalizedQuery, PathPrefix.
+- domain service: Not applicable - a pure function over the URL and the active policy intersection.
+- repository: `SourceScopePolicyRepository` read-only.
+- persistence model: Not applicable - the predicate persists nothing. An out-of-scope URL is rejected or quarantined with its reason by the caller; the durable evidence is the caller's decision record, not a scope-evaluation row.
+- migration: Not applicable - no schema object.
+- transaction boundary: Evaluated inside the caller's transaction against the pinned policy version, so a policy change cannot be raced past an in-flight admission.
+- concurrency: The predicate is pure and has no race of its own. Its inputs are versioned: the caller pins the active policy version, so a concurrent policy activation does not retroactively admit or reject an already-decided URL.
+- idempotency: Naturally idempotent - a pure function of the URL and the policy version returns the same result for the same inputs. Re-evaluating a URL under the same policy version cannot change its admission.
+- background job: Not applicable - the predicate is synchronous within its caller.
+- queue: Not applicable - no asynchronous work.
+- retry policy: Not applicable - a pure predicate has no transient failure to retry. A denial is a decision, not an error.
+- terminal failure: An out-of-scope URL is rejected or quarantined with its reason and never enters valid Evidence or evaluation input. This is terminal for that URL under that policy version.
+- reconciliation: Not applicable - nothing is written.
+- domain events: Not applicable - PRULE-021 emits no event of its own; the caller records the rejection or quarantine.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: Not applicable - the predicate is not an authorization check. It is a scope check, evaluated after authorization, and both must pass.
+- permission checks: Not applicable - PRULE-021 adds no permission. Widening the policy the predicate reads requires `policy.source_scope.manage` and the MTX-029 dual-control rule.
+- tenant boundary: A policy names one exact verified `canonical_host`, so a URL on any other host fails the predicate. Subdomains, alternate apex and `www` hosts, ports and schemes are outside scope unless separately present in the verified policy, which is what prevents boundary leakage by URL rather than by permission.
+- error contract: A URL is allowed only when it matches every active policy intersection, at least one include prefix, no exclude prefix, and the query rule. Exclusion wins over inclusion. Every out-of-bound discovered URL is rejected or quarantined with its reason and never enters valid Evidence or evaluation input. An out-of-scope redirect is not followed.
+- audit record: The caller records the rejection or quarantine with its reason; the predicate itself writes nothing.
+- observability: Rejection and quarantine reasons are observable per candidate URL through the caller's decision record.
+- retention: Not applicable - PRULE-021 persists nothing of its own.
+- test contracts: TYP-DATA: normalization order - host lowercase IDNA ASCII without trailing dot; default port removed; path dot segments and unreserved percent encoding normalized; fragment and user information prohibited; query pairs retained and sorted by decoded key then value while preserving duplicates. TYP-DATA: path prefix matches exactly or at a `/` segment boundary - `/shop` matches `/shop` and `/shop/item` but NOT `/shopping`. TYP-DATA: exclusion wins over inclusion - a URL matching both an include and an exclude prefix is rejected. TYP-DATA: query handling - `retain_all` retains every pair; an explicit allowlist retains only listed keys. TYP-SEC: a subdomain is out of scope unless separately present in the verified policy. TYP-SEC: an alternate apex or `www` host is out of scope unless separately present. TYP-SEC: a non-HTTPS scheme and a nondefault port are each out of scope. TYP-SEC: an out-of-scope redirect is not followed and the target does not become Evidence. TYP-DATA: a URL must match EVERY active policy intersection - passing one policy and failing another is rejected. TYP-DATA: every out-of-bound discovered URL is rejected or quarantined with a reason and never enters valid Evidence or evaluation input. TYP-DATA: the predicate is pure - the same URL under the same policy version always yields the same decision.
+- rollout: The predicate is defined here and applied by S-07 at crawl time against the pinned policy version. S-07 does not redefine it.
+
 ## Coverage Invariants
 
 - Volume I acceptance criteria: 97
 - Matrix rows: 97
-- Contracts complete: 16
-- Rows still `Pass B required`: 81
+- Contracts complete: 20
+- Rows still `Pass B required`: 77
 - Every acceptance criterion maps to exactly one row, by construction.
 - Every row maps back to exactly one governing acceptance criterion and its source.
 - Cross-cutting rows (`ALL`): 4. These are enforced in every slice

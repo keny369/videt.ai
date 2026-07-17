@@ -429,3 +429,36 @@ rather than merely rejected at the application edge.
 
 No method bypasses exact validation. The rule's second clause is not a restatement of the first:
 being on the approved list is necessary and never sufficient.
+
+## PRULE-021 Source Scope Predicate
+
+Matrix row: MTX-072 (AC-PRULE-021). Slice: S-06.
+Structured contract: `specification/volume-ii/contracts/S-06.json`.
+Governing authority: PRULE-021, sourced from SB-REQ-003, SB-REQ-025 and SEC-REQ-010. Applies to
+WF-004 and WF-005.
+
+This section owns the predicate. S-07 applies it at crawl time against the pinned policy version
+and does not redefine it.
+
+### The predicate
+
+A URL is allowed only when it matches **every** active policy intersection, **at least one**
+include prefix, **no** exclude prefix, and the query rule. Exclusion wins over inclusion.
+
+Normalization precedes comparison: host lowercase IDNA ASCII without trailing dot; default port
+removed; path dot segments and unreserved percent encoding normalized; fragment and user
+information prohibited; query pairs retained and sorted by decoded key then value while
+preserving duplicates.
+
+A path prefix matches the normalized path exactly or at a `/` segment boundary. `/shop` matches
+`/shop/item` and does not match `/shopping`. This is the difference between a boundary and a
+string prefix.
+
+### What is outside scope
+
+Subdomains, alternate apex and `www` hosts, ports and schemes are outside scope unless
+separately present in the verified policy. An out-of-scope redirect is not followed.
+
+Every out-of-bound discovered URL is rejected or quarantined with its reason and can never become
+valid Evidence or evaluation input. The predicate is a scope check, not an authorization check:
+it is evaluated after authorization, and both must pass.

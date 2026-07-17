@@ -139,7 +139,7 @@
       "contract_owner": "specification/volume-ii/APPLICATION_LAYER.md#prule-004-project-scope-within-verified-source-boundaries",
       "interface_type": "Scope invariant enforced at Project activation and at Source scope change. PRULE-004 governs CAP-003 and CAP-004 and applies to WF-002 and WF-004.",
       "route": "Not applicable - PRULE-004 is an invariant, not an interface.",
-      "command": "Enforced within `Workflows::Wf002::ActivateProject` (this slice). Its WF-004 limb, Source scope management, is owned by S-06 and is not contracted here.",
+      "command": "Enforced within `Workflows::Wf002::ActivateProject` (this slice). Its WF-004 limb, Source scope management, is owned by MTX-029 in S-06 and is enforced there against the active Source Scope Policy; this row does not restate it.",
       "actor": "As MTX-027 for the WF-002 limb.",
       "organization_scope": "The actor's Organization; scope never extends beyond it.",
       "aggregate": "Project as the scope subject; Source as the verified boundary, read by identity.",
@@ -175,7 +175,7 @@
       "observability": "The selected active Source IDs and the activation check outcome are observable per attempt.",
       "retention": "Not applicable - PRULE-004 defines no retention obligation.",
       "test_contracts": "TYP-SEC: a Project cannot activate against a Source in another Project. TYP-SEC: a Project cannot activate against a Source in another Organization. TYP-INT: a Project cannot activate against an unverified or inactive Source. TYP-DATA: the selected active Source IDs are recorded at activation and match the Sources that satisfied the boundary. TYP-DATA: a scope change concurrent with activation is `source_membership_changed` and activates nothing.",
-      "rollout": "As MTX-027. The WF-004 limb of this invariant lands with S-06."
+      "rollout": "As MTX-027. The WF-004 limb of this invariant is owned by MTX-029 in S-06, which closes the deferral this row recorded."
     }
   }
 }

@@ -90,7 +90,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-03 | **Contracts complete; OD-014 limb withheld** | MTX-003, MTX-027, MTX-054, MTX-055 | `contracts/S-03.json`; canonical owner APPLICATION_LAYER.md |
 | S-04 | **Contracts complete** | MTX-004 (MTX-055 owned by S-03) | `contracts/S-04.json`; canonical owner APPLICATION_LAYER.md |
 | S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
-| S-06 .. S-24 | Pass B required | 0 | Next: S-06 Source Discovery and Scope, first row MTX-006 (AC-CAP-006) |
+| S-06 | **Contracts complete** | MTX-006, MTX-029, MTX-057, MTX-072 | `contracts/S-06.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
+| S-07 .. S-24 | Pass B required | 0 | Next: S-07 Crawl Execution and Recovery, first row MTX-007 (AC-CAP-007) |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -168,6 +169,24 @@ followed; body reading stops at exactly 4,097 bytes and ignores declared `Conten
 
 S-05 note: OD-001 is **ratified**, not pending. Nothing in S-05 is withheld. The five rows carry
 an OD dependency, not an OD block.
+
+### S-06 cross-cutting application
+
+| Cross-cutting row | How S-06 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | Outbound boundary: S-06 performs no outbound retrieval at all, so it has no SSRF surface; the scope predicate it owns is what bounds S-07's outbound behaviour. A new host is never an expansion and requires WF-003 verification |
+| MTX-095 (AC-PRULE-044) | A policy names one exact verified `canonical_host`; subdomains, alternate apex/`www` hosts, ports and schemes are outside scope unless separately verified. Scope cannot cross a tenant boundary by URL rather than by permission |
+| MTX-096 (AC-PRULE-045) | S-06 reads Project state as a guard and effects no Project transition; the OD-014 limb is untouched |
+| MTX-097 (AC-PRULE-046) | Every unlisted or stale Source transition is denied **and audited**; scope decisions record prior/proposed rules, approver identity, expected and activated versions, decision reason, effective time and affected running Crawls |
+
+Abuse and isolation controls: dual control on same-host expansion by a non-admin, with the
+approver required to be a different Account; contraction needs no dual control because narrowing
+cannot leak a boundary; expiry wins at exactly `due_at_utc`; every terminal request is immutable;
+a TechnicalImplementer can neither approve a policy nor mutate lifecycle.
+
+S-06 note: "discovery" means scope control, not crawling. WF-004 performs no outbound retrieval;
+outbound crawling is CAP-007/WF-005 in S-07. PRULE-004's WF-004 limb, deferred by S-03, is closed
+here by MTX-029.
 
 ## Register
 
