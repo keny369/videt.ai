@@ -331,9 +331,9 @@ Rows explicitly marked unavailable below are reserved mappings only: the router 
 | `POST /api/v1/incidents` | `DeclareIncident` | `incident.respond` | no | 201 |
 | `POST /api/v1/incidents/:id/step-attempts` | `RunIncidentStep` | `incident.respond`; baseline diagnostic step only | yes | 202 |
 | `POST /api/v1/incidents/:id/resolution` | `ResolveIncident` | `incident.respond`; protected approval where required | yes | 200 |
-| `POST /api/v1/investigations` | `OpenInvestigation` | `security.investigate` | no | unavailable under `UPSTREAM-V1-EVENT-SCOPE-001`; 202 once corrected |
-| `POST /api/v1/investigations/:id/reports` | `PublishInvestigationReport` | `security.investigate` | yes | unavailable under `UPSTREAM-V1-EVENT-SCOPE-001`; 201 once corrected |
-| `POST /api/v1/investigations/:id/closure` | `CloseInvestigation` | `security.investigation.approve` | yes | unavailable under `UPSTREAM-V1-EVENT-SCOPE-001`; 200 once corrected |
+| `POST /api/v1/investigations` | `OpenInvestigation` | `security.investigate` | no | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 202 once corrected |
+| `POST /api/v1/investigations/:id/reports` | `PublishInvestigationReport` | `security.investigate` | yes | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 201 once corrected |
+| `POST /api/v1/investigations/:id/closure` | `CloseInvestigation` | `security.investigation.approve` | yes | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 200 once corrected |
 | `POST /api/v1/legal-holds` | `RequestLegalHold` | `legal_hold.manage` | no | 201 |
 | `POST /api/v1/legal-holds/:id/approval` | `DecideLegalHold` | `legal_hold.manage`; distinct approver; decision fixed by route to `approve` | yes | 200 |
 | `POST /api/v1/legal-holds/:id/rejection` | `DecideLegalHold` | `legal_hold.manage`; distinct approver; decision fixed by route to `reject` | yes | 200 |
@@ -772,7 +772,7 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 
 | Event types | Workflow | Affected entity | Allowed profile(s) | Extra schema | Reason source |
 | --- | --- | --- | --- | --- | --- |
-| `BootstrapGrantIssued` | WF-001 | `bootstrap_grant` | C | `none` | none; emission unavailable under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `BootstrapGrantIssued` | WF-001 | `bootstrap_grant` | C | `none` | none; emission deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
 | `BootstrapGrantConsumed` | WF-001 | `bootstrap_grant` | ST | `none` | none |
 | `BootstrapGrantExpired` | WF-001 | `bootstrap_grant` | ST | `none` | transition |
 | `AccountProvisionRequested` | WF-001 | `account` | C | `none` | none |
@@ -912,7 +912,7 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `ExportFailed`, `ExportExpired` | WF-016 | `export` | ST | `export` | transition |
 | `ExportRevoked` | WF-016 | `export` | ST | `export` | none |
 | `ExportRetrieved` | WF-016 | `export_retrieval` | ST | `export_retrieval` | none |
-| `IncidentRaised` | WF-017 | `incident` | C | `incident` | none; platform-wide emission unavailable under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `IncidentRaised` | WF-017 | `incident` | C | `incident` | none; platform-wide emission deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
 | `IncidentSeverityAssigned` | WF-017 | `incident` | D | `incident_severity_decision` | decision |
 | `SecurityIncidentCustomerActionRequired` | WF-017 | `incident` | D | `incident_customer_action` | decision |
 | `IncidentRecoveryStepStarted` | WF-017 | `incident_step_attempt` | C | `incident_step` | none |
@@ -920,11 +920,11 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `IncidentRecoveryFailed` | WF-017 | `incident_step_attempt` | ST | `incident_step` | transition |
 | `IncidentMitigated`, `IncidentResolved` | WF-017 | `incident` | ST | `incident` | none |
 | `IncidentRestorationVerified` | WF-017 | `incident_restoration_check` | C | `incident_restoration_check` | none |
-| `SecurityInvestigationOpened` | WF-018 | `investigation` | C | `investigation` | none; unavailable under `UPSTREAM-V1-EVENT-SCOPE-001` |
-| `InvestigationAuditEvidenceCollected`, `InvestigationGapRecorded` | WF-018 | `investigation_input` | C | `investigation_input` | unavailable under `UPSTREAM-V1-EVENT-SCOPE-001` |
-| `SecurityInvestigationReported`, `SecurityInvestigationClosed` | WF-018 | `investigation` | ST | `investigation` | unavailable under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `SecurityInvestigationOpened` | WF-018 | `investigation` | C | `investigation` | none; deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `InvestigationAuditEvidenceCollected`, `InvestigationGapRecorded` | WF-018 | `investigation_input` | C | `investigation_input` | deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `SecurityInvestigationReported`, `SecurityInvestigationClosed` | WF-018 | `investigation` | ST | `investigation` | deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
 
-Every WF-017 row above is available only for a single-Organization Incident. The same event type for a platform-wide Incident is unavailable under `UPSTREAM-V1-EVENT-SCOPE-001`; a publisher cannot choose one Organization, duplicate the event per tenant or omit the tenant field.
+Every WF-017 row above is Organization-scoped, which under OD-013 Option 1 is the only scope any Incident event has. An incident affecting several Organizations is represented as one Organization-scoped Incident record per affected Organization, each emitting its own Organization-scoped events linked by a shared `correlation_id`; there is no platform-wide Incident event type to publish. A publisher still may not choose one Organization arbitrarily, omit the tenant field, or emit a sentinel or synthetic tenant, and `correlation_id` confers no ownership. Transport exposure remains intentionally deferred to the Volume II baseline.
 
 ### Closed profile payloads
 
@@ -1036,7 +1036,7 @@ All event types not matching the effective Notification Policy predicate have ze
 
 ### Upstream behavioural blockers
 
-`UPSTREAM-V1-EVENT-SCOPE-001`: Volume I makes `organization_id` mandatory in every logical event envelope. WF-001 requires `BootstrapGrantIssued` before an Organization exists, WF-017 permits a platform-wide Incident, and WF-018 permits one Investigation to span an approved Organization set. No permitted substitution or representation covers those producers. Null, an invented platform Organization, one selected Organization, duplicated per-Organization events and omission are observably different. Volume II does not select one silently. Physical emission and final DDL for those scope classes remain blocked pending controlled Volume I clarification; ordinary single-tenant events remain fully specified.
+`UPSTREAM-V1-EVENT-SCOPE-001` — Status: Resolved by ADR-020. OD-013 Option 1 resolves this under ADR-020 with no foundation change: it consumes the DM-REQ-013 gate that already reserves the pre-Organization bootstrap substitution for the named onboarding contract, and WF-001 now expressly permits it for `BootstrapGrantIssued` and `BootstrapGrantExpired` only. Every other event carries a nonnull `organization_id` resolving to an existing Organization. A platform-wide Incident is represented as one Organization-scoped Incident record per affected Organization, and a cross-Organization Investigation as one Organization-scoped Investigation record per affected Organization, each emitting Organization-scoped events linked by a shared `correlation_id`. Canonical ownership is always singular and always an Organization; coordination is orchestration over Organization-owned records and never an owner. No `event_scope` discriminator, no platform-owned canonical record, and no sentinel or synthetic tenant is introduced. The semantic contract is now canonical in Volume I. Any corresponding API surface, transport contract, routing, serialization or application-layer exposure remains intentionally deferred until the Volume II baseline and is not defined by this correction package.
 
 `UPSTREAM-V1-PROJECT-LIFECYCLE-003`: Volume I's state model permits `Project.Active -> Paused`, `Project.Paused -> Active`, and Active/Paused to Archived, and names `ProjectPaused`, `ProjectReactivated`, and `ProjectArchived`, but WF-002 defines only Draft to Active and the permission matrix names only `project.create` and `project.activate`. Volume II therefore exposes no pause, resume, or archive endpoint and does not assign those operations to `project.activate`. Their actor, trigger, permission, preconditions, failure result, idempotency and acceptance behavior require controlled Volume I clarification.
 

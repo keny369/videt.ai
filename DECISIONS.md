@@ -474,3 +474,74 @@ No shipped software, emitted event, persisted record or customer datum exists to
 
 Review Checkpoint:
 This baseline is reviewable, not final. The successor Volume I freeze requires: qualified legal review of the retention, deletion and notification package to complete, preceded by the owner input it depends on — approved jurisdictions, markets, and customer and contract scope, none of which the repository currently contains; `AC-CAP-013`'s unsatisfiable 30-day expiry-warning criterion to be reconciled or changed; and an explicit Chief Architect decision on OD-013 event tenant identity, which no option may satisfy by inferring a synthetic platform tenant. The successor tag is the final Volume I freeze and MUST NOT be created while any of those gates is open. Reassess no later than 2026-08-27.
+
+## ADR-020: Volume I Legal Closure, Event Ownership, And Freeze Baseline
+
+Status: Accepted
+Date: 2026-07-17
+Owner: Chief Architect
+Reversibility: Low. Downstream artifacts and the Volume I freeze cite these contracts, and the removed deletion-job edge and the Organization-ownership rule are load-bearing. No emitted event, persisted record or customer datum exists to unwind.
+
+Decision:
+Close the six owner decisions that blocked the Volume I freeze — OD-011, the OD-012 notification limb, OD-013, OD-029, OD-030 and OD-033 — integrate them across the foundation, Volume I and the retained Volume II drafts as one change set, and declare the result the final Volume I freeze. Three controlled foundation changes are made under PM-REQ-009. Five owner decisions remain pending and none blocks the freeze.
+
+Context:
+`v1.4-volume-i-ratified-prelegal` at `b2cb4ca` integrated 21 owner decisions and left two external gates: the retention and deletion legal package, and OD-013 event tenant identity. [specification/volume-i/LEGAL_REVIEW_RECORD_2026-07-17.md](specification/volume-i/LEGAL_REVIEW_RECORD_2026-07-17.md) recorded that OD-011 could not close because its standard demanded repository-hosted counsel signatures, reviewer identities and package digests that do not exist and that the owner forbade fabricating. The owner has since supplied the product and market scope, confirmed external counsel review with no objection, and narrowly amended the evidence standard. The decisions are recorded in [specification/volume-i/OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md](specification/volume-i/OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md).
+
+Authority And Precedence:
+This ADR does not supersede any unchanged foundation requirement. Under PM-REQ-003 the foundation outranks the ADR registry. Where this change set changes foundation content, the change is made in the foundation document itself with its impact mapping in the same change set, exactly as ADR-006 and ADR-012 require.
+
+Controlled Foundation Changes Under PM-REQ-009:
+
+1. OD-033 — [specification/016 STATE_MODEL.md](specification/016%20STATE_MODEL.md), LifecycleDeletionJob row. The `queued to completed` edge is removed and added to the row's invalid transitions; completion now occurs only from `running`. The owner treats the direct edge as unintended. The deletion lifecycle is asynchronous, so every job enters the existing `running` state before completing, including where the frozen manifest is empty or every member is already provably destroyed at admission. No duplicate state is invented; `running` already exists. WF-013's enumeration is restored and no longer asserts that the edge "is required by" the state model.
+
+2. OD-029 — [specification/015 DATA_LIFECYCLE.md](specification/015%20DATA_LIFECYCLE.md). The retention-warning producer is reconciled from an unnamed "lifecycle service" to WF-007 under the integrity-validation service authority, matching the approved Option 2. This assigns an existing event to an existing workflow and creates no new workflow, capability, decision record, Evidence Payload state or notification route variant. It satisfies `AC-CAP-013`'s 30-day expiry-warning criterion, which previously had no producer and was therefore unsatisfiable.
+
+3. OD-030 — [specification/015 DATA_LIFECYCLE.md](specification/015%20DATA_LIFECYCLE.md). Destruction of an Evidence Payload whose effective validation status is already `invalid` is proved by a distinct immutable `security_audit` deletion audit record rather than an Evidence Validation Decision, which cannot be appended to an already-invalid payload. Destruction stays on the existing capture cursor and 24-month maximum and is not accelerated to the accrued 30-day minimum. The LifecycleDeletionJob and its Deletion Evidence remain the Account-deletion and Organization-closure mechanism only. No retention window is changed.
+
+OD-013 makes no foundation change. Option 1 consumes the DM-REQ-013 gate that already reserves the pre-Organization bootstrap substitution for "the named onboarding contract"; WF-001 now expressly names it. DM-REQ-013 is not modified, no `event_scope` discriminator is added, and the PM-REQ-009 change associated with Option 2 is expressly not performed.
+
+Governance Amendment:
+OD-011's Qualified Legal Approval element demanded repository-hosted reviewer identities, package digests and counsel signatures. Privileged legal material was never intended to live in the engineering repository. That element is narrowly amended to accept exactly four things: an append-only owner approval record; a factual record that qualified external legal counsel reviewed the position and raised no objection; the identified retention baseline; and the applicable product and market scope. Privileged detail is expressly excluded and its absence is by design. The repository MUST NOT fabricate a signature, reviewer identity, package digest or legal opinion, and MUST NOT present any record as a legal opinion. No other element of OD-011's approval package is relaxed: its retention, hold, destruction, backup, audit and customer-configuration decisions each remain required and are recorded.
+
+Decisions Applied:
+
+- OD-011 Option 1 — `retention-interim-v1` is the fixed Volume I retention baseline. Product scope is worldwide availability; principal initial English-speaking markets are the United States, United Kingdom, Australia, New Zealand, Canada and South Africa. Qualified external counsel reviewed the position and raised no objection. Customer-configurable retention is not approved and remains disabled.
+- OD-012 notification limb — closed insofar as it inherits OD-011, against the same baseline and review record.
+- OD-013 Option 1 for every sub-decision — all events, Incidents and Investigations are Organization-owned; a platform-wide Incident and a cross-Organization Investigation are coordinated per-Organization records linked by `correlation_id`; the pre-Organization bootstrap substitution is confined to `BootstrapGrantIssued` and `BootstrapGrantExpired`. `UPSTREAM-V1-EVENT-SCOPE-001` is retired.
+- OD-029 Option 2, OD-030 Option 3, OD-033 Option 3 — as recorded above.
+
+Options Considered:
+
+1. Freeze without closing OD-011, treating counsel's no-objection as sufficient under the original standard. Rejected: the original standard required a named reviewer approving an identified digest, which does not exist; recording one would fabricate privileged material.
+2. Close OD-013 with Option 2's `event_scope` discriminator, the position the ratification session summarised as recommended. Rejected: the Owner Decision Register recommends Option 1 for the bootstrap sub-decision only and records the other two as owner input required; Option 2 additionally requires a foundation change to DM-REQ-013 that the owner expressly declined.
+3. Close OD-013 with Option 3, deleting platform and cross-Organization scope. Rejected: it discards a capability SEC-REQ-012 contemplates and WF-018 exists to provide.
+4. Close the decisions, amend the evidence standard narrowly, and freeze. Accepted.
+
+Consequences:
+
+- Volume I is frozen at `v1.5-volume-i-frozen`. This is the authoritative Volume I implementation baseline and the PM-REQ-010 gate for Volume I is satisfied.
+- Canonical ownership of every event, Incident and Investigation is singular and always an Organization. Coordination across Organizations is orchestration over Organization-owned records and never an owner. No document may use "platform-wide" or "cross-Organization" to imply a platform-owned canonical record.
+- No LifecycleDeletionJob may complete without entering `running`. No compatibility path, schema shape, migration, function or grant may admit the removed edge.
+- `retention-interim-v1` is a fixed approved baseline rather than an interim; its identifier is retained because renaming it would not change its content and the register names it explicitly as the approved option.
+- Five owner decisions remain pending — OD-014, OD-023, OD-027, OD-031, OD-032 — exactly as the ratification session classified them. OD-014, OD-023 and OD-031 are implementation-blocking with genuinely neutral interims; OD-027 and OD-032 are Volume II-blocking. None blocks the Volume I freeze, and each retains deterministic interim behaviour and an exact blocking statement.
+- Volume II remains blocked from an architecture baseline; the retained drafts are aligned to the corrected contracts and are not expanded.
+
+Affected Downstream Documents:
+[specification/015 DATA_LIFECYCLE.md](specification/015%20DATA_LIFECYCLE.md), [specification/016 STATE_MODEL.md](specification/016%20STATE_MODEL.md), and the Volume I set: INDEX, OWNER_DECISION_REGISTER, WORKFLOW_SPECIFICATIONS, ACCEPTANCE_AND_TEST_MAPPING, TRACEABILITY_MATRIX. Retained Volume II drafts: INDEX, API_CONTRACTS, APPLICATION_LAYER, BACKGROUND_PROCESSING. Schema: [schemas/POSTGRESQL_SCHEMA.md](schemas/POSTGRESQL_SCHEMA.md).
+
+Affected Tests, Diagrams, Schemas And Contracts:
+`AC-CAP-013` gains a producer and becomes satisfiable; `AC-WF-001` gains the bootstrap substitution assertion; `AC-WF-013` gains the removed-edge assertion; `AC-WF-017` and `AC-WF-018` gain the per-Organization decomposition assertion. [diagrams/DATA_LIFECYCLE.md](diagrams/DATA_LIFECYCLE.md) and [diagrams/DOMAIN_MODEL.md](diagrams/DOMAIN_MODEL.md) are checked against the removed edge and the ownership rule. The `lifecycle_deletion_jobs` and `audit_records` schema rows are reconciled.
+
+Risks And Mitigations:
+
+- Amending a legal-evidence standard could be read as weakening it; the amendment is narrow, changes only where the evidence lives rather than whether review occurred, expressly forbids fabricating any signature or opinion, and relaxes no other element of the package.
+- Recording markets could be read as a contractual or regulatory claim; the record states worldwide availability and principal markets as owner-supplied product facts, makes no jurisdiction-specific legal conclusion, and is expressly not a legal opinion.
+- Per-Organization decomposition could be misread as duplicating an event; each per-Organization record is a distinct canonical record with its own owner, not a copy, and `correlation_id` expresses coordination without conferring ownership.
+- Freezing with five decisions pending could be misread as freezing over open blockers; each is classified non-blocking by the owner's own ratification record, retains a deterministic interim, and states its exact blocking impact.
+
+Compatibility And Migration:
+No shipped software, emitted event, persisted record or customer datum exists to migrate. No identifier is renumbered. The removed `queued to completed` edge was never executable: the OD-033 interim already forbade it, so no job can hold a state reached through it. The bootstrap substitution makes two previously suppressed events emittable and breaks no consumer. `retention-interim-v1` content is unchanged, so no retention window moves and no stored datum changes class.
+
+Review Checkpoint:
+Volume I is frozen. Reopening any contract in this change set requires a new ADR and the PM-REQ-009 process where foundation content is affected. The five pending decisions are reviewed at their own latest responsible decision points. Reassess no later than 2026-08-27.

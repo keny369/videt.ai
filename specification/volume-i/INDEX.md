@@ -8,7 +8,7 @@
 - Owner: Chief Architect
 - Current Baseline Tag: `v1.3-volume-i-corrected` at commit `5d725fa`
 - Superseded Baseline Tags: `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are retained as history only. They predate the ADR-017 corrections and MUST NOT be used as an implementation baseline.
-- Freeze Status: NOT frozen. The Volume I ratified pre-legal baseline is `v1.4-volume-i-ratified-prelegal`, integrating the 2026-07-17 owner ratification under ADR-019. The successor Volume I freeze requires qualified legal review of the retention, deletion and notification package and an explicit Chief Architect decision on OD-013 event tenant identity; neither is resolvable by specification work. Implementation remains gated by PM-REQ-010.
+- Freeze Status: FROZEN at `v1.5-volume-i-frozen`. Volume I is the authoritative implementation baseline following owner resolution of OD-011, the OD-012 notification dependency, OD-013, OD-029, OD-030 and OD-033 on 2026-07-17, integrated under ADR-020. All Volume I validation and traceability checks pass. Five owner decisions remain pending — OD-014, OD-023, OD-027, OD-031, OD-032 — and none blocks this freeze: OD-014, OD-023 and OD-031 are implementation-blocking with deterministic neutral interims, and OD-027 and OD-032 are Volume II-blocking.
 
 ## Authority
 
@@ -141,11 +141,11 @@ No checklist row above may be read as evidence that these defects are absent.
 
 ## Change Control
 
-Volume I is not frozen. Its current baseline is `v1.4-volume-i-ratified-prelegal`, the ratified pre-legal baseline created by the ADR-019 integration of the 2026-07-17 owner ratification session. `v1.3-volume-i-corrected` at `5d725fa` is its immediate predecessor and is retained as history. This milestone is reviewable, not final: it is not implementation-ready, and no document may describe it as frozen.
+Volume I is frozen. Its baseline is `v1.5-volume-i-frozen`, created by the ADR-020 integration of the owner's 2026-07-17 legal and closure decisions. `v1.4-volume-i-ratified-prelegal` at `b2cb4ca` is its immediate predecessor and is retained as history, as are `v1.3-volume-i-corrected`, `v1.2-volume-i-frozen` and `v1.1-implementation-ready`. The PM-REQ-010 gate for Volume I is satisfied.
 
 ADR-018 authorizes the RC1 correction programme. Outside that programme, a normative Volume I edit remains permitted only to correct a demonstrated defect—a contradiction, non-executable contract, unsafe behavior, or acceptance oracle that cannot test the stated behavior—or to incorporate an approved owner decision through controlled change. Preference changes, scope expansion, new capabilities, speculative refinement, governance expansion, and silent replacement of deterministic interim behavior are not defect corrections.
 
-Twenty-one owner decisions were ratified or resolved on 2026-07-17 and integrated under ADR-019; each names its approved option or outcome in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) and no ratified decision remains described as pending or interim. Ten owner decisions remain pending and remain explicit release gates: OD-011, OD-013, OD-014, OD-023, OD-027, OD-029, OD-030, OD-031, OD-032 and OD-033. Assurance evidence for this milestone is recorded in [SPECIFICATION_ASSURANCE_REPORT_2026-07-17.md](SPECIFICATION_ASSURANCE_REPORT_2026-07-17.md). Owner approval and counsel consultation of 2026-07-17 are recorded in [LEGAL_REVIEW_RECORD_2026-07-17.md](LEGAL_REVIEW_RECORD_2026-07-17.md); that record does not satisfy OD-011's closure standard and Volume I remains unfrozen.
+Twenty-one owner decisions were ratified or resolved on 2026-07-17 and integrated under ADR-019; each names its approved option or outcome in [OWNER_DECISION_REGISTER.md](OWNER_DECISION_REGISTER.md) and no ratified decision remains described as pending or interim. Ten owner decisions remain pending and remain explicit release gates: OD-011, OD-013, OD-014, OD-023, OD-027, OD-029, OD-030, OD-031, OD-032 and OD-033. Assurance evidence for this milestone is recorded in [SPECIFICATION_ASSURANCE_REPORT_2026-07-17.md](SPECIFICATION_ASSURANCE_REPORT_2026-07-17.md). Owner approval and counsel consultation of 2026-07-17 are recorded in [LEGAL_REVIEW_RECORD_2026-07-17.md](LEGAL_REVIEW_RECORD_2026-07-17.md), and the decisions closing the retention cluster, event tenant identity and the deletion-job direct-completion condition are recorded in [OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md](OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md).
 
 Every permitted defect correction MUST:
 

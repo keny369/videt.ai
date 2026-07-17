@@ -5,7 +5,7 @@
 - Date: 2026-07-16
 - Status: Corrected Volume I accepted as the behavioural baseline but NOT frozen; an RC1 release-candidate review recorded open normative defects and the RC1 correction programme under ADR-018 is in progress. Volume II Implementation Architecture Pass 001 complete for unblocked behavior and acceptance-blocked by demonstrated upstream ambiguities
 - Foundation Baseline: 1.0
-- Current Volume I Baseline Tag: `v1.4-volume-i-ratified-prelegal` (ratified pre-legal baseline, ADR-019); predecessor `v1.3-volume-i-corrected` at `5d725fa`; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines. No successor frozen tag exists; the freeze is blocked pending the RC1 correction programme and an RC2 regression audit returning no Critical or High finding
+- Current Volume I Baseline Tag: `v1.5-volume-i-frozen` (authoritative Volume I implementation baseline, ADR-020); predecessors `v1.4-volume-i-ratified-prelegal` at `b2cb4ca` and `v1.3-volume-i-corrected` at `5d725fa` are retained as history; historical `v1.2-volume-i-frozen` and `v1.1-implementation-ready` are superseded and are not implementation baselines. No successor frozen tag exists; the freeze is blocked pending the RC1 correction programme and an RC2 regression audit returning no Critical or High finding
 - Initial Volume II Draft Commit: `7213e9a`
 - Current Gate: Volume II cannot be frozen or broad implementation begun until the thirteen demonstrated frozen-Volume-I blockers in [specification/volume-ii/INDEX.md](specification/volume-ii/INDEX.md) receive controlled deterministic corrections
 
@@ -16,7 +16,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 ## Operating Constraints
 
 - No new governance documents, review packs, matrices, standards, frameworks, indexes, registers, or process documents may be created unless required to remove a demonstrated ambiguity in the product specification itself.
-- Treat `v1.4-volume-i-ratified-prelegal` as the authoritative current behavioral baseline; it is not frozen and implementation remains gated by PM-REQ-010. Do not move or replace historical tags.
+- Treat `v1.5-volume-i-frozen` as the authoritative Volume I implementation baseline; the PM-REQ-010 gate for Volume I is satisfied. Reopening any frozen contract requires a new ADR and, where foundation content is affected, the PM-REQ-009 process. Do not move or replace historical tags.
 - Do not edit accepted Volume I behavior for preference, speculative refinement, scope expansion, or governance expansion; only ADR-018 correction-programme changes and controlled defect/owner-decision changes are permitted.
 - Permit a Volume I correction after acceptance only for a demonstrated contradiction, non-executable contract, unsafe behavior, invalid acceptance oracle, or an approved owner decision incorporated through controlled change.
 - Permit Volume II implementation architecture, but withhold every route, query, control, event shape or job that intersects a recorded upstream blocker.
@@ -36,7 +36,7 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 ## Domain Progress
 
 - Foundation governance: complete and active
-- Volume I Product Foundations: ratified pre-legal baseline at `v1.4-volume-i-ratified-prelegal`, not frozen; 21 owner decisions integrated under ADR-019; blocked on the retention/deletion legal package and OD-013 event tenant identity
+- Volume I Product Foundations: FROZEN at `v1.5-volume-i-frozen`; 27 owner decisions resolved across ADR-019 and ADR-020; the retention/deletion legal package and OD-013 event tenant identity are closed; five non-blocking decisions remain pending (OD-014, OD-023, OD-027, OD-031, OD-032)
 - Experience and Interaction: Volume II Pass 001 complete for authorized/unblocked screens; blocked screens are absent
 - Domain and State downstream detail: aggregate, workflow, dependency, transaction and lock architecture complete for unblocked behavior
 - Data and Persistence downstream detail: PostgreSQL design complete except blocked pretenant/platform/cross-Organization event/audit scope
@@ -73,5 +73,5 @@ Preserve `v1.3-volume-i-corrected` as the authoritative behavior, complete Volum
 
 - Resolve only the thirteen recorded Volume I blockers through controlled change; do not reopen unrelated product behavior.
 - Obtain OD-010 owner approval and exact Measurement Set bytes before complete customer-facing numeric score release.
-- Complete OD-011 qualified legal/product approval before production customer-data use. Owner approval and counsel consultation were recorded on 2026-07-17 in `specification/volume-i/LEGAL_REVIEW_RECORD_2026-07-17.md`; that record does NOT meet OD-011's closure standard, which requires reviewer identity and capacity, jurisdictions and material legal assumptions, a package identity/version/digest, signed UTC time, and separate Chief Security and Chief Product signatures over that same digest.
+- OD-011 is closed on 2026-07-17 under ADR-020: `retention-interim-v1` is the approved fixed retention baseline for worldwide availability with principal markets United States, United Kingdom, Australia, New Zealand, Canada and South Africa; qualified external counsel reviewed the position and raised no objection. Its Qualified Legal Approval element was narrowly amended to accept an append-only owner approval record plus a factual counsel-review record, excluding privileged material from this repository by design. See `specification/volume-i/OWNER_DECISION_RECORD_2026-07-17_LEGAL_AND_CLOSURE.md`.
 - Revalidate and freeze Volume II only after the blocked contracts are deterministic; accept later Volume I changes only for demonstrated defects or approved owner decisions.
