@@ -2206,3 +2206,321 @@ not an omission, and none may be invented.
 
 ---
 
+## WF-011 Trigger Reassessment
+
+
+Matrix row: MTX-036 (AC-WF-011). Slice: S-18.
+Structured contract: `specification/volume-ii/contracts/S-18.json`.
+Governing authority: WF-011, CAP-020, PRULE-033, PRULE-045, the Supersession And Reassessment
+Semantics and Reassessment Result contracts of `SCORE_EVIDENCE_MODEL.md`, the `017 ERROR_MODEL.md`
+WF-011 mapping, the `018 OBSERVABILITY.md` WF-011 coverage row, and OD-025 (**ratified**).
+
+This section is the canonical owner of reassessment scheduling, execution, publication and
+cancellation. It consumes the reconciliation owned by
+[PRULE-017](#prule-017-issue-supersession-and-issue-set-membership) in S-12, the `reassessment.start`
+Decision and reservation owned by [WF-015](#wf-015-enforce-entitlements) in S-22, and the staged
+calculation owned by S-13.
+
+### The ownership line between S-18 and S-12
+
+WF-011 and PRULE-033 span two slices, and S-12's contract already draws the line. S-12 owns MTX-068
+— the PRULE-017 two-pass reconciliation, Issue-set membership and ordering, the absence-proof modes
+and the `resolution_unverified` reason precedence — and MTX-084, the CAP-014 Issue-side limb of
+PRULE-033: the predecessor lifecycle and Case transitions, the successor and new Issues, and the
+sealed replacement `issue_set_id`.
+
+S-18 owns the CAP-020 limb: schedule policy, anchored cadence, slot identity and deduplication,
+due-time and scope eligibility, orchestration serialization, outage coalescing, notification
+suppression, the entitlement gates, the atomic publication commit itself, the `EvaluationSuperseded`
+transition, the pointer advances, the Reassessment Result and the durable entitlement-commit intent.
+`Workflows::Wf011::` is S-18's namespace; `Workflows::Wf007::` is S-09's and S-12's. Neither slice
+redefines the other's rows.
+
+### OD-025 is ratified, and what it ratified was a removal
+
+`Current Status` records OD-025 **Ratified 2026-07-17, resolved by owner decision. Blocking Impact:
+None.** `ReassessmentTriggered` is **removed** as a canonical domain event through the PM-REQ-009
+controlled foundation change to the WF-011 coverage row in `018 OBSERVABILITY.md` recorded in
+ADR-019, and **no replacement event is invented**. Volume II MUST NOT serialize the removed name.
+
+Reassessment stays fully observable through mechanisms that were already accepted:
+
+- `ReassessmentScheduleEvaluated` for every ordinary or latest-coalesced due slot.
+- The manual command's Audit Evidence under SM-REQ-004 for manual provenance.
+- `EvaluationStarted` inside the atomic Evaluation-creation commit, for a run that executes.
+- `ReassessmentCompleted` for successful replacement.
+- `ReassessmentFailed`, `ReassessmentCanceled` and the linked Entitlement Decision for the
+  non-executing branches.
+
+Trigger provenance — `trigger_kind`, nullable policy identity, version and content hash, slot number
+and due time — is retained on the **Reassessment Result record and its Audit Evidence**, not on an
+event. This is why the audit record is load-bearing here rather than incidental: it is the only
+carrier of provenance, so a run whose provenance cannot be reconstructed from its own persisted
+fields is itself the defect.
+
+The Entitlement-blocked branch emits no trigger event because no trigger event exists. The question
+that blocked this decision — whether an admitted trigger later blocked by Entitlement emits one —
+does not arise.
+
+### The retired blocker, recorded
+
+`INDEX.md` lists `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010` as **Retired under ADR-019**, and
+`API_CONTRACTS.md` records `Status: Resolved by ADR-019 … The semantic contract is now canonical in
+Volume I`, deferring only "any corresponding API surface, transport contract, routing, serialization
+or application-layer exposure … until the Volume II baseline".
+
+Four Volume II passages still read that retired blocker as a live gate and are stale:
+
+- `FRONTEND_ARCHITECTURE.md` — manual reassessment and schedule controls "MUST NOT render while
+  `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010` leaves the mandatory trigger-event occurrence and
+  affected record undefined". OD-025 has since defined both.
+- The `APPLICATION_LAYER.md` `Workflows::Wf011` registry row — schedule activation, slot evaluation
+  and start "remain registered but deferred".
+- `BACKGROUND_PROCESSING.md` — `reassessment_slot` is a "reserved mapping only" whose insertion and
+  dispatch are deferred "after correction".
+- `schemas/POSTGRESQL_SCHEMA.md` — the policy activation function "rejects
+  `policy_type=reassessment_schedule`", no `reassessment_slot` row "may be inserted or dispatched",
+  and the columns are "migration shape only until Volume I fixes the mandatory trigger event".
+
+The correction all four await **is ADR-019, which has occurred**. S-18 therefore adopts the division
+API_CONTRACTS.md itself already draws, exactly as S-22 did for `UPSTREAM-V1-LOW-COST-METERING-005`:
+the reassessment **semantics** are ratified and are contracted here in full, while the physical
+transport exposure of the start and schedule-activation routes is deferred to the Volume II transport
+baseline. That deferral is the ordinary route answer, not an owner-decision block, and no limb is
+withheld on its authority. Treating the retired blocker as live would withhold behaviour the owner
+approved. Correcting those four passages is a separate governed edit and is not performed here.
+
+### OD-014 is pending; the state is read, never effected
+
+OD-014's withheld limb is the Project pause/resume/archive **transition**. WF-011 **reads** Project
+lifecycle state — at the due instant to select `inactive_scope / project_draft`, `project_paused` or
+`project_archived`; as the `active or paused` schedule-management predicate; and as the `draft` or
+`archived` rejection `F1-DOMAIN-409 / reassessment_schedule_project_ineligible`. No S-18 command
+effects any of those transitions and none may be added.
+
+OD-014's own Affected Acceptance Criteria are AC-CAP-003, AC-WF-002, AC-PRULE-003 and AC-PRULE-004 —
+none of this slice's — so no row here is withheld and the matrix correctly records `None`.
+
+One consequence must be stated precisely. Subflow step 6 admits only the first anchored slot strictly
+later than a scope-restoration commit arising from "Organization reactivation or a Project
+transition/resumption to active". The **Organization-reactivation limb is reachable** today. The
+**Project-resumption limb is unreachable** while OD-014 is pending — not because S-18 withholds it,
+but because no in-product Project resume exists to produce the commit it keys on. The predicate is
+contracted, the guard is read, the transition is never effected.
+
+### Manual reassessment does not depend on the schedule
+
+PRULE-045 is explicit and it is two independent claims, not one: absence or disablement of the
+optional `reassessment_schedule` **creates no scheduled request** *and* **does not block manual
+reassessment**. Scheduled reassessment exists only when exactly one active Project-scoped
+`reassessment_schedule` Policy Artifact using schema `reassessment-schedule-v1` has `enabled=true`.
+No active policy, `enabled=false`, or a policy failing validation creates no scheduled request.
+
+Entitlement and plan state **never** infer, select, shorten, extend or shift cadence. Entitlement
+gates each eligible execution; it has no opinion about when the next one is due.
+
+### The anchor is a commit instant, and only a policy change moves it
+
+Activation commit time is the anchor. Slot `n`, for integer `n >= 1`, is due at
+`effective_at_utc + n * cadence_seconds` elapsed UTC seconds. The arithmetic is exact; a payload
+whose first due instant is later than `9999-12-31T23:59:59Z` is invalid. A new immediate policy
+version — **including a cadence change or a re-enable** — replaces the prior version and **resets the
+anchor**. Manual runs and Entitlement outcomes never shift it.
+
+`ReassessmentScheduleRules` is exactly `project_id`, `enabled` and `cadence_seconds`: enabled requires
+a positive whole decimal integer cadence, disabled requires null, and no other scheduling field
+exists. No client-supplied effective or expiry time is accepted; activation is immediate with null
+expiry under PRULE-045.
+
+### A decision is always made and always recorded
+
+The due-slot identity is `(project_id, schedule_policy_id, schedule_policy_version, slot_number,
+due_at_utc)`, physically unique as `(project_id,policy_id,policy_version,slot_number,due_at)` on
+`scheduled_actions`. Duplicate delivery returns the **one** stored decision and cannot create another
+Entitlement Decision, Evaluation, Reassessment Result or event.
+
+CAP-020 draws a distinction worth restating: an admitted reassessment requires the full precondition
+set, but a **due-slot evaluation itself requires only its exact active-policy slot identity**, and a
+missing execution precondition **records the specified nonadmitted schedule decision rather than
+suppressing that decision**. The slot is never silently dropped.
+
+The precedence is exact, total, and evaluated **before any entitlement side effect**:
+
+1. Policy ID/version no longer the active enabled Project schedule → `superseded_policy /
+   schedule_policy_superseded`.
+2. Organization status at the due instant other than active → `inactive_scope /
+   organization_suspended` or `organization_closed`; otherwise Project state at the due instant of
+   draft, paused or archived → `inactive_scope / project_draft`, `project_paused` or
+   `project_archived`. If due-time scope was eligible, the same Organization-then-Project reasons are
+   applied to **current** state.
+3. An existing pending/running Evaluation or completed reassessment awaiting publication →
+   `active_evaluation_conflict / reassessment_already_running`.
+4. In order: zero active Sources → `ineligible / active_source_required`; no current promoted
+   completed Evaluation, Issue Set and ScoreSnapshot → `ineligible / initial_evaluation_required`; an
+   active-Source-set membership/version that cannot be frozen consistently → `ineligible /
+   source_set_unavailable`; missing, invalid or mutually conflicting required Source Scope, Crawl,
+   score, confidence, eligibility or fingerprint policy context → `ineligible / policy_unavailable`.
+
+Only after all pass does the decision record `admitted` and proceed to Entitlement. An Entitlement
+Block belongs to the **admitted Reassessment Result** and does not change the schedule decision.
+
+Equality at the boundary is decided, not approximated: a state transition committed **exactly at**
+`due_at_utc` does **not** make that slot eligible, because an active state must have become effective
+**strictly before** the due instant.
+
+### A schedule decision is not a command error
+
+`017 ERROR_MODEL.md` is explicit: `superseded_policy`, `inactive_scope`, `active_evaluation_conflict`
+and `ineligible` are **immutable schedule-decision results, not command errors or retry
+instructions**, and coalescing is decision metadata, never a result. The same race produces two
+different outcomes by trigger kind, and that asymmetry is deliberate — a command may be told to
+re-read current state, a slot may not be replayed:
+
+- A losing **manual** start returns `F1-DOMAIN-409 / reassessment_already_running`.
+- A losing **scheduled** slot records `active_evaluation_conflict / reassessment_already_running` and
+  is never retried before the next ordinary slot.
+
+Every non-admitted decision creates no Entitlement Decision, Evaluation or Reassessment Result and is
+**never caught up**.
+
+### Outage recovery coalesces; it does not catch up
+
+After scheduler unavailability, compute every unprocessed anchored slot of the **currently active
+enabled** policy whose due time is not later than recovery time. Persist exactly **one**
+`ReassessmentScheduleEvaluated` decision for the **latest** elapsed slot, carrying the first coalesced
+slot number and due time and a `coalesced_missed_count` covering every earlier unprocessed slot, and
+evaluate only that latest slot once under the same due-time-and-current-state precedence and result
+vocabulary. Earlier summarized slots are thereby **processed** and never evaluated separately.
+
+There is no per-slot catch-up run, no `coalesced` result and no early replacement slot. A latest slot
+due while its Organization or Project was inactive records `inactive_scope` **even if the scope was
+restored before recovery**; if a later post-restoration slot has also elapsed, only that later slot is
+evaluated and may be admitted.
+
+### One orchestration per Project, enforced by a partial unique index
+
+`evaluations` carries `orchestration_slot_active boolean NOT NULL` under partial unique
+`(organization_id,project_id) WHERE orchestration_slot_active`, and the slot may be true only for a
+reassessment or retry that is pending, running or completed-awaiting-publication. That index is why
+"only one reassessment orchestration may be pending, running, or completed-awaiting-publication per
+Project" is true under concurrency rather than true on average.
+
+This guard mirrors the OD-018 single-orchestration guard WF-005 applies to initial Evaluations, which
+is ratified and keys on pending/running only, never on existence — the two guards are siblings, not
+duplicates, and neither substitutes for the other.
+
+### Creation and start are one commit
+
+An admitted start serializes the Project orchestration guard, records provenance, re-resolves policy
+immediately before execution, obtains the high-cost `reassessment.start` Decision and reservation,
+freezes the active Source-set version and normalized full-scope hash, and **atomically creates the new
+Evaluation and moves it `Pending -> Running`** with its immutable orchestration context linked to the
+prior completed Evaluation. That atomicity is why a targetable Evaluation is never durably visible in
+`pending`, which in turn is why the Cancellation Path never needs a pending case.
+
+The Evaluation is running **before** its nested Crawl, and WF-006/WF-007 **reuse** that Running state:
+stage reuse emits exactly **one** `EvaluationStarted`, because WF-007 continues the already-running
+reassessment Evaluation without another start transition or event.
+
+`reassessment.start` subsumes the nested WF-005 through WF-008 core; those stages MUST NOT also
+reserve or commit `crawl.start`, and every stage records the root Decision/reservation ID so nesting
+cannot double meter.
+
+### Publication is one commit, and its width is the requirement
+
+Immediately before publication, re-resolve the active Source-set version and normalized full-scope
+hash. Any difference is `source_scope_changed_during_reassessment` and publishes **none** of the
+staged result. Equality of prior and current `scope_snapshot_id` is **not** required when the
+normalized full-Project scope-definition hash is unchanged.
+
+Otherwise one atomic domain commit contains: the prior current Evaluation's completed-to-superseded
+transition and `EvaluationSuperseded`; every predecessor lifecycle and Case transition; every
+successor and new Issue; the sealed replacement `issue_set_id`; all staged Score Contributions and the
+ScoreSnapshot; current Issue-set, ScoreSnapshot and Current Score Projection pointers; Recommendation
+suppression and publication deltas; the terminal completed Reassessment Result; and **one durable
+entitlement-commit intent**. WF-008 in reassessment staging mode advances **no** pointer before it.
+
+The width is not incidental. Any narrower boundary would let a replacement Issue set become current
+while the prior ScoreSnapshot stayed promoted — a Project whose score no longer describes its Issues.
+
+### Nonsuccess preserves everything
+
+The mapping is exhaustive and no other customer-visible pair is allowed: Entitlement Block →
+`entitlement / entitlement_blocked`; Crawl failure → `crawl / crawl_failed`; parsing or check pipeline
+failure → `evaluation / evaluation_pipeline_failed`; stage timeout → the active stage plus
+`stage_timeout`; unavailable score → `scoring / score_unavailable`; Source/scope mismatch →
+`publication / source_scope_changed_during_reassessment`; atomic validation, conflict or write failure
+→ `publication / publication_failed`; accepted cancellation → `cancellation / canceled_by_actor`.
+
+The Evaluation-state consequence is asymmetric and both sides matter: pipeline failure or timeout
+**before** Evaluation completion transitions running to failed, while unavailable score, scope race,
+publication failure and post-completion cancellation leave the Evaluation **completed** and record
+only the failed or canceled Reassessment Result. A precreation Entitlement Block creates no Evaluation
+at all — its Result carries null `current_evaluation_id` and null `current_scope_snapshot_id`.
+
+Every nonsuccess records its Result **outside** the failed publication transaction, emits no
+entitlement commit intent, releases the reservation exactly once, and leaves every prior current
+pointer and every Current Score Projection field unchanged. An unavailable staged ScoreSnapshot is
+diagnostic only and never becomes latest or current.
+
+### Cancellation races are decided by fixed winners
+
+At the exact Evaluation-completion checkpoint **completion wins**, and the cancellation is then
+evaluated in the post-completion window. At the exact publication commit **publication wins** and
+cancellation is rejected as `reassessment_already_terminal`. Running cancellation transitions the
+Evaluation to failed with `canceled_by_actor` and releases; post-completion pre-publication
+cancellation leaves it completed, records the canceled Result, discards staged publication and
+releases. Cancellation before an Evaluation identifier exists or after a terminal Result is rejected
+with no state change.
+
+### Retry is a new attempt, never a reopened one
+
+Retry creates a **new Evaluation attempt linked by causation ID**. A completed immutable stage may be
+reused **only** when its full input hash matches, so replay cannot duplicate Issues, usage, snapshots
+or events. There is no slot retry at all: a non-admitted slot is terminal, an Entitlement Block
+creates no early retry and does not shift the anchor, and the next ordinary slot is evaluated
+normally.
+
+### Schedule evaluation is silent to the customer
+
+Schedule evaluation itself creates **no** customer Notification. A scheduled run uses the same nested
+Crawl, entitlement, score and failure routes as a manual run, and a clean full reassessment creates no
+dedicated schedule notification. Skipped and conflicting decisions, and the summarized coalesced slot
+range retained on the latest-slot decision, create Audit Evidence and operational telemetry only.
+
+Schedule decisions are measured **separately** from `ReassessmentFailed`: a skipped slot is not a
+failed run, and conflating them would report an idle Project as broken.
+
+
+## CAP-020 Reassessment
+
+
+Matrix row: MTX-020 (AC-CAP-020). Slice: S-18.
+Structured contract: `specification/volume-ii/contracts/S-18.json`.
+
+CAP-020 defines no interface of its own; its obligations are discharged by the WF-011 contract above.
+Its Dependencies are WF-011 and WF-012, so the historical-comparison surface it feeds is S-17's. Its
+Business Rule is PRULE-033, whose CAP-014 Issue-side limb is S-12's MTX-084 and whose CAP-020 limb is
+contracted at [WF-011](#wf-011-trigger-reassessment).
+
+Its Failure Condition is the assertion set, not a description. A missing, disabled or invalid schedule
+creates no scheduled request. A superseded-policy, inactive-scope, active-Evaluation-conflicting or
+ineligible latest slot records exactly **one** terminal schedule decision and no Entitlement,
+Evaluation or Result, while any earlier missed slots exist **only as its coalescing metadata**.
+Duplicate delivery returns that decision. An Entitlement Block, Source/scope race,
+pipeline/scoring/publication failure or running/post-completion cancellation produces the exact
+Evaluation/Result/reservation outcome, changes **no** prior Current Score Projection field, and emits
+one terminal event. Unavailable staged diagnostics never become latest or current.
+
+CAP-020's Non-goal is worth naming because a scheduler is exactly the mechanism that would breach it:
+**no automatic policy override of previous operator decisions**. A scheduled run cannot reverse an
+adjudication. A prior `upheld` or `withdrawn` remains historical; the successor derives its state
+afresh from current confidence rather than inheriting a decision an operator made about a different
+observation.
+
+Its AI Implication is narrow and stays narrow: AI recommendation refresh uses current evidence and
+versions, and remains a separately metered `ai.generate` operation rather than a limb of
+`reassessment.start`.
+
+---
+

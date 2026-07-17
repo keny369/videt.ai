@@ -18,9 +18,12 @@ exists to catch.
 Idempotent: a section whose heading is already present in the target document is
 skipped, so integrating a later wave never double-appends an earlier one.
 
-Usage:  integrate_fragments.py [--check]
+Usage:  integrate_fragments.py [--check] [S-xx ...]
         --check reports what would be merged and exits non-zero if anything is
         pending, without writing.
+        Naming slices merges only those. Idempotency is keyed on the section
+        heading, so a fragment revised after integration will not re-merge --
+        only integrate a slice whose worker has reported it complete.
 """
 
 import glob
@@ -71,11 +74,14 @@ def sections(text, owners):
 
 def main():
     check = "--check" in sys.argv
+    only = {a for a in sys.argv[1:] if a.startswith("S-")}
     owners = anchor_owners()
     pending, unrouted = {doc: [] for doc in ROUTES}, []
 
     for frag in sorted(glob.glob(str(ROOT / "fragments" / "S-*.md"))):
         name = pathlib.Path(frag).name
+        if only and name[:-3] not in only:
+            continue
         for target, title, block in sections(pathlib.Path(frag).read_text(), owners):
             if target is None:
                 unrouted.append(f"{name}: '{title}' matches no contract_owner anchor")

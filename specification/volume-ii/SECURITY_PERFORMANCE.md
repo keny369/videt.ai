@@ -1013,3 +1013,108 @@ reassessment match that creates a successor under
 duplicate rejection. A semantic change to the tuple or to canonicalization requires a **new**
 fingerprint version; reusing `issue-fingerprint-v1` for changed semantics is rejected.
 
+## Reassessment Lineage Integrity
+
+
+Matrix row: MTX-047 (AC-SM-004). Slice: S-18.
+Structured contract: `specification/volume-ii/contracts/S-18.json`.
+Governing authority: AC-SM-004, the Supersession And Reassessment Semantics and Prohibited
+Transformations of `SCORE_EVIDENCE_MODEL.md`, WF-011's Security Notes, and OD-009 (**ratified**).
+
+AC-SM-004 is one sentence with two independent halves: reassessment produces an **acyclic
+single-successor lineage with exactly one current leaf per fingerprint**, and **incomplete coverage
+never falsely resolves an Issue**. This section owns both, and owns the Reassessment Result record
+that reports where absence could not be proved.
+
+It is the complement of [PRULE-017](#prule-017-issue-supersession-and-issue-set-membership) at MTX-068
+in S-12: that row owns the rule that **builds** the lineage; this row owns the invariant the built
+lineage must **exhibit**. Neither redefines the other.
+
+### The invariant is four clauses, not one
+
+Every supersession link MUST remain in the same Organization **and** Project, point to an **earlier**
+Evaluation, be **acyclic**, and have **at most one direct successor**. There MUST be exactly one
+current leaf per full fingerprint identity — and that leaf **may be terminal** when the condition is
+resolved or dismissed.
+
+They are asserted independently because an aggregate fixture passes while a single clause is silently
+unenforced. Supersession across Organizations or Projects is a Prohibited Transformation, and this is
+where WF-011's Security Note — *preserve tenant boundaries across historical run linking* — is
+discharged. The lineage is the one structure in the product that deliberately spans Evaluations over
+time, so it is the one structure where a tenant leak would look like history rather than like an
+error.
+
+### The invariant is verified inside the committing transaction
+
+A staged graph that is cyclic, forks a predecessor into two direct successors, crosses an Organization
+or Project, points at a later rather than earlier Evaluation, or leaves two current leaves for one
+full fingerprint identity fails the atomic publication as `publication / publication_failed`. None of
+the staged result publishes; every prior pointer and projection field is unchanged; the reservation
+releases exactly once.
+
+There is no post-commit repair path and none may be added. An invariant verified anywhere but inside
+the committing transaction is a report, not a guard.
+
+Single-leaf-per-fingerprint is safe under concurrency only because the Project orchestration guard
+admits one reconciliation at a time. Two concurrent replacement sets could each satisfy the invariant
+alone and jointly produce two leaves for one fingerprint; the guard is what makes the invariant
+compositional. It is contracted at [WF-011](#wf-011-trigger-reassessment).
+
+### An unproved absence is an outcome, not an error
+
+This is the distinction the second half of AC-SM-004 turns on, and the two failure directions are
+opposite.
+
+A `resolution_unverified` entry is **not an error**. It is the correct, expected, recorded outcome
+when a predecessor's fingerprint is not observed and absence is not proved: the predecessor stays
+**current and unchanged**, and exactly one ordered entry is added to the Reassessment Result carrying
+its Issue ID and one reason in this first-match precedence — `absence_mode_never_automatic`,
+`check_not_applicable`, `check_error`, `check_missing`, `coverage_incomplete`, `evidence_invalid`,
+`absence_mode_unknown`.
+
+A lineage-integrity violation **is a failure** and fails the whole publication.
+
+Conflating them breaks the product in opposite directions: an implementation that treats an unproved
+absence as an error destroys a valid replacement, and one that treats a broken lineage as a recordable
+entry publishes a corrupt graph.
+
+A non-observed **terminal** `resolved` or `dismissed` current leaf remains unchanged and creates **no**
+entry at all — the case a permissive implementation records anyway.
+
+### Absence must be proved, never assumed
+
+`not_applicable`, `error`, a missing Check Result for the predecessor's Check Definition and selector,
+incomplete relevant coverage, invalid Evidence, and a Check Definition without a recognized mode each
+**never** prove absence. "Full relevant coverage" is exact: a terminal covered outcome for **every**
+admitted candidate matching that exact bound selector, and **no** matching failed, omitted,
+indeterminate, stale or limit-discarded candidate.
+
+That precision is the whole point of the second half of AC-SM-004. A partial replacement Crawl that
+simply stops seeing a fingerprint has observed nothing; without this rule it would resolve the Issue
+and improve the score. The difference between a Project whose Issues were fixed and one whose Crawl
+merely stopped looking is exactly the difference between `condition_absent` and `coverage_incomplete`,
+and only the frozen coverage input can tell them apart.
+
+A proved absence sets the predecessor to `resolved` with closure reason `condition_absent` and links
+the exact closure Check Result, its Evidence and Evaluation. The closure Evidence references are
+exactly the **proving** Check Result and **all** of its frozen Evidence references; `closure` is a
+relationship role, not an Evidence Type, so no new Evidence record is created to record a resolution.
+
+### Replay cannot fork the lineage
+
+At most one direct successor per predecessor is the durable expression of this: a second successor is
+precisely the shape a naive replay would create, and it is prohibited outright. Retry creates a new
+Evaluation attempt linked by causation ID rather than re-running a failed one against a graph it may
+already have touched, and because a failed publication makes none of its writes visible, the retry
+reconciles against the unchanged prior current set. A completed stage is reused only on exact
+immutable input-hash match, so it cannot contribute a different observed fingerprint set to a second
+attempt.
+
+### Leaf membership and score eligibility are independent
+
+Under the ratified OD-009, a `candidate / review_required / withheld` recurrence successor contributes
+**zero** to score and priority until it becomes eligible — and it is still a lineage leaf. Being the
+current leaf is a graph property; being included in a calculation is an eligibility property. An
+implementation that drops withheld successors from the lineage to keep the score clean produces a
+second leaf for that fingerprint on the next run.
+
