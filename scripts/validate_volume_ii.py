@@ -43,6 +43,16 @@ VAGUE_CONTRACT_VALUE = re.compile(
 # are blocked, and CAP-005's non-goal is "selection of unapproved verification channels without
 # owner decision". A verification method outside this set is an invented product channel with a
 # real security surface, so it is rejected mechanically rather than caught in review.
+# Owner Decision status is resolved from the register's own `Current Status` field and from
+# nowhere else. Continuation 003 was briefed on the premise that OD-001 was pending, because
+# PRULE-005, PRULE-020 and the evidence-contract preamble still call its method set an
+# "interim" -- prose written before ratification and never updated. The register says
+# "Ratified ... Blocking Impact: None". Deriving status from incidental wording would have
+# withheld behaviour the owner approved, which is the mirror image of pre-empting an open
+# decision. These checks make the register controlling and executable.
+DECISION_STATUS_PENDING = re.compile(r"(?i)^\s*pending\b")
+DECISION_STATUS_SETTLED = re.compile(r"(?i)^\s*(ratified|resolved|withdrawn|superseded|retired)\b")
+
 RATIFIED_VERIFICATION_METHODS = {"dns_txt", "http_file"}
 CANDIDATE_VERIFICATION_METHOD = re.compile(
     r"`(meta_tag|html_meta|email_verification|email_token|manual_review|manual_verification|"
@@ -283,6 +293,7 @@ def validate(root: Path) -> list[Finding]:
                                         f"{tok}: not in the Volume I permission model"))
 
     findings.extend(validate_pass_b_contracts(root))
+    findings.extend(validate_decision_status(root))
 
     # 9. an AC with no matrix row / 10. a matrix row with no governing source
     if matrix_path.exists():
@@ -299,6 +310,79 @@ def validate(root: Path) -> list[Finding]:
             if not source.strip() or source.strip() == "-":
                 findings.append(Finding(matrix_path, None, "matrix_row_without_governing_source",
                                         f"{row_id} names no governing source"))
+    return findings
+
+
+def owner_decision_status(root: Path) -> dict[str, dict]:
+    """Read each decision's canonical status from the register's own `Current Status` field.
+
+    Deliberately does NOT look at requirement prose. A rule that says "interim" does not make
+    its decision pending, and a rule that omits the word does not make it ratified.
+    """
+    text = (root / "specification" / "volume-i" / "OWNER_DECISION_REGISTER.md").read_text(encoding="utf-8")
+    parts = re.split(r"\n### (OD-\d{3})[^\n]*\n", text)
+    out: dict[str, dict] = {}
+    for i in range(1, len(parts), 2):
+        od, body = parts[i], parts[i + 1]
+        m = re.search(r"^- Current Status:\s*(.+)$", body, re.M)
+        status = m.group(1).strip() if m else ""
+        out[od] = {
+            "status": status,
+            "pending": bool(DECISION_STATUS_PENDING.match(status)),
+            "settled": bool(DECISION_STATUS_SETTLED.match(status)),
+        }
+    return out
+
+
+def validate_decision_status(root: Path) -> list[Finding]:
+    """A row's withholding must match its decisions' canonical register status.
+
+    This re-derives the classification independently of the generator, so a defect in either
+    one is caught by disagreement with the other rather than by both being wrong together.
+    """
+    findings: list[Finding] = []
+    matrix = root / "specification" / "volume-ii" / "IMPLEMENTATION_MATRIX.md"
+    if not matrix.exists():
+        return findings
+    decisions = owner_decision_status(root)
+
+    register = (root / "specification" / "volume-i" / "OWNER_DECISION_REGISTER.md").read_text(encoding="utf-8")
+    affected: dict[str, list[str]] = {}
+    parts = re.split(r"\n### (OD-\d{3})[^\n]*\n", register)
+    for i in range(1, len(parts), 2):
+        od, body = parts[i], parts[i + 1]
+        m = re.search(r"^- Affected Acceptance Criteria:\s*(.+)$", body, re.M)
+        if m:
+            for ac in re.findall(r"AC-[A-Z]+-\d{3}", m.group(1)):
+                affected.setdefault(ac, []).append(od)
+
+    for od, meta in sorted(decisions.items()):
+        if not meta["pending"] and not meta["settled"]:
+            findings.append(Finding(
+                root / "specification" / "volume-i" / "OWNER_DECISION_REGISTER.md", None,
+                "decision_status_unrecognized",
+                f"{od}: Current Status {meta['status'][:60]!r} matches no known status vocabulary; "
+                "status must be explicit rather than inferred"))
+
+    for line in matrix.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^\|\s*(MTX-\d{3})\s*\|\s*(AC-[A-Z]+-\d{3})\s*\|", line)
+        if not m:
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) < 14:
+            continue
+        row_id, ac, status_cell = m.group(1), m.group(2), cells[12]
+        row_ods = affected.get(ac, [])
+        pending = [od for od in row_ods if decisions.get(od, {}).get("pending")]
+        withheld = "withheld" in status_cell.lower()
+
+        if pending and not withheld:
+            findings.append(Finding(matrix, None, "pending_decision_treated_as_ratified",
+                                    f"{row_id} depends on pending {', '.join(pending)} but is not marked withheld"))
+        if withheld and not pending:
+            findings.append(Finding(matrix, None, "ratified_decision_treated_as_pending",
+                                    f"{row_id} is marked withheld but none of its decisions "
+                                    f"({', '.join(row_ods) or 'none'}) is pending in the register"))
     return findings
 
 
@@ -368,6 +452,42 @@ def blank_matrix_source(root: Path) -> None:
     p.write_text(t, encoding="utf-8")
 
 
+def _register(root: Path) -> Path:
+    return root / "specification" / "volume-i" / "OWNER_DECISION_REGISTER.md"
+
+
+def mark_od_001_pending(root: Path) -> None:
+    """OD-001 is ratified. If the register said pending, every S-05 row would be misclassified."""
+    p = _register(root)
+    t = p.read_text(encoding="utf-8")
+    parts = t.split("### OD-001 ", 1)
+    head, body = parts[0], parts[1]
+    body = re.sub(r"^- Current Status:.*$", "- Current Status: Pending owner approval",
+                  body, count=1, flags=re.M)
+    p.write_text(head + "### OD-001 " + body, encoding="utf-8")
+
+
+def mark_od_014_ratified(root: Path) -> None:
+    """OD-014 is pending. If the register said ratified, MTX-003's withholding would be wrong."""
+    p = _register(root)
+    t = p.read_text(encoding="utf-8")
+    parts = t.split("### OD-014 ", 1)
+    head, body = parts[0], parts[1]
+    body = re.sub(r"^- Current Status:.*$", "- Current Status: Ratified on 2026-07-17 as specified",
+                  body, count=1, flags=re.M)
+    p.write_text(head + "### OD-014 " + body, encoding="utf-8")
+
+
+def corrupt_od_status_vocabulary(root: Path) -> None:
+    p = _register(root)
+    t = p.read_text(encoding="utf-8")
+    parts = t.split("### OD-002 ", 1)
+    head, body = parts[0], parts[1]
+    body = re.sub(r"^- Current Status:.*$", "- Current Status: probably fine, interim-ish",
+                  body, count=1, flags=re.M)
+    p.write_text(head + "### OD-002 " + body, encoding="utf-8")
+
+
 def _contract_file(root: Path) -> Path:
     return root / "specification" / "volume-ii" / "contracts" / "S-01.json"
 
@@ -433,6 +553,12 @@ def run_negative_controls() -> int:
          "contract_field_vague"),
         ("contract owner does not cite row", break_owner_citation,
          "contract_owner_does_not_cite_row"),
+        ("ratified decision treated as pending", mark_od_014_ratified,
+         "ratified_decision_treated_as_pending"),
+        ("pending decision treated as ratified", mark_od_001_pending,
+         "pending_decision_treated_as_ratified"),
+        ("decision status unrecognized", corrupt_od_status_vocabulary,
+         "decision_status_unrecognized"),
         ("unauthorized verification method",
          lambda r: append(r / "specification" / "volume-ii" / "SECURITY_PERFORMANCE.md",
                           "\nOwnership may also be proved by `meta_tag` placement.\n"),
