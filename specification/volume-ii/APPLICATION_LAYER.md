@@ -646,3 +646,101 @@ to the removed lineage.
 Registration requires a same-Organization Project in `draft`, `active` or `paused`. Reading the
 paused state as a precondition guard is exactly the use OD-014 permits: the state is represented
 and read, never effected. Project activation is expressly not a prerequisite for registration.
+
+## WF-003 Verify Property Ownership Or Control
+
+Matrix rows: MTX-005 (AC-CAP-005), MTX-028 (AC-WF-003). Slice: S-05.
+Structured contract: `specification/volume-ii/contracts/S-05.json`.
+Governing authority: CAP-005, WF-003, the Ownership-Verification Evidence Contract in
+SCORE_EVIDENCE_MODEL.md, PRULE-005, PRULE-020, and OD-001 (ratified, ADR-019).
+
+This section is the canonical owner of the WF-003 application contract.
+
+### OD-001 is ratified, not pending
+
+OD-001's Current Status is "Ratified on 2026-07-17 ... ratified as specified", Approved Option 2
+(DNS TXT and HTTPS file), Blocking Impact "None. OD-001 is ratified". It is not one of the five
+pending decisions. There is therefore no interim to preserve and no undecided limb to withhold:
+the ratified method set is implemented exactly. Methods outside `dns_txt` and `http_file` are
+out of baseline scope rather than blocked pending approval, and adding a third would be a
+controlled Volume I change.
+
+The word "interim" survives in PRULE-005, PRULE-020 and the evidence-contract preamble as prose
+written before ratification. ADR-019 integrated OD-001 "as specified", so the content those
+documents carry is the ratified baseline. Volume I is frozen; the stale wording is recorded here
+as an observation and is not corrected by this pass.
+
+### No inbound route exists
+
+Ownership verification requires no public HTTP route at all. The challenge is proved at the
+customer's own DNS zone or HTTPS origin and F1 observes it outbound. Volume I defines no inbound
+callback, webhook or confirmation endpoint, and inventing one would add an unauthenticated
+attack surface to a security-sensitive flow.
+
+### Challenge handling
+
+The challenge token carries at least 128 bits of cryptographic entropy and is never persisted or
+logged in plaintext. Creation envelope-encrypts it under a request-specific key and persists only
+the restricted ciphertext reference, key identifier and digest, returning the plaintext through
+the authorized creation response.
+
+Exactly two redelivery paths exist: exact creation-command replay by the original actor while the
+Request is pending, and a separate nonmutating retrieval requiring the initiator or an
+OrganizationAdmin holding `source.verify` in the Request Organization. Both reauthorize every
+read, append a restricted security access log, and change no domain state. Neither returns any
+other Request's material.
+
+On any terminal transition the same transaction disables redelivery immediately and schedules
+cryptographic deletion; key and ciphertext are destroyed within 60 seconds while the digest and
+access audit remain. Terminal replay returns identifiers and status but never challenge material.
+
+### Success is inseparable
+
+A matched observation commits, in one transaction: the `verification_observation` Evidence, the
+Request completion fields, `SourceVerificationObserved`, Request `verified` with reason
+`matched`, immediate redelivery disablement, `SourceVerified`, materialization of
+`source-scope-interim-v1`, and `Source.Proposed -> Source.Verified`. Volume I states that none of
+these may appear without the others, which is why this is a multi-root atomic commit and an
+explicit specialisation of the EM-III-011 single-aggregate default.
+
+### Failure never touches the Source
+
+Mismatch, dependency failure, denial and expiry each leave the Source `proposed`. DNS, HTTP,
+resolver, certificate, status, content and timeout outcomes never write `failed`; they remain
+pending until success, cancellation or expiry. `failed` is writable only by the
+integrity-validation service and only with `request_digest_unavailable` or
+`request_schema_unsupported`, which are the exhaustive failed reasons.
+
+A provider timeout is recorded as an observed outcome with network outcome `timeout`. It is never
+treated as proof of absence.
+
+## CAP-005 Ownership Or Control Verification
+
+Matrix row: MTX-005 (AC-CAP-005). Slice: S-05.
+Structured contract: `specification/volume-ii/contracts/S-05.json`.
+
+CAP-005 defines no interface of its own; its obligations are discharged by the WF-003 contract
+above. Recorded separately for its own Security Implication: verification prevents unauthorized
+domain scanning. A Request may be created only for a same-Organization proposed Source, so F1
+never observes a host a tenant has not registered.
+
+## Source Verification State Transition
+
+Matrix row: MTX-051 (AC-SM-008). Slice: S-05.
+Structured contract: `specification/volume-ii/contracts/S-05.json`.
+Governing authority: the canonical Source state machine and the Ownership-Verification Evidence
+Contract.
+
+`Source.Proposed -> Source.Verified`, and nothing else. The transition is effected only inside the
+observation-completion transaction on a matched observation. No command, job, service or
+administrative path may transition a Source to `verified` directly.
+
+No intermediate `verifying` state and no Boolean `is_verified` flag exists. Volume I defines a
+state machine, and collapsing it into a flag would lose the canonical state and its transition
+event. The transition never occurs without `SourceVerified` and the event never occurs without
+the transition.
+
+It is naturally idempotent through its state guard: it fires only from `proposed`, so a repeated
+matched observation after success does not re-transition, re-emit or re-materialize the scope
+policy. A concurrent second completion finds the Source no longer proposed. A stale Source state
+version rejects the completion with no side effect.

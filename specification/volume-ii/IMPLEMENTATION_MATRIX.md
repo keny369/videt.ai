@@ -98,7 +98,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-002 | AC-CAP-002 | CAP: CAP-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | - | - | OD-020, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-003 | AC-CAP-003 | CAP: CAP-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | - | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-004 | AC-CAP-004 | CAP: CAP-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-004 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-04 | TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-005 | AC-CAP-005 | CAP: CAP-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
+| MTX-005 | AC-CAP-005 | CAP: CAP-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-006 | AC-CAP-006 | CAP: CAP-006 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-006 | - | - | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-007 | AC-CAP-007 | CAP: CAP-007 | PR-REQ-026, PR-REQ-029 | CAP-007 | - | - | OD-005, OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-008 | AC-CAP-008 | CAP: CAP-008 | PR-REQ-026, PR-REQ-029 | CAP-008 | - | - | OD-005, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
@@ -121,7 +121,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-025 | AC-CAP-025 | CAP: CAP-025 | PR-REQ-006..PR-REQ-025 (11) | CAP-025 | - | - | OD-011..OD-033 (10) | EM-VIII (security), EM-V (persistence), EM-VI (jobs) | S-23 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required; limb withheld | OD-031; OD-032 -- OD-031: routine retention-expiry destruction withheld under retention-destruction-trigger-interim-v1; OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
 | MTX-026 | AC-WF-001 | WF: WF-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | - | WF-001 | - | OD-013, OD-016, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-027 | AC-WF-002 | WF: WF-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | - | WF-002 | - | OD-014, OD-020 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-E2E, TYP-INT, TYP-SEC, TYP-DATA, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
-| MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
+| MTX-028 | AC-WF-003 | WF: WF-003 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | WF-003 | - | OD-001, OD-011, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Complete | None |
 | MTX-029 | AC-WF-004 | WF: WF-004 | PR-REQ-006..PR-REQ-029 (7) | - | WF-004 | - | OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS, TYP-INT | Pass B required | None |
 | MTX-030 | AC-WF-005 | WF: WF-005 | PR-REQ-026, PR-REQ-029 | - | WF-005 | - | OD-005, OD-011, OD-015, OD-018, OD-020 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-E2E, TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required | None |
 | MTX-031 | AC-WF-006 | WF: WF-006 | PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | - | WF-006 | - | OD-011, OD-015, OD-020, OD-027 | EM-VI (background/integration), EM-V (persistence), EM-III | S-08 | TYP-INT, TYP-SEC, TYP-OBS, TYP-DATA | Pass B required; limb withheld | OD-027 -- OD-027: second IndexingJob per ParsingJob and index-key narrowing withheld under indexing-interim-v1 |
@@ -144,12 +144,12 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-048 | AC-SM-005 | SM: Disputed Issue Eligibility | PR-REQ-004..PR-REQ-029 (9) | - | - | - | OD-009 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-049 | AC-SM-006 | SM: Issue Deduplication | PR-REQ-004..PR-REQ-029 (7) | - | - | - | OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-050 | AC-SM-007 | SM: Visibility And Redaction | PR-REQ-001..PR-REQ-030 (10) | - | - | - | OD-011 | EM-VII (API), EM-V (read models), EM-III | S-16 | TYP-SEC, TYP-DATA, TYP-E2E | Pass B required | None |
-| MTX-051 | AC-SM-008 | SM: Verification Evidence | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
+| MTX-051 | AC-SM-008 | SM: Verification Evidence | PR-REQ-027, PR-REQ-028, PR-REQ-029 | - | - | - | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-DATA, TYP-INT, TYP-OBS | Complete | None |
 | MTX-052 | AC-PRULE-001 | PRULE: PRULE-001 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001 | WF-001, WF-013 | PRULE-001 | OD-013, OD-016 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-053 | AC-PRULE-002 | PRULE: PRULE-002 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002, CAP-024 | WF-001 | PRULE-002 | - | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02,S-22 | TYP-E2E, TYP-DATA, TYP-SEC, TYP-OBS | Complete | None |
 | MTX-054 | AC-PRULE-003 | PRULE: PRULE-003 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003 | WF-002 | PRULE-003 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03 | TYP-INT, TYP-DATA, TYP-SEC, TYP-OBS | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
 | MTX-055 | AC-PRULE-004 | PRULE: PRULE-004 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-003, CAP-004 | WF-002, WF-004 | PRULE-004 | OD-014 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-03,S-04 | TYP-SEC, TYP-DATA | Complete; limb withheld | UPSTREAM-V1-PROJECT-LIFECYCLE-003 (OD-014) -- OD-014: pause/resume/archive transition withheld; create/activate permitted; paused/archived state may be represented, never effected |
-| MTX-056 | AC-PRULE-005 | PRULE: PRULE-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-005 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
+| MTX-056 | AC-PRULE-005 | PRULE: PRULE-005 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-005 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-E2E, TYP-SEC, TYP-DATA, TYP-OBS | Complete | None |
 | MTX-057 | AC-PRULE-006 | PRULE: PRULE-006 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-006 | WF-004 | PRULE-006 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-INT, TYP-DATA, TYP-OBS, TYP-SEC | Pass B required | None |
 | MTX-058 | AC-PRULE-007 | PRULE: PRULE-007 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-007 | WF-005 | PRULE-007 | OD-018 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-059 | AC-PRULE-008 | PRULE: PRULE-008 | PR-REQ-026, PR-REQ-029 | CAP-007, CAP-008 | WF-005 | PRULE-008 | OD-005 | EM-VI (background/integration), EM-V (persistence), EM-III | S-07 | TYP-INT, TYP-OBS, TYP-DATA | Pass B required | None |
@@ -164,7 +164,7 @@ apply carries `Not applicable - <reason>` rather than being left ambiguous.
 | MTX-068 | AC-PRULE-017 | PRULE: PRULE-017 | PR-REQ-004..PR-REQ-028 (8) | CAP-014, CAP-020 | WF-007, WF-011, WF-012 | PRULE-017 | - | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12,S-18 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
 | MTX-069 | AC-PRULE-018 | PRULE: PRULE-018 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009, PR-REQ-024, PR-REQ-025 | CAP-001, CAP-025 | WF-001, WF-013 | PRULE-018 | OD-016, OD-032 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-01,S-23 | TYP-OBS, TYP-DATA, TYP-SEC | Pass B required; limb withheld | OD-032 -- OD-032: canonical namespace for an unassigned record withheld; behaviour permitted under the interim |
 | MTX-070 | AC-PRULE-019 | PRULE: PRULE-019 | PR-REQ-006, PR-REQ-007, PR-REQ-008, PR-REQ-009 | CAP-002 | WF-001, WF-013 | PRULE-019 | OD-021, OD-022 | EM-VIII (security), EM-VII (API), EM-III (implementation) | S-02 | TYP-SEC, TYP-INT, TYP-DATA, TYP-OBS | Complete | None |
-| MTX-071 | AC-PRULE-020 | PRULE: PRULE-020 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-020 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-INT | Pass B required | None |
+| MTX-071 | AC-PRULE-020 | PRULE: PRULE-020 | PR-REQ-027, PR-REQ-028, PR-REQ-029 | CAP-005 | WF-003 | PRULE-020 | OD-001 | EM-VI (background/integration), EM-V (persistence), EM-III | S-05 | TYP-SEC, TYP-INT | Complete | None |
 | MTX-072 | AC-PRULE-021 | PRULE: PRULE-021 | PR-REQ-027, PR-REQ-028 | CAP-006 | WF-004, WF-005 | PRULE-021 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-06 | TYP-SEC, TYP-DATA, TYP-OBS | Pass B required | None |
 | MTX-073 | AC-PRULE-022 | PRULE: PRULE-022 | PR-REQ-018, PR-REQ-019 | CAP-008, CAP-023 | WF-005, WF-006, WF-017 | PRULE-022 | - | EM-VI (background/integration), EM-V (persistence), EM-III | S-07,S-21 | TYP-SEC, TYP-OBS, TYP-DATA, TYP-INT | Pass B required | None |
 | MTX-074 | AC-PRULE-023 | PRULE: PRULE-023 | PR-REQ-004, PR-REQ-005, PR-REQ-010, PR-REQ-011, PR-REQ-027, PR-REQ-028 | CAP-014 | WF-007 | PRULE-023 | OD-017 | EM-VI (AI provider integration), EM-III, EM-IX (testing) | S-12 | TYP-DATA, TYP-INT, TYP-OBS | Pass B required | None |
@@ -362,6 +362,51 @@ from what the sources produce.
 - test contracts: TYP-DATA: grammar - `https://host` and `https://host/` accepted; `https://host:443` and `https://host:443/` accepted with the port removed. TYP-DATA: each first-match reason in order - a nondefault port is `source_port_unsupported` and not `source_uri_malformed`, proving the order is applied rather than approximated. TYP-DATA: user information, query, fragment, nonroot path, wildcard, IP literal, bracketed literal, non-HTTPS scheme and ASCII control/space each produce their exact reason and no Source. TYP-DATA: host normalization - uppercase lowercased; one terminal dot removed; 253/254-byte boundary; single-label host rejected; a 63/64-character label boundary; leading and trailing hyphen rejected. TYP-DATA: a pre-encoded `xn--` label is accepted; raw Unicode is `source_host_non_ascii` and is never normalized to punycode by the implementation. TYP-DATA: canonical root URI is `https://<lowercase_host>/` for every accepted input. TYP-SEC: `organization_inactive`, `project_not_registerable`, `tenant_mismatch` and `source_register_unauthorized` each create no Source. TYP-INT: a Project in `draft`, `active` and `paused` each permit registration - the paused fixture asserts that reading the paused state as a guard is permitted while no path effects the transition. TYP-DATA: uniqueness on `(project_id, canonical_host)` over non-removed Sources; the same host in a different Project succeeds. TYP-DATA: concurrent same-key registration creates exactly one Source and the loser receives `F1-DOMAIN-409 / source_host_already_registered`. TYP-DATA: post-removal re-registration creates a new Source with a new ID and new provenance and never reopens the removed record. TYP-DATA: exact replay returns the same Source and emits one event only; changed content under the same key is `idempotency_conflict`. TYP-OBS: the 10-second timeout and the exact 1/5-second retry schedule. TYP-OBS: provenance is exactly the seven named fields and is immutable after commit. TYP-SEC: the `SourceRegistered` payload carries no submitted email, identity subject, credential or raw authorization token. TYP-DATA: registration creates no Onboarding Request and no candidate entity, and never verifies, activates, crawls or creates Evidence.
 - rollout: No predecessor behaviour exists. S-04 depends on S-03 for a registerable Project and is consumed by S-05 verification and S-06 scope control.
 
+### MTX-005 - AC-CAP-005 (CAP: CAP-005)
+
+- Slice: S-05
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#cap-005-ownership-or-control-verification
+- interface type: Capability-level obligation discharged by the WF-003 contract; CAP-005 defines no interface of its own.
+- route: Not applicable - CAP-005 defines no interface independent of WF-003; see MTX-028 for why no inbound route exists at all.
+- request schema: Versioned Verification Request using `dns_txt` or `http_file`, tenant and Source references, challenge and command idempotency data, per CAP-005 Inputs.
+- response schema: Verified, expired, canceled or failed Verification Request; one restricted Verification Evidence and observed event per started attempt; the Source unchanged except on atomic success, per CAP-005 Outputs.
+- controller: Not applicable - no HTTP adapter.
+- command: As MTX-028.
+- command input: As MTX-028.
+- command output: As MTX-028.
+- actor: Organization Administrator or Technical Implementer.
+- organization scope: The Request Organization; CAP-005 Preconditions require CAP-004 complete, so a proposed Source exists.
+- aggregate: VerificationRequest with Source and the scope policy in the success commit.
+- aggregate boundary: As MTX-028 - multi-root atomic success commit, an explicit specialisation required by 'none may appear without the others'.
+- value objects: As MTX-028.
+- domain service: Not applicable - CAP-005 names no domain service.
+- repository: As MTX-028.
+- persistence model: As MTX-028.
+- migration: Not applicable - no schema object added.
+- transaction boundary: As MTX-028.
+- concurrency: As MTX-028 - serialized completion cursor, on-demand slot reservation and at most one pending Request per Source.
+- idempotency: As MTX-028 - replay returns the same result, per CAP-005 Success Condition.
+- background job: As MTX-028 - half-open automated slot schedule and expiry.
+- queue: As MTX-028.
+- retry policy: As MTX-028 - 10-second provider timeouts; retry is by later slot, not an in-attempt loop.
+- terminal failure: Unresolved request expires after exactly 24 hours and terminal challenge material cannot be recovered, per CAP-005 Failure Condition.
+- reconciliation: As MTX-028.
+- domain events: `SourceVerificationRequested`, `SourceVerificationObserved`, `SourceVerified`, `SourceVerificationExpired`, `SourceVerificationCanceled`, `SourceVerificationFailed`.
+- event payload: As MTX-028 - no plaintext challenge material.
+- event producer: `Workflows::Wf003`.
+- event consumers: Not applicable - CAP-005 names no consumer.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The application command, before mutation and before token issuance.
+- permission checks: As MTX-028; `source.verify` for admin retrieval and cancellation.
+- tenant boundary: As MTX-028. CAP-005 Security Implications: prevents unauthorized domain scanning - a Request may only be created for a same-Organization proposed Source, so F1 never observes a host a tenant has not registered.
+- error contract: As MTX-028. CAP-005 Failure Condition: unsupported or invalid request, unauthorized redelivery, on-demand concurrency, rate or count denial, mismatch, or dependency timeout never verifies or disables the Source.
+- audit record: As MTX-028 - Verification Evidence and its Audit Evidence under their separate contracts.
+- observability: `SourceVerificationRequested`, observation attempt, `SourceVerified`, expiry, cancellation, integrity failure, reason code, latency and redacted evidence telemetry.
+- retention: As MTX-028.
+- test contracts: TYP-SEC: the exact method predicate succeeds once and the Source atomically transitions proposed to verified; replay returns the same result. TYP-SEC: unauthorized redelivery is denied. TYP-DATA: on-demand concurrency, rate and count denials never verify and never disable the Source. TYP-DATA: an unresolved request expires after exactly 24 hours. TYP-SEC: terminal challenge material cannot be recovered. TYP-SEC: verification cannot be initiated for a Source in another Organization, which is what prevents unauthorized domain scanning.
+- rollout: As MTX-028.
+
 ### MTX-026 - AC-WF-001 (WF: WF-001)
 
 - Slice: S-01
@@ -452,6 +497,96 @@ from what the sources produce.
 - retention: Project records and activation events are stored per CAP-003 Data Implications. The retention window is owned by specification/015 DATA_LIFECYCLE.md; this row states none.
 - test contracts: TYP-DATA: display-name normalization - NFC, leading/trailing Unicode whitespace trimmed, and the 1-120 scalar boundary asserted at 0, 1, 120 and 121. TYP-DATA: `default_locale` other than `en-AU` is `project_locale_unsupported`; `reporting_time_zone` other than `UTC` is `project_time_zone_unsupported`; objective other than `discoverability_assessment` is `project_objective_unsupported`. TYP-DATA: applicability false with a 20-500 scalar reason and null profile creates one draft Project; the 19/20/500/501 boundaries assert `project_local_reason_invalid`. TYP-DATA: applicability true with null reason and a complete profile creates one draft Project; a business name differing from the exact normalized Organization display name is `project_local_profile_invalid`. TYP-DATA: `address_text` NFC, internal whitespace collapsed to one ASCII space, trimmed, 1-500 boundary. TYP-DATA: `telephone_e164` accepts `+` plus 8-15 digits with first digit 1-9, and rejects 7 digits, 16 digits, a leading 0 and a non-ASCII digit. TYP-DATA: `service_areas` 1-50 distinct, each 1-120 scalars, sorted by UTF-8 bytes - a duplicate, a 51st entry and an out-of-order set are each rejected. TYP-DATA: the profile records schema version, attesting Account, server commit time and canonical-content SHA-256, and the hash boundary is asserted. TYP-DATA: creation replay returns the original draft Project and emits one `ProjectCreated` only; an altered payload under the same key is `idempotency_conflict`. TYP-SEC: `project.create` absent is `project_create_unauthorized`; `project.activate` absent denies activation; holding create never implies activate. TYP-SEC: `organization_inactive` denies creation; cross-Organization is `tenant_mismatch`. TYP-INT: activation with zero active same-Project Sources leaves the Project draft with `active_source_required` and emits no event. TYP-INT: activation with one active same-Project Source succeeds exactly once and emits `ProjectActivated`. TYP-DATA: a Source active in another Project never satisfies the prerequisite. TYP-DATA: concurrent activation - one succeeds, the second observes `project_not_draft`. TYP-DATA: a stale Project state version is `stale_state_version`; a changed Source membership is `source_membership_changed`; neither leaves a partial transition. TYP-OBS: `activation_transaction_unavailable` retries at exactly 1s and 5s and each retry rechecks current Source activity; exhaustion leaves the Project draft. TYP-OBS: the 10-second activation deadline, timeout wins at equality and the attempt rolls back. TYP-DATA: no fixture ever produces an `activation_failed` state. TYP-SEC: no command, route, job or service path effects a Project pause, resume or archive transition, and no `ProjectPaused`, `ProjectReactivated` or `ProjectArchived` event is emitted - asserted absent while OD-014 is pending.
 - rollout: The first draft Project is created inside the WF-001 self-service transaction, so S-03's creation contract must match what S-01 already emits; both use `Workflows::Wf002::CreateProject` semantics and the same `ProjectCreated` payload. No predecessor behaviour exists to migrate.
+
+### MTX-028 - AC-WF-003 (WF: WF-003)
+
+- Slice: S-05
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
+- interface type: Application commands over a Verification Request: create, retrieve pending challenge, request an on-demand observation, cancel. Automated observation slots and expiry are service-driven scheduled work, not principal commands. Both a principal path and a system path exist, so authorization must hold at the application command rather than at any transport edge.
+- route: Not applicable - Volume I defines the commands, their permissions and their complete envelopes but no HTTP path, method or transport. Transport exposure is owned by API_CONTRACTS.md at the Volume II baseline. Ownership verification notably does NOT require a public route: the challenge is proved at the customer's own DNS zone or HTTPS origin, and F1 observes it outbound. No inbound callback, webhook or public confirmation endpoint exists in Volume I, and inventing one would create an unauthenticated attack surface on a security-sensitive flow.
+- request schema: Create: `organization_id`, `project_id`, `source_id`, `method` (`dns_txt` or `http_file`), idempotency key, expected Source state version. On-demand observation: `verification_request_id`, expected state version. Cancel: `verification_request_id`, expected state version. Pending-challenge retrieval: `verification_request_id` only, and it returns no other Request's material.
+- response schema: Create returns the Verification Request identifiers, `request_status=pending`, `issued_at_utc`, `expires_at_utc` and the plaintext challenge token, which is returned through the authorized creation response and never persisted in plaintext. Retrieval returns the same token for a pending Request. Terminal replay or retrieval returns identifiers and status but never challenge material. On-demand and cancel return the Request status, reason code and state version.
+- controller: Not applicable - no HTTP adapter is defined by Volume I; see route.
+- command: `Workflows::Wf003::CreateVerificationRequest`, `Workflows::Wf003::RetrievePendingChallenge` (nonmutating), `Workflows::Wf003::RequestOnDemandObservation`, `Workflows::Wf003::CancelVerificationRequest`. Service-only: `Workflows::Wf003::RunAutomatedObservationSlot`, `Workflows::Wf003::ExpireVerificationRequest`, and `Workflows::Wf003::FailVerificationRequest`, the last writable only by the integrity-validation service.
+- command input: As request_schema. `method` other than `dns_txt` or `http_file` is rejected as `unsupported_method` before challenge issuance, so an unsupported method never causes token generation.
+- command output: One Verification Request in `pending`, `verified`, `expired`, `canceled` or `failed`; one restricted `verification_observation` Evidence and one `SourceVerificationObserved` per started observation; `Source.Proposed -> Source.Verified` only on atomic success.
+- actor: Organization Administrator or Technical Implementer for creation. Retrieval requires the request initiator or an OrganizationAdmin holding `source.verify` in the Request Organization. Cancellation requires the request initiator or an OrganizationAdmin holding `source.verify`. Automated slots and expiry are executed only by the named lifecycle service; `failed` is writable only by the integrity-validation service.
+- organization scope: The Request Organization. Retrieval returns no other Request's material, and every read reauthorizes rather than trusting the initial decision.
+- aggregate: VerificationRequest as the root; Source as a separate root transitioned in the same success transaction; Evidence as an immutable record.
+- aggregate boundary: Success is a multi-root atomic commit across VerificationRequest, Source, the materialized `source-scope-interim-v1` policy and Evidence. This is an explicit product-specific specialisation of the EM-III-011 single-aggregate default, required because Volume I states the success work items 'none may appear without the others'. Orchestration stays in the Application Layer per EM-III-011 section 7.
+- value objects: VerificationRequestId, ChallengeToken (>=128 bits entropy, never persisted in plaintext), ChallengeTokenSha256, ChallengeCiphertextReference, ChallengeKeyId, CanonicalHost, ObservationLocation, ObservedValueSha256, AttemptId, SlotOffset, RequestStateVersion.
+- domain service: Not applicable - Volume I names no domain service. Method predicates are pure functions; provider observation is an infrastructure adapter invoked by the application command.
+- repository: `VerificationRequestRepository`, `SourceRepository`, `EvidenceRepository`, `SourceScopePolicyRepository`.
+- persistence model: `verification_requests` per the Verification Request field list: `verification_request_id`, `schema_version`, `organization_id`, `project_id`, `source_id`, `request_initiator_account_id`, `method`, `canonical_host`, `challenge_token_sha256`, restricted `challenge_ciphertext_reference` and `challenge_key_id` (nullable only after terminal cryptographic deletion), `initial_challenge_delivered_at_utc`, `issued_at_utc`, `expires_at_utc`, `idempotency_key`, `request_status`, `attempt_count`, `on_demand_observation_count` (initially zero), `on_demand_in_progress_attempt_id` (nullable), `last_on_demand_completed_at_utc` (nullable), `last_observed_at_utc` (nullable), `decision_reason_code` (nullable while pending), `state_version`. Partial unique index enforcing at most one `pending` Request per `source_id`. The plaintext challenge token is never a column.
+- migration: Not applicable at this row - the canonical schema owns these tables. The at-most-one-pending-Request-per-Source partial unique index is the concurrency control that makes `verification_in_progress` true rather than advisory, and it is declared in schemas/POSTGRESQL_SCHEMA.md.
+- transaction boundary: Creation: the pending-request check, request creation and Source state-version check are atomic, so a second concurrent request cannot slip past the check. Observation completion: exactly one Evidence, the Request completion and last-observed fields, and one `SourceVerificationObserved`, atomically; transaction failure exposes none of the completion writes. Success additionally and inseparably: Request `verified` with reason `matched`, immediate challenge-redelivery disablement, `SourceVerified`, materialization of `source-scope-interim-v1`, and `Source.Proposed -> Source.Verified` in the same transaction. The provider call itself is outside every transaction; only its recorded outcome is committed.
+- concurrency: At most one pending Verification Request per Source, enforced by a partial unique index over `source_id` where `request_status='pending'`; a different nonreplay request while one is pending is rejected as `verification_in_progress` before token issuance, so a losing racer never causes token generation. On-demand acceptance serializes on the Verification Request: the accepted command atomically assigns the attempt ID, increments the on-demand and total attempt counts and stores `on_demand_in_progress_attempt_id` before the provider call, so concurrent commands cannot reserve the same slot. Cancellation and on-demand require the expected Request state version. At an exact automated-slot boundary the earlier slot is skipped and the later slot is eligible.
+- idempotency: Creation is idempotent by `idempotency_key`; reusing a key with different canonical request content is `idempotency_conflict`. Exact creation-command replay by the original actor while the Request remains pending may decrypt and return the same token without changing the Request, expiry, counts, idempotent result or domain-event set. Observation completion is idempotent by reserved slot/attempt identity: if completion persistence fails, the same reserved attempt is retried and no second count is consumed. `attempt_count` increments only when an automated or accepted on-demand provider observation starts; a skipped slot or a rejected rate-limited, over-limit, terminal-state or unauthorized request never increments it.
+- background job: `AutomatedObservationSlotJob` per due slot; `VerificationRequestExpiryJob` at `expires_at_utc`; `ChallengeCryptographicDeletionJob` scheduled in the terminal transaction. On-demand observation executes under its reserved attempt. Automated slots have due offsets 0, 5, 15, 30, 60, 120, 240, 480, 960 and 1,380 minutes after issuance; each may start only in its half-open window from its due time to the next offset, the final window ending at expiry.
+- queue: The verification queue for observation slots and expiry, per the Volume I Background Processing action registry. Queue identity is owned by BACKGROUND_PROCESSING.md; this row does not rename it.
+- retry policy: A DNS lookup has a 10-second timeout; resolver timeout and temporary resolver failure are retryable. HTTP connection plus response timeout is 10 seconds. Retry is at the observation-slot level rather than an in-attempt loop: a failed observation does not immediately re-observe, it remains pending until a later slot or expiry. A slot that has not started when the next window begins is recorded once as `observation_slot_skipped` and MUST NOT run late. Terminal request state cancels all remaining slots without skipped events.
+- terminal failure: `request_status=failed` is writable only by the integrity-validation service, only for a nonretryable persisted-request integrity failure discovered after issuance, and only with `request_digest_unavailable` (missing immutable challenge digest) or `request_schema_unsupported` (unsupported stored schema). These two are the exhaustive failed reasons. DNS, HTTP, resolver, certificate, status, content and timeout outcomes NEVER use `failed`; they remain pending until success, cancellation or expiry. Failure stops all observations, emits `SourceVerificationFailed` and leaves the Source `proposed`.
+- reconciliation: A completion transaction that fails exposes none of its writes and is retried under the same reserved slot/attempt identity, so a provider observation is never double-counted and never half-recorded. Provider timeout still completes the observation with network outcome `timeout`: a timeout is recorded as an observed outcome, never treated as proof of absence.
+- domain events: `SourceVerificationRequested` on creation. `SourceVerificationObserved` exactly once per started observation, referencing its Evidence. `SourceVerified` on success only. `SourceVerificationExpired` at expiry. `SourceVerificationCanceled` on cancellation. `SourceVerificationFailed` on integrity failure. `observation_slot_skipped` is a scheduler record, not a domain event and not fabricated Evidence.
+- event payload: The canonical envelope with the real `organization_id`. No event may carry the plaintext challenge token or raw DNS/HTTP content containing it.
+- event producer: `Workflows::Wf003` is the sole producer of every event above. `SourceVerified` has exactly one producer and appears only inside the atomic success commit.
+- event consumers: Not applicable at this row - Volume I names no consumer. Source Scope Policy materialization is part of the same success transaction rather than a consumer reaction, which is what makes it inseparable from `SourceVerified`.
+- serializer: Not applicable - no transport exposure is defined by Volume I; see route.
+- authorization entry point: The application command, before any mutation and before token issuance. Retrieval and replay reauthorize every read rather than trusting the creation decision, and both append a restricted security access log without changing domain state.
+- permission checks: Creation: Organization Administrator or Technical Implementer. Retrieval and cancellation: the request initiator, or an OrganizationAdmin holding `source.verify` in the Request Organization. Automated slots and expiry: the named lifecycle service only. `failed`: the integrity-validation service only. `source.verify` is the canonical permission; no other is introduced.
+- tenant boundary: Retrieval returns the named Request's token and no other Request's material, so a valid Request ID in another Organization yields nothing. The Request carries `organization_id`, `project_id` and `source_id`, and every read reauthorizes against the Request Organization.
+- error contract: `unsupported_method` (before challenge issuance), `verification_in_progress` (a different nonreplay request while one is pending, before token issuance), `source_not_proposed` (Source verified, active, disabled or removed), `idempotency_conflict` (same key, different canonical content), `challenge_redelivery_unavailable` (decryption failure; changes no Request or Source state and permits authorized cancellation followed by a new Request), `on_demand_limit_reached` (count=10), `on_demand_observation_in_progress` (marker nonnull), `on_demand_rate_limited` (now < last completion + 5 minutes; equality at the boundary is allowed). Terminal reasons: `matched`, `challenge_expired`, `canceled_by_requester`, `canceled_by_admin`, `request_digest_unavailable`, `request_schema_unsupported`. Observation reason codes are exactly: `matched`, `dns_nxdomain`, `dns_value_mismatch`, `dns_timeout`, `dns_temporary_failure`, `http_status_mismatch`, `http_content_mismatch`, `http_body_too_large`, `http_redirect_rejected`, `http_timeout`, `http_rate_limited`, `http_server_error`, `tls_validation_failed`, `connection_failure`. Mismatch or dependency failure never verifies and never disables the Source.
+- audit record: Restricted `verification_observation` Evidence per started observation, and its separate Audit Evidence, retained under their own contracts. Challenge retrieval and replay each append a restricted security access log. The challenge digest and the access audit survive cryptographic deletion of the key and ciphertext.
+- observability: `SourceVerificationRequested`, observation attempt, `SourceVerified`, expiry, cancellation, integrity failure, reason code, latency and redacted evidence telemetry, per CAP-005. Provider text is reduced to the enum and status fields: header values, response body, DNS value, host addresses and unrestricted error text are discarded rather than logged.
+- retention: Verification Evidence and its Audit Evidence are retained under their separate contracts per CAP-005 Data Implications; the window is owned by 015 DATA_LIFECYCLE.md. Challenge key and ciphertext are destroyed within 60 seconds of the terminal transaction, while the digest and access audit remain. No plaintext challenge token and no raw observation content is retained at rest.
+- test contracts: TYP-SEC: an unsupported `method` is rejected as `unsupported_method` before any token is generated. TYP-SEC: the challenge token carries >=128 bits of entropy and never appears in a column, log, event payload or Evidence payload. TYP-SEC: exact creation replay by the original actor while pending returns the same token and changes no Request field, expiry, count or event set. TYP-SEC: pending-challenge retrieval by the initiator and by an OrganizationAdmin holding `source.verify` both succeed; a different Organization's Request yields nothing; both paths append a restricted security access log and change no domain state. TYP-SEC: on terminal transition, redelivery is unavailable immediately and the key and ciphertext are destroyed within 60 seconds while digest and access audit remain; terminal replay returns identifiers and status but never challenge material. TYP-SEC: decryption failure returns `challenge_redelivery_unavailable`, changes no state, and permits cancellation plus a new Request. TYP-DATA: at most one pending Request per Source - a second nonreplay request is `verification_in_progress` before token issuance. TYP-DATA: a Request for a verified, active, disabled or removed Source is `source_not_proposed`. TYP-DATA: DNS - exact ASCII `f1-verification=<token>` matches; multiple TXT records where any complete value matches succeeds; segment concatenation follows DNS semantics before comparison; case, whitespace, prefix and suffix differences fail. TYP-DATA: DNS `observed_value_sha256` joins segments in resolver-returned order, UTF-8 encodes, concatenates records separated by one line feed, and hashes those bytes; an absent response has a null hash. TYP-DATA: HTTP requires 200, body <=4 KiB and UTF-8 equality after removal of at most one trailing line feed; redirects are not followed and yield `http_redirect_rejected`. TYP-DATA: the 4,096/4,097-byte boundary - reading stops at exactly 4,097 received entity-body bytes, 4,097 proves `http_body_too_large`, no later byte is read, and declared `Content-Length` is ignored. TYP-DATA: `observed_value_sha256` is over raw received bytes before decode and trailing-line-feed removal - the complete body at <=4,096 bytes, exactly the first 4,097 when oversized; `received_byte_count` follows the same rule. TYP-OBS: status mapping - 408 and transport timeout to `http_timeout`, 429 to `http_rate_limited`, 5xx to `http_server_error`, every other non-200 to `http_status_mismatch`; each remains pending. TYP-OBS: automated slots at 0, 5, 15, 30, 60, 120, 240, 480, 960 and 1,380 minutes; each starts only in its half-open window; an unstarted slot is recorded once as `observation_slot_skipped` and never runs late; at an exact boundary the earlier slot is skipped and the later is eligible; terminal state cancels remaining slots without skipped events. TYP-DATA: on-demand limit 10 - the 10th succeeds, the 11th is `on_demand_limit_reached`. TYP-DATA: `on_demand_observation_in_progress` while the marker is set; concurrent on-demand commands cannot reserve the same slot. TYP-DATA: `on_demand_rate_limited` before 5 minutes; equality at exactly 5 minutes is allowed. TYP-DATA: `attempt_count` increments only when an observation starts, and never on a skipped slot or a rejected request. TYP-DATA: completion persistence failure retries the same reserved attempt and consumes no second count. TYP-DATA: success is atomic - Request `verified`/`matched`, redelivery disabled, `SourceVerified`, `source-scope-interim-v1` materialized and `Source.Proposed -> Source.Verified` all commit together, and a fixture proves none appears without the others. TYP-DATA: an observation completing at or after `expires_at_utc` cannot verify; at exact equality expiry wins. TYP-DATA: mismatch and dependency failure change no Source lifecycle state and never disable the Source. TYP-SEC: cancellation by requester uses `canceled_by_requester`, by an admin uses `canceled_by_admin`, only from pending, only with the expected state version, and leaves the Source proposed. TYP-SEC: `failed` is writable only by the integrity-validation service and only with `request_digest_unavailable` or `request_schema_unsupported`; a DNS or HTTP outcome can never produce `failed`. TYP-SEC: Evidence payload retains no plaintext token and no raw DNS or HTTP content; header values, body, DNS value, host addresses and error text are discarded. TYP-OBS: expiry, cancellation, skipped slots and integrity failure produce Request decisions or scheduler records and never fabricate Verification Evidence.
+- rollout: S-05 depends on S-04 for a proposed Source and gates S-06 and S-07: no Crawl may run against an unverified Source. No predecessor behaviour exists to migrate.
+
+### MTX-051 - AC-SM-008 (SM: Verification Evidence)
+
+- Slice: S-05
+- Status: Complete
+- contract owner: specification/volume-ii/APPLICATION_LAYER.md#source-verification-state-transition
+- interface type: State-model obligation. AC-SM-008 governs the Source verification transition and its evidence, not an interface.
+- route: Not applicable - a state transition is not an interface.
+- request schema: Not applicable - the transition has no request of its own.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: The transition is effected only inside the `Workflows::Wf003` observation-completion transaction on a matched observation. No other command, job, service or administrative path may transition a Source to `verified`.
+- command input: Not applicable - effected by the completion transaction.
+- command output: Not applicable - effected by the completion transaction.
+- actor: The observation completion path. No human actor writes the transition directly; a principal triggers an observation, and the matched predicate effects the transition.
+- organization scope: The Source Organization.
+- aggregate: Source, transitioned within the multi-root success commit.
+- aggregate boundary: Source is a separate root from VerificationRequest; both, plus the scope policy and Evidence, commit atomically because Volume I forbids any of the success work items appearing without the others.
+- value objects: SourceState (`proposed`, `verified`, `active`, `disabled`, `removed`), SourceStateVersion.
+- domain service: Not applicable - the transition is a guarded aggregate mutation inside the completion transaction.
+- repository: `SourceRepository`.
+- persistence model: The `sources` lifecycle status column. `proposed` is the state before verification; `verified` is the state after. No intermediate `verifying` or Boolean `is_verified` flag exists: Volume I defines a state machine, and collapsing it into a flag would lose the canonical state and its transition event.
+- migration: Not applicable - the canonical `sources` table already carries the lifecycle status.
+- transaction boundary: The observation-completion transaction. `Source.Proposed -> Source.Verified` commits with Request `verified`/`matched`, redelivery disablement, `SourceVerified` and `source-scope-interim-v1` materialization, or none of them commit.
+- concurrency: Guarded by the Source state version and by the at-most-one-pending-Request-per-Source constraint. A concurrent second matched completion finds the Source no longer `proposed` and cannot transition it twice; the transition happens exactly once. A stale Source state version rejects the completion without side effects.
+- idempotency: The transition is naturally idempotent through its state guard: it fires only from `proposed`. A repeated matched observation after success does not re-transition, does not re-emit `SourceVerified` and does not re-materialize the scope policy.
+- background job: Not applicable - the transition is not a job; it occurs inside the completion transaction, which may be reached from an automated slot or an on-demand attempt.
+- queue: Not applicable - not queued independently.
+- retry policy: Not applicable - the transition itself is not retried. Its enclosing completion transaction is retried under the same reserved attempt identity.
+- terminal failure: Mismatch or dependency failure MUST NOT change the Source lifecycle state. Expiry, cancellation and integrity failure all leave the Source `proposed`. There is no failed or rejected Source state reachable from verification.
+- reconciliation: Not applicable - the transition is atomic with its Request decision, so Source state and Request status can never diverge.
+- domain events: `SourceVerified`, exactly once, only inside the success commit. The transition never occurs without the event and the event never occurs without the transition.
+- event payload: The canonical envelope with the Source identity and its resulting state version; no challenge material.
+- event producer: `Workflows::Wf003`, sole producer.
+- event consumers: Not applicable at this row - the scope-policy materialization is part of the same transaction, not a consumer.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The observation-completion path, which is reachable only from an authorized Request; the transition itself exposes no independent entry point.
+- permission checks: No permission transitions a Source directly. Authority is established at Request creation and at on-demand acceptance; the transition is a consequence of a matched predicate, not of an actor's permission.
+- tenant boundary: The Source and its Request share an Organization by construction.
+- error contract: A stale Source state version rejects the completion without side effects. A Source not in `proposed` cannot transition; a Request for such a Source is `source_not_proposed` at creation.
+- audit record: The matched `verification_observation` Evidence is the audit anchor for the transition, and its Audit Evidence is retained separately.
+- observability: `SourceVerified` and the matched observation telemetry with its reason code and latency.
+- retention: The transition event and its Evidence are retained under their contracts; the window is owned by 015 DATA_LIFECYCLE.md.
+- test contracts: TYP-DATA: the Source is `proposed` before verification and `verified` after; no intermediate state and no Boolean flag substitutes for the canonical state. TYP-DATA: the transition fires exactly once - a repeated matched observation after success does not re-transition or re-emit. TYP-DATA: concurrent matched completions transition once; the loser finds the Source no longer proposed. TYP-DATA: a stale Source state version rejects the completion with no side effect. TYP-DATA: mismatch, dependency failure, expiry, cancellation and integrity failure each leave the Source `proposed`. TYP-DATA: the transition, Request `verified`/`matched`, redelivery disablement, `SourceVerified` and `source-scope-interim-v1` materialization commit together or not at all - each is asserted absent when the transaction fails. TYP-OBS: challenge redelivery and deletion, slot, skip, on-demand concurrency, count and cursor boundaries, the DNS and HTTP 4,096/4,097-byte hash and count rules, network and content reasons, match, expiry, cancel and integrity authority, transaction failure, second request, replay and authorization fixtures each produce exact Request, Source, scope-policy, Evidence and event behaviour. TYP-SEC: no plaintext token and no raw observation is retained at rest.
+- rollout: As MTX-028.
 
 ### MTX-052 - AC-PRULE-001 (PRULE: PRULE-001)
 
@@ -610,6 +745,51 @@ from what the sources produce.
 - test contracts: TYP-SEC: a Project cannot activate against a Source in another Project. TYP-SEC: a Project cannot activate against a Source in another Organization. TYP-INT: a Project cannot activate against an unverified or inactive Source. TYP-DATA: the selected active Source IDs are recorded at activation and match the Sources that satisfied the boundary. TYP-DATA: a scope change concurrent with activation is `source_membership_changed` and activates nothing.
 - rollout: As MTX-027. The WF-004 limb of this invariant lands with S-06.
 
+### MTX-056 - AC-PRULE-005 (PRULE: PRULE-005)
+
+- Slice: S-05
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-005-source-verification-predicate
+- interface type: Conjunctive product rule enforced across the WF-003 commands and the observation-completion path.
+- route: Not applicable - PRULE-005 is a rule, not an interface.
+- request schema: Not applicable - constrains the MTX-028 schema.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within every `Workflows::Wf003` command and the completion transaction. This row adds no command.
+- command input: Not applicable - constrains the MTX-028 input.
+- command output: Not applicable - constrains the MTX-028 output.
+- actor: As MTX-028 per limb.
+- organization scope: The Request Organization.
+- aggregate: VerificationRequest, Source, Evidence.
+- aggregate boundary: The rule spans the Request and Source roots and is satisfied by the atomic success commit.
+- value objects: As MTX-028.
+- domain service: Not applicable - enforced in the application commands.
+- repository: As MTX-028.
+- persistence model: Not applicable - PRULE-005 introduces no persistent concept; it constrains the records MTX-028 writes.
+- migration: Not applicable - no schema object.
+- transaction boundary: Verification MUST complete before Source activation: the rule places the gate at activation, which S-03's `ActivateProject` and S-06's Source activation both honour by requiring an active same-Project Source that reached `verified` through this path.
+- concurrency: 'Serialize on-demand cursor/count reservations' is the rule's own words and is satisfied by the in-progress marker written before the provider call, plus the count increments in the accepting transaction.
+- idempotency: As MTX-028 - reserved attempt identity, no second count on completion retry.
+- background job: As MTX-028 - the rule's 'recoverably protect pending challenge delivery' is satisfied by envelope encryption plus the authorized redelivery paths and the scheduled cryptographic deletion.
+- queue: As MTX-028.
+- retry policy: As MTX-028.
+- terminal failure: The rule's own clause: mismatch, dependency failure, denial or expiry MUST leave the Source proposed. This is the load-bearing failure invariant and applies to every limb.
+- reconciliation: As MTX-028.
+- domain events: Not applicable - PRULE-005 emits no event of its own; it constrains the MTX-028 event set.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: Every WF-003 command, before mutation.
+- permission checks: 'Terminal reason/authority' is exact: only the integrity-validation service may write `failed`, and only the initiator or an OrganizationAdmin holding `source.verify` may cancel. Authority is per terminal reason, not a single verification permission.
+- tenant boundary: As MTX-028.
+- error contract: The rule's five failure classes map exactly: mismatch to the observation reason codes; dependency failure to the network outcomes; denial to `on_demand_limit_reached`, `on_demand_observation_in_progress`, `on_demand_rate_limited` and the authorization reasons; expiry to `challenge_expired`. None of them verifies, and none of them disables the Source.
+- audit record: 'Create restricted decision Evidence' is the rule's own clause: exactly one restricted `verification_observation` Evidence per started observation, whether matched, not matched or indeterminate.
+- observability: As MTX-028, redacted to enum and status fields.
+- retention: Restricted Evidence retained under its separate contract; challenge material destroyed within 60 seconds of terminal transition.
+- test contracts: TYP-SEC: the exact active method predicate - `dns_txt` and `http_file` succeed on an exact match; every other method is rejected before challenge issuance. TYP-SEC: pending challenge delivery is recoverably protected - the plaintext exists only in the authorized creation response and the two authorized redelivery paths, and decryption failure yields `challenge_redelivery_unavailable` rather than a lost Request. TYP-DATA: on-demand cursor and count reservations serialize - concurrent commands cannot reserve the same slot and cannot double-count. TYP-DATA: exactly one restricted decision Evidence per started observation, for matched, not-matched and indeterminate alike. TYP-INT: verification completes before Source activation - an unverified Source can never satisfy an activation prerequisite. TYP-DATA: mismatch, dependency failure, denial and expiry each leave the Source proposed, asserted as four separate fixtures.
+- rollout: As MTX-028.
+
 ### MTX-070 - AC-PRULE-019 (PRULE: PRULE-019)
 
 - Slice: S-02
@@ -650,12 +830,57 @@ from what the sources produce.
 - test contracts: TYP-SEC: an active Organization permits a protected mutation only when the resolved permission set allows it - an active Organization with no allowed permission is denied. TYP-SEC: every protected mutation is denied against a suspended Organization, asserted across routes, services and lifecycle jobs rather than at one entry point. TYP-SEC: every protected mutation is denied against a closed Organization, and closed is terminal. TYP-SEC: the WF-013 exceptions still execute in suspended or closed state - Organization reactivation/closure lifecycle and protected Legal Hold/deletion execution. TYP-SEC: reactivation restores only unexpired explicit grants; an expired grant stays expired and is not revived. TYP-DATA: a command carrying a stale Organization authorization epoch is rejected without side effects.
 - rollout: Applies from the moment the first Organization exists; no predecessor behaviour to migrate.
 
+### MTX-071 - AC-PRULE-020 (PRULE: PRULE-020)
+
+- Slice: S-05
+- Status: Complete
+- contract owner: specification/volume-ii/SECURITY_PERFORMANCE.md#prule-020-verification-method-set
+- interface type: Method-set rule enforced at Verification Request creation, before challenge issuance.
+- route: Not applicable - PRULE-020 is a rule, not an interface.
+- request schema: Not applicable - constrains the MTX-028 `method` field.
+- response schema: Not applicable - see request_schema.
+- controller: Not applicable - no HTTP adapter.
+- command: Enforced within `Workflows::Wf003::CreateVerificationRequest`. This row adds no command.
+- command input: Not applicable - constrains the MTX-028 input.
+- command output: Not applicable - constrains the MTX-028 output.
+- actor: As MTX-028 - the creating actor.
+- organization scope: The Request Organization.
+- aggregate: VerificationRequest.
+- aggregate boundary: The rule constrains the Request root at creation only.
+- value objects: VerificationMethod, restricted to `dns_txt` and `http_file`.
+- domain service: Not applicable - a pure predicate in the creation command.
+- repository: `VerificationRequestRepository`.
+- persistence model: The `method` column admits exactly `dns_txt` and `http_file`; a CHECK constraint makes an unsupported method unrepresentable rather than merely rejected at the application edge.
+- migration: Not applicable - the canonical schema owns the column and its constraint.
+- transaction boundary: Evaluated before token issuance and before the creation commit, so an unsupported method never causes challenge generation.
+- concurrency: Not applicable - the method predicate is a pure function of the request body and has no race.
+- idempotency: Not applicable - rejection creates no Request, so there is nothing to replay. A replayed valid creation is governed by MTX-028's idempotency key.
+- background job: Not applicable - synchronous.
+- queue: Not applicable - no asynchronous work.
+- retry policy: Not applicable - `unsupported_method` is a terminal validation outcome and is never retried.
+- terminal failure: `unsupported_method`, before challenge issuance, creating no Request.
+- reconciliation: Not applicable - nothing is written.
+- domain events: Not applicable - a rejected creation emits one audited command outcome, not an event.
+- event payload: Not applicable - no event of its own.
+- event producer: Not applicable - no event of its own.
+- event consumers: Not applicable - no event of its own.
+- serializer: Not applicable - no transport exposure.
+- authorization entry point: The creation command; the method check precedes authorization-independent token issuance.
+- permission checks: As MTX-028 - the rule adds no permission.
+- tenant boundary: Not applicable - the method set is global and identical in every Organization; no tenant may widen it.
+- error contract: `unsupported_method`, rejected before challenge issuance. No method bypasses the exact validation rules: an accepted method is still subject to its full predicate, so `http_file` cannot succeed on a redirect and `dns_txt` cannot succeed on a case-insensitive match.
+- audit record: One audited command outcome carrying `unsupported_method` and the correlation ID.
+- observability: The rejected method value is recorded as an enum outcome; no challenge material exists to redact because none is generated.
+- retention: Not applicable - PRULE-020 defines no retention obligation.
+- test contracts: TYP-SEC: `dns_txt` and `http_file` are accepted; `meta_tag`, `email`, `manual_review`, an empty value and an unknown value are each `unsupported_method`. TYP-SEC: rejection occurs before challenge issuance - no token is generated, no Request row is written and no ciphertext is stored for an unsupported method. TYP-SEC: no method bypasses exact validation - an accepted `http_file` still fails on redirect, non-200, oversize body and content mismatch, and an accepted `dns_txt` still fails on case, whitespace, prefix and suffix differences. TYP-DATA: the persistence layer cannot represent an unsupported method, asserted by attempting a direct write.
+- rollout: OD-001 is ratified as Option 2, so the method set is the approved baseline rather than a provisional choice. Adding a third method would be a controlled Volume I change, not an implementation decision.
+
 ## Coverage Invariants
 
 - Volume I acceptance criteria: 97
 - Matrix rows: 97
-- Contracts complete: 11
-- Rows still `Pass B required`: 86
+- Contracts complete: 16
+- Rows still `Pass B required`: 81
 - Every acceptance criterion maps to exactly one row, by construction.
 - Every row maps back to exactly one governing acceptance criterion and its source.
 - Cross-cutting rows (`ALL`): 4. These are enforced in every slice

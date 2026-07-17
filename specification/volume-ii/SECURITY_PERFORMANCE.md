@@ -387,3 +387,45 @@ authorization epoch whenever effective access could change. A command carrying a
 rejected without side effects, as a conflict rather than an authorization denial. This is what
 prevents a mutation authorized under superseded permissions from committing after a concurrent
 policy change or suspension.
+
+## PRULE-005 Source Verification Predicate
+
+Matrix row: MTX-056 (AC-PRULE-005). Slice: S-05.
+Structured contract: `specification/volume-ii/contracts/S-05.json`.
+Governing authority: PRULE-005, sourced from SM-REQ-002, SM-REQ-003, SEC-REQ-010 and PR-REQ-029;
+decision dependency OD-001 (ratified).
+
+PRULE-005 is a conjunction of five obligations, each with an exact implementation consequence:
+
+1. **Satisfy the exact active method predicate.** `dns_txt` and `http_file` under the ratified
+   OD-001 set, each with its full predicate. An accepted method still fails its own rules: an
+   `http_file` observation fails on redirect, non-200, oversize body or content mismatch; a
+   `dns_txt` observation fails on case, whitespace, prefix or suffix difference.
+2. **Recoverably protect pending challenge delivery.** Envelope encryption plus exactly two
+   authorized redelivery paths, with decryption failure yielding
+   `challenge_redelivery_unavailable` rather than a lost Request.
+3. **Serialize on-demand cursor/count reservations.** The in-progress marker is written before
+   the provider call, in the accepting transaction with both count increments, so concurrent
+   commands cannot reserve the same slot or double-count.
+4. **Create restricted decision Evidence.** Exactly one restricted `verification_observation`
+   Evidence per started observation, whether matched, not matched or indeterminate.
+5. **Complete before Source activation.** An unverified Source can never satisfy an activation
+   prerequisite.
+
+Its failure invariant is load-bearing and applies to every limb: mismatch, dependency failure,
+denial or expiry MUST leave the Source proposed.
+
+## PRULE-020 Verification Method Set
+
+Matrix row: MTX-071 (AC-PRULE-020). Slice: S-05.
+Structured contract: `specification/volume-ii/contracts/S-05.json`.
+Governing authority: PRULE-020, sourced from SEC-REQ-005, SEC-REQ-010 and SB-REQ-009; decision
+dependency OD-001 (ratified).
+
+The method MUST be `dns_txt` or `http_file`. An unsupported method is rejected **before challenge
+issuance**, so no token is generated, no Request row is written and no ciphertext is stored. The
+`method` column carries a CHECK constraint, which makes an unsupported method unrepresentable
+rather than merely rejected at the application edge.
+
+No method bypasses exact validation. The rule's second clause is not a restatement of the first:
+being on the approved list is necessary and never sufficient.

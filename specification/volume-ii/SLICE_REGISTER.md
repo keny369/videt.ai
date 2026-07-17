@@ -89,7 +89,8 @@ S-24 Incident and Recovery (depends on S-07)
 | S-02 | **Contracts complete** | MTX-002, MTX-053, MTX-070 | `contracts/S-02.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
 | S-03 | **Contracts complete; OD-014 limb withheld** | MTX-003, MTX-027, MTX-054, MTX-055 | `contracts/S-03.json`; canonical owner APPLICATION_LAYER.md |
 | S-04 | **Contracts complete** | MTX-004 (MTX-055 owned by S-03) | `contracts/S-04.json`; canonical owner APPLICATION_LAYER.md |
-| S-05 .. S-24 | Pass B required | 0 | Next: S-05 Ownership Verification, first row MTX-005 (AC-CAP-005), which carries the OD-001 dependency |
+| S-05 | **Contracts complete** | MTX-005, MTX-028, MTX-051, MTX-056, MTX-071 | `contracts/S-05.json`; canonical owners APPLICATION_LAYER.md and SECURITY_PERFORMANCE.md |
+| S-06 .. S-24 | Pass B required | 0 | Next: S-06 Source Discovery and Scope, first row MTX-006 (AC-CAP-006) |
 
 MTX-069 and MTX-085 carry S-01 among their slices but are owned by S-23 and S-19
 respectively, and both carry a withheld limb. They are contracted with their owning slice
@@ -147,6 +148,26 @@ route, job, service path or entity method may enter either.
 | MTX-095 (AC-PRULE-044) | A cross-Organization Project is `tenant_mismatch`; the uniqueness key is Project-scoped, so the same host in another Organization never collides |
 | MTX-096 (AC-PRULE-045) | Registration reads Project `draft`/`active`/`paused` as a guard and effects no Project transition |
 | MTX-097 (AC-PRULE-046) | Immutable registration provenance carries the authorization-decision ID; every rejection emits one audited command outcome under one correlation |
+
+### S-05 cross-cutting application
+
+Ownership verification is security-sensitive, so each application is stated concretely rather
+than generically.
+
+| Cross-cutting row | How S-05 satisfies it |
+| --- | --- |
+| MTX-094 (AC-PRULE-043) | Challenge token >=128 bits entropy, never persisted or logged in plaintext, envelope-encrypted under a request-specific key, destroyed within 60 seconds of terminal transition; Evidence retains no plaintext token and no raw DNS/HTTP content; provider text reduced to enum and status fields |
+| MTX-095 (AC-PRULE-044) | A Request may be created only for a same-Organization proposed Source, which is what prevents unauthorized domain scanning; retrieval returns no other Request's material; every read reauthorizes rather than trusting the creation decision |
+| MTX-096 (AC-PRULE-045) | Source transitions only `Proposed -> Verified`, only inside the atomic success commit; no Project transition is effected, so the OD-014 limb is untouched |
+| MTX-097 (AC-PRULE-046) | Exactly one restricted `verification_observation` Evidence per started observation regardless of outcome; challenge retrieval and replay append a restricted security access log; the digest and access audit survive cryptographic deletion |
+
+Abuse and replay controls: at most one pending Request per Source enforced by a partial unique
+index; on-demand capped at 10 with a 5-minute rate limit and an in-progress marker written before
+the provider call; `attempt_count` increments only when an observation starts; redirects are not
+followed; body reading stops at exactly 4,097 bytes and ignores declared `Content-Length`.
+
+S-05 note: OD-001 is **ratified**, not pending. Nothing in S-05 is withheld. The five rows carry
+an OD dependency, not an OD block.
 
 ## Register
 

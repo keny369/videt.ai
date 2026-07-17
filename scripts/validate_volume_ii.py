@@ -39,6 +39,20 @@ VAGUE_CONTRACT_VALUE = re.compile(
     r"as needed|pass b required|idempotent|uses locking|safe to retry|locking|retries|"
     r"version[- ]checked|lock[- ]protected|duplicate[- ]tolerant)\s*\.?\s*$")
 
+# OD-001 is ratified as Option 2: DNS TXT and HTTPS file. Volume I states that other methods
+# are blocked, and CAP-005's non-goal is "selection of unapproved verification channels without
+# owner decision". A verification method outside this set is an invented product channel with a
+# real security surface, so it is rejected mechanically rather than caught in review.
+RATIFIED_VERIFICATION_METHODS = {"dns_txt", "http_file"}
+CANDIDATE_VERIFICATION_METHOD = re.compile(
+    r"`(meta_tag|html_meta|email_verification|email_token|manual_review|manual_verification|"
+    r"file_upload|cname|dns_cname|ns_delegation|whois|oauth_domain|tls_alpn)`")
+# Naming an unapproved method as a rejection fixture is correct and required: the contract has
+# to prove that meta_tag is refused. Only asserting one as usable is the defect.
+VERIFICATION_METHOD_REJECTED = re.compile(
+    r"(?i)(unsupported_method|rejected|reject|MUST NOT|outside baseline|blocked|not approved|"
+    r"out of baseline|are each|denied|refus)")
+
 CURRENT_VOLUME_I_BASELINE = "v1.5-volume-i-frozen"
 CURRENT_MANUAL_BASELINE = "v1.7-engineering-manual-accepted"
 SUPERSEDED_TAGS = {
@@ -218,6 +232,17 @@ def validate(root: Path) -> list[Finding]:
             if m:
                 findings.append(Finding(path, line_of(text, m.group(0)), "pending_od_preemption",
                                         f"{m.group(0)}: {reason}"))
+
+        # unauthorized verification method (OD-001 ratifies dns_txt and http_file only)
+        for m in CANDIDATE_VERIFICATION_METHOD.finditer(text):
+            method = m.group(1)
+            window = text[max(0, m.start() - 220):m.end() + 220]
+            if VERIFICATION_METHOD_REJECTED.search(window):
+                continue
+            if method not in RATIFIED_VERIFICATION_METHODS:
+                findings.append(Finding(path, line_of(text, m.group(0)), "unauthorized_verification_method",
+                                        f"{method}: OD-001 ratifies dns_txt and http_file only; "
+                                        "other methods are outside baseline scope"))
 
         # 7. non-canonical Organization terminology
         for m in NONCANONICAL_SPELLING.finditer(text):
@@ -408,6 +433,10 @@ def run_negative_controls() -> int:
          "contract_field_vague"),
         ("contract owner does not cite row", break_owner_citation,
          "contract_owner_does_not_cite_row"),
+        ("unauthorized verification method",
+         lambda r: append(r / "specification" / "volume-ii" / "SECURITY_PERFORMANCE.md",
+                          "\nOwnership may also be proved by `meta_tag` placement.\n"),
+         "unauthorized_verification_method"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-v2-negative-") as tmp:
