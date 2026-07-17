@@ -3030,3 +3030,836 @@ human can request is the one that most needs to be automatic and exactly-once.
 
 ---
 
+## WF-008 Calculate Score From Issues
+
+
+Matrix row: MTX-033 (AC-WF-008). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: WF-008, CAP-015, the Interim Discoverability Score Policy, the Score
+Contribution Contract, the ScoreSnapshot Contract, the Current Score Projection, the Normative Score
+Fixtures, and OD-002, OD-003, OD-009 and OD-010 (**all ratified**).
+
+This section is the canonical owner of scoring. It consumes the sealed Issue Set and the completed
+Evaluation owned by [WF-007](#wf-007-generate-issues-from-checks-and-adjudicate) in S-12, the
+terminal Check Results owned by
+[PRULE-010](#prule-010-check-materialization-canonical-order-and-determinism) in S-09, and the
+Evidence validity predicate owned by [CAP-013](#cap-013-evidence-capture-and-provenance) in S-11.
+It is consumed by S-14, which generates Recommendations from a promoted snapshot.
+
+### Completion is not promotion
+
+WF-007 seals the Issue Set and completes the Evaluation. It advances **no** current pointer. The
+completed Evaluation stays **staged** until WF-008 atomically promotes it together with a scorable
+ScoreSnapshot. A scoreless Evaluation is therefore a *completed Evaluation with an unpromoted
+pointer*, not a failure — and this section is the only writer in the system that advances a current
+pointer.
+
+That separation is why `Workflows::Wf008::PromoteScoreSnapshot` is a **wide commit**. It moves all
+four projection pointers, clears the reason set and the invalidating Decision IDs, and sets
+`recommendation_suppression_required=false` in one transaction. A narrow commit would leave a stale
+numeric score readable between the snapshot write and the pointer move — the same failure the
+Evidence-transition and adjudication-transition wide commits exist to prevent.
+
+### The unavailable snapshot is a result, not an error
+
+WF-008 has no crash outcome and no Evaluation transition. Its Failure Path *produces a snapshot*:
+an immutable, diagnostic, retained `unavailable` ScoreSnapshot with its complete ordered reason set.
+Three consequences follow, and each is asserted rather than assumed:
+
+- `ScoreSnapshotCreated` fires for an unavailable snapshot too. Suppressing the event on the
+  unavailable path is the natural implementation error and would make a starved score silent.
+- The snapshot advances `latest_calculation_issue_set_id` and `latest_calculation_score_snapshot_id`
+  and **nothing else**. The nullable current and last-promoted pair is untouched.
+- There is no retry. The Recovery Path is an idempotent recalculation over corrected inputs:
+  identical inputs return the stored result, changed inputs create a new snapshot without mutating
+  history.
+
+### Three modes, three permitted field sets
+
+The Current Score Projection is where the modes differ, and conflating them is the defect this
+section is written to prevent:
+
+| Mode | Projection fields it may change |
+| --- | --- |
+| Promotion (complete or partial, not `historical_rebase`) | both Issue-set fields, both snapshot fields, reasons cleared, invalidating Decisions cleared, suppression false |
+| Unavailable **outside** reassessment staging | `latest_calculation_issue_set_id` and `latest_calculation_score_snapshot_id` only |
+| Unavailable **in** reassessment staging | **none** |
+| `historical_rebase`, any status | **none** — permanently noncurrent |
+
+An implementation that treats staging as ordinary unavailability leaks a staged failure into current
+state. `Changes no Current Score Projection field or pointer` is a per-field assertion, tested by
+diffing the whole row.
+
+### OD-010 ratified: the unavailable baseline score is the approved outcome
+
+OD-010's `Current Status` is **Ratified 2026-07-17. Blocking Impact: None.** Its Ratified Behavior
+approves the bundle-nothing state *and its consequence*: the numeric score remains unavailable.
+
+At the ratified baseline `CHK-SP-001`, `CHK-AIP-001` and `CHK-AS-001` each persist a handled
+`input_evidence_missing` error, so Search Presence, AI Platform Presence and Authority Signals are
+each `insufficient_data` with reason `check_result_error`, the overall reason is
+`applicable_pillar_insufficient_data`, and **every initial Evaluation produces an unavailable
+snapshot**. That is settled baseline behaviour, not a withheld limb, and this slice contracts the
+complete promotion path anyway — a Measurement Set may later activate as exact signed configuration,
+and the pillars that *do* have deterministic coverage must still reproduce exact per-pillar values
+in the immutable diagnostic snapshot.
+
+Frozen prose calling the catalogue `status: active_interim` is pre-ratification wording and reopens
+nothing.
+
+### Score events, and the two that do not exist
+
+`Workflows::Wf008` is the sole producer of `ScoreSnapshotCreated`, `ScoreSnapshotPromoted`,
+`ScoreCalculationUnavailable` and `ScoreRecalculated`.
+
+`EvidenceValidationChanged` appears in WF-008's Domain Events list because it is one of the six
+triggers. Its sole producer is the integrity-validation service on S-11's Evidence limb; this
+workflow **consumes** it and never re-emits it. The same reading applies to CAP-015's Observability
+Requirements naming `EvaluationCompleted`: that is S-12's event and the causally adjacent signal,
+not a second emission from the scoring service.
+
+`ReassessmentTriggered` and `ComparisonGenerated` are **removed** under ratified OD-025 and OD-024.
+Assert them absent; never emit them.
+
+### The notification route is asymmetric, and deliberately so
+
+`ScoreSnapshotPromoted` **with partial status** or `ScoreCalculationUnavailable` route to Project
+MarketingOperator accounts and OrganizationAdmin accounts, required permission `score.summary.read`,
+severity `warning`. The route is a baseline warning route and cannot be disabled.
+
+`ScoreSnapshotPromoted` with **complete** status has no baseline route. Do not invent one.
+
+### No principal scores
+
+WF-008's Authorization is `Tenant-scoped scoring service identity only`. There is **no** principal
+permission for score calculation, promotion or invalidation, and none may be invented. `score.rebase`
+is the only principal permission reaching this workflow: OrganizationAdmin holds it, every other role
+is denied, and the service cell reads `scoring service executes authorized request only`. It does not
+grant promotion — a rebase snapshot is permanently noncurrent no matter who requested it.
+
+Reading a produced score is `score.summary.read` and `score.detail.read`, which are CAP-018's entry
+point rather than this one's.
+
+---
+
+
+## CAP-015 Scoring And Recalculation
+
+
+Matrix row: MTX-015 (AC-CAP-015). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: CAP-015, the ScoreSnapshot Contract, the Current Score Projection, and OD-032
+(**pending — one named limb withheld**).
+
+CAP-015 defines no interface of its own. It is discharged by
+[WF-008](#wf-008-calculate-score-from-issues) plus the three record contracts this slice owns:
+ScoreSnapshot, Score Contribution and Current Score Projection.
+
+### Currency is a projection property, never a snapshot column
+
+A ScoreSnapshot carries no mutable or current flag. An unavailable snapshot, a rebase snapshot and a
+promoted snapshot are all ordinary immutable rows; only the Current Score Projection distinguishes
+them. This is why a `current` boolean on `score_snapshots` **MUST NOT** be migrated — two rows could
+then disagree with the projection about which is current, and the permanently-noncurrent rebase rule
+would degrade into a flag an implementation could simply set.
+
+### One selected Issue Set, and what "current" means inside it
+
+A calculation selects exactly one immutable `issue_set_id`: a sealed staged prospective set for an
+Evaluation completion or reassessment, or the already-current set for an adjudication, Evidence or
+policy recalculation. **"Current" inside that selection means the prospective current lineage leaf
+inside the selected set** — which is precisely why an initial Evaluation is a valid calculation even
+though the Project has no current pointer yet.
+
+### The per-pillar status order has a trap in step 2
+
+The first-match order is five steps. Steps 2 and 3 both produce `unavailable`, and the distinction
+between them is where reason bleed enters:
+
+1. Inapplicable → `not_applicable`, null score, weight `0/1`, sole reason `pillar_not_applicable`.
+2. Any global condition (`issue_set_incomplete`, the three policy codes, `scope_definition_invalid`,
+   `check_catalog_unavailable`, `contribution_mismatch`, `score_invariant_failure`) → **every**
+   applicable pillar is `unavailable`; an **affected** pillar additionally includes
+   `invalid_evidence` in its overall-precedence position, an **unaffected** pillar does not.
+3. Invalid Evidence in a pillar's own prospective-current Issues or coverage Checks → that pillar is
+   `unavailable` with `invalid_evidence`; an unaffected pillar **does not inherit** it.
+4. Any expected result absent or in `error`, or zero valid passed/failed score-capable Results →
+   `insufficient_data`, reasons ordered `required_check_missing`, `check_result_error`,
+   `no_valid_terminal_check`, deriving overall `applicable_pillar_insufficient_data`.
+5. Everything else → `scored`, reasons ordered `crawl_partial`, `review_required_excluded`,
+   `disputed_excluded`, `in_review_excluded`; a fully covered pillar has an **empty** reason list.
+
+One unavailable or insufficient pillar makes the **overall** score unavailable but does **not** erase
+reproducible per-pillar values for the other pillars in that immutable diagnostic snapshot.
+
+### The Failure Condition has three separable clauses
+
+CAP-015's Failure Condition returns unavailable, exposes **no old current numeric score**, and leaves
+**last-promoted history unchanged**. Those are three assertions, not one. An implementation that
+returns unavailable while still serving the previous numeric score satisfies the first and breaches
+the second; an implementation that satisfies the second by *deleting* the retained snapshot breaches
+the third. The fixture asserts all three against a Project that previously promoted `97.1`.
+
+### OD-032 — the withheld limb, stated exactly
+
+OD-032's `Current Status` is **Pending owner approval**. The withheld limb is exactly:
+
+> the DM-REQ-001 lifecycle owner and canonical identifier **namespace** for ScoreSnapshot.
+
+DM-REQ-001's core-entity catalogue omits ScoreSnapshot and 016 STATE_MODEL.md names no owner for it.
+OD-032's Safe Interim Behavior is explicit in both directions: *"Volume I's existing logical field
+names and behavioural contracts for these records are unchanged and remain authoritative for
+behaviour"*, while *"any Volume II or persistence artifact that requires a canonical namespace for an
+unassigned record remains blocked rather than choosing one"*.
+
+So: **every scoring behaviour in this slice is contracted in full.** `score_snapshot_id` is Volume
+I's logical field name and is authoritative for behaviour. No namespace prefix, lifecycle owner or
+bounded context is asserted for ScoreSnapshot — including by analogy to Evidence's accepted `evd_id`
+precedent, which OD-032 names as its *method* but expressly not as its answer. Choosing one would
+resolve a pending decision by implementation.
+
+The limb blocks no outcome: an unnamespaced ScoreSnapshot still calculates, still promotes and still
+projects. The same withholding applies to the Issue Set and Check Result identities this slice reads,
+which are the same OD-032 records owned upstream.
+
+CAP-015's Non-goal — *unjustified numerical weight invention* — is asserted absent: no fallback or
+inferred weight appears when a pillar is uncovered. The score becomes unavailable instead.
+
+---
+
+
+## Score Attribution And Contribution Reconciliation
+
+
+Matrix row: MTX-045 (AC-SM-002). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: AC-SM-002, the Score Contribution Contract, the Impact Penalty Table, and
+OD-009 (**ratified**) and OD-032 (**pending — namespace limb withheld**).
+
+This section owns attribution: every score value traces to exact Contributions, exact hashes and
+exact pointers. The exclusion **precedence** predicate is S-12's and is consumed here through
+[Issue Eligibility And Adjudication Recalculation](#issue-eligibility-and-adjudication-recalculation);
+this section does not restate it as a second authority.
+
+### Every member gets a Contribution — included or not
+
+Every Issue in the selected set creates **one** Score Contribution. Attributing only the *included*
+Issues is the natural implementation error, and the `unique (score_snapshot_id, issue_id)` constraint
+plus a count assertion against the sealed membership list is what closes it.
+
+Inclusion requires **all five** clauses: `lifecycle_status=open`; `adjudication_status` in
+`not_required`, `upheld` or `withdrawn`; `publication_status=published`; the Issue is the prospective
+current lineage leaf; and every referenced Evidence record is valid and same-Organization. Note
+`withdrawn` **includes** — reading it as an exclusion is the natural error.
+
+### The penalty survives exclusion; only the value zeroes
+
+Under ratified OD-009, `penalty_points` **always** equals the impact-table value (`critical` 40.0,
+`high` 20.0, `medium` 10.0, `low` 5.0, `informational` 0.0) even when excluded. Only
+`signed_contribution_value` becomes `0.0`. Zeroing the penalty alongside the value is the natural
+implementation error and destroys the diagnostic. Penalties are never multiplied by confidence,
+occurrence count, source count or Recommendation count.
+
+A state failing inclusion but matching none of the eight exclusion reasons is `contribution_mismatch`
+and makes the calculation unavailable. **The model's refusal to invent a reason is itself the
+contract.**
+
+### The Contribution freezes state; it never re-reads it
+
+A Contribution captures `lifecycle_status_at_snapshot`, `adjudication_status_at_snapshot`,
+`publication_status_at_snapshot`, `is_current_lineage_leaf_at_snapshot`, `issue_state_version`, and
+each Evidence's content digest and effective Validation Decision ID and status **as of calculation**.
+It never re-reads live Issue or Evidence state. That freezing is exactly why a later decision does
+not rewrite historical state, and why a replay after the origin Issue is disputed returns the stored
+Contribution set unchanged.
+
+### Noncircular hashes
+
+`contribution_input_hash` and `input_set_hash` are computed over frozen antecedents. Neither may
+include the snapshot's own identifier, its overall value, or any value derived from the completed
+calculation — **a hash that covers its own output cannot verify anything.**
+
+`evidence_validation_decision_set_hash` covers the sorted Evidence and Validation-Decision tuples used
+by **all Contributions and every score-capable Check Result supplying applicable-pillar coverage**.
+Hashing only Contribution Evidence is the natural implementation error; the fixture omits a coverage
+Check's tuple and proves the hash changes.
+
+---
+
+
+## PRULE-024 Score Calculation Inputs And Determinism
+
+
+Matrix row: MTX-075 (AC-PRULE-024). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: PRULE-024, CAP-015, WF-008, and OD-002, OD-003, OD-005 and OD-010
+(**all ratified**).
+
+PRULE-024 adds no command. It constrains what
+[WF-008](#wf-008-calculate-score-from-issues) may read and what
+[Score Attribution](#score-attribution-and-contribution-reconciliation) must reproduce.
+
+### Store, do not merely use
+
+The rule's verb is **store**. The complete active Check Catalog membership and result coverage,
+member and current-leaf state, the fixed Contribution exclusion/penalty/Evidence fields, the
+noncircular semantic hashes, the scope and coverage identities, and the per-pillar status and reasons
+all persist **on the snapshot**. That is what makes a snapshot independently reproducible without
+re-reading current policy — and it is why an omitted expected Check is readable from the snapshot
+rather than inferred from an absent Contribution.
+
+### Coverage has two separable clauses
+
+Every applicable pillar must have every expected applicable entry in the frozen Applicability
+Snapshot represented by exactly one effectively valid score-capable Result with status `passed` or
+`failed`, **and** at least one such entry. Two fixtures — one omitting an expected entry, one with
+zero entries — because the clauses fail independently.
+
+`not_applicable`, `error` and a **missing** expected Result each fail to satisfy coverage. Treating
+`not_applicable` as coverage is the natural implementation error. Any error or missing entry makes
+that pillar `insufficient_data` and the overall score unavailable, and **no successful sibling Result
+masks it**.
+
+### Rational arithmetic, and where rounding is allowed
+
+Under ratified OD-002 every applicable pillar carries exact rational weight
+`1/applicable_pillar_count`. Finite decimal weights are **never** summed as score inputs and a
+rounded display weight is nonauthoritative — altering it changes no score value. Intermediate sums
+are not rounded. Only the persisted pillar and overall values round, half-up, to one decimal place.
+Rounding pillars before summing the overall gives a different answer and is the natural error; the
+fixture is chosen so it does.
+
+`input_set_hash` covers every named stored input. One fixture per input alters it alone and asserts
+the hash changes — a hash that misses an input silently merges two different calculations into one
+replay.
+
+---
+
+
+## WF-009 Generate Recommendations
+
+
+Matrix row: MTX-034 (AC-WF-009). Slice: S-14.
+Structured contract: `specification/volume-ii/contracts/S-14.json`.
+Governing authority: WF-009, CAP-016, the Recommendation Artifact contract, the Deterministic
+Recommendation Templates, `effort-interim-v1`, `citation-policy-v1`, and OD-007, OD-009, OD-010 and
+OD-011 (**all ratified**).
+
+This section is the canonical owner of Recommendation Artifact generation, versioning and
+publication. It consumes the promoted ScoreSnapshot owned by
+[WF-008](#wf-008-calculate-score-from-issues) in S-13, the origin Issue owned by
+[CAP-014](#cap-014-issue-creation-adjudication-deduplication-and-supersession) in S-12, and the
+AIResponse and Citation lifecycle owned by [CAP-012](#cap-012-ai-discoverability-analysis) in S-10.
+It is consumed by S-15 on `RecommendationPublished`.
+
+### The `Workflows::Wf009::` namespace is shared
+
+S-10 owns the AI commands — `RequestAiResponse`, `PersistGeneratedPayload`, `ProposeCitations`,
+`ValidateAiResponse`, `RejectAiResponse`, `ExpireAiResponse`, `SupersedeCitations`. This section adds
+**only** the six Artifact commands: `GenerateRecommendationArtifact`,
+`ValidateRecommendationArtifact`, `PublishRecommendationArtifact`, `SuppressRecommendationArtifact`,
+`RepublishRecommendationArtifact`, `RetireRecommendationArtifact`. Neither slice redefines the
+other's.
+
+### OD-010 ratified: no Recommendation publishes at the baseline, and that is settled
+
+OD-010's Ratified Behavior ends with an exact sentence:
+
+> No Recommendation or Priority Decision publishes from an unavailable calculation.
+
+Read with its approved consequence — *"the numeric score therefore remains unavailable"* — and with
+WF-008's Failure Path obligation to set `recommendation_suppression_required=true` and *"suppress
+origin-Issue Recommendations"* on every unavailable calculation, the baseline outcome is
+determinate: **at the ratified baseline no Recommendation Artifact publishes**, because no complete
+or partial ScoreSnapshot ever promotes.
+
+**This is settled baseline behaviour, not a withheld limb** — exactly parallel to the unavailable
+numeric score, and to be phrased the same way. It is not a gap, not an interim, and not a decision to
+reopen.
+
+The machinery is nevertheless contracted in full, for three reasons Volume I makes explicit:
+
+- **Drafts remain reachable.** WF-009's second Trigger is *Issue eligibility changes*; `CHK-TI-001`,
+  `CHK-CQ-001` and `CHK-TR-001` still produce `failed` Results and therefore Issues; and the
+  Alternate Path states *"A withheld Issue may have a draft but cannot publish."*
+- **A Measurement Set may later activate** as exact signed configuration, at which point promotion
+  and publication become reachable with **no change to this contract**.
+- **The suppression path is only correct if the publication path it suppresses is fully specified.**
+
+### The `ai_assisted` gate is closed, and the `ai_assisted` contract is still required
+
+No signed `ai-response-interim-v1` or `ai-safety-interim-v1` artifact is bundled, so the deterministic
+interim behaviour is `deterministic_template` generation and an `ai_assisted` request fails **before**
+entitlement reservation or provider call as `F1-AI-422 / ai_provider_unapproved`, creating no
+AIResponse and no Citation. That gate is S-10's and is consumed here.
+
+It does **not** make the `ai_assisted` Artifact path optional. AC-CAP-016 and AC-PRULE-026 require its
+fixtures: one validated unexpired AIResponse per **that exact Recommendation version**, complete
+verified Citation coverage, binding at publication. An implementation MUST NOT choose a provider, send
+Evidence, or silently weaken the gate.
+
+### Two pointers, and why they are separate
+
+The Current Recommendation Family Projection holds `latest_artifact_id` and nullable
+`current_published_artifact_id` as **separate** pointers:
+
+- Creating a draft advances **only** `latest_artifact_id`. A failed or unpublished draft therefore can
+  never displace what a customer currently sees.
+- Suppression changes the pointed version to `suppressed` but **does not clear the pointer**. Clearing
+  it is the natural implementation error and would make republication ambiguous — republication
+  changes *that same version* back to `published`.
+- `retired` is terminal and never republishes.
+
+Publication is one transaction with five effects: retire the prior current published or suppressed
+version when present, publish the new version, advance the projection, bind the validated AIResponse
+and cancel its expiry when `ai_assisted`, and emit the version events. Never a retire-then-publish
+pair — that would leave the family with no current version.
+
+### Nine failure reasons, first-match
+
+`recommendation_template_unavailable`, `effort_policy_unavailable`,
+`recommendation_template_input_invalid`, `recommendation_schema_invalid`,
+`prohibited_advisory_domain`, `origin_evidence_invalid`, `origin_ineligible`, `stale_origin_version`,
+`artifact_family_version_conflict`.
+
+Every one publishes nothing and **never displaces the current version**. Created AIResponse and
+Citation decisions remain immutable through a failure. `prohibited_advisory_domain` fails
+nonretryably. A fixture matching several reasons returns only the earliest — returning the last match
+or a set is the natural error.
+
+### TechnicalImplementer is named as an actor and cannot publish
+
+CAP-016's Actor line reads *"Recommendation service; Organization Administrator or Marketing Operator
+for publication; Technical Implementer as consumer"*. WF-009's Authorization is explicit:
+*"TechnicalImplementer is a consumer and cannot publish."* The Permission Baseline agrees —
+`recommendation.publish` is **allow** for OrganizationAdmin and MarketingOperator and **deny** for
+TechnicalImplementer, SecurityOperator, BillingOperator and the Read-Only Executive Buyer.
+
+Reading the Actor line as a publication grant is the natural error, and it is asserted against. The
+service cell reads *"deterministic publication service only when policy permits"* — a **conditional**
+grant, not an unconditional one. There is no principal permission for generation or validation.
+
+---
+
+
+## CAP-016 Recommendation Creation
+
+
+Matrix row: MTX-016 (AC-CAP-016). Slice: S-14.
+Structured contract: `specification/volume-ii/contracts/S-14.json`.
+Governing authority: CAP-016, the Recommendation Artifact contract, and OD-010 (**ratified**).
+
+CAP-016 defines no interface of its own. It is discharged by
+[WF-009](#wf-009-generate-recommendations) plus the three record contracts this slice owns:
+RecommendationArtifact, RecommendationFamily and CurrentRecommendationFamilyProjection.
+
+### "CAP-015 complete" does not mean "score available"
+
+CAP-016's Preconditions are *"CAP-014 and CAP-015 complete."* An **unavailable** calculation is a
+completed CAP-015 outcome — and at the OD-010 baseline it is the only one. Reading the precondition as
+*score available* would make it unsatisfiable at the ratified baseline and would withhold the draft
+path the Alternate Path explicitly permits. The fixture asserts the precondition is satisfied by a
+completed CAP-015 producing an unavailable snapshot.
+
+### The family never crosses an Issue lineage record
+
+One family exists per `(origin_issue_id, recommendation_kind=remediation)`. A **reassessment successor
+Issue starts a new family** even when it uses the same template family. Reusing the family for the
+successor is the natural implementation error; the `unique (origin_issue_id, recommendation_kind)`
+constraint makes it unreachable.
+
+Version 1 has a null predecessor. Every later version atomically validates and increments the prior
+latest by exactly one and points to it. Reusing a version number and creating a branch are both
+unreachable — by `unique (family_id, artifact_version)` and the direct-predecessor constraint, not by
+a runtime check.
+
+### CAP-016's non-goal, asserted
+
+*Direct artifact deployment into customer systems* is a non-goal. No command in this slice writes to a
+customer property. `implementation_steps` are instructions for a human and never an executable action —
+asserted, because an Artifact is advice.
+
+---
+
+
+## PRULE-026 Recommendation Template, Effort And Version Family
+
+
+Matrix row: MTX-077 (AC-PRULE-026). Slice: S-14.
+Structured contract: `specification/volume-ii/contracts/S-14.json`.
+Governing authority: PRULE-026, CAP-016, WF-009, the Deterministic Recommendation Templates,
+`effort-interim-v1`, and OD-010 (**ratified**).
+
+PRULE-026 adds no command. It constrains what [WF-009](#wf-009-generate-recommendations) may render
+and what may publish.
+
+### Rendering reads only the origin Check Result
+
+Substitution is limited to the origin Check Result's `outcome_code`, `canonical_subject_key`, and
+values from its **normalized observation**. Nothing else is substitutable, so a template cannot reach
+into Project settings, Organization data or another Check's output — and cannot leak another tenant's
+observation into rendered text.
+
+Each `REC-...-v1` identifier **is** its immutable template-family ID; its template version is `1.0.0`.
+The rendering rules are exact: scalars in canonical decimal or string form; ordered arrays joined with
+**comma plus one space**; an empty array rendering **`[none]`**; output Unicode NFC; no HTML. The
+`[none]` clause is the one an implementation most often renders as an empty string.
+
+A missing **or extra** placeholder fails as `recommendation_template_input_invalid`
+(FX-CHECK-COM-014). Every template renders byte-identically from the same frozen input
+(FX-CHECK-COM-013).
+
+### Effort is derived, never proposed
+
+Effort comes **only** from the origin Check Result and the exhaustive `effort-interim-v1` mapping:
+`CHK-TI-001` is `low` for 1–4 absent targets, `medium` for 5–19, `high` for 20 or more; `CHK-CQ-001`
+is `low`; `CHK-TR-001`, `CHK-SP-001` and `CHK-LP-001` are `medium`; `CHK-AIP-001` and `CHK-AS-001` are
+`high`. **AI cannot replace it**, and AI-proposed effort must pass the versioned effort-policy
+validator.
+
+`effort_basis` is exactly `effort-interim-v1:<check_definition_id>:<outcome_code>:<matched-rule>` — an
+exact structured string, asserted as such, because a free-text basis makes the effort claim
+uncheckable.
+
+### The blast radius of an unlisted outcome is bounded to the advice
+
+An unlisted failed outcome is `effort_policy_unavailable`. It blocks Recommendation publication **and**
+Priority Decision creation **without changing the Issue or the score**. Three assertions — the
+bounded blast radius is the point of the rule.
+
+---
+
+
+## WF-010 Prioritize And Publish Action Queue
+
+
+Matrix row: MTX-035 (AC-WF-010). Slice: S-15.
+Structured contract: `specification/volume-ii/contracts/S-15.json`.
+Governing authority: WF-010, CAP-017, `priority-interim-v1`, the Recommendation Artifact contract,
+and OD-002, OD-003, OD-009 and OD-010 (**all ratified**).
+
+This section is the canonical owner of prioritisation and the action queue. It consumes the published
+Artifact and the Current Recommendation Family Projection owned by
+[WF-009](#wf-009-generate-recommendations) in S-14, and the origin Issue's eligibility owned by
+[CAP-014](#cap-014-issue-creation-adjudication-deduplication-and-supersession) in S-12. It is
+consumed by S-16 for dashboard reads.
+
+### OD-010 ratified: the baseline action queue is empty, and that is settled
+
+OD-010's Ratified Behavior governs this slice as directly as it governs S-14:
+
+> No Recommendation or Priority Decision publishes from an unavailable calculation.
+
+At the ratified baseline the numeric score is unavailable → no Artifact publishes → no published
+eligible Artifact exists → **no Priority Decision is created and the published action queue is
+empty**.
+
+**This is settled baseline behaviour, not a withheld limb.** An empty action queue at the baseline is
+a correct, complete, **successful** outcome — not degraded, not a fallback, not an error. The
+machinery is contracted in full because an approved Measurement Set later activates as exact signed
+configuration and makes publication reachable with no change to this contract.
+
+### Prioritisation never changes an Artifact
+
+WF-010's State Transitions are explicit: *"Recommendation publication status does not change;
+creation of an immutable Priority Decision records prioritization."* There is no `prioritized`
+publication state — inventing one is the natural implementation error, and AC-WF-010 asserts against
+it directly.
+
+### The queue cannot drift from the Decisions that justify it
+
+The action-queue projection is deliberately split. Per the canonical schema, `action_queue_projections`
+is mutable and carries **no Priority Decision pointer and no ordered Artifact JSON** — it holds only
+the current projection version ID and obtains the complete Decision set solely through the immutable
+version and join rows. Denormalizing the order onto the mutable row is the natural error and would let
+the published queue drift.
+
+A **deferred constraint** on `action_queue_projection_priority_decisions` requires the count, sorted
+IDs, orders and canonical set digest to equal the Projection Version's complete source Decision set.
+Omitting a Decision, **or including a Decision from another eligible-set hash**, aborts publication.
+A partially-published queue is unreachable, not merely tested.
+
+### The eligible-set hash is part of the Decision's identity
+
+A Priority Decision is unique on
+`(recommendation_artifact_id, priority_policy_artifact_id, priority_policy_version, eligible_set_sha256)`.
+So a Recommendation published concurrently with a prioritisation is **not silently absorbed** into the
+in-flight run: it changes the eligible set, hence the set hash, hence requires its own run.
+
+A second constraint — `unique (organization_id, project_id, eligible_set_sha256, computed_order)` —
+makes two Artifacts sharing a computed order **unreachable**, which is what makes the total order
+structural rather than merely asserted.
+
+### Ineligible origins get no Decision at all
+
+Under ratified OD-009, an ineligible origin Issue receives **no Priority Decision**. Not ranked last,
+not ranked with a zero weight, not included with a suppression marker — **absent**. All three wrong
+alternatives are asserted unreachable.
+
+Only each family's **current published** Artifact whose origin is score-eligible is prioritised. A
+historical published version, a suppressed version, a draft and a retired version each receive no
+current Priority Decision — four exclusions, all four named by `priority-interim-v1`.
+
+### Export is a separate command, not an event
+
+*"An optional report export is a separate authorized `ExportRequested` command into WF-016 and cannot
+emit `ExportAvailable` directly."* This workflow emits `RecommendationPrioritized` and
+`ActionQueuePublished` and neither export event. `export.create` is WF-016's entry point.
+
+The Executive Buyer can **read** the queue but cannot reorder it and cannot create a full-detail
+export. Reading WF-010's Actors line as a reorder grant is the natural error.
+
+---
+
+
+## CAP-017 Recommendation Prioritization
+
+
+Matrix row: MTX-017 (AC-CAP-017). Slice: S-15.
+Structured contract: `specification/volume-ii/contracts/S-15.json`.
+Governing authority: CAP-017, `priority-interim-v1`, and OD-002, OD-003, OD-009 and OD-010
+(**all ratified**).
+
+CAP-017 defines no interface of its own. It is discharged by
+[WF-010](#wf-010-prioritize-and-publish-action-queue) plus the Priority Decision, override and
+action-queue projection record contracts.
+
+### "Only" is a precondition, not a summary
+
+CAP-017's Inputs read *"**Only** each family's current published Recommendation Artifact with one
+eligible origin Issue…"*. A candidate outside that set is not an input at all — it is not filtered
+late, it never enters.
+
+As with CAP-016's precondition on CAP-015, *"CAP-016 complete"* means the capability ran to a terminal
+outcome, **not** that it produced a published Artifact. A completed CAP-016 with no published Artifact
+satisfies the precondition and yields an empty queue — reading it otherwise makes the precondition
+unsatisfiable at the OD-010 baseline.
+
+### "None beyond role-scoped access" is not "unauthenticated"
+
+CAP-017's Security Implications read *"None beyond role-scoped access."* That is a statement that
+prioritisation adds no **new** security surface. It is **not** a statement that the override needs no
+permission — WF-010 requires `priority.override` expressly and the Permission Baseline denies it to
+four roles and the Executive Buyer persona.
+
+### CAP-017's non-goal, asserted
+
+*Opaque ranking based on undocumented factors* is a non-goal. No heuristic, no learned weight and no
+undocumented tie-break may enter the comparator: **the five keys are the whole function**. A sixth
+input is asserted to have no effect on order.
+
+---
+
+
+## PRULE-028 Priority Base Order And Tie-Break
+
+
+Matrix row: MTX-079 (AC-PRULE-028). Slice: S-15.
+Structured contract: `specification/volume-ii/contracts/S-15.json`.
+Governing authority: PRULE-028, CAP-017, WF-010, `priority-interim-v1`, and OD-002, OD-003 and OD-010
+(**all ratified**).
+
+PRULE-028 adds no command. It fixes the exact comparator
+[WF-010](#wf-010-prioritize-and-publish-action-queue) applies.
+
+### The five keys, lexicographic
+
+1. origin Issue **impact rank**: `critical`, `high`, `medium`, `low`, `informational`;
+2. origin Issue **confidence value descending**; missing confidence sorts **last**;
+3. **effort band** in the order `low`, `medium`, `high`, `unknown`;
+4. **earliest** Recommendation Artifact creation time;
+5. opaque Recommendation **identifier ascending** as the final tie-breaker.
+
+One fixture per key asserts that key alone decides when all earlier keys tie — proving lexicographic
+precedence rather than a combined score.
+
+Two inputs come from the **Issue** (impact, confidence) and three from the **Artifact** (effort,
+creation time, identifier). Reading the Artifact's copied `expected_impact_band` and `confidence_value`
+gives the same answer only because PRULE-026 requires those to equal the origin's.
+
+### Three traps in the ordering
+
+- **Confidence sorts on the number, not the band.** Under ratified OD-003 confidence is numeric
+  `0.0000`–`1.0000` with *displayed* Low/Medium/High bands. The comparator uses the **numeric value**.
+  The fixture uses two Artifacts with different numeric confidences and identical displayed bands, and
+  asserts they do **not** tie — sorting on the band collapses distinct orders.
+- **Missing confidence sorts last via an explicit bit.** The schema carries a separate
+  missing-confidence sort bit alongside the nullable value. A comparator relying on the database's
+  default NULL ordering MUST NOT be migrated in its place: null-ordering defaults differ between
+  engines and would silently reorder the queue.
+- **`unknown` effort sorts last**, not as `low` and not as missing. Asserted separately, because
+  `unknown` sorting first is reachable.
+
+No two Artifacts in one eligible set can tie after key 5, because the opaque identifier is unique. The
+comparator is a **strict total order** — which is exactly why
+`unique (organization_id, project_id, eligible_set_sha256, computed_order)` is satisfiable.
+
+---
+
+
+## CAP-018 Reporting And Dashboarding
+
+
+Matrix row: MTX-018 (AC-CAP-018). Slice: S-16.
+Structured contract: `specification/volume-ii/contracts/S-16.json`.
+Governing authority: CAP-018, the Score Visibility And Redaction matrix, the Current Score
+Projection, the Permission Baseline, and OD-002, OD-011, OD-019, OD-020 and OD-024
+(**all ratified — no pending decision touches this slice**).
+
+This section is the canonical owner of the reporting and dashboard read surface. It consumes the
+Current Score Projection and promoted snapshots owned by
+[WF-008](#wf-008-calculate-score-from-issues) in S-13, the Issue inventory owned by
+[CAP-014](#cap-014-issue-creation-adjudication-deduplication-and-supersession) in S-12, the family
+projection owned by [CAP-016](#cap-016-recommendation-creation) in S-14, and the published
+action-queue projection owned by
+[WF-010](#wf-010-prioritize-and-publish-action-queue) in S-15.
+
+### CAP-018 is the only principal-actor slice in the pipeline
+
+Every slice from S-09 to S-15 runs under a service identity. This one runs under a **principal** —
+an OrganizationAdmin, MarketingOperator, TechnicalImplementer, read-only Executive Buyer persona, or
+a SecurityOperator inside authorized incident or adjudication scope. It creates no product
+transition and its Query Handler is read-only.
+
+The Executive Buyer is a **product persona, not a foundation authorization role**: in baseline
+behaviour it uses a read-only MarketingOperator assignment. `SupportOperator` is not a standing role.
+
+### Two different things are called "deferred", and they separate cleanly
+
+**The semantic read contract is not withheld.** `UPSTREAM-V1-READ-AUTHORIZATION-004` (OD-020),
+`UPSTREAM-V1-LOW-COST-METERING-005` (OD-019) and `UPSTREAM-V1-COMPARISON-EVENT-007` (OD-024) are all
+recorded **"Retired under ADR-019"** in the INDEX.md blocker registry, and all three carry
+`Blocking Impact: None`. A retired blocker withholds nothing — the repository's own validator encodes
+this as the finding `retired_blocker_cited_as_live`. Withholding read semantics on a retired tag
+would withhold owner-approved behaviour, the exact failure the ratification overlay exists to
+prevent. So this section contracts the read semantics **in full**.
+
+**The physical transport exposure is a separate question, and it is not resolved by ratification.**
+Volume I authorizes no HTTP path or method for **anything** — not for WF-007, WF-008, WF-009 or
+WF-010, and not for CAP-018. Every slice from S-09 to S-15 recorded the same position: Volume I names
+actors, permissions, records and outcomes but no route, and transport belongs to `API_CONTRACTS.md`
+at the Volume II baseline. That is a **documented ownership boundary inside Volume II**, not a blocker
+withholding behaviour. No path is invented here.
+
+The prose in `APPLICATION_LAYER.md`, `INDEX.md` and `API_CONTRACTS.md` states this correctly — *"The
+semantic contract is now canonical in Volume I. Any corresponding API surface, transport contract,
+routing, serialization or application-layer exposure remains intentionally deferred until the Volume
+II baseline"*. It is the **query-table cells**, not the prose, that are stale.
+
+### OD-019 ratified a complete metered-read contract — the response is metered, not disabled
+
+OD-019's Ratified Behavior is implementation-ready, not a deferral. Apply `read-metering-v1`:
+
+- **Exactly one** LowCostUsageRecord per accepted top-level document read that reaches the **durable
+  response checkpoint**, keyed by its Decision ID.
+- Every metered read route carries a **static** declaration of exactly one of the five low-cost
+  operations. A route with no declaration resolves `operation_unknown` and returns Block with
+  `contact_support` — an undeclared metered route is **unreachable**, not silently unmetered.
+- Turbo Frames and partials of a declared root carry the **root** Decision ID and MUST NOT append a
+  second record. **A Frame reached by direct navigation is itself a root** and mints its own — that
+  is the clause an implementation misses, and it under-meters.
+- A request that never reaches the durable authorized-response checkpoint — **including a conditional
+  response returning no representation** — creates no record.
+- Decision IDs are **server-minted deterministically** from Organization, human Account or service
+  identity, declared operation, resolved target identity and state version, and counter window.
+  Client-supplied idempotency keys remain **prohibited on GET**. A repeated tuple within the window
+  replays the stored record without another increment or event.
+- Evidence and entitlement-notice reads are **not** among the five operations: unmetered standalone,
+  subsumed when nested.
+
+### OD-020 ratified the read rows — and ratified the carve-out too
+
+Every read this section performs is authorized by a **named, existing** Permission Baseline row:
+`score.summary.read`, `score.detail.read`, `history.read`, `issue.read`, `recommendation.read`,
+`evidence.metadata.read`, `evidence.payload.read`, `evidence.restricted.read`. None is
+deny-by-default. *"Deny-by-default is not accepted for customer-facing objects."*
+
+The carve-out is equally ratified and equally binding: *"Security, administrative and internal
+operational objects, including Support Session, Incident, Investigation, Legal Hold,
+LifecycleDeletionJob and other deletion jobs, and privileged Billing surfaces, **remain
+deny-by-default pending a separate decision**."* Those stay denied on **OD-020's own ratified
+authority**, not on a retired blocker's. The distinction matters: a retired-blocker citation invites
+someone to "unblock" objects the ratified decision says stay denied.
+
+No wildcard read permission exists. Every read is tenant-scoped and least-privilege.
+
+### There is no Report entity
+
+*"A rendered dashboard/report is a transient presentation of those projections, not a domain entity
+or retained package; durable customer delivery exists only when WF-016 creates an Export."*
+
+No Report aggregate, no `report_id`, no retained package. CAP-018's Observability Requirements
+require telemetry **"without a fabricated Report identifier"**. A `reports` table MUST NOT be
+migrated. Neither may a denormalized dashboard cache holding score values — the Current Score
+Projection is the sole authority for currency, and a cache would let a stale numeric score be readable
+after an invalidation.
+
+**CAP-018 names no domain event and this slice emits none.** A dashboard read is side-effect-free at
+the domain level. `ComparisonGenerated` is removed under ratified OD-024 and MUST NOT be emitted,
+suppressed, deduplicated **or metered**.
+
+### The stale-pointer failure looks like success
+
+CAP-018's Failure Condition names five: cross-Organization data, an unauthorized field value,
+restricted Evidence detail, inconsistent surface redaction, **or a stale current pointer**. The last
+is asserted separately because an implementation returning the right fields from an outdated pointer
+appears to succeed.
+
+`CAP-015 through CAP-017 complete` means those capabilities reached a terminal outcome — **not** that
+they produced an available score, a published Artifact or a nonempty queue. At the OD-010 baseline all
+three complete with an unavailable score, no published Artifact and an empty queue, and CAP-018 still
+returns a **successful** structured response.
+
+---
+
+
+## PRULE-030 Deterministic Dashboard And History Responses
+
+
+Matrix row: MTX-081 (AC-PRULE-030). Slice: S-16.
+Structured contract: `specification/volume-ii/contracts/S-16.json`.
+Governing authority: PRULE-030, CAP-018, CAP-019, WF-010, WF-012, and
+[../008 AI_PRINCIPLES.md](../008%20AI_PRINCIPLES.md), which PRULE-030 names directly. The matrix
+records **no decision dependency** for PRULE-030 — nothing here is pending.
+
+PRULE-030 adds no command. It constrains what a response may **contain**.
+
+### Attribute, or say you cannot — there is no third option
+
+Every reported score movement and Issue status references the **exact** current or historical
+ScoreSnapshot, Source or scope snapshot, Issue state-at-snapshot, Score Contributions and permitted
+Evidence lineage — **or** the response returns an explicit unavailable or not-comparable result. An
+unattributed movement is not renderable.
+
+This is why responses carry snapshot, scope, Issue-state and Contribution **identifiers** rather than
+copied values: an identifier is attributable and a copied value is not.
+
+### The narrative prohibition is structural, not a filter
+
+The accepted baseline MUST NOT create, request, display, **reserve a presentation region for**, or
+**imply** an AI-generated dashboard or history narrative. No feature flag, provider availability,
+model capability, tenant setting, implementation choice — or permission — may enable one.
+
+Three consequences, each asserted:
+
+- A nullable `narrative` / `summary_text` / `ai_summary` column MUST NOT be migrated onto any
+  dashboard or history projection. **A nullable column is a reserved region.**
+- The zero AI-provider call count is asserted **at the provider boundary**, not inferred from the
+  response body — a response could omit a narrative while still having paid for one.
+- *"No feature flag … may enable it"* is a rule about the **absence of a switch**, and is only
+  testable by trying the switches. Six hidden-enablement fixtures, one per path.
+
+The absence of a narrative is **not an error, not a degraded state, not an incomplete response and
+not a fallback** — CAP-018's AI Implications use those exact four terms, and each is asserted
+separately. A response without a narrative is a **complete success**.
+
+### The mirror-image failure is equally wrong
+
+Deterministic human-authored **labels**, already-defined **templated** explanatory text, and existing
+deterministic score, trend, Issue, Evidence and Recommendation **explanations** remain permitted and
+unchanged. PRULE-030 prohibits **AI-generated narrative**, not explanation as such. An over-broad
+implementation that strips deterministic explanations fails this rule just as surely as one that adds
+a narrative — and that fixture is asserted.
+
+---
+

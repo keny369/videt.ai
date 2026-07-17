@@ -1299,3 +1299,390 @@ reevaluation for every available Export in scope, while retrieval independently 
 immediately — so queue delay can never expose bytes a contracted policy has already forbidden. The
 reconcilers are advisory to the projection; the retrieval check is the authority.
 
+## PRULE-025 Snapshot Lineage, Recalculation And Projection Atomicity
+
+
+Matrix row: MTX-076 (AC-PRULE-025). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: PRULE-025, CAP-015, CAP-019, WF-008, WF-012, the ScoreSnapshot Contract, the
+Current Score Projection, and OD-002, OD-003, OD-005, OD-009 and OD-010 (**all ratified**).
+
+S-13 owns this row: the snapshot lineage, the three projection modes, and the `historical_rebase`
+creation semantics PRULE-025 places on CAP-015. The WF-012 comparison surface that may *request* a
+rebase consumes this section and is contracted by the Historical Comparison slice.
+
+### The prior link follows creation order, not promotion order
+
+`prior_score_snapshot_id` is the immediately preceding **newly created** ScoreSnapshot for that
+Project in the per-Project serialized calculation order — **whether promoted or unavailable**, without
+exception — and is null only for the Project's first snapshot. Skipping the unavailable link is the
+natural implementation error; the fixture places an unavailable snapshot between two promoted ones.
+
+Exact replay retains the **original** link rather than relinking to whatever is now most recent.
+Snapshot creation serializes per Project, and that serialization is what makes the chain well defined
+under concurrent triggers.
+
+### Rebase is noncurrent by construction, not by status
+
+*Only complete or partial snapshots **other than `historical_rebase`** may advance a current pointer.*
+That sentence has **two** conditions. An implementation checking only the status will promote a
+complete rebase snapshot — so the fixture is a complete rebase snapshot, asserted not to advance a
+pointer.
+
+A rebase never mutates originals. It requires OrganizationAdmin `score.rebase` and an exact target
+version for **every** versioned dimension, available to **both** retained input sets; omission,
+ambiguity or an unavailable input rejects the request before any snapshot is created. Rebase cannot
+make different normalized scope-definition hashes comparable. When one rebase command creates two
+snapshots, the earlier Evaluation by `created_at_utc` then Evaluation ID is created first — a total
+order, so both prior links are deterministic.
+
+### Atomic removal of stale visibility
+
+Eligibility and Evidence changes remove stale visibility **atomically**. The availability change, the
+reason union, the invalidating Decision record, the suppression flag and every Artifact suppression
+commit together, and **before** the triggering decision is visible. A narrow commit leaves a stale
+numeric score readable; that window is the whole reason this is a wide commit.
+
+Deferring the propagation to a background job recreates the same window and is asserted absent.
+
+### `issue_set_incomplete` is two conditions under one code
+
+It covers **either** incomplete sealed membership **or** a current Issue state version newer than the
+last promoted snapshot while deterministic recalculation is pending. Implementing only the first is
+the natural reading; two fixtures assert both.
+
+The ten reason codes are de-duplicated and ordered by fixed precedence — `issue_set_incomplete`,
+`score_policy_unavailable`, `confidence_policy_unavailable`, `eligibility_policy_unavailable`,
+`scope_definition_invalid`, `check_catalog_unavailable`, `applicable_pillar_insufficient_data`,
+`invalid_evidence`, `contribution_mismatch`, `score_invariant_failure` — and every unavailable
+calculation contains **every** applicable code, not merely the first. Revalidation **replaces** the
+set with all and only currently applicable codes rather than unioning stale ones.
+
+### History never mutates
+
+After a recalculation, a rebase and an invalidation, every prior snapshot, Contribution and prior
+link is byte-identical. All history is preserved by the rule itself.
+
+---
+
+
+## Chain Completeness And Suppression Before A Current Read
+
+
+Matrix row: MTX-044 (AC-SM-001). Slice: S-13.
+Structured contract: `specification/volume-ii/contracts/S-13.json`.
+Governing authority: AC-SM-001, the Recommendation Artifact contract, `citation-policy-v1`, the
+Current Score Projection, and OD-007, OD-010 and OD-011 (**all ratified**).
+
+This section owns a cross-record invariant, not a record. The Recommendation Artifact contract is
+S-14's; the AIResponse and Citation contracts are S-10's
+([PRULE-014](#prule-014-airesponse-and-citation-integrity)); the Evidence-transition wide commit is
+S-11's ([PRULE-016](#prule-016-evidence-contract-retention-split-and-propagation)); the
+adjudication-transition wide commit is S-12's
+([Issue Eligibility And Adjudication Recalculation](#issue-eligibility-and-adjudication-recalculation)).
+This section fixes the invariant and the **ordering** all of them must satisfy.
+
+### Chain completeness has two halves, and the structural half is not enough
+
+**Structural.** Every published Recommendation has exactly **one** eligible origin Issue and valid
+origin and rationale Evidence. Every `ai_assisted` version has exactly one validated, unexpired
+AIResponse and complete Citation coverage: every claim has at least one verified Citation, every
+Citation targets a manifest claim, and no Citation for the response remains `proposed` or `invalid`.
+
+**Temporal.** Issue or Evidence invalidation suppresses every affected origin and citation Artifact
+**and the score** *before a current read*, without rewriting history.
+
+An implementation that satisfies only the structural half suppresses correctly but **too late**. Both
+halves are asserted.
+
+### The two suppression obligations are separate
+
+A Validation Decision moving current score-supporting Evidence away from `valid` must, **before the
+Decision commits**, produce all seven effects:
+
+1. availability becomes `unavailable`;
+2. the current and last-promoted pair is retained **for history only**;
+3. the invalidating Decision ID is recorded;
+4. `invalid_evidence` is unioned into the fixed-precedence reason set;
+5. `recommendation_suppression_required=true`;
+6. every published Artifact whose **origin Issue** uses that Evidence is suppressed;
+7. **independently**, every published Artifact whose **rationale or Citation** references it is
+   suppressed.
+
+Obligations 6 and 7 are over **different link types** and are not collapsible — an Artifact can cite
+Evidence it does not originate from. Collapsing them leaves that Artifact readable, so the fixture is
+exactly an Artifact that cites the Evidence without originating from it.
+
+### The value is absent, not withheld
+
+No permission reads a numeric score whose supporting Evidence is invalid. An OrganizationAdmin
+holding `score.detail.read` **and** `evidence.restricted.read` receives no numeric score — proving
+the value is absent from the projection rather than withheld by authorization.
+
+### Suppression retains; it never deletes
+
+After invalidation the last-promoted snapshot, every Contribution, every suppressed Artifact version
+and every Citation decision are byte-identical to their pre-invalidation state. The retained
+last-promoted snapshot remains accessible **as history** while the current projection is unavailable —
+asserted positively, because satisfying "no current numeric score" by *deleting* the snapshot is a
+reachable and wrong implementation.
+
+Healing is not symmetric with breaking. Only a complete or partial **promoted** snapshot restores
+availability, and Recommendation Artifacts republish only after their **full** eligibility rules pass
+again — not merely when the Evidence becomes valid.
+
+
+## PRULE-027 Sole Origin And Origin-Governed Eligibility
+
+
+Matrix row: MTX-078 (AC-PRULE-027). Slice: S-14.
+Structured contract: `specification/volume-ii/contracts/S-14.json`.
+Governing authority: PRULE-027, CAP-016, WF-009, the Recommendation Artifact contract, and OD-007 and
+OD-009 (**both ratified**).
+
+This section fixes the cardinality of the origin link and confines eligibility, suppression, priority
+and lifecycle to the origin alone. The eligibility predicate itself is S-12's
+([Issue Eligibility And Adjudication Recalculation](#issue-eligibility-and-adjudication-recalculation));
+the suppression **ordering** is S-13's
+([Chain Completeness And Suppression Before A Current Read](#chain-completeness-and-suppression-before-a-current-read)).
+Neither is restated here.
+
+### Sole origin is structural, not validated
+
+`recommendation_artifacts` carries a single non-nullable `origin_issue_id`. Related Issues live in a
+separate `recommendation_related_issues` table whose informational flag is **fixed true**. That table
+split is what makes *"a related Issue cannot become an additional origin"* **unreachable** rather than
+merely tested — there is no column to write it into.
+
+A nullable or array-valued `origin_issue_id` MUST NOT be migrated, and the informational flag MUST NOT
+be migrated as settable. Either change converts a structural guarantee into a runtime check that a
+permissive code path can bypass.
+
+Under ratified OD-007 the traversal is `AIResponse -> Recommendation Artifact -> origin Issue -> Check
+Result/Evidence`. The Artifact is the **load-bearing middle link**, which is why cardinality-one here
+is a structural property of OD-007 rather than a local field rule.
+
+### Related Issues are informational — four separate prohibitions
+
+A related Issue cannot supply required Evidence, cannot alter score eligibility, cannot alter
+priority, and cannot alter publication eligibility. Four fixtures, because each is separately
+reachable. A related Issue **state change has no effect** — disputing, dismissing and resolving one
+each leave publication status and priority unchanged. An implementation that watches
+`related_issue_references` for changes is a reachable error.
+
+### Publication has two independent gates
+
+`recommendation.publish` and origin eligibility are **independent**. An authorized OrganizationAdmin
+publishing an Artifact whose origin is disputed is **rejected** — the permission does not override
+ineligibility.
+
+Publication requires the origin Issue to be the **current** **score-eligible** **leaf**. `current` and
+`eligible` are separable clauses: a non-leaf eligible Issue and a leaf ineligible Issue are each
+rejected.
+
+Rationale Evidence must be effectively valid, same-Organization, **and directly referenced by the
+origin Issue or its Check Result**. That last clause is the one an implementation most often drops —
+the fixture uses Evidence that is valid and same-Organization but outside the origin lineage. Its
+Citation analogue is S-10's `evidence_not_in_origin_lineage`.
+
+### Suppression retains; republication re-checks everything
+
+A later dispute or dismissal of the origin **suppresses** the Artifact **without deleting it** — the
+suppressed version stays byte-identical. Republication requires the **full** eligibility rules to pass
+again, not merely the clearing of the condition that caused suppression. The fixture withdraws the
+dispute but lets the rationale Evidence go invalid meanwhile.
+
+`origin_ineligible`, `stale_origin_version` and `origin_evidence_invalid` are distinct first-match
+reasons and are asserted non-interchangeable.
+
+
+## PRULE-029 Priority Determinism And Override Authority
+
+
+Matrix row: MTX-080 (AC-PRULE-029). Slice: S-15.
+Structured contract: `specification/volume-ii/contracts/S-15.json`.
+Governing authority: PRULE-029, CAP-017, WF-010, `priority-interim-v1`, and OD-002, OD-003, OD-009 and
+OD-010 (**all ratified**).
+
+### The base order and the displayed order live in different records
+
+That separation **is** the rule. `priority_decisions.computed_order` is immutable and is never
+rewritten by an override. `priority_overrides` is a separate immutable row.
+`action_queue_projection_items` carries the persisted base order **and** the displayed order, and any
+display change must have a **matching immutable override**.
+
+So *"base order remains unchanged and queryable"* is a **structural guarantee**, not a promise the
+override code must keep. A mutable `display_order` on `priority_decisions` MUST NOT be migrated — it
+would let an override overwrite the base order in place, and the guarantee would become unverifiable
+after the fact.
+
+### The override changes the displayed order only — a per-table assertion
+
+The override transaction touches **no** `priority_decisions` field, **no** Artifact field, **no** Issue
+field and **no** Current Score Projection field. *"It never changes score, impact, confidence, or the
+deterministic base order"* is four assertions, tested per table rather than once.
+
+An **invalid** override changes **nothing** and is asserted not partially applied.
+
+### Five required audit fields
+
+Actor identity, a nonblank **20–2,000 character** reason, the prior order, the resulting order, and the
+timestamp. Five fixtures, each omitting one, each rejected. Boundaries asserted at 19, 20, 2,000 and
+2,001.
+
+CAP-017 names *unexplained order* as a failure that **prevents publication** — an override lacking its
+audit fields is rejected rather than accepted with a default.
+
+### No permission changes the base order
+
+`priority.override` is **allow** for OrganizationAdmin and MarketingOperator, **deny** for
+TechnicalImplementer, SecurityOperator, BillingOperator and the Read-Only Executive Buyer. CAP-017
+states read-only consumers cannot override; WF-010 states the Executive Buyer can read but cannot
+reorder.
+
+And no grant exists for changing the **base** order at all — an OrganizationAdmin holding
+`priority.override` is asserted unable to alter `computed_order`, because the base order is a computed
+fact rather than a decision. The recorded actor is the **authenticated principal**, never a service
+identity acting on their behalf.
+
+### Determinism is scoped to the current version
+
+*"Stable eligible **current** Recommendation family inputs and policy versions MUST produce the same
+base order."* `Current version` is load-bearing: a **historical** version changing state cannot perturb
+determinism. An implementation reading all versions of a family is a reachable error, so that fixture
+is asserted separately.
+
+
+## Score Visibility And Redaction Enforcement
+
+
+Matrix row: MTX-050 (AC-SM-007). Slice: S-16.
+Structured contract: `specification/volume-ii/contracts/S-16.json`.
+Governing authority: AC-SM-007, the Score Visibility And Redaction matrix, the Permission Baseline,
+and OD-011 (**ratified and closed**).
+
+### Three reduced outcomes, strictly ordered
+
+1. **Object denial.** The actor cannot access the requested score object → the **whole request** is
+   denied with an auditable authorization error. No field-level evaluation occurs. Returning a
+   fully-redacted object instead is the natural implementation error and it leaks the object's
+   existence.
+2. **Field omission.** The actor can access the object but not a field → the field is **omitted** and
+   its stable code appears in `redacted_field_codes`. **No value-derived placeholder** — a masked,
+   truncated or hashed value discloses the value's shape.
+3. **Reference-only Evidence.** The actor can read the origin Issue but an Evidence record exceeds
+   their ceiling → return **only** `evidence_id` and `access_status=restricted`; omit payload
+   reference, content digest, provenance detail and observation content. **This applies to
+   `confidential` Evidence as well as `restricted`** whenever the actor's ceiling is lower — restricting
+   the rule to `restricted` Evidence alone is the natural misreading.
+
+### Ceilings, and the clause that gets dropped
+
+`confidential` for OrganizationAdmin and TechnicalImplementer. `internal` for MarketingOperator and
+the Executive Buyer persona. `restricted` for a SecurityOperator **only inside an active authorized
+incident or adjudication scope** — that scope condition is the clause an implementation drops, so a
+SecurityOperator *outside* scope is asserted not to reach `restricted`.
+
+An explicit `evidence.restricted.read` protected grant raises **only** the granted OrganizationAdmin's
+Evidence **payload** access to `restricted`. It broadens no resource scope and no other field
+permission.
+
+A Support Session scopes an **already-permitted** action to an Organization, resource and action
+allowlist. It is **not itself a read grant** and **never widens** a Permission Baseline cell.
+
+Where this matrix and the Permission Baseline appear to differ on scope, **the Permission Baseline
+governs**.
+
+### Classification flows from provenance, and never downward
+
+A derived field is governed by the **strongest** classification among its **originating Evidence
+records** — a field is classified by where it came from, not by where it is displayed. Volume I
+**prohibits declassification**: no record, actor, policy or service may lower it. A `declassified` or
+`classification_override` column MUST NOT be migrated.
+
+### The stable code groups
+
+`score.overall`, `score.pillar`, `issue.summary_text`, `issue.subject`, `score.contribution_detail`,
+`evidence.metadata`, `evidence.payload`, `recommendation.rationale`, `recommendation.steps`,
+`history.issue_detail`, `export.detail_fields`. When only **some** fields in a group are omitted, the
+exact snake-case logical field name is appended — `evidence.metadata.content_sha256`. Codes describe
+omitted fields only and **never reveal their values**.
+
+### The Executive Buyer row is the least uniform in the matrix
+
+Allow through `internal` on scores, Issue summary and history; **deny** on contribution detail,
+Evidence metadata **and** Evidence payload; summary-only through `internal` on export. Asserted per
+column, because collapsing the persona's summary allow into a detail allow is the natural error — and
+the Permission Baseline agrees, denying `score.detail.read` and `evidence.metadata.read` to that
+persona while allowing `score.summary.read`.
+
+BillingOperator is **deny on all seven columns**. A tenant-scoped service identity gets the minimum
+fields required for its assigned workflow, **no interactive history access**, and deny on export.
+
+---
+
+
+## PRULE-031 Cross-Surface Visibility And Redaction Parity
+
+
+Matrix row: MTX-082 (AC-PRULE-031). Slice: S-16.
+Structured contract: `specification/volume-ii/contracts/S-16.json`.
+Governing authority: PRULE-031, CAP-018, CAP-022, WF-010, WF-012, WF-016, and the Score Visibility
+And Redaction matrix. The matrix records **no decision dependency** — nothing here is pending.
+
+PRULE-031 defines **no new visibility semantics**. It requires the semantics
+[Score Visibility And Redaction Enforcement](#score-visibility-and-redaction-enforcement) owns to
+produce **identical outcomes on every delivery surface**. AC-PRULE-031 defines itself entirely by
+reference: *"Every visibility fixture in AC-SM-007 produces identical authorization/redaction outcomes
+across all surfaces."* The rule adds no fixture content — it **multiplies the existing set by the
+surface count**.
+
+### Five surfaces, and the two that drift
+
+UI read models, logical API responses, **exports**, **notifications**, and support views.
+
+Exports and notifications drift because each has an independent serialization path **and a delivery
+mechanism that outlives the request that authorized it** — a notification is composed once and
+delivered later; an Export is generated once and retrieved later. So:
+
+- A notification payload is redacted **at composition against the recipient's role**, never against the
+  role of whoever triggered it.
+- An Export's content is redacted **at generation against the requester's role**.
+- A notification **retry** re-delivers the **same already-redacted payload** and MUST NOT recompose
+  against a different role.
+- An Export **must not store data above what its retriever may see** — retrieval is authorized
+  independently under `export.retrieve`, and a role change between request and retrieval must not
+  disclose more. This is why an Export persists only its separate WF-016 logical manifest and
+  lifecycle records, never a pre-redacted snapshot of customer data.
+
+Raw Evidence payloads, secrets, verification tokens, provider credentials and unrestricted internal
+errors are **prohibited** from a Notification payload.
+
+### Inconsistent redaction is a failure in its own right
+
+A surface returning **more** than another for the same actor and records is a CAP-018 failure **even
+if every field it returned was independently permitted**. That is the precise defect this rule names.
+
+It follows that parity is asserted by **diffing surfaces**, not by checking each surface alone —
+per-surface checks pass while parity fails. The cross-surface fixtures compare the allowed field set
+and the `redacted_field_codes` list two surfaces return for the same actor and records, and assert
+them byte-identical.
+
+A per-surface redaction configuration table MUST NOT be migrated: configurable per-surface rules are
+the mechanism of drift, and the rule requires identical outcomes rather than separately-configured
+ones. Every serializer is **handed** the redaction decision and never re-derives it — re-derivation is
+how drift starts.
+
+### A permission difference is not a redaction difference
+
+The Executive Buyer is **summary-only on export** while allow-through-`internal` on reads. A
+SecurityOperator's export access is `security-authorized only`. Those are **permission cells** — the
+redaction **function** applied within them is still identical. Conflating the two is how a surface
+justifies inventing its own rules, so both are asserted separately.
+
+Organization scope is mandatory on every surface: an Export or notification delivered outside the
+Organization is a cross-tenant disclosure **regardless of field-level correctness**.
+
+Each denial emits exactly one authorization audit event **recording its surface**, so a parity breach
+is attributable rather than merely detected.
+
