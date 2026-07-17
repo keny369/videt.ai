@@ -37,6 +37,9 @@ evidence and are not cited.
 ```
 git rev-parse HEAD
 git status --porcelain                                     # empty
+# every suite below is reported by its exit code, captured directly.
+# Piping a suite through `tail` and reading ${PIPESTATUS[0]} silently returns empty
+# and reports a failing suite as green. That happened once in this programme.
 python3 scripts/build_volume_ii_matrix.py --check          # exit 0
 python3 scripts/build_implementation_backlog.py --check    # exit 0
 python3 scripts/validate_volume_ii.py                      # exit 0
@@ -167,6 +170,19 @@ policy question and no registered decision names `- Successor To:` it.
   method as usable while rejecting something unrelated still exempted. Segment scoping closes it, and
   the regression control is proven to report nothing under the superseded rule and to report the
   violation under the new one.
+- **The matrix generator test suite was failing, and the failure was nearly missed.** Its
+  withheld-limb assertion pinned the count at 18 and broke when ADR-023 correctly took it to 22. The
+  assertion is now pinned by row **identity** rather than by count, because a count catches a row
+  appearing or vanishing and says nothing about which row, so a limb migrating between rows passes it
+  unchanged — blindness at exactly the moment the set changes. A third assertion was added: every
+  withheld row must name the decision reserving its limb, which is the defect OD-020's unregistered
+  successor produced.
+  **The process failure matters more than the fix.** The Stage 0 baseline check piped this suite
+  through `tail` and read `${PIPESTATUS[0]}`, which returned empty, so its exit code was never
+  observed and the suite was recorded green on the strength of its last few stdout lines. It
+  surfaced only when exit codes were captured directly against the freeze tree. This is the same
+  defect as the unexecuted anchor claim — a baseline asserted rather than executed — occurring in
+  the tooling used to verify the baseline. Every suite in this report is now reported by exit code.
 
 ## Remaining Pending Decisions, And Why None Blocks Baseline Implementation
 
