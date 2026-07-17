@@ -984,3 +984,32 @@ OD-030, which prove destruction with a distinct `security_audit` deletion audit 
 hold that the LifecycleDeletionJob is not extended to retention expiry. That path is CAP-013/WF-007
 work, outside S-23. Treating it as withheld would withhold ratified behaviour.
 
+## PRULE-023 Issue Fingerprint Uniqueness Authority
+
+
+Matrix row: MTX-074 (AC-PRULE-023). Slice: S-12.
+Structured contract: `specification/volume-ii/contracts/S-12.json`.
+Governing authority: PRULE-023, `issue-fingerprint-v1`, CAP-014, WF-007, and OD-017 (**ratified**).
+
+Same-Evaluation Issue creation uses the **full canonical `issue-fingerprint-v1` preimage** as
+uniqueness authority; exact replay and concurrency return one Issue; and same-hash/different-preimage
+records **MUST NEVER merge**.
+
+Hash-only Issue merging without retained-preimage equality is a **prohibited transformation**. No
+grant permits it, and CAP-014's Failure Condition names it as rejected without changing current
+pointers.
+
+### Why an owner decision was needed here
+
+PRULE-023's only MUST is *never merge*. Every branch OD-017 enumerated satisfied it — persist-and-
+continue never merged either. That is exactly why the register recorded that no product rule selected
+the branch, that the WF-007 failure-path and event lists were provably non-exhaustive, and that the
+recovery path pointed circularly back at the ambiguous clause. The decision is ratified as fail-closed,
+so this rule is now satisfied by a single normative branch rather than by two.
+
+Uniqueness is scoped to **one** Evaluation. The identical preimage in a later Evaluation is a
+reassessment match that creates a successor under
+[PRULE-017](APPLICATION_LAYER.md#prule-017-issue-supersession-and-issue-set-membership), not a
+duplicate rejection. A semantic change to the tuple or to canonicalization requires a **new**
+fingerprint version; reusing `issue-fingerprint-v1` for changed semantics is rejected.
+
