@@ -22,6 +22,7 @@ import re
 import shutil
 import sys
 import tempfile
+from urllib.parse import unquote
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +67,22 @@ OD_027_WITHHELD_ARTIFACT = re.compile(
 # real violation. Requiring the document to cite OD-027 is precise and has no such accident.
 OD_027_CITATION = re.compile(r"\bOD-027\b")
 
+# The unit that binds a withholding phrase to the tag it withholds against, and a rejection to the
+# method it rejects. Splitting on the sentence terminator and the table-cell separator is
+# STRUCTURAL: a sentence binds a subject to its predicate, and a cell is that same unit inside a
+# row. It is emphatically not a character-proximity window. A window of any width silently exempts a
+# real violation whenever unrelated prose falls inside it -- an unrelated "blocked" 218 characters
+# away already exempted a real OD-027 violation, and a rejection of an unrelated subject already
+# disabled the verification-method check for a whole document tail. A sentence boundary is a
+# property of the text; a window width is a number this checker made up.
+#
+# Line scoping was correct when written and is no longer sufficient. IMPLEMENTATION_MATRIX.md is
+# generated and renders a whole contract field as one physical line of several thousand characters,
+# so a `deferred under` in one sentence collides with a tag named in another sentence that states
+# the opposite -- "OD-020 ratifies the authority, `UPSTREAM-V1-READ-AUTHORIZATION-004` is retired".
+# Deleting that sentence to satisfy the checker would destroy the truth to protect the test.
+SEGMENT_SPLIT = re.compile(r"(?<=\.)\s+|\s*\|\s*")
+
 RATIFIED_VERIFICATION_METHODS = {"dns_txt", "http_file"}
 CANDIDATE_VERIFICATION_METHOD = re.compile(
     r"`(meta_tag|html_meta|email_verification|email_token|manual_review|manual_verification|"
@@ -97,6 +114,14 @@ SUPERSEDED_TAGS = {
 # Trailing slash matters: "specification/volume-ii/x" startswith "specification/volume-i",
 # so a bare string prefix silently excludes the whole of Volume II from every check.
 AUTHORITY_SOURCES = {"specification/volume-i/", "specification/011 DOMAIN_MODEL.md"}
+# Pass B slice fragments are integration INPUTS, not published documents. `integrate_fragments.py`
+# merges each section into the canonical owner named by its contract, and their links are authored
+# in the OWNER's frame of reference -- `APPLICATION_LAYER.md#...` resolves once merged and cannot
+# resolve from `fragments/`. Linting them where they sit reports the integrator's own convention as
+# a defect. This is a structural exemption of one directory whose contents are provably already
+# merged (`integrate_fragments.py --check` reports 0 pending), not a pattern that could mask a
+# defect in a published document.
+INTEGRATION_INPUTS = "specification/volume-ii/fragments/"
 HISTORICAL_RECORDS = {"CHANGELOG.md", "DECISIONS.md", "PROJECT_STATE.md", "TODO.md",
                       "VERSION.md", "ROADMAP.md",
                       "engineering/manual/MANUAL_VERSION_HISTORY.md",
@@ -230,7 +255,7 @@ def in_scope(path: Path, root: Path) -> bool:
     rel = path.relative_to(root).as_posix()
     if any(rel == a or rel.startswith(a) for a in AUTHORITY_SOURCES):
         return False
-    if rel in HISTORICAL_RECORDS:
+    if rel in HISTORICAL_RECORDS or rel.startswith(INTEGRATION_INPUTS):
         return False
     if rel.startswith("scripts/") or rel.startswith(".git"):
         return False
@@ -276,15 +301,24 @@ def validate(root: Path) -> list[Finding]:
                                         f"{m.group(0)}: {reason}"))
 
         # unauthorized verification method (OD-001 ratifies dns_txt and http_file only)
+        #
+        # Scoped to the structural segment naming the method, not the whole line. The original
+        # defect here was a character-proximity window, which S-12's PRULE-023 fragment defeated by
+        # ending with a rejection of a reused fingerprint version -- disabling the check for the
+        # whole tail of SECURITY_PERFORMANCE.md until a negative control caught it. Line scoping
+        # narrowed that failure without closing it: a single line that asserts `meta_tag` as usable
+        # AND rejects something unrelated still exempts a real violation. The rejection must be
+        # asserted about the method itself, in the same sentence or cell.
         for i, line in enumerate(text.splitlines(), 1):
-            if VERIFICATION_METHOD_REJECTED.search(line):
-                continue  # this line rejects the method it names; that is the required fixture
-            for m in CANDIDATE_VERIFICATION_METHOD.finditer(line):
-                method = m.group(1)
-                if method not in RATIFIED_VERIFICATION_METHODS:
-                    findings.append(Finding(path, i, "unauthorized_verification_method",
-                                            f"{method}: OD-001 ratifies dns_txt and http_file only; "
-                                            "other methods are outside baseline scope"))
+            for segment in SEGMENT_SPLIT.split(line):
+                if VERIFICATION_METHOD_REJECTED.search(segment):
+                    continue  # this segment rejects the method it names; the required fixture
+                for m in CANDIDATE_VERIFICATION_METHOD.finditer(segment):
+                    method = m.group(1)
+                    if method not in RATIFIED_VERIFICATION_METHODS:
+                        findings.append(Finding(path, i, "unauthorized_verification_method",
+                                                f"{method}: OD-001 ratifies dns_txt and http_file only; "
+                                                "other methods are outside baseline scope"))
 
         # OD-027 withheld limb contracted as settled
         if OD_027_WITHHELD_ARTIFACT.search(text) and not OD_027_CITATION.search(text):
@@ -334,6 +368,8 @@ def validate(root: Path) -> list[Finding]:
     findings.extend(validate_pass_b_contracts(root))
     findings.extend(validate_decision_status(root))
     findings.extend(validate_retired_blockers(root))
+    findings.extend(validate_successor_decisions(root))
+    findings.extend(validate_anchors(root))
 
     # 9. an AC with no matrix row / 10. a matrix row with no governing source
     if matrix_path.exists():
@@ -445,6 +481,8 @@ def retired_blockers(root: Path) -> dict[str, str]:
             if not re.search(r"(?i)\bLIVE\b", st) and re.search(r"(?i)retired|resolved", st)}
 
 
+
+
 def validate_retired_blockers(root: Path) -> list[Finding]:
     """A retired blocker tag must not be cited as a live reason to withhold behaviour.
 
@@ -453,27 +491,78 @@ def validate_retired_blockers(root: Path) -> list[Finding]:
     deferred, disabled or unroutable, because a reader who trusts that withholds behaviour the
     owner ratified.
 
-    Scoped to a single line rather than a proximity window: a window is untrustworthy here, as
-    an unrelated disabling phrase elsewhere in the paragraph would exempt or condemn a citation
-    arbitrarily. A table row and a prose sentence each occupy one line in this repository.
+    Scope is the whole in-scope corpus, not one directory. `schemas/POSTGRESQL_SCHEMA.md` cited
+    retired tags as live reasons to refuse a DML grant and was never scanned, because this check
+    globbed `specification/volume-ii/*.md` while every other check in this file uses `in_scope`.
+    A rule that is right about a defect and blind to where it lives is not a rule.
     """
     findings: list[Finding] = []
     retired = retired_blockers(root)
     if not retired:
         return findings
-    for path in sorted((root / "specification" / "volume-ii").glob("*.md")):
+    for path in sorted(root.rglob("*.md")):
+        if ".git" in path.parts or not in_scope(path, root):
+            continue
         for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if BLOCKER_STATUS_STATEMENT.search(line):
-                continue  # states the tag's status; not a live citation
-            use = RETIRED_BLOCKER_USE.search(line)
-            if not use:
+            for segment in SEGMENT_SPLIT.split(line):
+                if BLOCKER_STATUS_STATEMENT.search(segment):
+                    continue  # states the tag's status; not a live citation
+                use = RETIRED_BLOCKER_USE.search(segment)
+                if not use:
+                    continue
+                for tag, status in retired.items():
+                    if tag in segment:
+                        findings.append(Finding(
+                            path, i, "retired_blocker_cited_as_live",
+                            f"{tag} is '{status}' per INDEX.md, but is cited here as "
+                            f"'{use.group(0)}'; a retired blocker withholds nothing"))
+    return findings
+
+
+# A settled decision that hands a required policy question to a successor must name a successor
+# that exists. OD-020 was ratified with "remain deny-by-default pending a separate decision" and
+# no such decision was ever registered, so for months the affected rows could neither withhold
+# against it nor implement it, and their citations drifted onto a retired blocker tag instead.
+# That is the defect this rule exists to make impossible to repeat.
+DELEGATES_TO_SUCCESSOR = re.compile(r"(?i)pending a (separate|further|subsequent) (owner )?decision")
+# The link is explicit and machine-readable rather than inferred from prose. A successor that has
+# to be recognised by wording is a successor that can be missed by wording.
+SUCCESSOR_TO = re.compile(r"^- Successor To:\s*(OD-\d{3})\s*$", re.M)
+# Only a decision's own normative fields delegate. Quoting a delegation while analysing it -- which
+# every successor decision necessarily does -- is not itself a delegation.
+NORMATIVE_FIELDS = ("Ratified Behavior", "Resolved Behavior", "Approved Option", "Resolved Option",
+                    "Blocking Impact")
+
+
+def validate_successor_decisions(root: Path) -> list[Finding]:
+    """Every delegated policy question must have a registered node to be delegated to."""
+    register = root / "specification" / "volume-i" / "OWNER_DECISION_REGISTER.md"
+    if not register.exists():
+        return []
+    text = register.read_text(encoding="utf-8")
+    parts = re.split(r"\n### (OD-\d{3})[^\n]*\n", text)
+    bodies = {parts[i]: parts[i + 1] for i in range(1, len(parts), 2)}
+
+    successors: set[str] = set()
+    for body in bodies.values():
+        successors.update(SUCCESSOR_TO.findall(body))
+
+    findings: list[Finding] = []
+    decisions = owner_decision_status(root)
+    for od, body in sorted(bodies.items()):
+        if decisions.get(od, {}).get("pending"):
+            continue  # an open decision delegates nothing; it is the open question
+        for label in NORMATIVE_FIELDS:
+            m = re.search(rf"^- {label}:\s*(.+)$", body, re.M)
+            if not m or not DELEGATES_TO_SUCCESSOR.search(m.group(1)):
                 continue
-            for tag, status in retired.items():
-                if tag in line:
-                    findings.append(Finding(
-                        path, i, "retired_blocker_cited_as_live",
-                        f"{tag} is '{status}' per INDEX.md, but is cited here as "
-                        f"'{use.group(0)}'; a retired blocker withholds nothing"))
+            if od not in successors:
+                findings.append(Finding(
+                    register, None, "unresolved_successor_decision",
+                    f"{od} delegates a required policy question to a separate decision in its "
+                    f"{label}, but no registered decision names '- Successor To: {od}'; the "
+                    "affected rows can neither withhold against it nor implement it"))
+            break
     return findings
 
 
@@ -523,6 +612,93 @@ def validate_pass_b_contracts(root: Path) -> list[Finding]:
                                             f"{row_id} names this document as owner, but it does not cite {row_id}"))
     return findings
 
+
+# --- anchor integrity ------------------------------------------------------
+
+# GitHub's heading anchor, matching `scripts/integrate_fragments.py#slug` exactly. The two must
+# agree: the integrator routes a fragment section by looking its title's slug up among the declared
+# `contract_owner` anchors, so a different slug here would validate links the integrator cannot
+# resolve.
+MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+ATX_HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*$")
+FENCE = re.compile(r"^\s*(```|~~~)")
+
+
+def slug(title: str) -> str:
+    s = re.sub(r"[^a-z0-9 \-]", "", title.strip().lower())
+    return re.sub(r"\s+", "-", s).strip("-")
+
+
+def heading_slugs(path: Path) -> set[str]:
+    """Slugs a Markdown renderer would actually generate for this file.
+
+    Only ATX headings count. Text that merely looks like a heading -- a `#` inside a fenced code
+    block, or a table cell naming a section -- generates no anchor, and treating it as one would
+    make this check pass for links that are broken in a browser. Duplicate headings take GitHub's
+    `-1`, `-2` suffixes.
+    """
+    out: set[str] = set()
+    seen: dict[str, int] = {}
+    in_fence = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = ATX_HEADING.match(line)
+        if not m:
+            continue
+        base = slug(re.sub(r"`|\*\*|\*|_", "", m.group(1)))
+        if not base:
+            continue
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        out.add(base if n == 0 else f"{base}-{n}")
+    return out
+
+
+def validate_anchors(root: Path) -> list[Finding]:
+    """Every local and cross-document Markdown anchor must resolve to a real heading.
+
+    A dead anchor is not cosmetic here: `contract_owner` names a document and an anchor, and the
+    whole completeness argument is that a row's contract points at the section that claims it. An
+    anchor that silently lands at the top of the file makes a broken cross-reference look answered.
+    """
+    findings: list[Finding] = []
+    cache: dict[Path, set[str]] = {}
+
+    def slugs_of(p: Path) -> set[str]:
+        if p not in cache:
+            cache[p] = heading_slugs(p)
+        return cache[p]
+
+    for path in sorted(root.rglob("*.md")):
+        if ".git" in path.parts or not in_scope(path, root):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for i, line in enumerate(text.splitlines(), 1):
+            for target in MD_LINK.findall(line):
+                if target.startswith(("http://", "https://", "mailto:")) or "#" not in target:
+                    continue
+                doc, _, frag = target.partition("#")
+                if not frag:
+                    continue
+                if doc:
+                    ref = (path.parent / unquote(doc)).resolve()
+                    if ref.suffix != ".md":
+                        continue
+                    if not ref.exists():
+                        findings.append(Finding(path, i, "anchor_target_missing",
+                                                f"{target}: {doc} does not exist"))
+                        continue
+                else:
+                    ref = path
+                if unquote(frag).lower() not in slugs_of(ref):
+                    findings.append(Finding(path, i, "anchor_target_missing",
+                                            f"{target}: no heading in "
+                                            f"{ref.name} generates the anchor '{frag}'"))
+    return findings
 
 # --- negative controls -------------------------------------------------------
 
@@ -604,6 +780,50 @@ def break_owner_citation(root: Path) -> None:
     owner.write_text(owner.read_text(encoding="utf-8").replace("MTX-026", "MTX-XXX"), encoding="utf-8")
 
 
+
+def drop_successor_link(root: Path) -> None:
+    """OD-034 is the registered successor OD-020's ratified text delegates to.
+
+    Remove the link and the governance graph is exactly as it was before ADR-023: a ratified
+    decision hands a required policy question to a decision that does not exist, and the affected
+    rows can neither withhold against it nor implement it.
+    """
+    p = _register(root)
+    p.write_text(p.read_text(encoding="utf-8").replace("- Successor To: OD-020\n", "", 1),
+                 encoding="utf-8")
+
+
+def break_anchor(root: Path) -> None:
+    append(root / "specification" / "volume-ii" / "INDEX.md",
+           "\nSee [the metering contract](APPLICATION_LAYER.md#no-such-heading-exists).\n")
+
+
+def cite_retired_blocker_in_schema(root: Path) -> None:
+    """The retired-blocker rule globbed one directory and never saw the schema.
+
+    OD-025 is ratified and REASSESSMENT-TRIGGER-EVENT-010 is retired, so gating a DML grant on it
+    withholds behaviour the owner approved -- in the document that decides what the database will
+    actually permit.
+    """
+    append(root / "schemas" / "POSTGRESQL_SCHEMA.md",
+           "\nThe reassessment dispatch grant is deferred under "
+           "`UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010`.\n")
+
+
+def unauthorized_method_beside_unrelated_rejection(root: Path) -> None:
+    """Regression control for the original `unauthorized_verification_method` vacuity.
+
+    The check once used a character-proximity window, and S-12's PRULE-023 fragment defeated it by
+    ending with a rejection of a reused fingerprint version, disabling the check for a whole
+    document tail. Line scoping narrowed that hole without closing it: one line asserting `meta_tag`
+    as usable while rejecting something unrelated still exempted. The rejection here is about a
+    fingerprint version, not about `meta_tag`, so the violation MUST still be reported.
+    """
+    append(root / "specification" / "volume-ii" / "SECURITY_PERFORMANCE.md",
+           "\nOwnership may also be proved by `meta_tag` placement. A reused fingerprint version is "
+           "rejected as invalid.\n")
+
+
 def run_negative_controls() -> int:
     cases = [
         ("entity absent from Volume I",
@@ -664,12 +884,23 @@ def run_negative_controls() -> int:
          lambda r: append(r / "specification" / "volume-ii" / "BACKGROUND_PROCESSING.md",
                           "\nThe revocation sweep is deferred under `UPSTREAM-V1-SESSION-REVOCATION-002`.\n"),
          "retired_blocker_cited_as_live"),
+        # The rule is right about the defect and was blind to where it lives: it globbed
+        # specification/volume-ii/*.md while every other check uses in_scope.
+        ("retired blocker cited as live in the schema", cite_retired_blocker_in_schema,
+         "retired_blocker_cited_as_live"),
+        ("unresolved successor decision", drop_successor_link,
+         "unresolved_successor_decision"),
+        ("anchor target missing", break_anchor,
+         "anchor_target_missing"),
+        ("unauthorized method beside an unrelated rejection",
+         unauthorized_method_beside_unrelated_rejection,
+         "unauthorized_verification_method"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-v2-negative-") as tmp:
         base = Path(tmp) / "repo"
         base.mkdir()
-        for sub in ["specification"]:
+        for sub in ["specification", "schemas"]:
             shutil.copytree(ROOT / sub, base / sub, ignore=shutil.ignore_patterns(".DS_Store"))
         for label, mutate, expected in cases:
             case = Path(tmp) / label.replace(" ", "-")
