@@ -2524,3 +2524,276 @@ versions, and remains a separately metered `ai.generate` operation rather than a
 
 ---
 
+## WF-012 Compare Historical Results
+
+
+Matrix row: MTX-037 (AC-WF-012). Slice: S-17.
+Structured contract: `specification/volume-ii/contracts/S-17.json`.
+Governing authority: WF-012, CAP-019, PRULE-032, the Reassessment Result And Historical Comparison
+contract and the Score Visibility And Redaction contract in `SCORE_EVIDENCE_MODEL.md`, the Permission
+Baseline, and OD-024 (**ratified**), OD-020 (**ratified**), OD-019 (**ratified**), OD-002, OD-003 and
+OD-009 (all **ratified**).
+
+This section is the canonical owner of the historical comparison read. It consumes promoted
+ScoreSnapshots and their immutable Score Contributions, owned by S-13, and the visibility rules owned
+by S-16, and it is consumed by nothing: S-17 gates no slice.
+
+### No pending decision touches this slice
+
+S-17's three rows cite OD-002, OD-003, OD-009, OD-020 and OD-024. Every one is ratified. None of the
+five pending decisions — OD-014, OD-023, OD-027, OD-031, OD-032 — appears on any S-17 row, and none
+of their withheld limbs is reachable from a comparison read. `SLICE_REGISTER.md` records S-17's OD
+limbs as `none`. **This slice withholds nothing.**
+
+### OD-024 is ratified; the missing event is the approved baseline
+
+`Current Status` records OD-024 **ratified 2026-07-17, resolved by owner decision**, with
+`Blocking Impact`: **"None. OD-024 is resolved; comparison reads are unblocked and emit no domain
+event."** Approved Option 2: `ComparisonGenerated` is **removed** as a Volume I domain event.
+
+Read that precisely, because the shape is the same as OD-010's. The ratification does not withhold an
+event pending a later decision — it **approves the state in which no event exists**, and approves its
+consequence: the comparison read persists no record, moves no current pointer, and emits nothing. The
+workflow's audit obligations are discharged **entirely** by Audit Evidence with correlation ID, which
+is exactly why the removal costs the workflow nothing. Concretely:
+
+- Every outcome — `comparable`, `not_comparable`, `insufficient_history`, `comparison_unavailable` —
+  remains fully deterministic under `SCORE_EVIDENCE_MODEL.md`.
+- `ComparisonGenerated` is permanently excluded from the executable event-registry manifest, so no
+  generic Event row may admit it and no migration may reintroduce it without controlled Volume I
+  change.
+- Volume II MUST NOT emit, suppress, deduplicate or **meter** the removed name.
+
+The questions that once made the event undefinable — whether it occurred for each outcome, whether
+reload, Turbo prefetch or repeated selection re-emitted it, what its idempotency identity was — no
+longer arise, because no event exists. This slice contracts **zero** domain events and asserts their
+absence as a test obligation rather than leaving it implied.
+
+### The two "disabled" cells are stale, and this slice does not honour them
+
+Two Volume II table cells describe `QRY-008` as switched off. `APPLICATION_LAYER.md` line 159 names
+two tags as disabling the query, and `API_CONTRACTS.md` line 593 names the same two as deferring the
+physical path. Both tags are `UPSTREAM-V1-LOW-COST-METERING-005` (OD-019) and
+`UPSTREAM-V1-COMPARISON-EVENT-007` (OD-024), and both are **Retired under ADR-019**. **Both cells are
+therefore stale Pass-A-era prose that this section supersedes.** The evidence is executable rather
+than interpretive:
+
+1. `INDEX.md`'s canonical blocker registry records **both** tags **"Retired under ADR-019"**. Only
+   `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009`
+   (OD-023) are marked **LIVE**.
+2. OD-024's `Blocking Impact` is affirmative, not merely absent: **"comparison reads are unblocked"**.
+   OD-019's is `None`.
+3. Decisively: the matrix is **generated**, and its `Blocker` column is computed by
+   `scripts/build_volume_ii_matrix.py` from each cited decision's `Current Status` **alone** — a row
+   is blocked if and only if one of its decisions is pending. MTX-019, MTX-037 and MTX-083 each carry
+   `Blocker: None`, `Status: Pass B required`. **Neither retired tag appears as a blocker on any row
+   in the corpus**; the only blockers present anywhere are the five pending decisions and their two
+   live tags. The matrix is "the controlling source for Pass B".
+4. The `INDEX.md` prose reserves the word **unreachable** for what is genuinely withheld —
+   "Rotation begin/completion remains unreachable" — and the `UPSTREAM-V1-COMPARISON-EVENT-007`
+   section uses no such word.
+
+Honouring those two cells would withhold behaviour the owner **affirmatively unblocked**. That is the
+OD-001 failure mode the ratification overlay exists to prevent, and it is as wrong as pre-empting an
+open decision.
+
+**The boundary matters.** "Deferred until the Volume II baseline" resolves **to** this pass — but it
+is a *document-ownership* statement, not a grant to a slice contract. The exposure is deferred to
+`API_CONTRACTS.md` and this document, which own transport and the query registry; it is not deferred
+to `contracts/S-17.json`. So this slice defines **no route**, exactly as every completed slice did.
+Nothing needs inventing in any case: `API_CONTRACTS.md` **already** carries the project-scoped
+history-compare GET against `QRY-008` and `history.read`. The transport was authorized; only the
+deferral marker on it is stale.
+
+### Clearing the marker is not sufficient — the metered operation must be declared
+
+The comparison read is a metered low-cost read: WF-015 enumerates `history.view` among exactly five
+low-cost operations. OD-019's Ratified Behavior requires that **"every metered read route carries a
+static declaration of exactly one of the five low-cost operations; a read route with no declaration
+resolves `operation_unknown` and returns Block with `contact_support`, so an undeclared metered route
+is unreachable rather than silently unmetered."**
+
+`API_CONTRACTS.md`'s route table has columns `Route | Query | Permission | Enablement` and **no
+operation-declaration column**; no route in Volume II carries such a declaration. The
+`operation_unknown` reason code and `contact_support` recovery action already exist in
+`EntitlementNoticeDTO`, so the Block-on-undeclared path is modelled while the declaration that avoids
+it is not.
+
+This gap is **not S-17's to close**: it spans all five low-cost operations across every metered read
+route, the metering contract is WF-015 and CAP-024 owned by S-22 on MTX-040 and MTX-024, and
+inventing a declaration mechanism would mint a transport contract no one authorized. Note too that
+the five low-cost operation strings are **not permissions** — `history.view` does not exist in the
+Permission Baseline, whose read is `history.read` — so the declaration cannot be inferred from the
+route's permission cell. This section names `history.view` as the operation the comparison read
+declares and stops there.
+
+### The read is side-effect-free; the metering record is not its side effect
+
+WF-012 declares no domain entity transition and is triggered by a safe read. The comparison writes
+nothing: no comparison record, no pointer move, no event, no mutation of any snapshot, Contribution,
+Issue, Case, Evidence record or Current Score Projection.
+
+One record does get appended on the path, and it is worth naming precisely so it is not mistaken for
+a breach of that property. Under `read-metering-v1` exactly one LowCostUsageRecord is appended per
+accepted top-level document read reaching the durable response checkpoint, keyed by a server-minted
+Decision ID over Organization, actor or service identity, declared operation, resolved target
+identity and state version, and counter window. That is **WF-015's** side effect under **S-22's**
+contract, not WF-012's, and Turbo Frames of a declared root carry the root Decision ID and append no
+second record. Client-supplied idempotency keys remain prohibited on the read.
+
+### The rebase spans two slices
+
+WF-012's Alternate Path is the one place the comparison reaches a command, and this section owns only
+half of it.
+
+**S-17 owns the request**: the `score.rebase` authorization, the requirement of an exact target
+version for every one of the seven versioned dimensions available to **both** retained input sets,
+the rejection of omission or ambiguity, and the rule that rebase can never overcome different
+normalized `scope_definition_hash` values.
+
+**S-13 owns what an admitted request creates**: the ScoreSnapshot contract on
+[MTX-076](#prule-025-score-recalculation-and-snapshot-lineage) supplies the `historical_rebase`
+creation reason, the immutability and idempotency tuple, the `prior_score_snapshot_id` lineage, the
+per-Project serialization, the two-snapshot creation order (earlier Evaluation by `created_at_utc`,
+then Evaluation ID, first), and the rule that a rebase snapshot is **permanently noncurrent** and
+advances no Current Score Projection pointer.
+
+Volume I fixes the rebase's actor, permission, predicate and rejection outcomes but names no command
+identifier and no owning command namespace, so this section contracts the request contract and does
+**not** mint a `Workflows::Wf012::` command name for it.
+
+### Four outcomes, no fifth, and two of them are not errors
+
+Every request reaches exactly one of four statuses:
+
+- `comparable` — all eight dimensions matched; carries `overall_delta` and one `PillarDeltaDTO` per
+  applicable pillar.
+- `not_comparable` — carries **every** applicable mismatch code in fixed order and **no** numeric
+  score delta.
+- `insufficient_history` — fewer than two completed Evaluations with promoted ScoreSnapshots; carries
+  `available_run_count` of exactly 0 or 1 and `next_action_code=complete_initial_evaluation` for zero
+  or `complete_next_evaluation` for one; returns null selected items and no empty or synthetic delta.
+- `comparison_unavailable` — carries a correlation ID and synthesizes no values.
+
+The distinction that carries this row: **`not_comparable` and `insufficient_history` are successful
+deterministic outcomes carrying reason codes, not errors.** Returning `F1-VALIDATION-400` for an
+incompatible pair would destroy the mismatch-code contract that tells a caller what to fix, and
+returning an error for zero completed Evaluations would contradict CAP-019's Preconditions, which
+state expressly that zero or one completed Evaluation is a **valid** insufficient-history query.
+
+### The projection rebuild names an obligation with no surface
+
+Volume I states an obligation here for which it supplies no implementation surface, and this section
+**reports the gap rather than closing it**.
+
+WF-012's Failure Path returns `comparison_unavailable` for "Missing projection data" and its Recovery
+Path offers "retry projection generation", bounded to one initial attempt plus two retries at 1 and 5
+minutes before terminal `comparison_unavailable` and escalation to support.
+
+But under OD-024 Option 2 **nothing is persisted by the comparison read**, so there is no comparison
+projection to be missing or to rebuild, and no comparison table, job or read model exists in
+`schemas/POSTGRESQL_SCHEMA.md` or `BACKGROUND_PROCESSING.md`. OD-024's own Operational Implications
+flagged exactly this — *"every option must reconcile WF-012's 'Missing projection data' and
+'Projection rebuild' language with the chosen model or clarify that it refers to the Current Score
+Projection"* — and the Ratified Behavior **does not perform that reconciliation**. The Current Score
+Projection is the only projection Volume I defines that can be unavailable, but historical comparison
+selects two immutable promoted ScoreSnapshots by ID and reads it for neither side, so it cannot be
+the referent without a controlled change that says so.
+
+This section therefore contracts what **is** fixed — `comparison_unavailable` is a reachable terminal
+outcome carrying a correlation ID, it synthesizes no values, and the retry bound is exactly one
+attempt plus two retries at 1 and 5 minutes then terminal plus support escalation — and invents no
+comparison projection entity, table, job or rebuild command to sit behind them. The slice still
+reaches its outcome: `comparable`, `not_comparable` and `insufficient_history` are each fully
+determined without any projection artifact.
+
+### History is read, never rewritten
+
+Historical views reconstruct Issue and adjudication state **only** from each ScoreSnapshot's
+immutable Contributions — captured Issue state version, lifecycle, publication and adjudication
+values, Case references, Evidence IDs and Validation Decision IDs and statuses. Later Issue or
+Evidence decisions do not rewrite historical state.
+
+This is what makes the read raceless. A concurrent adjudication, dispute or Evidence validation change
+marks the **Current Score Projection** unavailable with `invalid_evidence` or `issue_set_incomplete`
+and may suppress published Recommendation Artifacts, but it rewrites no historical Contribution and
+therefore cannot change a comparison already determined from frozen state. The same ordered pair
+returns the same status, codes and deltas forever.
+
+Redaction runs the other way. It is applied at serialization against the **current** actor and the
+strongest classification among each derived field's originating Evidence records — never against the
+actor or classification frozen at snapshot time. A historical snapshot does not carry forward the
+visibility of whoever created it.
+
+
+## CAP-019 Historical Comparison
+
+
+Matrix row: MTX-019 (AC-CAP-019). Slice: S-17.
+Structured contract: `specification/volume-ii/contracts/S-17.json`.
+Governing authority: CAP-019, discharged by [WF-012](#wf-012-compare-historical-results) on MTX-037
+and [PRULE-032](#prule-032-comparison-compatibility-and-rebase) on MTX-083, with OD-020 and OD-024
+(both **ratified**).
+
+CAP-019 defines no interface of its own. It fixes the actor set, the four outputs, the success and
+failure conditions, and one prohibition this row owns outright.
+
+### OD-020's answer here is a grant, not a denial
+
+OD-020 is ratified, Approved Option 1: explicit read rows are added for Organization home data,
+Project, Source, Crawl, Evaluation, Notification inbox and Export enumeration, and **"deny-by-default
+is not accepted for customer-facing objects"**.
+
+Its effect on this capability was never in doubt. `history.read` is **already** one of the Permission
+Baseline's enumerated read actions — OD-020's own Why-The-Decision-Exists names it among the closed
+set of existing reads — so the comparison read has canonical read authority and needs none inferred.
+OD-020 additionally makes `project.read` canonical, which is what lets the Project-scoped target
+resolve. Nothing in this slice reads a security or administrative object, so OD-020's remaining
+deny-by-default limb is never reached here.
+
+### The AI-narrative prohibition is capability-level authority
+
+This is product authority, not a presentation preference, and it is stated three times over — in
+CAP-019's AI Implications, WF-012 Primary Path step 3, and PRULE-030. Historical comparison returns
+deterministic structured data only and MUST NOT **create, request, return, display, reserve a
+presentation region for, or imply** AI-generated dashboard or history narrative, and MUST make **no
+AI-provider call** for that purpose.
+
+Read the verb list precisely, because it is broader than "do not render narrative":
+
+- **Reserving a presentation region** for narrative is itself a breach. A reserved-but-empty slot
+  fails the rule as surely as a populated one.
+- **Narrative absence is a complete successful response** — not an error, degraded state, incomplete
+  response, or fallback. There is no error code for a missing narrative because none is ever
+  attempted.
+- **No hidden enablement path may exist.** No feature flag, provider availability, model capability,
+  tenant setting, UI layout or implementation choice may enable narrative. The prohibition is
+  *unreachability*, not a disabled default — a disabled default is one flag away from a prohibited
+  behaviour.
+- `QRY-008` MUST NOT reference `AiOrchestration`, expose a narrative field, reserve a narrative slot,
+  **enqueue narrative work**, or call a provider.
+
+Equally, the rule must not be over-applied. Deterministic human-authored labels, already-defined
+templates, and existing deterministic score, trend, Issue, Evidence and Recommendation explanations
+remain **permitted and unchanged**, and are asserted present. Future AI narrative support requires a
+separately accepted capability and controlled Volume I change under PRULE-030 with explicit
+requirements, evaluation, grounding and provenance, latency and cost, failure and fallback, and
+acceptance contracts.
+
+### The Failure Condition is four asserted impossibilities
+
+CAP-019 fails if **silent cross-version comparison, synthetic missing data, later-state rewrite of
+history, or unbounded projection rebuild** occurs. Each maps to exactly one contracted guard:
+
+| Failure Condition | Guard | Owner |
+| --- | --- | --- |
+| Silent cross-version comparison | the eight-dimension compatibility predicate | MTX-083 |
+| Synthetic missing data | no-synthesis on every outcome | MTX-037 |
+| Later-state rewrite of history | state-at-snapshot reconstruction from immutable Contributions | MTX-037 |
+| Unbounded projection rebuild | one attempt plus two retries at 1 and 5 minutes, then terminal | MTX-037 |
+
+Predictive forecasting is a Non-goal and sits outside the boundary entirely: no forecast,
+extrapolation or projection-forward field exists in any response.
+
+---
+

@@ -1118,3 +1118,99 @@ current leaf is a graph property; being included in a calculation is an eligibil
 implementation that drops withheld successors from the lineage to keep the score clean produces a
 second leaf for that fingerprint on the next run.
 
+## PRULE-032 Comparison Compatibility And Rebase
+
+
+Matrix row: MTX-083 (AC-PRULE-032). Slice: S-17.
+Structured contract: `specification/volume-ii/contracts/S-17.json`.
+Governing authority: PRULE-032, CAP-019, WF-012 Alternate Path, the Reassessment Result And
+Historical Comparison contract in `SCORE_EVIDENCE_MODEL.md`, the Permission Baseline, and OD-002,
+OD-003, OD-009 and OD-024 (all **ratified**).
+
+This section owns the compatibility predicate, the eight fixed-order mismatch codes, and the rebase
+admission and reach rules for the whole slice. It is an **invariant**, not a step in one command: it
+binds every reader of historical data regardless of surface or permission, which is why it is owned
+here rather than inside the workflow it constrains.
+
+### Eight dimensions are compared; seven are rebaseable
+
+Direct numeric score comparison is permitted **only** when both snapshots have identical score,
+confidence, eligibility, fingerprint, check-catalog, scope-policy, normalized `scope_definition_hash`
+and pillar-applicability versions. Otherwise the result is `not_comparable`, carries every applicable
+reason in this **exact fixed order**, and carries **no numeric delta**:
+
+1. `score_policy_mismatch`
+2. `confidence_policy_mismatch`
+3. `eligibility_policy_mismatch`
+4. `fingerprint_version_mismatch`
+5. `check_catalog_version_mismatch`
+6. `scope_policy_version_set_mismatch`
+7. `scope_definition_mismatch`
+8. `pillar_applicability_mismatch`
+
+The asymmetry is the load-bearing part of this rule. **Eight dimensions are compared; seven are
+rebaseable.** An explicit rebase requires OrganizationAdmin `score.rebase` and an exact target version
+for every versioned dimension, all available to both retained input sets — and it still **cannot make
+different normalized scope-definition hashes comparable**.
+
+That exclusion is not an arbitrary limit. The seven rebaseable dimensions are versioned **policy**:
+the calculation can be re-run under a stated version, which is exactly what a rebase does. The
+scope-definition hash is a normalized description of **what was measured**. Two evaluations over
+different scopes are not the same measurement under a different method, and a rebase that could align
+them would silently redefine the subject rather than the method — producing a delta that looks
+attributable and is not. `scope_definition_mismatch` is therefore permanent, and a response carrying
+it never returns `request_rebase` as a next action, because that would suggest an action that cannot
+succeed.
+
+### The order is contract, not convenience
+
+`mismatch_codes` is a closed enum bounded `[0..8]` serialized in the fixed order above — not in
+discovery order, not sorted alphabetically, and not as a set. Two conforming implementations produce
+identical, diffable output for the same pair.
+
+The rule returns **every** applicable code rather than the first one found. A pair failing three
+dimensions reports three, so a caller learns in one response everything that must change, and can
+tell immediately whether a rebase is possible at all. Reporting only the first failure would make
+`request_rebase` a guess and would hide a permanent `scope_definition_mismatch` behind a rebaseable
+one.
+
+The eight compared dimensions are themselves serialized on each `HistoryItemDTO` —
+`score_policy_version`, `confidence_policy_version`, `eligibility_policy_version`,
+`fingerprint_version`, `check_catalog_version`, `scope_policy_version_set_hash`,
+`scope_definition_hash`, `pillar_applicability_version` — so the predicate is independently
+verifiable from the response alone.
+
+### No permission relaxes the predicate
+
+`score.rebase` is allowed to OrganizationAdmin only; the Permission Baseline denies it to
+MarketingOperator, TechnicalImplementer, SecurityOperator, BillingOperator and the Read-Only
+Executive Buyer alike, and admits only "scoring service executes authorized request only" — the
+service executes an authorized request and originates none. `history.read` never substitutes for it,
+and no rebase is inferred from a `not_comparable` result.
+
+The invariant binds harder than any grant. **No permission — including `score.rebase` — authorizes a
+numeric delta across a mismatched pair.** An OrganizationAdmin holding every grant in the baseline
+still receives `not_comparable` and no delta. `score.rebase` authorizes an actor to **create**
+compatible snapshots; it does not authorize reading a delta across incompatible ones. Compatibility
+is a property of the two snapshots, not of the reader, so no role sees a delta another role may not.
+
+### A tenant failure is never a mismatch code
+
+Both snapshots resolve to one Organization and one Project before the predicate runs. Forced RLS on
+`score_snapshots` makes a cross-Organization pair **unresolvable** rather than incomparable: it is
+`F1-AUTH-403 / tenant_mismatch`, and it MUST NOT be reported as a mismatch code. The eight codes
+describe version divergence **within** a tenant; using one to report a tenant failure would disclose
+the existence of another Organization's snapshot.
+
+### The predicate is pure, and that is why history is reproducible
+
+The eight compared dimensions are frozen columns on the immutable `score_snapshots` row (`T-IMM`,
+`LINEAGE`). No concurrent write can change whether two given snapshots are compatible, so the answer
+is stable forever rather than merely at read time, and a comparison run today and in seven years over
+the same pair returns the same status and the same ordered codes. A concurrently created rebase
+snapshot is a **new pair** to compare, never a mutation of an existing comparison.
+
+The predicate opens no transaction, performs no write, and adds no SQL to the registered `QRY-008`
+budget of 9 application SQL statements and 500 rows, because it reads columns already materialized
+for the response.
+
