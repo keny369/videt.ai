@@ -122,15 +122,22 @@ decision's `Current Status` is for Owner Decisions. **Only two tags are LIVE:**
 (OD-023).
 
 Every other tag is retired under ADR-019 or ADR-020, and each of their decisions records
-`Blocking Impact: None`. Volume II nonetheless still cites eight retired tags as live reasons to
-defer, disable or refuse to route — 69 sites across `API_CONTRACTS.md`, `APPLICATION_LAYER.md`,
-`FRONTEND_ARCHITECTURE.md`, `BACKGROUND_PROCESSING.md`, `INDEX.md` and
-`schemas/POSTGRESQL_SCHEMA.md`. This is the OBS-001 trap at scale: a worker who trusts the
-citation withholds behaviour the owner ratified.
+`Blocking Impact: None`. Volume II cited eight retired tags as live reasons to defer, disable or
+refuse to route. This was the OBS-001 trap at scale: a worker who trusts the citation withholds
+behaviour the owner ratified.
 
-`scripts/validate_volume_ii.py` now detects this (`retired_blocker_cited_as_live`,
-mutation-killed control). It is **reported, not suppressed** — the findings are real and the
-correct replacement text is a product-visible question, not a mechanical substitution.
+**RESOLVED under ADR-023.** All 72 findings reported by `scripts/validate_volume_ii.py` at commit
+`8dee035` were individually classified in
+[RETIRED_BLOCKER_CLASSIFICATION.md](RETIRED_BLOCKER_CLASSIFICATION.md) and reconciled. No retired
+blocker is cited as a live reason to withhold behaviour anywhere in scope, and **no finding in any
+class changed product behaviour**. The rule is retained and strengthened: its corpus is widened
+from `specification/volume-ii/*.md` to the whole in-scope tree, because `schemas/POSTGRESQL_SCHEMA.md`
+cited retired tags as live and was never scanned; and its scope is narrowed from the physical line
+to the sentence or table cell, because the generated matrix renders a whole contract field as one
+line of several thousand characters. Both changes carry negative mutation controls.
+
+The rest of this section is retained as the historical record of why a bulk replacement was
+prohibited, and remains the standing rule for any future finding.
 
 #### Why a bulk replacement is unsound
 
@@ -170,17 +177,27 @@ Distinguish two things the prose conflates:
   intentionally deferred until the Volume II baseline". Pass B **is** that baseline, so this
   resolves *to this pass*, and a slice contracting the surface supersedes the deferral.
 
-**One residual is genuinely open and is not a labelling error.** OD-020 ratified explicit read
+**One residual was genuinely open and was not a labelling error. It is now registered as OD-034.**
+OD-020 ratified explicit read
 rows for customer-facing objects (Organization home data, Project, Source, Crawl, Evaluation,
 Notification inbox, Export enumeration) — "Deny-by-default is no longer the answer for
 customer-facing objects." But read authority for **security, administrative and internal
 operational objects** (Support Session, Incident, Investigation, Legal Hold, LifecycleDeletionJob,
 privileged Billing) "remains deny-by-default **pending a separate owner decision**, and is out of
-scope for this decision rather than resolved by it." That separate decision **has no OD number and
-is absent from the register's pending set**. Deferring a customer-facing read under
-`UPSTREAM-V1-READ-AUTHORIZATION-004` is a defect; deferring a security or administrative read is
-substantively correct but mis-attributed — its authority is an unregistered pending decision, not
-a retired tag.
+scope for this decision rather than resolved by it." That separate decision had **no OD number and was
+absent from the register's pending set**, so the affected rows could neither withhold against it
+nor implement it. Deferring a customer-facing read under `UPSTREAM-V1-READ-AUTHORIZATION-004` was a
+defect; deferring a security or administrative read was substantively correct but mis-attributed —
+its authority was an unregistered pending decision, not a retired tag.
+
+**ADR-023 registered it as OD-034**, pending, Owner Required Chief Product and Chief Security, with
+OD-020's own deny-by-default as its interim, and scoped to the wider normative list in
+`WORKFLOW_SPECIFICATIONS.md` — which names **Emergency Access Grant** where OD-020's own sentence
+omits it. `scripts/validate_volume_ii.py` gains `unresolved_successor_decision`, which fails when a
+settled decision delegates a required policy question and no registered decision names
+`- Successor To:` it. A second successor, **OD-035**, was found by the same reasoning and registered:
+OD-019 ratified the metered-read unit and booked the route-to-operation declaration table and
+`report.view`'s read surface as unpaid Costs, and neither exists.
 
 ### Other ratified decisions referenced by remaining slices
 

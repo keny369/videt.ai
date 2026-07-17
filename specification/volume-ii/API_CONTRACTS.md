@@ -291,9 +291,9 @@ The command name is the Application Layer command discriminator. `State` means `
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/adjudication-assignment` | `AssignAdjudication` | `issue.adjudicate`; assigning actor becomes adjudicator | yes | 200 |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/adjudication-decision` | `DecideAdjudication` | assigned `issue.adjudicate` actor; explicit upheld/rejected value | yes | 200 |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/evidences/:id/validation-decisions` | `ChangeEvidenceValidation` | `evidence.validation.manage` | yes | 201 |
-| `POST /api/v1/organizations/:organization_id/projects/:project_id/reassessments` | `StartReassessment` | `reassessment.trigger` | no | deferred under `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010`; 202 only after correction |
+| `POST /api/v1/organizations/:organization_id/projects/:project_id/reassessments` | `StartReassessment` | `reassessment.trigger` | no | reachable under ratified OD-025, which removes `ReassessmentTriggered` rather than binding it; no trigger event is emitted, provenance is retained on the Reassessment Result record and its Audit Evidence, and `202` applies |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/evaluations/:evaluation_id/reassessment-cancellation` | `CancelReassessment` | `reassessment.cancel`; ID/state version bind the orchestration Evaluation | yes | 200 |
-| `POST /api/v1/organizations/:organization_id/projects/:project_id/reassessment-schedules` | `ActivateReassessmentSchedule` | `reassessment.trigger` | policy conditional | deferred under `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010`; 201 only after correction |
+| `POST /api/v1/organizations/:organization_id/projects/:project_id/reassessment-schedules` | `ActivateReassessmentSchedule` | `reassessment.trigger` | policy conditional | reachable under ratified OD-025, which removes `ReassessmentTriggered` rather than binding it; execution is observable through `ReassessmentScheduleEvaluated`, `EvaluationStarted`, `ReassessmentCompleted`, `ReassessmentFailed` and `ReassessmentCanceled`, and `201` applies |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/score-rebases` | `RebaseHistoricalComparison` | `score.rebase` | no | 202 |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/recommendations/:id/publication` | `PublishRecommendation` | `recommendation.publish` | yes | 200 |
 | `POST /api/v1/organizations/:organization_id/projects/:project_id/priority-overrides` | `OverridePriority` | `priority.override` | no | 201 |
@@ -332,9 +332,9 @@ Rows explicitly marked unavailable below are reserved mappings only: the router 
 | `POST /api/v1/incidents` | `DeclareIncident` | `incident.respond` | no | 201 |
 | `POST /api/v1/incidents/:id/step-attempts` | `RunIncidentStep` | `incident.respond`; baseline diagnostic step only | yes | 202 |
 | `POST /api/v1/incidents/:id/resolution` | `ResolveIncident` | `incident.respond`; protected approval where required | yes | 200 |
-| `POST /api/v1/investigations` | `OpenInvestigation` | `security.investigate` | no | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 202 once corrected |
-| `POST /api/v1/investigations/:id/reports` | `PublishInvestigationReport` | `security.investigate` | yes | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 201 once corrected |
-| `POST /api/v1/investigations/:id/closure` | `CloseInvestigation` | `security.investigation.approve` | yes | deferred under `UPSTREAM-V1-EVENT-SCOPE-001`; 200 once corrected |
+| `POST /api/v1/investigations` | `OpenInvestigation` | `security.investigate` | no | reachable under resolved OD-013 Option 1; each Investigation record is Organization-owned with a nonnull `organization_id`, a cross-Organization investigation is one such record per affected Organization linked by `correlation_id`, and `202` applies |
+| `POST /api/v1/investigations/:id/reports` | `PublishInvestigationReport` | `security.investigate` | yes | reachable under resolved OD-013 Option 1; the report is versioned per Organization-owned Investigation record and `201` applies |
+| `POST /api/v1/investigations/:id/closure` | `CloseInvestigation` | `security.investigation.approve` | yes | reachable under resolved OD-013 Option 1; closure requires a different SecurityOperator holding `security.investigation.approve` and `200` applies |
 | `POST /api/v1/legal-holds` | `RequestLegalHold` | `legal_hold.manage` | no | 201 |
 | `POST /api/v1/legal-holds/:id/approval` | `DecideLegalHold` | `legal_hold.manage`; distinct approver; decision fixed by route to `approve` | yes | 200 |
 | `POST /api/v1/legal-holds/:id/rejection` | `DecideLegalHold` | `legal_hold.manage`; distinct approver; decision fixed by route to `reject` | yes | 200 |
@@ -538,7 +538,7 @@ The Application Layer registry contains exactly `RequestIngestionReplay`, `Assig
 
 Queries are `GET` or `HEAD`, create no product transition and accept no `Idempotency-Key`. The outer authenticated-request transaction may update Session activity and write authorization/audit evidence as specified in [Application Layer](APPLICATION_LAYER.md); the Query Handler itself remains read-only.
 
-This transport applies only to nonmetered reads. The five Volume I low-cost operations are deferred under `UPSTREAM-V1-LOW-COST-METERING-005`, which OD-019 resolves by ratifying the metered-read unit; their transport exposure is intentionally deferred to the Volume II baseline. Their proposed physical paths are retained below as blocked mappings, not routable endpoints.
+This transport applies only to nonmetered reads. OD-019 is ratified: it fixes the metered-read unit as root-request subsumption, mints Read Decision IDs server-side, and requires that every metered read route carry a static declaration of exactly one of the five low-cost operations — `report.view`, `history.view`, `issue.read`, `recommendation.read`, `score.read` — so that a read route with no declaration resolves `operation_unknown` and returns Block with `contact_support` rather than being silently unmetered. No route below carries such a declaration and this table has no column for one, because the exhaustive route-to-operation table and `report.view`'s read surface are the unpaid Costs OD-019 records and are the subject of pending OD-035. Under OD-019's ratified fail-closed leg every metered read route is therefore unreachable: its proposed physical path is retained below as a blocked mapping, not a routable endpoint. This withholding is OD-019's ratified behaviour plus a registered pending decision, never a retired blocker tag. An implementation MUST NOT make one of these routes reachable by selecting a convenient operation, by inferring one from the route's permission cell — the five operation strings are not permissions and the overlap is a coincidence — or by counting a page and its Frames ad hoc.
 
 Query success is:
 
@@ -583,19 +583,20 @@ After a route and identifier syntax match, an Organization or product identifier
 | Route | Query | Permission | Enablement |
 | --- | --- | --- | --- |
 | `GET /api/v1/organizations/:organization_id/projects/:project_id/verification-requests/:id/challenge` | `QRY-021 PendingVerificationChallenge` | exact initiator or `source.verify` OrganizationAdmin | enabled |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues` | `QRY-009 IssueCollection` | `issue.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id` | `QRY-010 IssueDetail` | `issue.read`; Evidence fields independently redacted | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/evidence` | `QRY-036 IssueEvidenceCollection` | `issue.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/closure-evidence` | `QRY-037 IssueClosureEvidenceCollection` | `issue.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/adjudication-cases` | `QRY-038 IssueAdjudicationCaseCollection` | `issue.read`; Case fields follow the Issue's current field-authorization result | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/scores/current` | `QRY-024 CurrentScore` | `score.summary.read` or `score.detail.read` by field | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/history` | `QRY-025 HistoryCollection` | `history.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/history/compare` | `QRY-008 HistoryComparison` | `history.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` and `UPSTREAM-V1-COMPARISON-EVENT-007` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations` | `QRY-011 RecommendationCollection` | `recommendation.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations/:id` | `QRY-012 RecommendationDetail` | `recommendation.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations/:id/rationale-evidence` | `QRY-039 RecommendationRationaleEvidenceCollection` | `recommendation.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
-| `GET /api/v1/organizations/:organization_id/projects/:project_id/action-queue` | `QRY-013 ActionQueue` | `recommendation.read` | deferred under `UPSTREAM-V1-LOW-COST-METERING-005` |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues` | `QRY-009 IssueCollection` | `issue.read` | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id` | `QRY-010 IssueDetail` | `issue.read`; Evidence fields independently redacted | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/evidence` | `QRY-036 IssueEvidenceCollection` | `issue.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/closure-evidence` | `QRY-037 IssueClosureEvidenceCollection` | `issue.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/issues/:id/adjudication-cases` | `QRY-038 IssueAdjudicationCaseCollection` | `issue.read`; Case fields follow the Issue's current field-authorization result | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/scores/current` | `QRY-024 CurrentScore` | `score.summary.read` or `score.detail.read` by field | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/history` | `QRY-025 HistoryCollection` | `history.read` | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/history/compare` | `QRY-008 HistoryComparison` | `history.read`; side-effect-free and emitting no domain event under ratified OD-024 | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations` | `QRY-011 RecommendationCollection` | `recommendation.read` | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations/:id` | `QRY-012 RecommendationDetail` | `recommendation.read` | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/recommendations/:id/rationale-evidence` | `QRY-039 RecommendationRationaleEvidenceCollection` | `recommendation.read`; each Evidence item is independently full or reference-only under Evidence field/classification authorization | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
+| `GET /api/v1/organizations/:organization_id/projects/:project_id/action-queue` | `QRY-013 ActionQueue` | `recommendation.read` | withheld under pending OD-035; no low-cost operation is declared, so the route resolves `operation_unknown` and returns Block with `contact_support` under OD-019's ratified leg |
 | `GET /api/v1/organizations/:organization_id/entitlement-notices` | `QRY-018 EntitlementNoticeCollection` | `entitlement.notice.read`; notice fields only | enabled |
+| `GET /api/v1/organizations/:organization_id/exports` | `QRY-015 ExportCollection` | `export.list`, tenant-scoped under ratified OD-020, which binds it to Export enumeration in WF-016; `export.retrieve` authorizes one known retrieval and never enumeration | enabled; `export.list` is not one of the five low-cost operations, so enumeration is a nonmetered read |
 
 ### Query DTO JSON schema registry
 
@@ -773,7 +774,7 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 
 | Event types | Workflow | Affected entity | Allowed profile(s) | Extra schema | Reason source |
 | --- | --- | --- | --- | --- | --- |
-| `BootstrapGrantIssued` | WF-001 | `bootstrap_grant` | C | `none` | none; emission deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `BootstrapGrantIssued` | WF-001 | `bootstrap_grant` | C | `none` | none; emittable under resolved OD-013 Option 1, which confines the DM-REQ-013 pre-Organization substitution WF-001 expressly names to this event and `BootstrapGrantExpired` |
 | `BootstrapGrantConsumed` | WF-001 | `bootstrap_grant` | ST | `none` | none |
 | `BootstrapGrantExpired` | WF-001 | `bootstrap_grant` | ST | `none` | transition |
 | `AccountProvisionRequested` | WF-001 | `account` | C | `none` | none |
@@ -836,7 +837,7 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `IssueAdjudicated` | WF-007 | `adjudication_case` | ST | `adjudication` | transition |
 | `IssueDisputeWithdrawn` | WF-007 | `adjudication_case` | ST | `adjudication` | none |
 | `IssueAdjudicationOverdue`, `IssueAdjudicationReminder`, `IssueAdjudicationCritical` | WF-007 | `adjudication_case` | D | `adjudication_sla` | decision |
-| `IssueFingerprintCollision` | unavailable | unavailable | unavailable | deferred under `UPSTREAM-V1-ISSUE-COLLISION-013` | unavailable |
+| `IssueFingerprintCollision` | WF-007 | `issue` | C | `fingerprint_collision` | none; restricted under ratified OD-017 `issue-collision-v1`. Emitted in the same transaction as the `fingerprint_collision_decisions` row and the Evaluation failure, once per attempted conflicting create, before the Evaluation terminalizes. The subject is the preallocated conflicting Issue identity, under which no Issue row is ever written. Retained preimages stay restricted and are absent from the envelope |
 | `EvidenceValidationChanged` | WF-007/WF-008 | `evidence` | D | `evidence_validation` | decision |
 | `ScoreSnapshotCreated` | WF-008 | `score_snapshot` | C | `score_snapshot` | none |
 | `ScoreSnapshotPromoted`, `ScoreCalculationUnavailable`, `ScoreRecalculated` | WF-008/WF-011 | `current_score_projection` | PJ | `score_projection` | projection |
@@ -866,14 +867,14 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `RoleAssignmentRequested` | WF-013 | `role_assignment` | C | `none` | none |
 | `RoleRejected`, `RoleRevoked` | WF-013 | `role_assignment` | ST | `none` | none |
 | `RoleExpired` | WF-013 | `role_assignment` | ST | `none` | transition |
-| `RoleExpiryBlocked` | WF-013 | unavailable | unavailable | deferred under `UPSTREAM-V1-ROLE-EXPIRY-BLOCKED-EVENT-011` | unavailable |
+| `RoleExpiryBlocked` | WF-013 | `role_expiry_block_decision` | D | `role_expiry_block` | decision; under resolved OD-026 the immutable `RoleExpiryBlockDecision` record carries the `expiry_blocked_last_admin` block reason and the mandatory notification route row exists with its recipients, required permission and severity |
 | `AccessPolicySuperseded`, `AccessPolicyRetired` | WF-013 | `access_policy` | ST | `none` | transition |
 | `SupportSessionRequested` | WF-013 | `support_session` | C | `none` | none |
 | `SupportSessionActivated` | WF-013 | `support_session` | ST | `none` | none |
 | `SupportSessionRejected`, `SupportSessionRevoked` | WF-013 | `support_session` | ST | `none` | none |
 | `SupportSessionExpired` | WF-013 | `support_session` | ST | `none` | transition |
 | `AccountSuspended`, `AccountReactivated`, `AccountRevoked` | WF-013 | `account` | ST | `none` | none |
-| `SessionRevoked`, `SessionExpired` | WF-001/WF-013 | `session` | ST | `none` | transition; standalone explicit revocation deferred under `UPSTREAM-V1-SESSION-REVOCATION-002` |
+| `SessionRevoked`, `SessionExpired` | WF-001/WF-013 | `session` | ST | `none` | transition; under ratified OD-016 the `active -> revoked` edge carries both the authenticated user's own current-Session termination and a SecurityOperator's revocation of one identified Session, under distinct revoke reasons `self_sign_out` and `security_revocation`. Neither cascades to concurrent Sessions of the same Account; sign-out-everywhere is out of baseline scope |
 | `OrganizationSuspended`, `OrganizationReactivated`, `OrganizationClosed` | WF-013 | `organization` | ST | `none` | none |
 | `OrganizationClosureRequested` | WF-013 | `organization_closure_request` | C | `none` | none |
 | `OrganizationClosureApproved` | WF-013 | `organization_closure_request` | ST | `none` | none |
@@ -913,7 +914,7 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `ExportFailed`, `ExportExpired` | WF-016 | `export` | ST | `export` | transition |
 | `ExportRevoked` | WF-016 | `export` | ST | `export` | none |
 | `ExportRetrieved` | WF-016 | `export_retrieval` | ST | `export_retrieval` | none |
-| `IncidentRaised` | WF-017 | `incident` | C | `incident` | none; platform-wide emission deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `IncidentRaised` | WF-017 | `incident` | C | `incident` | none; under resolved OD-013 Option 1 an Incident affecting N Organizations is exactly N Organization-owned Incident records emitting N Organization-scoped events linked by one shared `correlation_id`. No platform-owned record or platform-scoped event exists and `correlation_id` confers no ownership |
 | `IncidentSeverityAssigned` | WF-017 | `incident` | D | `incident_severity_decision` | decision |
 | `SecurityIncidentCustomerActionRequired` | WF-017 | `incident` | D | `incident_customer_action` | decision |
 | `IncidentRecoveryStepStarted` | WF-017 | `incident_step_attempt` | C | `incident_step` | none |
@@ -921,9 +922,9 @@ The table is the complete physical `EventType` enum. A comma-separated cell admi
 | `IncidentRecoveryFailed` | WF-017 | `incident_step_attempt` | ST | `incident_step` | transition |
 | `IncidentMitigated`, `IncidentResolved` | WF-017 | `incident` | ST | `incident` | none |
 | `IncidentRestorationVerified` | WF-017 | `incident_restoration_check` | C | `incident_restoration_check` | none |
-| `SecurityInvestigationOpened` | WF-018 | `investigation` | C | `investigation` | none; deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
-| `InvestigationAuditEvidenceCollected`, `InvestigationGapRecorded` | WF-018 | `investigation_input` | C | `investigation_input` | deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
-| `SecurityInvestigationReported`, `SecurityInvestigationClosed` | WF-018 | `investigation` | ST | `investigation` | deferred under `UPSTREAM-V1-EVENT-SCOPE-001` |
+| `SecurityInvestigationOpened` | WF-018 | `investigation` | C | `investigation` | none; emittable under resolved OD-013 Option 1: the record is canonically owned by exactly one Organization and carries that Organization's nonnull `organization_id`, and an Investigation spanning N Organizations is exactly N Organization-owned records linked by one shared `correlation_id` |
+| `InvestigationAuditEvidenceCollected`, `InvestigationGapRecorded` | WF-018 | `investigation_input` | C | `investigation_input` | none; each carries the owning Organization's nonnull `organization_id` under resolved OD-013 Option 1 |
+| `SecurityInvestigationReported`, `SecurityInvestigationClosed` | WF-018 | `investigation` | ST | `investigation` | transition; emittable under resolved OD-013 Option 1: the record is canonically owned by exactly one Organization and carries that Organization's nonnull `organization_id`, and an Investigation spanning N Organizations is exactly N Organization-owned records linked by one shared `correlation_id` |
 
 Every WF-017 row above is Organization-scoped, which under OD-013 Option 1 is the only scope any Incident event has. An incident affecting several Organizations is represented as one Organization-scoped Incident record per affected Organization, each emitting its own Organization-scoped events linked by a shared `correlation_id`; there is no platform-wide Incident event type to publish. A publisher still may not choose one Organization arbitrarily, omit the tenant field, or emit a sentinel or synthetic tenant, and `correlation_id` confers no ownership. Transport exposure remains intentionally deferred to the Volume II baseline.
 

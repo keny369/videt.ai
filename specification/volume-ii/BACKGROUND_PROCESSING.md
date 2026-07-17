@@ -403,12 +403,12 @@ The generic `scheduled_action_dispatch` mapping is exhaustive:
 | `bootstrap_grant_expire` | `ExpireBootstrapGrant` |
 | `session_expire` | `ExpireSession` |
 | `invitation_expire` | `ExpireInvitation` |
-| `role_assignment_expire` | `ExpireRoleAssignment`; ordinary nonblocking expiry only, while the last-OrganizationAdmin block branch is deferred under `UPSTREAM-V1-ROLE-EXPIRY-BLOCKED-EVENT-011` |
+| `role_assignment_expire` | `ExpireRoleAssignment`; ordinary nonblocking expiry, and the last-OrganizationAdmin block branch under resolved OD-026, which writes the immutable `RoleExpiryBlockDecision` `decision` record carrying `expiry_blocked_last_admin`, keeps the Assignment effective past `expires_at_utc` until the guard clears, re-evaluates on each Organization authorization-epoch advance and emits `RoleExpiryBlocked` on its mandatory notification route |
 | `source_scope_request_expire` | `ExpireSourceScopeChange` |
 | `verification_request_expire` | `ExpireVerificationRequest` |
 | `adjudication_due` | `MarkAdjudicationOverdue`; the checkpoint's persisted sequence also determines the already-defined reminder/critical emission, never an adjudication decision |
 | `ai_publication_expire` | `ExpireAiResponse`; dormant |
-| `reassessment_slot` | reserved mapping only; insertion and dispatch are deferred under `UPSTREAM-V1-REASSESSMENT-TRIGGER-EVENT-010`; after correction it invokes `EvaluateReassessmentSlot`, then `StartReassessment` only when that committed decision is `admitted` |
+| `reassessment_slot` | insertion and dispatch are reachable under ratified OD-025, which removes `ReassessmentTriggered` rather than binding it; the action invokes `EvaluateReassessmentSlot`, then `StartReassessment` only when that committed decision is `admitted`, emitting `ReassessmentScheduleEvaluated` for every ordinary or latest-coalesced due slot and no trigger event |
 | `notification_escalation_due` | `EscalateNotification` |
 | `credential_expire` | `ExpireCredential` |
 | `export_expire` | `ExpireExport` |

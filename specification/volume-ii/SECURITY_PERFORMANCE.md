@@ -1026,7 +1026,7 @@ single-successor lineage with exactly one current leaf per fingerprint**, and **
 never falsely resolves an Issue**. This section owns both, and owns the Reassessment Result record
 that reports where absence could not be proved.
 
-It is the complement of [PRULE-017](#prule-017-issue-supersession-and-issue-set-membership) at MTX-068
+It is the complement of [PRULE-017](APPLICATION_LAYER.md#prule-017-issue-supersession-and-issue-set-membership) at MTX-068
 in S-12: that row owns the rule that **builds** the lineage; this row owns the invariant the built
 lineage must **exhibit**. Neither redefines the other.
 
@@ -1058,7 +1058,7 @@ the committing transaction is a report, not a guard.
 Single-leaf-per-fingerprint is safe under concurrency only because the Project orchestration guard
 admits one reconciliation at a time. Two concurrent replacement sets could each satisfy the invariant
 alone and jointly produce two leaves for one fingerprint; the guard is what makes the invariant
-compositional. It is contracted at [WF-011](#wf-011-trigger-reassessment).
+compositional. It is contracted at [WF-011](APPLICATION_LAYER.md#wf-011-trigger-reassessment).
 
 ### An unproved absence is an outcome, not an error
 
@@ -1376,10 +1376,10 @@ Current Score Projection, and OD-007, OD-010 and OD-011 (**all ratified**).
 
 This section owns a cross-record invariant, not a record. The Recommendation Artifact contract is
 S-14's; the AIResponse and Citation contracts are S-10's
-([PRULE-014](#prule-014-airesponse-and-citation-integrity)); the Evidence-transition wide commit is
+([PRULE-014](APPLICATION_LAYER.md#prule-014-airesponse-and-citation-integrity)); the Evidence-transition wide commit is
 S-11's ([PRULE-016](#prule-016-evidence-contract-retention-split-and-propagation)); the
 adjudication-transition wide commit is S-12's
-([Issue Eligibility And Adjudication Recalculation](#issue-eligibility-and-adjudication-recalculation)).
+([Issue Eligibility And Adjudication Recalculation](APPLICATION_LAYER.md#issue-eligibility-and-adjudication-recalculation)).
 This section fixes the invariant and the **ordering** all of them must satisfy.
 
 ### Chain completeness has two halves, and the structural half is not enough
@@ -1442,7 +1442,7 @@ OD-009 (**both ratified**).
 
 This section fixes the cardinality of the origin link and confines eligibility, suppression, priority
 and lifecycle to the origin alone. The eligibility predicate itself is S-12's
-([Issue Eligibility And Adjudication Recalculation](#issue-eligibility-and-adjudication-recalculation));
+([Issue Eligibility And Adjudication Recalculation](APPLICATION_LAYER.md#issue-eligibility-and-adjudication-recalculation));
 the suppression **ordering** is S-13's
 ([Chain Completeness And Suppression Before A Current Read](#chain-completeness-and-suppression-before-a-current-read)).
 Neither is restated here.

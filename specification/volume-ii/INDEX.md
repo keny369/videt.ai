@@ -2,12 +2,12 @@
 
 ## Status And Authority
 
-- Status: Implementation Architecture Pass 001 complete for all unblocked behavior; baseline freeze blocked by frozen Volume I ambiguities below
+- Status: Implementation Architecture Pass B complete — 97/97 implementation-matrix rows contracted, all 25 contract sources integrated, and the governance repair completed under ADR-023. No upstream blocker remains implementation-blocking. See [SPECIFICATION_FREEZE_CANDIDATE.md](SPECIFICATION_FREEZE_CANDIDATE.md) and [IMPLEMENTATION_READINESS_REPORT.md](IMPLEMENTATION_READINESS_REPORT.md)
 - Behavioural baseline: frozen Volume I at `v1.5-volume-i-frozen` (commit `c6b3853`, ADR-020). Historical `v1.3-volume-i-corrected` is retained as predecessor history and is not the baseline.
 - Engineering-practice baseline: accepted Engineering Manual at `v1.7-engineering-manual-accepted` (commit `b049a41`, ADR-022), normative for engineering practice only.
 - Initial Volume II draft commit: `7213e9a`
 - Foundation dependency: 1.0
-- Last updated: 2026-07-16
+- Last updated: 2026-07-17
 - Owner: Chief Architect
 
 Volume II translates accepted product behavior into one implementation architecture. It cannot create a product actor, action, field, state, transition, failure result, provider behavior or acceptance outcome that is absent from Volume I. When Volume I is ambiguous, the affected route, job or write path remains absent and is listed here.
@@ -96,7 +96,11 @@ live constraint.
 
 The two live blockers withhold a limb, not a capability. The Owner Decision Register records
 both as `Volume II — no` for blocking impact under their interims, so neither blocks this
-baseline. Withheld limbs and their slices are recorded in
+baseline. Every retired tag above withholds nothing: under ADR-023 all 72 sites that cited one as a
+live reason to defer, disable or refuse to route were classified in
+[RETIRED_BLOCKER_CLASSIFICATION.md](RETIRED_BLOCKER_CLASSIFICATION.md) and re-anchored to the
+authority that actually governs, with no change to product behaviour. Citing a retired tag as a live
+reason is now a validator failure across the whole in-scope tree, not only this directory. Withheld limbs and their slices are recorded in
 [SLICE_REGISTER.md](SLICE_REGISTER.md) and [IMPLEMENTATION_MATRIX.md](IMPLEMENTATION_MATRIX.md).
 
 ### Historical Blocker Records
@@ -162,7 +166,8 @@ Implementation may begin only for slices whose command/read/event dependencies d
 
 The Volume II architecture baseline may be frozen only when:
 
-1. no upstream Volume I blocker recorded above remains implementation-blocking, measured by blocking status rather than by a count. A blocker is discharged when its governing Owner Decision is ratified and integrated into its canonical owner, or when that decision removes the governed behaviour entirely; a retired blocker requires no further correction. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live and pending under their deterministic neutral interims; the remainder are retired under ADR-019 and ADR-020;
+1. no upstream Volume I blocker recorded above remains implementation-blocking, measured by blocking status rather than by a count. A blocker is discharged when its governing Owner Decision is ratified and integrated into its canonical owner, or when that decision removes the governed behaviour entirely; a retired blocker requires no further correction. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live and pending under their deterministic neutral interims; the remainder are retired under ADR-019 and ADR-020. **Met.**;
+1a. every ratified decision that delegates a required policy question to a successor names a registered successor, so that no affected row is left unable either to withhold or to implement. OD-034 and OD-035 were registered for this reason under ADR-023, and `unresolved_successor_decision` enforces it mechanically. **Met.**;
 2. affected API/application/frontend/schema/job text is aligned without changing other behavior;
 3. cross-document, identifier, link, table and terminology validation passes;
 4. every physical operation maps to one Volume I behavior and every required behavior maps to one physical owner or explicit dormant gate;
