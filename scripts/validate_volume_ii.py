@@ -72,9 +72,16 @@ CANDIDATE_VERIFICATION_METHOD = re.compile(
     r"file_upload|cname|dns_cname|ns_delegation|whois|oauth_domain|tls_alpn)`")
 # Naming an unapproved method as a rejection fixture is correct and required: the contract has
 # to prove that meta_tag is refused. Only asserting one as usable is the defect.
+#
+# Matched against the method's own line, never a surrounding character window. A window is
+# unsound here: any neighbouring prose that happens to reject something *else* silently exempts
+# a real violation. That is not hypothetical -- integrating S-12's PRULE-023 fragment, which
+# ends by rejecting a reused fingerprint version, disabled this check for the whole tail of
+# SECURITY_PERFORMANCE.md until the negative control caught it. The rejection must be asserted
+# about the method itself, on the same line.
 VERIFICATION_METHOD_REJECTED = re.compile(
-    r"(?i)(unsupported_method|rejected|reject|MUST NOT|outside baseline|blocked|not approved|"
-    r"out of baseline|are each|denied|refus)")
+    r"(?i)(unsupported_method|outside baseline|out of baseline|not approved|not accepted|"
+    r"MUST NOT|are each|rejected as|refused|denied)")
 
 CURRENT_VOLUME_I_BASELINE = "v1.5-volume-i-frozen"
 CURRENT_MANUAL_BASELINE = "v1.7-engineering-manual-accepted"
@@ -195,6 +202,18 @@ PENDING_OD_PREEMPTION = {
         "OD-014 (UPSTREAM-V1-PROJECT-LIFECYCLE-003) reserves Project pause/resume/archive",
 }
 NONCANONICAL_SPELLING = re.compile(r"(?<!\w)Organisation\w*")
+# An upstream blocker tag withholds behaviour. Once its Owner Decision is ratified the tag is
+# retired, and citing it as a live reason withholds behaviour the owner has approved -- the
+# mirror image of pre-empting an open decision, and just as wrong. INDEX.md's registry is the
+# status authority; these are the phrasings that make a citation a live withholding.
+RETIRED_BLOCKER_USE = re.compile(
+    r"(?i)\b(deferred under|deferred pending|disabled by|blocked by|blocked mappings?|"
+    r"remains? deferred|remains? blocked|unreachable until|withheld under|not routable)\b")
+# A line that states the tag's retirement is a status record, not a live citation.
+BLOCKER_STATUS_STATEMENT = re.compile(r"(?i)(retired under|status:\s*resolved|resolved by ADR|"
+                                      r"\bLIVE\b|removes? .{0,40}under ADR)")
+BLOCKER_REGISTRY_ROW = re.compile(
+    r"^\|\s*`(UPSTREAM-[A-Z0-9-]+)`\s*\|\s*(OD-\d{3})\s*\|\s*(.+?)\s*\|\s*$")
 ROUTE_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\s+(/[A-Za-z0-9_{}:/-]*)")
 # Volume II owns implementation contracts, so it may name routes -- but only where a
 # governing workflow or capability is cited in the same document.
@@ -257,15 +276,15 @@ def validate(root: Path) -> list[Finding]:
                                         f"{m.group(0)}: {reason}"))
 
         # unauthorized verification method (OD-001 ratifies dns_txt and http_file only)
-        for m in CANDIDATE_VERIFICATION_METHOD.finditer(text):
-            method = m.group(1)
-            window = text[max(0, m.start() - 220):m.end() + 220]
-            if VERIFICATION_METHOD_REJECTED.search(window):
-                continue
-            if method not in RATIFIED_VERIFICATION_METHODS:
-                findings.append(Finding(path, line_of(text, m.group(0)), "unauthorized_verification_method",
-                                        f"{method}: OD-001 ratifies dns_txt and http_file only; "
-                                        "other methods are outside baseline scope"))
+        for i, line in enumerate(text.splitlines(), 1):
+            if VERIFICATION_METHOD_REJECTED.search(line):
+                continue  # this line rejects the method it names; that is the required fixture
+            for m in CANDIDATE_VERIFICATION_METHOD.finditer(line):
+                method = m.group(1)
+                if method not in RATIFIED_VERIFICATION_METHODS:
+                    findings.append(Finding(path, i, "unauthorized_verification_method",
+                                            f"{method}: OD-001 ratifies dns_txt and http_file only; "
+                                            "other methods are outside baseline scope"))
 
         # OD-027 withheld limb contracted as settled
         if OD_027_WITHHELD_ARTIFACT.search(text) and not OD_027_CITATION.search(text):
@@ -314,6 +333,7 @@ def validate(root: Path) -> list[Finding]:
 
     findings.extend(validate_pass_b_contracts(root))
     findings.extend(validate_decision_status(root))
+    findings.extend(validate_retired_blockers(root))
 
     # 9. an AC with no matrix row / 10. a matrix row with no governing source
     if matrix_path.exists():
@@ -403,6 +423,57 @@ def validate_decision_status(root: Path) -> list[Finding]:
             findings.append(Finding(matrix, None, "ratified_decision_treated_as_pending",
                                     f"{row_id} is marked withheld but none of its decisions "
                                     f"({', '.join(row_ods) or 'none'}) is pending in the register"))
+    return findings
+
+
+def retired_blockers(root: Path) -> dict[str, str]:
+    """Map each upstream blocker tag to its status, from INDEX.md's registry table.
+
+    INDEX.md is the status authority for Volume II blocker tags, exactly as each decision's
+    `Current Status` field is the status authority for Owner Decisions. Prose elsewhere is not
+    a status source.
+    """
+    index = root / "specification" / "volume-ii" / "INDEX.md"
+    if not index.exists():
+        return {}
+    statuses: dict[str, str] = {}
+    for line in index.read_text(encoding="utf-8").splitlines():
+        m = BLOCKER_REGISTRY_ROW.match(line)
+        if m:
+            statuses[m.group(1)] = m.group(3)
+    return {tag: st for tag, st in statuses.items()
+            if not re.search(r"(?i)\bLIVE\b", st) and re.search(r"(?i)retired|resolved", st)}
+
+
+def validate_retired_blockers(root: Path) -> list[Finding]:
+    """A retired blocker tag must not be cited as a live reason to withhold behaviour.
+
+    Naming a retired tag is legitimate and required -- the correction packages record what each
+    blocker was and how it resolved. The defect is naming it as the *reason* a capability is
+    deferred, disabled or unroutable, because a reader who trusts that withholds behaviour the
+    owner ratified.
+
+    Scoped to a single line rather than a proximity window: a window is untrustworthy here, as
+    an unrelated disabling phrase elsewhere in the paragraph would exempt or condemn a citation
+    arbitrarily. A table row and a prose sentence each occupy one line in this repository.
+    """
+    findings: list[Finding] = []
+    retired = retired_blockers(root)
+    if not retired:
+        return findings
+    for path in sorted((root / "specification" / "volume-ii").glob("*.md")):
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if BLOCKER_STATUS_STATEMENT.search(line):
+                continue  # states the tag's status; not a live citation
+            use = RETIRED_BLOCKER_USE.search(line)
+            if not use:
+                continue
+            for tag, status in retired.items():
+                if tag in line:
+                    findings.append(Finding(
+                        path, i, "retired_blocker_cited_as_live",
+                        f"{tag} is '{status}' per INDEX.md, but is cited here as "
+                        f"'{use.group(0)}'; a retired blocker withholds nothing"))
     return findings
 
 
@@ -587,6 +658,12 @@ def run_negative_controls() -> int:
          lambda r: append(r / "specification" / "volume-ii" / "SECURITY_PERFORMANCE.md",
                           "\nOwnership may also be proved by `meta_tag` placement.\n"),
          "unauthorized_verification_method"),
+        # OD-016 is ratified and SESSION-REVOCATION-002 is retired, so citing it as a live
+        # reason to defer would withhold ratified behaviour.
+        ("retired blocker cited as live",
+         lambda r: append(r / "specification" / "volume-ii" / "BACKGROUND_PROCESSING.md",
+                          "\nThe revocation sweep is deferred under `UPSTREAM-V1-SESSION-REVOCATION-002`.\n"),
+         "retired_blocker_cited_as_live"),
     ]
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="f1-v2-negative-") as tmp:
