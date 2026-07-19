@@ -1,0 +1,6 @@
+# Platform is the shared kernel (architecture/RAILS_APPLICATION_ARCHITECTURE.md
+# § Bounded Contexts): IDs, clock, canonical JSON, command/result, idempotency,
+# audit, event registry/outbox, RLS context. It depends on nothing else in app/
+# and every context may depend on it. It uses Rails/stdlib primitives only.
+enforce_dependencies: true
+dependencies: []

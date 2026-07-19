@@ -18,6 +18,11 @@ require "sprockets/railtie" if false # never; Propshaft is the pipeline
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
+# Namespace root for the shared platform kernel. app/platform maps to Platform::
+# and each app/contexts/<context> maps to its context constant, per
+# architecture/RAILS_APPLICATION_ARCHITECTURE.md § Source Layout.
+module Platform; end
+
 module F1
   class Application < Rails::Application
     # Initialize configuration defaults for originally generated Rails version.
@@ -25,6 +30,13 @@ module F1
 
     # `lib` holds only pure Ruby that is not autoloadable domain code.
     config.autoload_lib(ignore: %w[assets tasks])
+
+    # app/platform is the Platform:: namespace root (a namespaced autoload dir,
+    # not a plain root that would make app/platform/clock.rb resolve to ::Clock).
+    # app/contexts is a plain root, so app/contexts/identity_access/... resolves
+    # to IdentityAccess::... with no extra configuration.
+    platform_dir = File.expand_path("../app/platform", __dir__)
+    Rails.autoloaders.main.push_dir(platform_dir, namespace: Platform)
 
     # The frozen baseline runs in UTC everywhere; product decisions use an
     # injected clock, never wall-clock in domain code (architecture fitness).
