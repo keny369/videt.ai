@@ -1,0 +1,6 @@
+# IdentityAccess owns Account, Bootstrap Grant, Session, Invitation, Role
+# Assignment and Access Policy (architecture § Bounded Contexts). It depends only
+# on the Platform kernel.
+enforce_dependencies: true
+dependencies:
+  - app/platform

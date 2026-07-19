@@ -1,0 +1,7 @@
+# Workflows is the only package that may coordinate more than one context
+# (architecture § Workflow Orchestration). It depends on the Platform kernel and
+# on the public surface of the contexts it orchestrates.
+enforce_dependencies: true
+dependencies:
+  - app/platform
+  - app/contexts/identity_access

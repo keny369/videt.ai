@@ -18,10 +18,12 @@ require "sprockets/railtie" if false # never; Propshaft is the pipeline
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
-# Namespace root for the shared platform kernel. app/platform maps to Platform::
-# and each app/contexts/<context> maps to its context constant, per
-# architecture/RAILS_APPLICATION_ARCHITECTURE.md § Source Layout.
+# Namespace roots for the shared platform kernel and the workflow coordinators.
+# app/platform maps to Platform::, app/workflows to Workflows::, and each
+# app/contexts/<context> maps to its context constant (a plain root, no config),
+# per architecture/RAILS_APPLICATION_ARCHITECTURE.md § Source Layout.
 module Platform; end
+module Workflows; end
 
 module F1
   class Application < Rails::Application
@@ -37,6 +39,8 @@ module F1
     # to IdentityAccess::... with no extra configuration.
     platform_dir = File.expand_path("../app/platform", __dir__)
     Rails.autoloaders.main.push_dir(platform_dir, namespace: Platform)
+    workflows_dir = File.expand_path("../app/workflows", __dir__)
+    Rails.autoloaders.main.push_dir(workflows_dir, namespace: Workflows)
 
     # The frozen baseline runs in UTC everywhere; product decisions use an
     # injected clock, never wall-clock in domain code (architecture fitness).
