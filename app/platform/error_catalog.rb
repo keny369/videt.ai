@@ -52,7 +52,21 @@ module Platform
       "organization_inactive"             => "F1-AUTH-403",
       "identity_assurance_failed"         => "F1-AUTHN-401",
       "policy_unavailable"                => "F1-DOMAIN-409",
-      "sign_in_timeout"                   => "F1-TIMEOUT-504"
+      "sign_in_timeout"                   => "F1-TIMEOUT-504",
+      # WF-001 invitation-acceptance outward reasons (WORKFLOW_SPECIFICATIONS.md
+      # § invitation; class mapping at that paragraph). State/uniqueness/expiry
+      # conflicts are F1-DOMAIN-409; cross-tenant Account selection is F1-AUTH-403.
+      # Expiry via the opaque reference resolves to the generic invitation_not_active
+      # (POSTGRESQL_SCHEMA.md § resolver: "expiry equality ... invitation_not_active
+      # representation"), so acceptance never emits a distinct invitation_expired.
+      "invitation_not_active"             => "F1-DOMAIN-409",
+      "invitation_target_mismatch"        => "F1-DOMAIN-409",
+      "invitation_account_ineligible"     => "F1-DOMAIN-409",
+      "invitation_role_scope_changed"     => "F1-DOMAIN-409",
+      "account_identity_conflict"         => "F1-AUTH-403",
+      # Exact-replay reauthorization denial (APPLICATION_LAYER.md § replay:
+      # "denial returns F1-AUTH-403 with no retained payload").
+      "reauthorization_denied"            => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

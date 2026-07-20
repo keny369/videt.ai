@@ -29,10 +29,12 @@ module F1
     # through SECURITY DEFINER functions and carry no runtime grant.
     TABLE_PRIVILEGES = {
       "organizations"                     => "SELECT",
-      "accounts"                          => "SELECT",
-      "role_assignments"                  => "SELECT",
+      "accounts"                          => "SELECT, INSERT, UPDATE",
+      "role_assignments"                  => "SELECT, INSERT",
       "access_policies"                   => "SELECT",
       "sessions"                          => "SELECT, INSERT",
+      "invitations"                       => "SELECT, UPDATE",
+      "invitation_reference_registry"     => "SELECT, UPDATE",
       "bootstrap_grants"                  => "SELECT, INSERT, UPDATE",
       "idempotency_records"               => "SELECT, INSERT, UPDATE",
       "command_executions"                => "SELECT, INSERT",
@@ -61,7 +63,9 @@ module F1
       "f1_current_context_org()",
       "f1_enter_bootstrap_context(bytea, uuid)",
       "f1_enter_context(bytea, uuid, uuid)",
-      "f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text)"
+      "f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text)",
+      "f1_resolve_invitation_reference(bytea, timestamptz)",
+      "f1_resolve_invitation_org(bytea)"
     ].freeze
 
     # Functions that must NOT be PUBLIC-executable. structure.sql load recreates
@@ -73,7 +77,9 @@ module F1
       "f1_context_proof(text, text)",
       "f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text)",
       "f1_enter_bootstrap_context(bytea, uuid)",
-      "f1_enter_context(bytea, uuid, uuid)"
+      "f1_enter_context(bytea, uuid, uuid)",
+      "f1_resolve_invitation_reference(bytea, timestamptz)",
+      "f1_resolve_invitation_org(bytea)"
     ].freeze
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.

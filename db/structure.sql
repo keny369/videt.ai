@@ -161,7 +161,7 @@ $$;
 -- Name: f1_enter_context(bytea, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_enter_context(p_receipt_digest bytea, p_org uuid, p_correlation_id uuid) RETURNS TABLE(receipt_found boolean, receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, mfa_satisfied boolean, identity_principal_digest bytea, context_org uuid)
+CREATE FUNCTION public.f1_enter_context(p_receipt_digest bytea, p_org uuid, p_correlation_id uuid) RETURNS TABLE(receipt_found boolean, receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, mfa_satisfied boolean, identity_principal_digest bytea, normalized_email_sha256 bytea, normalized_email text, display_name text, context_org uuid)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
@@ -178,13 +178,65 @@ BEGIN
   IF v_found THEN
     RETURN QUERY SELECT true, r.id, r.purpose, r.validated_at, r.expires_at, r.email_verified,
                         r.issuer_key, r.issuer_subject, r.receipt_schema_version,
-                        r.assurance_version, r.mfa_satisfied, r.identity_principal_digest, p_org;
+                        r.assurance_version, r.mfa_satisfied, r.identity_principal_digest, r.normalized_email_sha256, r.normalized_email, r.display_name, p_org;
   ELSE
     RETURN QUERY SELECT false, NULL::uuid, NULL::text, NULL::timestamptz(6), NULL::timestamptz(6),
                         NULL::boolean, NULL::text, NULL::text, NULL::text, NULL::text, NULL::boolean,
-                        NULL::bytea, p_org;
+                        NULL::bytea, NULL::bytea, NULL::text, NULL::text, p_org;
   END IF;
 END;
+$$;
+
+
+--
+-- Name: f1_find_invitation_acceptance_replay(bytea, bytea); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_find_invitation_acceptance_replay(p_reference_digest bytea, p_key_digest bytea) RETURNS TABLE(organization_id uuid, invitation_id uuid, request_hex text, result_id uuid, audit_record_id uuid, correlation_id uuid, authorized_payload jsonb, account_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT ce.organization_id, ce.target_id, encode(ce.request_sha256, 'hex'),
+         cr.id, cr.audit_record_id, cr.correlation_id, cr.authorized_payload,
+         (cr.authorized_payload->>'account_id')::uuid
+  FROM command_executions ce
+  JOIN command_results cr ON cr.command_execution_id = ce.id
+  WHERE ce.command_type = 'wf001.accept_invitation'
+    AND ce.idempotency_key_digest = p_key_digest
+    AND ce.canonical_payload->>'invitation_reference_sha256' = encode(p_reference_digest, 'hex')
+    AND cr.outcome = 'success'
+  ORDER BY ce.created_at DESC
+  LIMIT 1;
+$$;
+
+
+--
+-- Name: f1_resolve_invitation_org(bytea); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_resolve_invitation_org(p_reference_digest bytea) RETURNS TABLE(organization_id uuid, invitation_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT r.organization_id, r.invitation_id
+  FROM invitation_reference_registry r
+  WHERE r.opaque_reference_sha256 = p_reference_digest;
+$$;
+
+
+--
+-- Name: f1_resolve_invitation_reference(bytea, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_resolve_invitation_reference(p_reference_digest bytea, p_now timestamp with time zone) RETURNS TABLE(organization_id uuid, invitation_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT r.organization_id, r.invitation_id
+  FROM invitation_reference_registry r
+  WHERE r.opaque_reference_sha256 = p_reference_digest
+    AND r.invitation_state = 'active'
+    AND (r.expires_at IS NULL OR p_now < r.expires_at);
 $$;
 
 
@@ -560,6 +612,71 @@ CREATE TABLE public.identity_receipt_nonces (
 
 
 --
+-- Name: invitation_reference_registry; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.invitation_reference_registry (
+    opaque_reference_sha256 bytea NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    invitation_id uuid NOT NULL,
+    invitation_state text NOT NULL,
+    activated_at timestamp(6) with time zone,
+    expires_at timestamp(6) with time zone,
+    terminal_at timestamp(6) with time zone,
+    locator_sha256 bytea,
+    retention_class text NOT NULL,
+    CONSTRAINT invitation_reference_registry_invitation_state_check CHECK ((invitation_state = ANY (ARRAY['pending_approval'::text, 'active'::text, 'accepted'::text, 'declined'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
+    CONSTRAINT invitation_reference_registry_locator_sha256_check CHECK (((locator_sha256 IS NULL) OR (octet_length(locator_sha256) = 32))),
+    CONSTRAINT invitation_reference_registry_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
+    CONSTRAINT invitation_reference_registry_retention_class_check CHECK ((retention_class = 'identity_commercial'::text))
+);
+
+
+--
+-- Name: invitations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.invitations (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    opaque_reference_sha256 bytea NOT NULL,
+    target_email text NOT NULL,
+    target_email_sha256 bytea NOT NULL,
+    target_identity_issuer_key text,
+    target_identity_subject text,
+    canonical_role text NOT NULL,
+    permission_mode text NOT NULL,
+    persona text,
+    scope_sha256 bytea,
+    protected_permission_preview jsonb,
+    activated_at timestamp(6) with time zone,
+    expires_at timestamp(6) with time zone,
+    accepted_at timestamp(6) with time zone,
+    declined_at timestamp(6) with time zone,
+    terminated_at timestamp(6) with time zone,
+    fulfilled_by_role_assignment_id uuid,
+    state text NOT NULL,
+    reason text,
+    CONSTRAINT invitation_active_expiry_is_seven_days CHECK (((activated_at IS NULL) OR (expires_at = (activated_at + '7 days'::interval)))),
+    CONSTRAINT invitation_bound_identity_pairwise CHECK (((target_identity_issuer_key IS NULL) = (target_identity_subject IS NULL))),
+    CONSTRAINT invitations_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
+    CONSTRAINT invitations_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
+    CONSTRAINT invitations_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
+    CONSTRAINT invitations_state_check CHECK ((state = ANY (ARRAY['pending_approval'::text, 'active'::text, 'accepted'::text, 'declined'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
+    CONSTRAINT invitations_target_email_sha256_check CHECK ((octet_length(target_email_sha256) = 32))
+);
+
+ALTER TABLE ONLY public.invitations FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: organizations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -638,7 +755,9 @@ CREATE TABLE public.role_assignments (
     status text NOT NULL,
     effective_at timestamp(6) with time zone,
     expires_at timestamp(6) with time zone,
+    scope_sha256 bytea,
     CONSTRAINT role_assignments_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
+    CONSTRAINT role_assignments_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text])))
 );
 
@@ -824,6 +943,38 @@ ALTER TABLE ONLY public.identity_receipt_nonces
 
 
 --
+-- Name: invitation_reference_registry invitation_reference_registry_invitation_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitation_reference_registry
+    ADD CONSTRAINT invitation_reference_registry_invitation_id_key UNIQUE (invitation_id);
+
+
+--
+-- Name: invitation_reference_registry invitation_reference_registry_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitation_reference_registry
+    ADD CONSTRAINT invitation_reference_registry_pkey PRIMARY KEY (opaque_reference_sha256);
+
+
+--
+-- Name: invitations invitations_opaque_reference_sha256_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_opaque_reference_sha256_key UNIQUE (opaque_reference_sha256);
+
+
+--
+-- Name: invitations invitations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: organizations organizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -883,6 +1034,13 @@ CREATE UNIQUE INDEX idempotency_scope_key ON public.idempotency_records USING bt
 --
 
 CREATE UNIQUE INDEX one_active_access_policy_per_org ON public.access_policies USING btree (organization_id, policy_type) WHERE (status = 'active'::text);
+
+
+--
+-- Name: one_active_assignment_per_tuple; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_active_assignment_per_tuple ON public.role_assignments USING btree (organization_id, account_id, canonical_role, permission_mode, COALESCE(persona, ''::text), COALESCE(scope_sha256, '\x'::bytea)) WHERE (status = 'active'::text);
 
 
 --
@@ -1040,6 +1198,32 @@ ALTER TABLE public.identity_receipt_consumptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.identity_receipt_nonces ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: invitation_reference_registry; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.invitation_reference_registry ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: invitation_reference_registry invitation_reference_registry_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY invitation_reference_registry_context ON public.invitation_reference_registry USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: invitations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: invitations invitations_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY invitations_context ON public.invitations USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: organizations; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1105,6 +1289,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260721120005'),
 ('20260721120004'),
 ('20260719120003'),
 ('20260719120002'),

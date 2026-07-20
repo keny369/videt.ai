@@ -57,16 +57,66 @@ module TenantSeeder
   # effective; pass status/expiry to build an ineffective or expired Assignment.
   def create_role_assignment(organization_id:, account_id:, canonical_role: "OrganizationAdmin",
                              id: SecureRandom.uuid_v7, permission_mode: "standard", persona: nil,
-                             status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil)
+                             status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil,
+                             scope_sha256: nil)
     params = [id, organization_id, account_id, canonical_role, permission_mode, persona,
-              status, (effective_at ? ts(effective_at) : nil), (expires_at ? ts(expires_at) : nil)]
+              status, (effective_at ? ts(effective_at) : nil), (expires_at ? ts(expires_at) : nil),
+              (scope_sha256 ? bytea(scope_sha256) : nil)]
     conn.exec_params(<<~SQL, params)
       INSERT INTO role_assignments
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
-         canonical_role, permission_mode, persona, status, effective_at, expires_at)
-      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz)
+         canonical_role, permission_mode, persona, status, effective_at, expires_at, scope_sha256)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10)
     SQL
     id
+  end
+
+  # Seeds an active Invitation (WF-001 § invitation) plus its global reference
+  # locator, consistently. Invitation creation is a later WF; until then the
+  # acceptance suite arranges the precondition directly. `activated_at` drives the
+  # 7-day active expiry (CHECK); pass an old activated_at to build an expired one.
+  # Returns { invitation_id:, reference: (32 bytes), reference_digest:,
+  #           target_email:, target_email_sha256:, canonical_role:, permission_mode:,
+  #           persona:, scope_sha256:, organization_id: }.
+  def create_invitation(organization_id:, id: SecureRandom.uuid_v7,
+                        target_email: "invitee-#{SecureRandom.hex(4)}@example.com",
+                        target_identity_issuer_key: nil, target_identity_subject: nil,
+                        canonical_role: "MarketingOperator", permission_mode: "standard", persona: nil,
+                        scope_sha256: Digest::SHA256.digest("scope:organization"),
+                        state: "active", activated_at: Time.utc(2026, 7, 18, 10, 0, 0))
+    reference = SecureRandom.random_bytes(32)
+    reference_digest = Digest::SHA256.digest(reference)
+    email_sha = Digest::SHA256.digest(target_email)
+    activated = %w[active accepted declined rejected revoked expired].include?(state) ? activated_at : nil
+    expires = activated ? (activated + (7 * 24 * 3600)) : nil
+    terminal = %w[accepted declined rejected revoked expired].include?(state) ? activated_at + (24 * 3600) : nil
+
+    inv_params = [id, organization_id, bytea(reference_digest), target_email, bytea(email_sha),
+                  target_identity_issuer_key, target_identity_subject, canonical_role, permission_mode,
+                  persona, (scope_sha256 ? bytea(scope_sha256) : nil), state,
+                  (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil)]
+    conn.exec_params(<<~SQL, inv_params)
+      INSERT INTO invitations
+        (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+         opaque_reference_sha256, target_email, target_email_sha256, target_identity_issuer_key,
+         target_identity_subject, canonical_role, permission_mode, persona, scope_sha256, state,
+         activated_at, expires_at, terminated_at)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+              $13::timestamptz,$14::timestamptz,$15::timestamptz)
+    SQL
+    reg_params = [bytea(reference_digest), organization_id, id, state,
+                  (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil)]
+    conn.exec_params(<<~SQL, reg_params)
+      INSERT INTO invitation_reference_registry
+        (opaque_reference_sha256, created_at, updated_at, organization_id, invitation_id, invitation_state,
+         activated_at, expires_at, terminal_at, retention_class)
+      VALUES ($1,now(),now(),$2,$3,$4,$5::timestamptz,$6::timestamptz,$7::timestamptz,'identity_commercial')
+    SQL
+
+    { invitation_id: id, reference: reference, reference_digest: reference_digest,
+      target_email: target_email, target_email_sha256: email_sha, canonical_role: canonical_role,
+      permission_mode: permission_mode, persona: persona, scope_sha256: scope_sha256,
+      organization_id: organization_id }
   end
 
   def create_access_policy(organization_id:, id: SecureRandom.uuid_v7, status: "active",
