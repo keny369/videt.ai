@@ -157,9 +157,96 @@ END;
 $$;
 
 
+--
+-- Name: f1_enter_context(bytea, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_enter_context(p_receipt_digest bytea, p_org uuid, p_correlation_id uuid) RETURNS TABLE(receipt_found boolean, receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, mfa_satisfied boolean, identity_principal_digest bytea, context_org uuid)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE r identity_receipt_nonces%ROWTYPE; v_found boolean; v_proof text;
+BEGIN
+  SELECT * INTO r FROM identity_receipt_nonces WHERE receipt_digest = p_receipt_digest;
+  v_found := FOUND;
+
+  v_proof := f1_context_proof('', p_org::text);
+  PERFORM set_config('app.bootstrap_principal_digest', '', true);
+  PERFORM set_config('app.context_org', p_org::text, true);
+  PERFORM set_config('app.f1_proof', v_proof, true);
+
+  IF v_found THEN
+    RETURN QUERY SELECT true, r.id, r.purpose, r.validated_at, r.expires_at, r.email_verified,
+                        r.issuer_key, r.issuer_subject, r.receipt_schema_version,
+                        r.assurance_version, r.mfa_satisfied, r.identity_principal_digest, p_org;
+  ELSE
+    RETURN QUERY SELECT false, NULL::uuid, NULL::text, NULL::timestamptz(6), NULL::timestamptz(6),
+                        NULL::boolean, NULL::text, NULL::text, NULL::text, NULL::text, NULL::boolean,
+                        NULL::bytea, p_org;
+  END IF;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: access_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.access_policies (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    policy_type text NOT NULL,
+    semantic_version text NOT NULL,
+    status text NOT NULL,
+    content_sha256 bytea,
+    effective_at timestamp(6) with time zone,
+    expires_at timestamp(6) with time zone,
+    CONSTRAINT access_policies_content_sha256_check CHECK (((content_sha256 IS NULL) OR (octet_length(content_sha256) = 32))),
+    CONSTRAINT access_policies_policy_type_check CHECK ((policy_type = 'access'::text)),
+    CONSTRAINT access_policies_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'superseded'::text, 'retired'::text])))
+);
+
+ALTER TABLE ONLY public.access_policies FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounts (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    identity_issuer_key text NOT NULL,
+    identity_subject text NOT NULL,
+    normalized_email text NOT NULL,
+    normalized_email_sha256 bytea NOT NULL,
+    display_name text NOT NULL,
+    status text NOT NULL,
+    identity_receipt_digest bytea,
+    activated_at timestamp(6) with time zone,
+    suspended_at timestamp(6) with time zone,
+    revoked_at timestamp(6) with time zone,
+    terminal_reason text,
+    CONSTRAINT accounts_identity_receipt_digest_check CHECK (((identity_receipt_digest IS NULL) OR (octet_length(identity_receipt_digest) = 32))),
+    CONSTRAINT accounts_normalized_email_sha256_check CHECK ((octet_length(normalized_email_sha256) = 32)),
+    CONSTRAINT accounts_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'suspended'::text, 'revoked'::text])))
+);
+
+ALTER TABLE ONLY public.accounts FORCE ROW LEVEL SECURITY;
+
 
 --
 -- Name: ar_internal_metadata; Type: TABLE; Schema: public; Owner: -
@@ -473,6 +560,32 @@ CREATE TABLE public.identity_receipt_nonces (
 
 
 --
+-- Name: organizations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.organizations (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    status text NOT NULL,
+    authorization_epoch bigint DEFAULT 0 NOT NULL,
+    display_name text NOT NULL,
+    profile jsonb,
+    activated_at timestamp(6) with time zone,
+    suspended_at timestamp(6) with time zone,
+    closed_at timestamp(6) with time zone,
+    lifecycle_reason text,
+    CONSTRAINT organizations_authorization_epoch_check CHECK ((authorization_epoch >= 0)),
+    CONSTRAINT organizations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'suspended'::text, 'closed'::text])))
+);
+
+ALTER TABLE ONLY public.organizations FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: pretenant_authorization_decisions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -507,12 +620,95 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions FORCE ROW LEVEL SECURI
 
 
 --
+-- Name: role_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.role_assignments (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    canonical_role text NOT NULL,
+    permission_mode text NOT NULL,
+    persona text,
+    status text NOT NULL,
+    effective_at timestamp(6) with time zone,
+    expires_at timestamp(6) with time zone,
+    CONSTRAINT role_assignments_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
+    CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text])))
+);
+
+ALTER TABLE ONLY public.role_assignments FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.schema_migrations (
     version character varying NOT NULL
 );
+
+
+--
+-- Name: sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sessions (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    identity_receipt_digest bytea NOT NULL,
+    authorization_context_version bigint NOT NULL,
+    creation_reason text NOT NULL,
+    issued_at timestamp(6) with time zone NOT NULL,
+    last_activity_at timestamp(6) with time zone NOT NULL,
+    idle_expires_at timestamp(6) with time zone NOT NULL,
+    absolute_expires_at timestamp(6) with time zone NOT NULL,
+    status text NOT NULL,
+    revoke_reason text,
+    expiry_reason text,
+    terminated_at timestamp(6) with time zone,
+    CONSTRAINT session_absolute_is_twelve_hours CHECK ((absolute_expires_at = (issued_at + '12:00:00'::interval))),
+    CONSTRAINT session_idle_is_thirty_minutes CHECK ((idle_expires_at = (last_activity_at + '00:30:00'::interval))),
+    CONSTRAINT sessions_identity_receipt_digest_check CHECK ((octet_length(identity_receipt_digest) = 32)),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+);
+
+ALTER TABLE ONLY public.sessions FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: access_policies access_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.access_policies
+    ADD CONSTRAINT access_policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounts accounts_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_identity_unique UNIQUE (organization_id, identity_issuer_key, identity_subject);
+
+
+--
+-- Name: accounts accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_pkey PRIMARY KEY (id);
 
 
 --
@@ -628,6 +824,14 @@ ALTER TABLE ONLY public.identity_receipt_nonces
 
 
 --
+-- Name: organizations organizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizations
+    ADD CONSTRAINT organizations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: pretenant_authorization_decisions pretenant_authorization_decisions_command_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -644,6 +848,14 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 
 --
+-- Name: role_assignments role_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.role_assignments
+    ADD CONSTRAINT role_assignments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -652,10 +864,25 @@ ALTER TABLE ONLY public.schema_migrations
 
 
 --
+-- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: idempotency_scope_key; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX idempotency_scope_key ON public.idempotency_records USING btree (scope_kind, command_type, target_type, key_digest, COALESCE(organization_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(bootstrap_principal_digest, '\x'::bytea), COALESCE(target_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
+-- Name: one_active_access_policy_per_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_active_access_policy_per_org ON public.access_policies USING btree (organization_id, policy_type) WHERE (status = 'active'::text);
 
 
 --
@@ -692,6 +919,32 @@ CREATE UNIQUE INDEX one_issued_grant_per_principal ON public.bootstrap_grants US
 
 ALTER TABLE ONLY public.identity_receipt_consumptions
     ADD CONSTRAINT identity_receipt_consumptions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.identity_receipt_nonces(id);
+
+
+--
+-- Name: access_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.access_policies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: access_policies access_policies_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY access_policies_context ON public.access_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: accounts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: accounts accounts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY accounts_context ON public.accounts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -787,6 +1040,19 @@ ALTER TABLE public.identity_receipt_consumptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.identity_receipt_nonces ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: organizations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: organizations organizations_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY organizations_context ON public.organizations USING ((id = public.f1_current_context_org())) WITH CHECK ((id = public.f1_current_context_org()));
+
+
+--
 -- Name: pretenant_authorization_decisions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -807,14 +1073,40 @@ CREATE POLICY receipt_by_principal ON public.identity_receipt_nonces USING ((boo
 
 
 --
+-- Name: role_assignments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.role_assignments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: role_assignments role_assignments_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY role_assignments_context ON public.role_assignments USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sessions sessions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY sessions_context ON public.sessions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260721120004'),
 ('20260719120003'),
 ('20260719120002'),
-('20260719120001'),
-('0');
+('20260719120001');
 

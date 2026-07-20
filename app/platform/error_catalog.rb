@@ -42,7 +42,17 @@ module Platform
       "bootstrap_grant_consumed"          => "F1-DOMAIN-409",
       "idempotency_conflict"              => "F1-DOMAIN-409",
       # transient exhaustion -> F1-DEPENDENCY-503
-      "onboarding_transaction_unavailable" => "F1-DEPENDENCY-503"
+      "onboarding_transaction_unavailable" => "F1-DEPENDENCY-503",
+      # existing-account sign-in outward reasons (WORKFLOW_SPECIFICATIONS.md §
+      # existing-account sign-in): the seven exhaustive outward failures. Every
+      # invalid-receipt reason is normalized to authentication_failed outward; the
+      # exact internal reason is retained only in the restricted audit.
+      "authentication_failed"             => "F1-AUTHN-401",
+      "account_suspended"                 => "F1-AUTH-403",
+      "organization_inactive"             => "F1-AUTH-403",
+      "identity_assurance_failed"         => "F1-AUTHN-401",
+      "policy_unavailable"                => "F1-DOMAIN-409",
+      "sign_in_timeout"                   => "F1-TIMEOUT-504"
     }.freeze
 
     def failure(reason_code, support_reference:)
