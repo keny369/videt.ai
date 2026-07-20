@@ -36,14 +36,16 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
 
   private
 
-  def force_rls(table, using:, grant:, check: nil)
+  # Establishes structure, RLS and the PUBLIC revoke only. Runtime table grants
+  # are applied centrally from the single source F1::RuntimeGrants (see
+  # lib/tasks/f1_db.rake) so the structure-load and migrate paths converge.
+  def force_rls(table, using:, check: nil)
     execute <<~SQL
       ALTER TABLE #{table} ENABLE ROW LEVEL SECURITY;
       ALTER TABLE #{table} FORCE ROW LEVEL SECURITY;
       CREATE POLICY #{table}_context ON #{table}
         USING (#{using}) WITH CHECK (#{check || using});
       REVOKE ALL ON #{table} FROM PUBLIC;
-      GRANT #{grant} ON #{table} TO f1_runtime;
     SQL
   end
 
@@ -67,7 +69,7 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
       );
     SQL
     # An Organization row is readable only inside its own proved tenant context.
-    force_rls("organizations", using: "id = f1_current_context_org()", grant: "SELECT")
+    force_rls("organizations", using: "id = f1_current_context_org()")
   end
 
   def create_accounts
@@ -97,7 +99,7 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
         CONSTRAINT accounts_identity_unique UNIQUE (organization_id, identity_issuer_key, identity_subject)
       );
     SQL
-    force_rls("accounts", using: "organization_id = f1_current_context_org()", grant: "SELECT")
+    force_rls("accounts", using: "organization_id = f1_current_context_org()")
   end
 
   def create_role_assignments
@@ -119,7 +121,7 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
         expires_at      timestamptz(6)
       );
     SQL
-    force_rls("role_assignments", using: "organization_id = f1_current_context_org()", grant: "SELECT")
+    force_rls("role_assignments", using: "organization_id = f1_current_context_org()")
   end
 
   def create_access_policies
@@ -143,7 +145,7 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
       CREATE UNIQUE INDEX one_active_access_policy_per_org
         ON access_policies (organization_id, policy_type) WHERE status = 'active';
     SQL
-    force_rls("access_policies", using: "organization_id = f1_current_context_org()", grant: "SELECT")
+    force_rls("access_policies", using: "organization_id = f1_current_context_org()")
   end
 
   def create_sessions
@@ -175,7 +177,7 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
         CONSTRAINT session_absolute_is_twelve_hours CHECK (absolute_expires_at = issued_at + interval '12 hours')
       );
     SQL
-    force_rls("sessions", using: "organization_id = f1_current_context_org()", grant: "SELECT, INSERT")
+    force_rls("sessions", using: "organization_id = f1_current_context_org()")
   end
 
   # Tenant context establishment, the analog of f1_enter_bootstrap_context. It
@@ -228,7 +230,8 @@ class CreateTenantAccountsSessions < ActiveRecord::Migration[8.1]
       END;
       $$;
       REVOKE ALL ON FUNCTION f1_enter_context(bytea, uuid, uuid) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION f1_enter_context(bytea, uuid, uuid) TO f1_runtime;
     SQL
+    # Runtime EXECUTE is granted centrally (F1::RuntimeGrants); the REVOKE stays
+    # here so the function is never PUBLIC-executable even before grants run.
   end
 end

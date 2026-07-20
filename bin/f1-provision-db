@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Authoritative, reproducible database provisioning from a genuinely empty state.
+#
+# One route that: (1) ensures the cluster roles; (2) creates an empty database
+# owned by f1_schema_owner; (3) runs the migrations (which create pgcrypto owned
+# by the schema owner and seed the proof key — unlike db/structure.sql, whose
+# COMMENT ON EXTENSION requires foreign-owned pgcrypto and which carries no seed);
+# (4) applies runtime grants and re-ensures the proof key from the single source
+# (F1::RuntimeGrants and f1:db:ensure_context_key, also invoked automatically by
+# the enhanced db:migrate); (5) verifies access AS f1_web, not the owner. FORCE
+# ROW LEVEL SECURITY is preserved throughout.
+#
+# db:schema:load is the structure-only alternative and is likewise made
+# runtime-usable by the same enhancement (grants + key), but requires a genuinely
+# fresh database so its CREATE EXTENSION owns pgcrypto; the migrate route has no
+# such precondition, so it is the default here.
+#
+# Roles and CREATE DATABASE require a cluster superuser (by design the schema
+# owner has neither CREATEROLE nor CREATEDB); the schema, grants and proof key run
+# as the owner, and verification runs as the runtime role. Locally these use trust
+# auth (no passwords); in a managed environment supply credentials out of band.
+#
+# Usage: bin/f1-provision-db [DATABASE] [RAILS_ENV]
+#   bin/f1-provision-db f1_development development
+#   bin/f1-provision-db f1_test test
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+DB="${1:-f1_development}"
+ENV="${2:-development}"
+HOST="${F1_DATABASE_HOST:-localhost}"
+PORT="${F1_DATABASE_PORT:-5433}"
+SUPERUSER="${F1_SUPERUSER:-$(whoami)}"
+PG_BIN="${F1_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}"
+if [ -d "$PG_BIN" ]; then export PATH="$PG_BIN:$PATH"; fi
+
+echo "== [1/5] ensure cluster roles (superuser: $SUPERUSER) =="
+psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q -f db/roles.sql
+
+echo "== [2/5] (re)create empty database '$DB' owned by f1_schema_owner =="
+psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q \
+  -c "DROP DATABASE IF EXISTS ${DB} WITH (FORCE);" \
+  -c "CREATE DATABASE ${DB} OWNER f1_schema_owner;"
+
+echo "== [3/5] run migrations (owner) =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db db:migrate
+
+echo "== [4/5] apply runtime grants + proof key from the single source (owner) =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:grants f1:db:ensure_context_key
+
+echo "== [5/5] verify as f1_web (runtime), RLS intact =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:verify_runtime
+
+echo "== provisioned '$DB' ($ENV) from empty =="

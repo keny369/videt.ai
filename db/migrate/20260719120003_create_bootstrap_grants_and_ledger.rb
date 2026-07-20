@@ -26,14 +26,16 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
 
   private
 
-  def force_rls(table, using:, check: using, grant: "SELECT, INSERT, UPDATE")
+  # Establishes structure, RLS and the PUBLIC revoke only. Runtime table grants
+  # are applied centrally from the single source F1::RuntimeGrants (see
+  # lib/tasks/f1_db.rake) so the structure-load and migrate paths converge.
+  def force_rls(table, using:, check: using)
     execute <<~SQL
       ALTER TABLE #{table} ENABLE ROW LEVEL SECURITY;
       ALTER TABLE #{table} FORCE ROW LEVEL SECURITY;
       CREATE POLICY #{table}_context ON #{table}
         USING (#{using}) WITH CHECK (#{check});
       REVOKE ALL ON #{table} FROM PUBLIC;
-      GRANT #{grant} ON #{table} TO f1_runtime;
     SQL
   end
 
@@ -104,7 +106,7 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
         CONSTRAINT exactly_one_actor_or_service CHECK ((actor_id IS NULL) <> (service_identity_id IS NULL))
       );
     SQL
-    force_rls("command_executions", grant: "SELECT, INSERT",
+    force_rls("command_executions",
               using: "bootstrap_principal_digest = f1_current_bootstrap_principal() OR organization_id = f1_current_context_org()")
 
     execute <<~SQL
@@ -150,7 +152,7 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
     # command_results carries no principal column; it is visible exactly when its
     # parent execution is (same proved context), enforced through the RLS-filtered
     # subquery on command_executions.
-    force_rls("command_results", grant: "SELECT, INSERT",
+    force_rls("command_results",
               using: "command_execution_id IN (SELECT id FROM command_executions)")
   end
 
@@ -213,7 +215,7 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
         decided_at                 timestamptz(6) NOT NULL
       );
     SQL
-    force_rls("pretenant_authorization_decisions", grant: "SELECT, INSERT",
+    force_rls("pretenant_authorization_decisions",
               using: "bootstrap_principal_digest = f1_current_bootstrap_principal()")
   end
 
@@ -247,7 +249,7 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
         CONSTRAINT partition_month_is_first_of_month CHECK (partition_month = date_trunc('month', occurred_at AT TIME ZONE 'UTC')::date)
       );
     SQL
-    force_rls("audit_record_registry", grant: "SELECT, INSERT",
+    force_rls("audit_record_registry",
               using: "organization_id = f1_current_context_org()")
   end
 
@@ -280,7 +282,7 @@ class CreateBootstrapGrantsAndLedger < ActiveRecord::Migration[8.1]
         CONSTRAINT partition_month_is_first_of_month CHECK (partition_month = date_trunc('month', occurred_at AT TIME ZONE 'UTC')::date)
       );
     SQL
-    force_rls("event_registry", grant: "SELECT, INSERT",
+    force_rls("event_registry",
               using: "organization_id = f1_current_context_org()")
   end
 end

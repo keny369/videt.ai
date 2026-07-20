@@ -107,13 +107,10 @@ class EnableContextSecurity < ActiveRecord::Migration[8.1]
       $$;
     SQL
 
-    # Runtime roles may read the proof-validated accessors (RLS uses them) but not
-    # the proof computer or the key.
-    execute <<~SQL
-      GRANT EXECUTE ON FUNCTION f1_current_bootstrap_principal() TO f1_runtime;
-      GRANT EXECUTE ON FUNCTION f1_current_context_org() TO f1_runtime;
-      GRANT EXECUTE ON FUNCTION f1_bootstrap_principal_uuid(bytea) TO f1_runtime;
-    SQL
+    # Runtime EXECUTE on the proof-validated accessors (RLS uses them) — but never
+    # on f1_context_proof or the key — is granted centrally from the single source
+    # F1::RuntimeGrants (lib/tasks/f1_db.rake), applied after both schema load and
+    # migrate so the two build paths converge on one grant state.
   end
 
   def down

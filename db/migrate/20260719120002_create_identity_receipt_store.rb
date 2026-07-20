@@ -125,8 +125,9 @@ class CreateIdentityReceiptStore < ActiveRecord::Migration[8.1]
       END;
       $$;
       REVOKE ALL ON FUNCTION f1_enter_bootstrap_context(bytea, uuid) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION f1_enter_bootstrap_context(bytea, uuid) TO f1_runtime;
     SQL
+    # Runtime EXECUTE is granted centrally (F1::RuntimeGrants); the REVOKE stays
+    # here so the function is never PUBLIC-executable even before grants run.
 
     # Single-use nonce consumption, recorded atomically inside the caller's unit
     # of work. Returns the outcome actually stored: a second 'consumed' attempt
@@ -151,8 +152,8 @@ class CreateIdentityReceiptStore < ActiveRecord::Migration[8.1]
       END;
       $$;
       REVOKE ALL ON FUNCTION f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text) TO f1_runtime;
     SQL
+    # Runtime EXECUTE is granted centrally (F1::RuntimeGrants).
   end
 
   def down
