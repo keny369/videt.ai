@@ -71,7 +71,14 @@ module Platform
       # (WORKFLOW_SPECIFICATIONS.md § invitation decline; :252 state conflicts ->
       # F1-DOMAIN-409; input-shape -> F1-VALIDATION-400).
       "stale_state_version"               => "F1-DOMAIN-409",
-      "invitation_reason_invalid"         => "F1-VALIDATION-400"
+      "invitation_reason_invalid"         => "F1-VALIDATION-400",
+      # WF-013 Session-actor authorization (effective-permission checkpoint,
+      # WORKFLOW_SPECIFICATIONS.md :324,:329,:200; MTX-038 :1897). Invalid Session is
+      # an authentication failure; an inactive Account/Organization or insufficient
+      # capability denies before/at the checkpoint with F1-AUTH-403.
+      "session_invalid"                   => "F1-AUTHN-401",
+      "account_inactive"                  => "F1-AUTH-403",
+      "missing_authority"                 => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

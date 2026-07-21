@@ -12,6 +12,13 @@ module Platform
       new(clock:, ids:, service_identity_id:, correlation_id: correlation_id || ids.generate)
     end
 
+    # A Session-authenticated Organization actor (WF-013): the acting Account is
+    # derived from the authenticated Session inside the handler, never carried here,
+    # so this context bears no service identity.
+    def self.for_actor(clock: Platform::Clock.system, ids: Platform::Ids.system, correlation_id: nil)
+      new(clock:, ids:, service_identity_id: nil, correlation_id: correlation_id || ids.generate)
+    end
+
     def now_utc = clock.now_utc
     def generate_id = ids.generate
   end

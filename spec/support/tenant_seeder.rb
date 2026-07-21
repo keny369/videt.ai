@@ -83,7 +83,8 @@ module TenantSeeder
                         target_identity_issuer_key: nil, target_identity_subject: nil,
                         canonical_role: "MarketingOperator", permission_mode: "standard", persona: nil,
                         scope_sha256: Digest::SHA256.digest("scope:organization"),
-                        state: "active", activated_at: Time.utc(2026, 7, 18, 10, 0, 0))
+                        state: "active", activated_at: Time.utc(2026, 7, 18, 10, 0, 0),
+                        requester_account_id: nil)
     reference = SecureRandom.random_bytes(32)
     reference_digest = Digest::SHA256.digest(reference)
     email_sha = Digest::SHA256.digest(target_email)
@@ -94,15 +95,16 @@ module TenantSeeder
     inv_params = [id, organization_id, bytea(reference_digest), target_email, bytea(email_sha),
                   target_identity_issuer_key, target_identity_subject, canonical_role, permission_mode,
                   persona, (scope_sha256 ? bytea(scope_sha256) : nil), state,
-                  (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil)]
+                  (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil),
+                  requester_account_id]
     conn.exec_params(<<~SQL, inv_params)
       INSERT INTO invitations
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
          opaque_reference_sha256, target_email, target_email_sha256, target_identity_issuer_key,
          target_identity_subject, canonical_role, permission_mode, persona, scope_sha256, state,
-         activated_at, expires_at, terminated_at)
+         activated_at, expires_at, terminated_at, requester_account_id)
       VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-              $13::timestamptz,$14::timestamptz,$15::timestamptz)
+              $13::timestamptz,$14::timestamptz,$15::timestamptz,$16::uuid)
     SQL
     reg_params = [bytea(reference_digest), organization_id, id, state,
                   (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil)]
