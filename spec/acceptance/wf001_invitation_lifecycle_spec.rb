@@ -2,9 +2,10 @@
 
 require "rails_helper"
 
-# Cross-workflow invitation lifecycle coverage for the implemented terminal
-# transitions (accept and decline; revoke/expire are deferred to WF-013/S-23 and the
-# ScheduledAction subsystem respectively). Verifies the state-model invariants
+# Cross-workflow invitation lifecycle coverage for the receipt-bound recipient
+# terminal transitions (accept and decline). Revoke (WF-013) is now implemented and
+# has its own cross-workflow lifecycle spec (wf013_revoke_invitation_lifecycle_spec);
+# expire remains deferred to the ScheduledAction subsystem. Verifies the state-model invariants
 # (WORKFLOW_SPECIFICATIONS.md :242,:250,:965): only one terminal transition wins under
 # concurrency; exactly one terminal event; acceptance side effects exist only when
 # accept wins; terminal Invitations never reopen and stay non-disclosing; and the
