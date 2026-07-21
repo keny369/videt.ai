@@ -66,7 +66,12 @@ module Platform
       "account_identity_conflict"         => "F1-AUTH-403",
       # Exact-replay reauthorization denial (APPLICATION_LAYER.md § replay:
       # "denial returns F1-AUTH-403 with no retained payload").
-      "reauthorization_denied"            => "F1-AUTH-403"
+      "reauthorization_denied"            => "F1-AUTH-403",
+      # DeclineInvitation: expected-state-version mismatch and reason-bounds
+      # (WORKFLOW_SPECIFICATIONS.md § invitation decline; :252 state conflicts ->
+      # F1-DOMAIN-409; input-shape -> F1-VALIDATION-400).
+      "stale_state_version"               => "F1-DOMAIN-409",
+      "invitation_reason_invalid"         => "F1-VALIDATION-400"
     }.freeze
 
     def failure(reason_code, support_reference:)
