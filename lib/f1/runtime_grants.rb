@@ -41,7 +41,9 @@ module F1
       "command_results"                   => "SELECT, INSERT",
       "pretenant_authorization_decisions" => "SELECT, INSERT",
       "audit_record_registry"             => "SELECT, INSERT",
-      "event_registry"                    => "SELECT, INSERT"
+      "event_registry"                    => "SELECT, INSERT",
+      # Immutable authorization-decision record (T-IMM): insert/read only.
+      "authorization_decisions"           => "SELECT, INSERT"
     }.freeze
 
     # Every table has PUBLIC revoked as defence in depth (structure-load leaves
@@ -65,7 +67,9 @@ module F1
       "f1_enter_context(bytea, uuid, uuid)",
       "f1_consume_receipt_nonce(uuid, timestamptz, uuid, bytea, uuid, timestamptz, text, text)",
       "f1_resolve_invitation_reference(bytea, timestamptz)",
-      "f1_resolve_invitation_org(bytea)"
+      "f1_resolve_invitation_org(bytea)",
+      "f1_authenticate_session(uuid)",
+      "f1_enter_org_context(uuid, uuid)"
     ].freeze
 
     # Functions that must NOT be PUBLIC-executable. structure.sql load recreates
@@ -79,7 +83,9 @@ module F1
       "f1_enter_bootstrap_context(bytea, uuid)",
       "f1_enter_context(bytea, uuid, uuid)",
       "f1_resolve_invitation_reference(bytea, timestamptz)",
-      "f1_resolve_invitation_org(bytea)"
+      "f1_resolve_invitation_org(bytea)",
+      "f1_authenticate_session(uuid)",
+      "f1_enter_org_context(uuid, uuid)"
     ].freeze
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.

@@ -25,6 +25,21 @@ COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
 --
+-- Name: f1_authenticate_session(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_authenticate_session(p_session_id uuid) RETURNS TABLE(account_id uuid, organization_id uuid, status text, idle_expires_at timestamp with time zone, absolute_expires_at timestamp with time zone, authorization_context_version bigint)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT s.account_id, s.organization_id, s.status, s.idle_expires_at,
+         s.absolute_expires_at, s.authorization_context_version
+  FROM sessions s
+  WHERE s.id = p_session_id;
+$$;
+
+
+--
 -- Name: f1_bootstrap_principal_uuid(bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -184,6 +199,25 @@ BEGIN
                         NULL::boolean, NULL::text, NULL::text, NULL::text, NULL::text, NULL::boolean,
                         NULL::bytea, NULL::bytea, NULL::text, NULL::text, p_org;
   END IF;
+END;
+$$;
+
+
+--
+-- Name: f1_enter_org_context(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_enter_org_context(p_org uuid, p_correlation_id uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_proof text;
+BEGIN
+  v_proof := f1_context_proof('', p_org::text);
+  PERFORM set_config('app.bootstrap_principal_digest', '', true);
+  PERFORM set_config('app.context_org', p_org::text, true);
+  PERFORM set_config('app.f1_proof', v_proof, true);
+  RETURN p_org;
 END;
 $$;
 
@@ -349,6 +383,41 @@ CREATE TABLE public.audit_record_registry (
 );
 
 ALTER TABLE ONLY public.audit_record_registry FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: authorization_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.authorization_decisions (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    subject_type text NOT NULL,
+    subject_id uuid NOT NULL,
+    action text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id uuid,
+    decision text NOT NULL,
+    reason_code text NOT NULL,
+    organization_epoch bigint NOT NULL,
+    membership_snapshot jsonb NOT NULL,
+    role_assignment_versions jsonb NOT NULL,
+    policy_snapshot_id uuid,
+    support_session_id uuid,
+    classification_ceiling text,
+    decided_at timestamp(6) with time zone NOT NULL,
+    retention_class text NOT NULL,
+    CONSTRAINT authorization_decisions_decision_check CHECK ((decision = ANY (ARRAY['allow'::text, 'deny'::text]))),
+    CONSTRAINT authorization_decisions_retention_class_check CHECK ((retention_class = 'security_audit'::text)),
+    CONSTRAINT authorization_decisions_subject_type_check CHECK ((subject_type = ANY (ARRAY['account'::text, 'service_identity'::text])))
+);
+
+ALTER TABLE ONLY public.authorization_decisions FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -664,6 +733,7 @@ CREATE TABLE public.invitations (
     fulfilled_by_role_assignment_id uuid,
     state text NOT NULL,
     reason text,
+    requester_account_id uuid,
     CONSTRAINT invitation_active_expiry_is_seven_days CHECK (((activated_at IS NULL) OR (expires_at = (activated_at + '7 days'::interval)))),
     CONSTRAINT invitation_bound_identity_pairwise CHECK (((target_identity_issuer_key IS NULL) = (target_identity_subject IS NULL))),
     CONSTRAINT invitations_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
@@ -803,8 +873,6 @@ CREATE TABLE public.sessions (
     CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
 );
 
-ALTER TABLE ONLY public.sessions FORCE ROW LEVEL SECURITY;
-
 
 --
 -- Name: access_policies access_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
@@ -844,6 +912,14 @@ ALTER TABLE ONLY public.ar_internal_metadata
 
 ALTER TABLE ONLY public.audit_record_registry
     ADD CONSTRAINT audit_record_registry_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: authorization_decisions authorization_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.authorization_decisions
+    ADD CONSTRAINT authorization_decisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -1119,6 +1195,19 @@ CREATE POLICY audit_record_registry_context ON public.audit_record_registry USIN
 
 
 --
+-- Name: authorization_decisions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.authorization_decisions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: authorization_decisions authorization_decisions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY authorization_decisions_context ON public.authorization_decisions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: bootstrap_grants; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1289,6 +1378,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120006'),
 ('20260721120005'),
 ('20260721120004'),
 ('20260719120003'),

@@ -119,6 +119,45 @@ module TenantSeeder
       organization_id: organization_id }
   end
 
+  # Seeds a Session for an org actor. Defaults are valid at a 2026-07-20 10:00 fixed
+  # clock (issued 09:45 -> idle 10:15, absolute 21:45). Pass an old issued/last time
+  # or a terminal status to build an expired/revoked Session.
+  def create_session(organization_id:, account_id:, id: SecureRandom.uuid_v7, status: "active",
+                     issued_at: Time.utc(2026, 7, 20, 9, 45, 0), last_activity_at: nil,
+                     authorization_context_version: 7, creation_reason: "existing_account_sign_in")
+    last = last_activity_at || issued_at
+    idle = last + (30 * 60)
+    absolute = issued_at + (12 * 3600)
+    terminated = %w[revoked expired].include?(status) ? issued_at : nil
+    params = [id, organization_id, account_id, bytea(Digest::SHA256.digest("session:#{id}")),
+              authorization_context_version, creation_reason, ts(issued_at), ts(last), ts(idle), ts(absolute),
+              status, (terminated ? ts(terminated) : nil)]
+    conn.exec_params(<<~SQL, params)
+      INSERT INTO sessions
+        (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
+         identity_receipt_digest, authorization_context_version, creation_reason, issued_at, last_activity_at,
+         idle_expires_at, absolute_expires_at, status, terminated_at)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9::timestamptz,
+              $10::timestamptz,$11,$12::timestamptz)
+    SQL
+    id
+  end
+
+  # Convenience: an active Organization with an active Account holding an active
+  # OrganizationAdmin Role Assignment, an active Access Policy, and an active
+  # Session — i.e. an actor authorized for invitation.revoke. Returns
+  # { organization_id:, account_id:, session_id: }.
+  def seed_authorized_admin(organization_id: nil, canonical_role: "OrganizationAdmin",
+                            account_status: "active", session_status: "active", with_policy: true, **session_opts)
+    org = organization_id || create_organization
+    account_id = create_account(organization_id: org, issuer_key: "https://id.example/oidc",
+                                subject: "admin-#{SecureRandom.hex(6)}", status: account_status)
+    create_role_assignment(organization_id: org, account_id:, canonical_role:) unless canonical_role.nil?
+    create_access_policy(organization_id: org) if with_policy
+    session_id = create_session(organization_id: org, account_id:, status: session_status, **session_opts)
+    { organization_id: org, account_id: account_id, session_id: session_id }
+  end
+
   def create_access_policy(organization_id:, id: SecureRandom.uuid_v7, status: "active",
                            semantic_version: "access-policy-v1")
     conn.exec_params(<<~SQL, [id, organization_id, status, semantic_version])
