@@ -128,10 +128,22 @@ module IdentityAccess
         SQL
       end
 
-      def update_registry_accepted(invitation_id, now)
-        exec(<<~SQL, [invitation_id, iso(now)])
+      # Guarded active->declined transition; returns rows changed (0 => lost the race).
+      def decline_invitation(invitation_id, expected_version, now, reason)
+        exec(<<~SQL, [invitation_id, expected_version, iso(now), reason]).cmd_tuples
+          UPDATE invitations
+          SET state = 'declined', declined_at = $3::timestamptz, reason = $4,
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND state = 'active' AND state_version = $2
+        SQL
+      end
+
+      # Mirror the winning terminal state into the global reference locator, in the
+      # same transaction (schemas/POSTGRESQL_SCHEMA.md § registry lifecycle tuple).
+      def update_registry_terminal(invitation_id, state, now)
+        exec(<<~SQL, [invitation_id, state, iso(now)])
           UPDATE invitation_reference_registry
-          SET invitation_state = 'accepted', terminal_at = $2::timestamptz, updated_at = $2::timestamptz
+          SET invitation_state = $2, terminal_at = $3::timestamptz, updated_at = $3::timestamptz
           WHERE invitation_id = $1::uuid
         SQL
       end
