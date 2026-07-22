@@ -149,6 +149,14 @@ module Workflows
                         internal: "invitation_duplicate_open")
           end
 
+          # The durable checkpoint (:333). Creating an Invitation confers a future
+          # grant, so it stops here if the creator's own authority changed between
+          # the authorization read and this write.
+          unless IdentityAccess::Authorization::CommandAuthorizer.authority_current?(store: auth_store, actor:)
+            return deny(**d, invitation_id: nil, outward: "stale_authorization_epoch",
+                        internal: "authority_changed_before_commit")
+          end
+
           succeed(**d)
         end
 

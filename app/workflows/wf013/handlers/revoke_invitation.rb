@@ -91,6 +91,13 @@ module Workflows
               return deny(**d, outward: "stale_state_version", internal: "stale_state_version")
             end
 
+            # 6. The durable checkpoint (:333): stop before the side effect if the
+            # actor's own authority changed while this command held its lock.
+            unless IdentityAccess::Authorization::CommandAuthorizer.authority_current?(store: auth_store, actor:)
+              return deny(**d, outward: "stale_authorization_epoch",
+                          internal: "authority_changed_before_commit")
+            end
+
             succeed(**d, inv:)
           end
         end

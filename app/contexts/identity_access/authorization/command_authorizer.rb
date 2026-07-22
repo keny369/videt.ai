@@ -31,6 +31,29 @@ module IdentityAccess
     #   authorize     — evaluate a capability against the Permission Baseline.
     # It resolves nothing from caller-supplied account/organization ids.
     class CommandAuthorizer
+      # ":333 Revocation takes effect on the next protected request … A running
+      # privileged operation rechecks at each durable checkpoint and stops before
+      # the next protected side effect after revocation."
+      #
+      # A command authorizes, then does other work — reads its target, takes its
+      # record lock, resolves first-match outcomes — and only then writes. In that
+      # window another transaction may commit a revocation, an expiry, a
+      # suspension or a policy change. The Organization authorization epoch is the
+      # ratified serialization point for effective access (:331 "Policy/Assignment
+      # mutation atomically validates and advances the Organization authorization
+      # version"), so if it has moved since the actor was authenticated, the
+      # decision this command is holding is no longer the decision the
+      # Organization would make now, and the command must stop before its side
+      # effect rather than commit on it.
+      #
+      # Commands that carry an expected authorization epoch of their own compare
+      # it explicitly and need no separate recheck; this is for the commands whose
+      # contract has no epoch parameter.
+      def self.authority_current?(store:, actor:)
+        organization = store.organization(actor.organization_id)
+        !organization.nil? && organization["authorization_epoch"].to_i == actor.authorization_epoch
+      end
+
       def initialize(store)
         @store = store
       end

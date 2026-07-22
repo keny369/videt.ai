@@ -114,6 +114,15 @@ module Workflows
                         internal: "stale_state_version")
           end
 
+          # The durable checkpoint (:333): approving an Invitation is a protected
+          # side effect, and this command has held its authorization across the
+          # Invitation lock. If the approver's own authority was revoked or expired
+          # in that window, it stops here.
+          unless IdentityAccess::Authorization::CommandAuthorizer.authority_current?(store: auth_store, actor:)
+            return deny(**d, invitation_id: command.invitation_id,
+                        outward: "stale_authorization_epoch", internal: "authority_changed_before_commit")
+          end
+
           commit(**d, inv:, reason:, key_digest:)
         end
 
