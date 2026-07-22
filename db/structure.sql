@@ -60,6 +60,64 @@ $$;
 
 
 --
+-- Name: f1_cancel_scheduled_action(uuid, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_cancel_scheduled_action(p_action_id uuid, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+BEGIN
+  UPDATE scheduled_actions a
+  SET status = 'canceled', canceled_at = v_now, reason = coalesce(p_reason, a.reason),
+      claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+      claim_phase = NULL, last_heartbeat_at = NULL,
+      updated_at = v_now, state_version = a.state_version + 1
+  WHERE a.id = p_action_id AND a.status IN ('pending','claimed');
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed > 0;
+END;
+$$;
+
+
+--
+-- Name: f1_claim_due_scheduled_actions(uuid, integer, integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_claim_due_scheduled_actions(p_owner uuid, p_limit integer, p_lease_seconds integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+#variable_conflict use_column
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp());
+BEGIN
+  RETURN QUERY
+  WITH due AS (
+    SELECT a.id FROM scheduled_actions a
+    WHERE a.status = 'pending'
+      AND a.due_at <= v_now
+      AND (a.not_before_at IS NULL OR a.not_before_at <= v_now)
+    ORDER BY a.due_at, a.id
+    FOR UPDATE SKIP LOCKED
+    LIMIT greatest(p_limit, 0)
+  )
+  UPDATE scheduled_actions a
+  SET status = 'claimed', claim_owner = p_owner, claim_generation = a.claim_generation + 1,
+      claimed_at = v_now, lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+      claim_phase = 'scheduler', last_heartbeat_at = NULL, updated_at = v_now,
+      state_version = a.state_version + 1
+  FROM due
+  WHERE a.id = due.id
+  RETURNING a.id, a.action_kind, a.action_schema_version, a.organization_id, a.project_id,
+            a.target_type, a.target_id, a.product_generation, a.schedule_generation,
+            a.due_at, a.claim_generation, a.correlation_id, a.causation_id,
+            a.executing_service_identity_id, a.payload_refs;
+END;
+$$;
+
+
+--
 -- Name: f1_consume_receipt_nonce(uuid, timestamp with time zone, uuid, bytea, uuid, timestamp with time zone, text, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -140,6 +198,36 @@ BEGIN
   IF v_proof <> f1_context_proof(v_hex, v_org) THEN RETURN NULL; END IF;
   RETURN v_org::uuid;
 EXCEPTION WHEN others THEN RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_dispatch_scheduled_action(p_action_id uuid, p_expected_owner uuid, p_expected_generation bigint, p_worker_owner uuid, p_lease_seconds integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, identity_sha256 bytea)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+#variable_conflict use_column
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp());
+BEGIN
+  RETURN QUERY
+  UPDATE scheduled_actions a
+  SET status = 'dispatched',
+      dispatched_at = coalesce(a.dispatched_at, v_now),
+      claim_owner = p_worker_owner, claim_phase = 'worker',
+      lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+      updated_at = v_now, state_version = a.state_version + 1
+  WHERE a.id = p_action_id
+    AND a.status IN ('claimed','dispatched')
+    AND a.claim_generation = p_expected_generation
+    AND a.claim_owner IN (p_expected_owner, p_worker_owner)
+  RETURNING a.id, a.action_kind, a.action_schema_version, a.organization_id, a.project_id,
+            a.target_type, a.target_id, a.product_generation, a.schedule_generation,
+            a.due_at, a.claim_generation, a.correlation_id, a.causation_id,
+            a.executing_service_identity_id, a.payload_refs, a.identity_sha256;
 END;
 $$;
 
@@ -245,6 +333,59 @@ $$;
 
 
 --
+-- Name: f1_release_expired_scheduled_action_leases(integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_release_expired_scheduled_action_leases(p_limit integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+BEGIN
+  WITH expired AS (
+    SELECT a.id FROM scheduled_actions a
+    WHERE a.status IN ('claimed','dispatched') AND a.lease_expires_at <= v_now
+    ORDER BY a.lease_expires_at, a.id
+    FOR UPDATE SKIP LOCKED
+    LIMIT greatest(p_limit, 0)
+  )
+  UPDATE scheduled_actions a
+  SET status = 'pending', claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+      claim_phase = NULL, last_heartbeat_at = NULL, reason = 'transport_lease_expired',
+      updated_at = v_now, state_version = a.state_version + 1
+  FROM expired
+  WHERE a.id = expired.id;
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed;
+END;
+$$;
+
+
+--
+-- Name: f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_release_scheduled_action_claim(p_action_id uuid, p_owner uuid, p_generation bigint, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+BEGIN
+  UPDATE scheduled_actions a
+  SET status = 'pending', claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+      claim_phase = NULL, last_heartbeat_at = NULL, reason = coalesce(p_reason, a.reason),
+      updated_at = v_now, state_version = a.state_version + 1
+  WHERE a.id = p_action_id
+    AND a.claim_owner = p_owner
+    AND a.claim_generation = p_generation
+    AND a.status IN ('claimed','dispatched');
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed > 0;
+END;
+$$;
+
+
+--
 -- Name: f1_resolve_invitation_org(bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -271,6 +412,100 @@ CREATE FUNCTION public.f1_resolve_invitation_reference(p_reference_digest bytea,
   WHERE r.opaque_reference_sha256 = p_reference_digest
     AND r.invitation_state = 'active'
     AND (r.expires_at IS NULL OR p_now < r.expires_at);
+$$;
+
+
+--
+-- Name: f1_scheduled_actions_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_scheduled_actions_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE allowed text[];
+BEGIN
+  IF NEW.id <> OLD.id
+     OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+     OR NEW.causation_id IS DISTINCT FROM OLD.causation_id
+     OR NEW.command_id IS DISTINCT FROM OLD.command_id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.executing_service_identity_id IS DISTINCT FROM OLD.executing_service_identity_id
+     OR NEW.action_kind IS DISTINCT FROM OLD.action_kind
+     OR NEW.action_schema_version IS DISTINCT FROM OLD.action_schema_version
+     OR NEW.target_type IS DISTINCT FROM OLD.target_type
+     OR NEW.target_id IS DISTINCT FROM OLD.target_id
+     OR NEW.product_generation IS DISTINCT FROM OLD.product_generation
+     OR NEW.schedule_generation IS DISTINCT FROM OLD.schedule_generation
+     OR NEW.due_at IS DISTINCT FROM OLD.due_at
+     OR NEW.not_before_at IS DISTINCT FROM OLD.not_before_at
+     OR NEW.identity_preimage IS DISTINCT FROM OLD.identity_preimage
+     OR NEW.identity_sha256 IS DISTINCT FROM OLD.identity_sha256
+     OR NEW.collision_ordinal IS DISTINCT FROM OLD.collision_ordinal
+     OR NEW.payload_refs IS DISTINCT FROM OLD.payload_refs THEN
+    RAISE EXCEPTION 'scheduled_action_immutable_field_changed' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.claim_generation < OLD.claim_generation THEN
+    RAISE EXCEPTION 'scheduled_action_claim_generation_regressed' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF (OLD.completed_at IS NOT NULL AND NEW.completed_at IS DISTINCT FROM OLD.completed_at)
+     OR (OLD.canceled_at IS NOT NULL AND NEW.canceled_at IS DISTINCT FROM OLD.canceled_at)
+     OR (OLD.quarantined_at IS NOT NULL AND NEW.quarantined_at IS DISTINCT FROM OLD.quarantined_at)
+     OR (OLD.dispatched_at IS NOT NULL AND NEW.dispatched_at IS DISTINCT FROM OLD.dispatched_at) THEN
+    RAISE EXCEPTION 'scheduled_action_terminal_timestamp_rewritten' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  allowed := CASE OLD.status
+               WHEN 'pending'    THEN ARRAY['pending','claimed','canceled','quarantined']
+               WHEN 'claimed'    THEN ARRAY['claimed','dispatched','pending','canceled','quarantined']
+               WHEN 'dispatched' THEN ARRAY['dispatched','completed','pending','quarantined']
+               ELSE ARRAY[OLD.status]
+             END;
+  IF NOT (NEW.status = ANY (allowed)) THEN
+    RAISE EXCEPTION 'scheduled_action_illegal_transition % -> %', OLD.status, NEW.status
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_settle_scheduled_action(p_action_id uuid, p_owner uuid, p_generation bigint, p_status text, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+BEGIN
+  IF p_status NOT IN ('completed','quarantined') THEN
+    RAISE EXCEPTION 'scheduled_action_settle_status_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  UPDATE scheduled_actions a
+  SET status = p_status,
+      completed_at = CASE WHEN p_status = 'completed' THEN v_now ELSE a.completed_at END,
+      quarantined_at = CASE WHEN p_status = 'quarantined' THEN v_now ELSE a.quarantined_at END,
+      reason = coalesce(p_reason, a.reason),
+      claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+      claim_phase = NULL, last_heartbeat_at = NULL,
+      updated_at = v_now, state_version = a.state_version + 1
+  WHERE a.id = p_action_id
+    AND a.claim_owner = p_owner
+    AND a.claim_generation = p_generation
+    -- `completed` only from `dispatched` (the guard trigger's transition
+    -- table); a fail-closed quarantine may terminalize either claim phase.
+    AND (a.status = 'dispatched' OR (a.status = 'claimed' AND p_status = 'quarantined'));
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed > 0;
+END;
 $$;
 
 
@@ -835,6 +1070,66 @@ ALTER TABLE ONLY public.role_assignments FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: scheduled_actions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scheduled_actions (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    claim_owner uuid,
+    claim_generation bigint DEFAULT 0 NOT NULL,
+    claimed_at timestamp(6) with time zone,
+    lease_expires_at timestamp(6) with time zone,
+    last_heartbeat_at timestamp(6) with time zone,
+    claim_phase text,
+    organization_id uuid,
+    project_id uuid,
+    executing_service_identity_id uuid NOT NULL,
+    action_kind text NOT NULL,
+    action_schema_version text NOT NULL,
+    target_type text NOT NULL,
+    target_id uuid NOT NULL,
+    product_generation bigint DEFAULT 0 NOT NULL,
+    schedule_generation bigint DEFAULT 1 NOT NULL,
+    due_at timestamp(6) with time zone NOT NULL,
+    not_before_at timestamp(6) with time zone,
+    identity_preimage bytea NOT NULL,
+    identity_sha256 bytea NOT NULL,
+    collision_ordinal integer DEFAULT 0 NOT NULL,
+    payload_refs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text NOT NULL,
+    dispatched_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
+    canceled_at timestamp(6) with time zone,
+    quarantined_at timestamp(6) with time zone,
+    reason text,
+    CONSTRAINT scheduled_action_canceled_has_time CHECK (((status = 'canceled'::text) = (canceled_at IS NOT NULL))),
+    CONSTRAINT scheduled_action_claim_fields_match_status CHECK (((status = ANY (ARRAY['claimed'::text, 'dispatched'::text])) = ((claim_owner IS NOT NULL) AND (claimed_at IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (claim_phase IS NOT NULL) AND (claim_generation > 0)))),
+    CONSTRAINT scheduled_action_completed_has_time CHECK (((status = 'completed'::text) = (completed_at IS NOT NULL))),
+    CONSTRAINT scheduled_action_dispatch_time_required CHECK (((status <> ALL (ARRAY['dispatched'::text, 'completed'::text])) OR (dispatched_at IS NOT NULL))),
+    CONSTRAINT scheduled_action_heartbeat_requires_claim CHECK (((last_heartbeat_at IS NULL) OR (claim_owner IS NOT NULL))),
+    CONSTRAINT scheduled_action_quarantined_has_time_and_reason CHECK (((status = 'quarantined'::text) = ((quarantined_at IS NOT NULL) AND (reason IS NOT NULL)))),
+    CONSTRAINT scheduled_actions_action_kind_check CHECK ((action_kind = ANY (ARRAY['bootstrap_grant_expire'::text, 'session_expire'::text, 'invitation_expire'::text, 'role_assignment_expire'::text, 'source_scope_request_expire'::text, 'verification_observation_slot'::text, 'verification_request_expire'::text, 'verification_material_destroy'::text, 'crawl_dispatch'::text, 'crawl_fetch_due'::text, 'crawl_terminal_deadline'::text, 'ingestion_attempt_due'::text, 'parsing_attempt_due'::text, 'indexing_attempt_due'::text, 'check_attempt_due'::text, 'evaluation_stage_advance'::text, 'evaluation_deadline'::text, 'score_recalculation_due'::text, 'adjudication_due'::text, 'ai_generation_deadline'::text, 'ai_validation_deadline'::text, 'ai_publication_expire'::text, 'reassessment_slot'::text, 'notification_delivery_attempt_due'::text, 'notification_reconciliation_due'::text, 'notification_escalation_due'::text, 'credential_initialization_retry'::text, 'credential_expire'::text, 'entitlement_lease_expire'::text, 'export_generate'::text, 'export_expire'::text, 'export_policy_reevaluate'::text, 'closure_request_expire'::text, 'organization_closure_execute'::text, 'support_session_expire'::text, 'incident_restoration_observe'::text, 'investigation_input_collect'::text, 'provider_event_consume'::text, 'projection_repair_due'::text, 'transport_lease_sweep_due'::text, 'running_work_sweep_due'::text, 'entitlement_invariant_sweep_due'::text, 'staged_object_invariant_sweep_due'::text, 'export_invariant_sweep_due'::text, 'mailgun_uncertainty_sweep_due'::text, 'deletion_tombstone_invariant_sweep_due'::text, 'evidence_retention_warning'::text, 'lifecycle_deletion_start'::text, 'lifecycle_deletion_attempt_due'::text, 'lifecycle_deletion_deadline'::text, 'backup_tombstone_verify'::text, 'restore_drill_due'::text, 'partition_maintenance_due'::text]))),
+    CONSTRAINT scheduled_actions_claim_generation_check CHECK ((claim_generation >= 0)),
+    CONSTRAINT scheduled_actions_claim_phase_check CHECK ((claim_phase = ANY (ARRAY['scheduler'::text, 'worker'::text]))),
+    CONSTRAINT scheduled_actions_collision_ordinal_check CHECK ((collision_ordinal >= 0)),
+    CONSTRAINT scheduled_actions_identity_preimage_check CHECK ((octet_length(identity_preimage) > 0)),
+    CONSTRAINT scheduled_actions_identity_sha256_check CHECK ((octet_length(identity_sha256) = 32)),
+    CONSTRAINT scheduled_actions_product_generation_check CHECK ((product_generation >= 0)),
+    CONSTRAINT scheduled_actions_reason_check CHECK (((reason IS NULL) OR (reason ~ '^[a-z][a-z0-9_]{0,119}$'::text))),
+    CONSTRAINT scheduled_actions_schedule_generation_check CHECK ((schedule_generation >= 1)),
+    CONSTRAINT scheduled_actions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'claimed'::text, 'dispatched'::text, 'canceled'::text, 'completed'::text, 'quarantined'::text])))
+);
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1083,6 +1378,14 @@ ALTER TABLE ONLY public.role_assignments
 
 
 --
+-- Name: scheduled_actions scheduled_actions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_actions
+    ADD CONSTRAINT scheduled_actions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1145,6 +1448,34 @@ CREATE UNIQUE INDEX one_consumption_per_command ON public.identity_receipt_consu
 --
 
 CREATE UNIQUE INDEX one_issued_grant_per_principal ON public.bootstrap_grants USING btree (bootstrap_principal_digest) WHERE (state = 'issued'::text);
+
+
+--
+-- Name: scheduled_actions_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX scheduled_actions_due ON public.scheduled_actions USING btree (due_at, id) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: scheduled_actions_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX scheduled_actions_identity ON public.scheduled_actions USING btree (action_kind, identity_sha256, collision_ordinal);
+
+
+--
+-- Name: scheduled_actions_leases; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (lease_expires_at) WHERE (status = ANY (ARRAY['claimed'::text, 'dispatched'::text]));
+
+
+--
+-- Name: scheduled_actions scheduled_actions_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions FOR EACH ROW EXECUTE FUNCTION public.f1_scheduled_actions_guard();
 
 
 --
@@ -1359,6 +1690,19 @@ CREATE POLICY role_assignments_context ON public.role_assignments USING ((organi
 
 
 --
+-- Name: scheduled_actions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.scheduled_actions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: scheduled_actions scheduled_actions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY scheduled_actions_context ON public.scheduled_actions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1378,6 +1722,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120007'),
 ('20260722120006'),
 ('20260721120005'),
 ('20260721120004'),

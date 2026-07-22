@@ -43,7 +43,13 @@ module F1
       "audit_record_registry"             => "SELECT, INSERT",
       "event_registry"                    => "SELECT, INSERT",
       # Immutable authorization-decision record (T-IMM): insert/read only.
-      "authorization_decisions"           => "SELECT, INSERT"
+      "authorization_decisions"           => "SELECT, INSERT",
+      # The durable timer authority. The runtime creates an action inside the
+      # proved Organization context of the scheduling command and reads its own
+      # Organization's rows; it holds NO UPDATE or DELETE, so every claim,
+      # dispatch, settle, release and cancel must go through the restricted
+      # SECURITY DEFINER transport functions below.
+      "scheduled_actions"                 => "SELECT, INSERT"
     }.freeze
 
     # Every table has PUBLIC revoked as defence in depth (structure-load leaves
@@ -69,7 +75,17 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)"
+      "f1_enter_org_context(uuid, uuid)",
+      # Restricted ScheduledAction transport (BACKGROUND_PROCESSING.md § Durable
+      # Scheduling): the only reachable mutations of scheduled_actions. They read
+      # across Organizations as the owner to find due work, which is exactly why
+      # each is SECURITY DEFINER with a fixed search_path and no PUBLIC execute.
+      "f1_claim_due_scheduled_actions(uuid, integer, integer, timestamptz)",
+      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamptz)",
+      "f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamptz)",
+      "f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamptz)",
+      "f1_release_expired_scheduled_action_leases(integer, timestamptz)",
+      "f1_cancel_scheduled_action(uuid, text, timestamptz)"
     ].freeze
 
     # Functions that must NOT be PUBLIC-executable. structure.sql load recreates
@@ -85,7 +101,13 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)"
+      "f1_enter_org_context(uuid, uuid)",
+      "f1_claim_due_scheduled_actions(uuid, integer, integer, timestamptz)",
+      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamptz)",
+      "f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamptz)",
+      "f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamptz)",
+      "f1_release_expired_scheduled_action_leases(integer, timestamptz)",
+      "f1_cancel_scheduled_action(uuid, text, timestamptz)"
     ].freeze
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.

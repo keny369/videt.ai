@@ -82,7 +82,15 @@ module F1DbProvision
       "sessions INSERT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.sessions','INSERT')").getvalue(0, 0) == "t" },
       "idempotency_records INSERT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.idempotency_records','INSERT')").getvalue(0, 0) == "t" },
       "f1_current_context_org executable" => -> { conn.exec("SELECT has_function_privilege('f1_web','public.f1_current_context_org()','EXECUTE')").getvalue(0, 0) == "t" },
-      "f1_context_proof NOT executable by runtime" => -> { conn.exec("SELECT has_function_privilege('f1_web','public.f1_context_proof(text,text)','EXECUTE')").getvalue(0, 0) == "f" }
+      "f1_context_proof NOT executable by runtime" => -> { conn.exec("SELECT has_function_privilege('f1_web','public.f1_context_proof(text,text)','EXECUTE')").getvalue(0, 0) == "f" },
+      # The service execution path: the timer table is readable but never
+      # directly mutable by the runtime; every transition goes through the
+      # restricted claim function.
+      "scheduled_actions selectable, 0 rows without context (RLS intact)" => -> { conn.exec("SELECT count(*) FROM scheduled_actions").getvalue(0, 0) == "0" },
+      "scheduled_actions INSERT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.scheduled_actions','INSERT')").getvalue(0, 0) == "t" },
+      "scheduled_actions UPDATE NOT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.scheduled_actions','UPDATE')").getvalue(0, 0) == "f" },
+      "f1_claim_due_scheduled_actions executable by runtime" => -> { conn.exec("SELECT has_function_privilege('f1_web','public.f1_claim_due_scheduled_actions(uuid,integer,integer,timestamptz)','EXECUTE')").getvalue(0, 0) == "t" },
+      "f1_claim_due_scheduled_actions NOT executable by PUBLIC" => -> { conn.exec("SELECT has_function_privilege('public','public.f1_claim_due_scheduled_actions(uuid,integer,integer,timestamptz)','EXECUTE')").getvalue(0, 0) == "f" }
     }
   end
 end
