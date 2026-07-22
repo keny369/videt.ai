@@ -17,9 +17,9 @@
 
 ## Implementation State
 
-- Date: 2026-07-22
+- Date: 2026-07-23
 - Branch: `implementation/s01-registration-access` (local only; the origin-trust gate still forbids pushing or moving tags)
-- Suite: 295 examples, 0 failures; Zeitwerk and Packwerk clean; both databases build from empty with no `db/structure.sql` drift
+- Suite: 564 examples, 0 failures; Zeitwerk and Packwerk clean; both databases build from empty with no `db/structure.sql` drift
 
 **The project has crossed from platform construction into workflow implementation.**
 The architectural primitives below are complete and are no longer under
@@ -47,28 +47,40 @@ demonstrated defect in it, exposed by a real consumer.
 | ScheduledAction (durable timers) | `scheduled_actions`, `Platform::ScheduledActions::*`, the 53-literal ratified catalogue |
 | Worker/transport authority | restricted transport functions granted to `f1_platform_worker` only; `TransportConnection` off the Active Record pool |
 | Time authority | PostgreSQL `transaction_timestamp()` for every deadline; `Platform::Clock` for application-side instants only |
-| Concurrency | one per-invitation advisory lock shared by all terminal transitions; `FOR UPDATE SKIP LOCKED` claiming |
+| Concurrency | per-Organization, per-Invitation and per-RoleAssignment advisory locks shared by every transition of that record; `FOR UPDATE SKIP LOCKED` claiming; `RaceHarness` proves both operations in flight before either outcome is released |
+| Authority-change serialization | the Organization authorization epoch, advanced in the same transaction as every accepted effective-access mutation; `CommandAuthorizer.authority_current?` is the ratified durable-checkpoint recheck (:333) |
+| Last-administrator invariant | `IdentityAccess::Infrastructure::LastAdministratorPredicate` — ONE predicate shared by human revoke and timed expiry (:344 "OD-026 adds no second predicate") |
 | Reproducible provisioning | `bin/f1-provision-db`, `F1::RuntimeGrants` as the single grant source, `f1:db:verify_runtime` |
 
 ### Application maturity
 
-- Invitation terminal lifecycle complete as a domain model: accept, decline, revoke, expire — one winner under concurrency, exactly one terminal event, no terminal state reopens.
-- Expiry infrastructure complete: `ExpireInvitation` is built and correct, and is **not yet production-reachable** because nothing activates an Invitation. A guard spec fails the moment a production path starts creating Invitations without scheduling expiry.
+- Invitation lifecycle complete end to end: create, approve/reject, activate, accept, decline, revoke, expire — one winner under concurrency, exactly one terminal event, no terminal state reopens.
+- Organization lifecycle complete: suspend and reactivate under `reactivation-proof-v1`, with suspension's authority invalidation enforced at the shared authorization boundary.
+- **Role Assignment and Protected Authority complete**: request, decide (approve/reject), direct activation, revoke, timed expiry, and the OD-026 last-administrator expiry block with its immutable `RoleExpiryBlockDecision`. Protected authority is production-reachable through Request + Decide alone — no fixture writes an allowlist for a principal under test.
 - Bootstrap grant issuance and existing-account sign-in complete.
 
 ### Remaining
 
-Invitation activation, then invitation creation and approval, then the remaining
-organization, role, account, bootstrap and policy workflows. Ordering stays with
+Account lifecycle, Support Session, Access Policy activation, Legal Hold and
+deletion, then the remaining bootstrap and organization-closure workflows.
+Ordering stays with
 [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md).
+
+Deliberately deferred, and NOT a gap: the blocked-expiry re-evaluation trigger.
+":425 the guard is re-evaluated on each Organization authorization-epoch advance
+rather than replayed from a transport queue", and that background exposure
+"remains intentionally deferred until the Volume II baseline". The blocked action
+completes, its decision persists, and no successor is scheduled. Do not invent a
+re-scheduling loop for it.
 
 ## Current Objective
 
-Implement invitation activation — the first workflow that exercises the whole
-platform at once: Permission Baseline, Session actor authorization, service
-identities, ScheduledAction and `ExpireInvitation`, request digests, eventing,
-audit, the reference registry, idempotency and concurrency. It makes the already
-built expiry capability production-reachable rather than foundational.
+Continue [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md)
+in order from the next unbuilt slice. Every workflow now has a complete example
+to consume: authenticate through the Session boundary, authorize through the
+shared gate, take the record and Organization locks, compare the expected state
+version and authorization epoch, transition, advance the epoch in the same
+transaction, and write exactly one event, result and audit outcome.
 
 Continue working [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md) in order. The acceptance criterion is the oracle. Report rather than invent every limb the seven pending decisions reserve, and never resolve one by inference.
 
