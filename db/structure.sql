@@ -1256,6 +1256,30 @@ ALTER TABLE ONLY public.role_assignments FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: role_expiry_block_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.role_expiry_block_decisions (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    role_assignment_id uuid NOT NULL,
+    assignment_expires_at timestamp(6) with time zone NOT NULL,
+    authorization_epoch bigint NOT NULL,
+    block_reason text NOT NULL,
+    predicate_result jsonb NOT NULL,
+    decided_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    retention_class text NOT NULL,
+    CONSTRAINT role_expiry_block_decisions_block_reason_check CHECK ((block_reason = 'expiry_blocked_last_admin'::text)),
+    CONSTRAINT role_expiry_block_decisions_retention_class_check CHECK ((retention_class = 'security_audit'::text))
+);
+
+ALTER TABLE ONLY public.role_expiry_block_decisions FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: scheduled_actions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1564,6 +1588,14 @@ ALTER TABLE ONLY public.invitations
 
 
 --
+-- Name: role_expiry_block_decisions one_decision_per_assignment_epoch; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.role_expiry_block_decisions
+    ADD CONSTRAINT one_decision_per_assignment_epoch UNIQUE (role_assignment_id, authorization_epoch);
+
+
+--
 -- Name: organizations organizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1601,6 +1633,14 @@ ALTER TABLE ONLY public.role_assignment_approvals
 
 ALTER TABLE ONLY public.role_assignments
     ADD CONSTRAINT role_assignments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: role_expiry_block_decisions role_expiry_block_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.role_expiry_block_decisions
+    ADD CONSTRAINT role_expiry_block_decisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -2028,6 +2068,19 @@ CREATE POLICY role_assignments_context ON public.role_assignments USING ((organi
 
 
 --
+-- Name: role_expiry_block_decisions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.role_expiry_block_decisions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: role_expiry_block_decisions role_expiry_block_decisions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY role_expiry_block_decisions_context ON public.role_expiry_block_decisions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: scheduled_actions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2066,6 +2119,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120018'),
 ('20260722120017'),
 ('20260722120016'),
 ('20260722120015'),

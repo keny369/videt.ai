@@ -21,4 +21,11 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf001::Handlers::ExpireInvitation,
     command: Workflows::Wf001::Commands::ExpireInvitation
   )
+  registry.register(
+    action_kind: "role_assignment_expire",
+    action_schema_version: "1.0",
+    operation: "ExpireRoleAssignment",
+    handler: Workflows::Wf013::Handlers::ExpireRoleAssignment,
+    command: Workflows::Wf013::Commands::ExpireRoleAssignment
+  )
 end

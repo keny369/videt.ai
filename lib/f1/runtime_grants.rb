@@ -33,6 +33,8 @@ module F1
       "role_assignments"                  => "SELECT, INSERT, UPDATE",
       # ":314 ordered immutable approval records" — insert/read only.
       "role_assignment_approvals"         => "SELECT, INSERT",
+      # Immutable decision record (:343): insert/read only.
+      "role_expiry_block_decisions"       => "SELECT, INSERT",
       "access_policies"                   => "SELECT",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",

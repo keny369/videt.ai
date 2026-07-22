@@ -116,7 +116,14 @@ module Platform
       "role_expiry_required"              => "F1-VALIDATION-400",
       "role_expiry_invalid"               => "F1-VALIDATION-400",
       "role_assignment_not_pending"       => "F1-DOMAIN-409",
-      "role_approver_conflict"            => "F1-AUTH-403"
+      "role_approver_conflict"            => "F1-AUTH-403",
+      # ":316 Before an expiry that would remove the last effective
+      # OrganizationAdmin … leaves the Assignment active with
+      # `expiry_blocked_last_admin`"; ":344 the same last-admin invariant WF-013
+      # already applies to revoke."
+      "expiry_blocked_last_admin"         => "F1-DOMAIN-409",
+      "role_assignment_not_active"        => "F1-DOMAIN-409",
+      "last_organization_admin"           => "F1-DOMAIN-409"
     }.freeze
 
     def failure(reason_code, support_reference:)
