@@ -167,7 +167,8 @@ module Workflows
           IdentityAccess::Authorization::Decision.new(
             allowed: true, reason: "authorized", organization_epoch: row["authorization_epoch"].to_i,
             policy_snapshot_id: policy_id,
-            role_assignment_versions: assignments.map { |a| { "id" => a["id"], "state_version" => a["state_version"].to_i } }
+            role_assignment_versions: assignments.map { |a| { "id" => a["id"], "state_version" => a["state_version"].to_i } },
+            granting_assignments: assignments
           )
         end
 

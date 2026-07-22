@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "time"
 
 module IdentityAccess
@@ -11,9 +12,15 @@ module IdentityAccess
 
     # The capability decision plus the fields the durable authorization_decisions
     # record must carry (WORKFLOW_SPECIFICATIONS.md § authorization decision :331).
+    # `granting_assignments` carries the Assignments that actually conferred the
+    # capability, so a caller that must reason about the actor's own authority —
+    # grant authority, scope containment — reads it from the decision rather than
+    # re-deriving it.
     Decision = Data.define(:allowed, :reason, :organization_epoch, :policy_snapshot_id,
-                           :role_assignment_versions) do
+                           :role_assignment_versions, :granting_assignments) do
       def allowed? = allowed
+
+      def granting = granting_assignments || []
     end
 
     # The narrow authorization facade for Session-authenticated organization-actor
@@ -51,32 +58,60 @@ module IdentityAccess
                                authorization_epoch: org_row["authorization_epoch"].to_i)
       end
 
-      # Evaluate `capability` for an authenticated actor. Resolves exactly one active
-      # Access Policy (policy_unavailable if missing/conflicting), selects the actor's
-      # active effective Role Assignments, and reads the Permission Baseline cell. The
-      # baseline access-policy-v1 carries empty denies, so no deny subtraction applies
-      # in this slice; invitation.revoke is unprotected, so no protected-allowlist gate.
+      # Evaluate `capability` for an authenticated actor, following the ratified
+      # effective-permission order (:322-329):
+      #
+      #   2. resolve exactly one active Access Policy (`policy_unavailable` when
+      #      missing or conflicting);
+      #   3. select the actor's active effective Role Assignments;
+      #   4. read the role/action cell from `permission-baseline-v1` AND "require
+      #      any protected permission to appear in the Assignment's approved
+      #      protected allowlist";
+      #   5-6. union the allowed permissions and return allow.
+      #
+      # Step 4's protected-allowlist gate lives here rather than in each handler:
+      # a baseline allow is necessary but not sufficient for a protected
+      # capability, and that rule is identical for every consumer.
+      #
+      # The baseline `access-policy-v1` carries empty denies, so step 5's deny
+      # subtraction is a no-op for it; a narrower Organization policy that adds
+      # denies is a later slice and is deliberately not approximated here.
       def authorize(actor:, capability:, now:)
         policy = @store.active_access_policy(actor.organization_id)
-        return deny("policy_unavailable", actor, nil, []) if policy.nil?
+        return deny("policy_unavailable", actor, nil, [], []) if policy.nil?
 
         assignments = @store.effective_role_assignments(account_id: actor.account_id, now:)
         versions = assignments.map { |a| { "id" => a["id"], "state_version" => a["state_version"].to_i } }
-        roles = assignments.map { |a| a["canonical_role"] }
 
-        if Platform::PermissionBaseline.permits?(capability, roles)
-          Decision.new(allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
-                       policy_snapshot_id: policy["id"], role_assignment_versions: versions)
-        else
-          deny("missing_authority", actor, policy["id"], versions)
-        end
+        granting = assignments.select { |a| confers?(capability, a) }
+        return deny("missing_authority", actor, policy["id"], versions, []) if granting.empty?
+
+        Decision.new(allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
+                     policy_snapshot_id: policy["id"], role_assignment_versions: versions,
+                     granting_assignments: granting)
       end
 
       private
 
-      def deny(reason, actor, policy_id, versions)
+      # Step 4 for one Assignment: the baseline cell allows the capability to this
+      # Assignment's canonical role, and — when the capability is protected — the
+      # Assignment's own approved allowlist carries it.
+      def confers?(capability, assignment)
+        return false unless Platform::PermissionBaseline.permits?(capability, [assignment["canonical_role"]])
+        return true unless Platform::PermissionBaseline::PROTECTED.key?(capability)
+
+        Platform::PermissionBaseline.protected_grant?(capability, allowlist(assignment))
+      end
+
+      def allowlist(assignment)
+        raw = assignment["protected_permission_allowlist"]
+        raw.is_a?(::String) ? JSON.parse(raw) : Array(raw)
+      end
+
+      def deny(reason, actor, policy_id, versions, granting = [])
         Decision.new(allowed: false, reason:, organization_epoch: actor.authorization_epoch,
-                     policy_snapshot_id: policy_id, role_assignment_versions: versions)
+                     policy_snapshot_id: policy_id, role_assignment_versions: versions,
+                     granting_assignments: granting)
       end
 
       def session_deadline(row)

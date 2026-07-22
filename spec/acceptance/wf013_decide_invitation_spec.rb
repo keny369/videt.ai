@@ -33,12 +33,9 @@ RSpec.describe "WF-013 decide invitation", type: :acceptance,
   def approver(allowlist: ["invitation.approve"], account_id: nil)
     account = account_id || TenantSeeder.create_account(organization_id: org, issuer_key: "https://id.example/oidc",
                                                         subject: "approver-#{SecureRandom.hex(6)}")
-    assignment = TenantSeeder.create_role_assignment(organization_id: org, account_id: account,
-                                                     canonical_role: "SecurityOperator")
-    DbInspector.connection.exec_params(
-      "UPDATE role_assignments SET protected_permission_allowlist = $2::jsonb WHERE id = $1::uuid",
-      [assignment, JSON.generate(allowlist)]
-    )
+    TenantSeeder.create_role_assignment(organization_id: org, account_id: account,
+                                        canonical_role: "SecurityOperator",
+                                        protected_permission_allowlist: allowlist)
     TenantSeeder.create_access_policy(organization_id: org) if DbInspector.count("access_policies").zero?
     session = TenantSeeder.create_session(organization_id: org, account_id: account, issued_at: fixed_now - 900)
     { account_id: account, session_id: session }
@@ -143,8 +140,11 @@ RSpec.describe "WF-013 decide invitation", type: :acceptance,
       expect(result.reason_code).to eq("missing_authority")
       expect(invitation["state"]).to eq("pending_approval")
       expect(actions).to be_empty
+      # Step 4 of the effective-permission algorithm now denies in the shared
+      # authorizer: a baseline allow without the approved protected allowlist is
+      # simply not authority, so it is the ordinary missing-authority denial.
       expect(DbInspector.one("SELECT reason_code FROM audit_record_registry")["reason_code"])
-        .to eq("protected_grant_required")
+        .to eq("missing_authority")
     end
 
     it "denies an OrganizationAdmin, whose baseline cell for invitation.approve is deny" do

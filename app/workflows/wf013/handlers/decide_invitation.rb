@@ -61,12 +61,6 @@ module Workflows
               return deny(**d, invitation_id: nil, outward: decision.reason, internal: decision.reason)
             end
 
-            # The protected explicit grant, checked before the target is read.
-            allowlist = store.protected_allowlist(account_id: actor.account_id, canonical_role: APPROVER_ROLE)
-            unless Platform::PermissionBaseline.protected_grant?(CAPABILITY, allowlist)
-              return deny(**d, invitation_id: nil, outward: "missing_authority", internal: "protected_grant_required")
-            end
-
             process(**d, reason:)
           end
         end

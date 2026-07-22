@@ -226,12 +226,9 @@ RSpec.describe "WF-013 invitation activation lifecycle", type: :acceptance,
       security = TenantSeeder.create_account(organization_id: admin[:organization_id],
                                              issuer_key: "https://id.example/oidc",
                                              subject: "sec-#{SecureRandom.hex(4)}")
-      assignment = TenantSeeder.create_role_assignment(organization_id: admin[:organization_id],
-                                                       account_id: security, canonical_role: "SecurityOperator")
-      DbInspector.connection.exec_params(
-        "UPDATE role_assignments SET protected_permission_allowlist = $2::jsonb WHERE id = $1::uuid",
-        [assignment, JSON.generate(["invitation.approve"])]
-      )
+      TenantSeeder.create_role_assignment(organization_id: admin[:organization_id], account_id: security,
+                                          canonical_role: "SecurityOperator",
+                                          protected_permission_allowlist: ["invitation.approve"])
       session = TenantSeeder.create_session(organization_id: admin[:organization_id], account_id: security,
                                             issued_at: fixed_now - 900)
       cmd = Workflows::Wf013::Commands::DecideInvitation.new(

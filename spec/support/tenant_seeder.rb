@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "json"
 require "securerandom"
 
 # Seeds tenant rows (Organization, Account, Role Assignment, Access Policy) that
@@ -62,15 +63,16 @@ module TenantSeeder
   def create_role_assignment(organization_id:, account_id:, canonical_role: "OrganizationAdmin",
                              id: SecureRandom.uuid_v7, permission_mode: "standard", persona: nil,
                              status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil,
-                             scope_sha256: nil)
+                             scope_sha256: nil, protected_permission_allowlist: [])
     params = [id, organization_id, account_id, canonical_role, permission_mode, persona,
               status, (effective_at ? ts(effective_at) : nil), (expires_at ? ts(expires_at) : nil),
-              (scope_sha256 ? bytea(scope_sha256) : nil)]
+              (scope_sha256 ? bytea(scope_sha256) : nil), JSON.generate(protected_permission_allowlist)]
     conn.exec_params(<<~SQL, params)
       INSERT INTO role_assignments
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
-         canonical_role, permission_mode, persona, status, effective_at, expires_at, scope_sha256)
-      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10)
+         canonical_role, permission_mode, persona, status, effective_at, expires_at, scope_sha256,
+         protected_permission_allowlist)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10,$11::jsonb)
     SQL
     id
   end

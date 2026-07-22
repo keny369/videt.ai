@@ -30,7 +30,9 @@ module F1
     TABLE_PRIVILEGES = {
       "organizations"                     => "SELECT, UPDATE",
       "accounts"                          => "SELECT, INSERT, UPDATE",
-      "role_assignments"                  => "SELECT, INSERT",
+      "role_assignments"                  => "SELECT, INSERT, UPDATE",
+      # ":314 ordered immutable approval records" — insert/read only.
+      "role_assignment_approvals"         => "SELECT, INSERT",
       "access_policies"                   => "SELECT",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",

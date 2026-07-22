@@ -462,6 +462,51 @@ $$;
 
 
 --
+-- Name: f1_role_assignments_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_role_assignments_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE allowed text[];
+BEGIN
+  -- The approved protected authority of an Assignment is an immutable
+  -- historical fact: step 4 of the effective-permission algorithm reads it,
+  -- so a later edit would silently re-authorize history.
+  IF NEW.protected_permission_allowlist IS DISTINCT FROM OLD.protected_permission_allowlist THEN
+    RAISE EXCEPTION 'role_assignment_allowlist_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.account_id IS DISTINCT FROM OLD.account_id
+     OR NEW.canonical_role IS DISTINCT FROM OLD.canonical_role
+     OR NEW.permission_mode IS DISTINCT FROM OLD.permission_mode
+     OR NEW.persona IS DISTINCT FROM OLD.persona
+     OR NEW.scope_sha256 IS DISTINCT FROM OLD.scope_sha256
+     OR NEW.requester_account_id IS DISTINCT FROM OLD.requester_account_id
+     OR NEW.requested_at IS DISTINCT FROM OLD.requested_at THEN
+    RAISE EXCEPTION 'role_assignment_grant_content_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- ":316 Valid transitions are pending to active, rejected, or expired;
+  -- active to revoked or expired. Revoked, rejected, and expired are terminal."
+  allowed := CASE OLD.status
+               WHEN 'pending' THEN ARRAY['pending','active','rejected','expired']
+               WHEN 'active'  THEN ARRAY['active','revoked','expired']
+               ELSE ARRAY[OLD.status]
+             END;
+  IF NOT (NEW.status = ANY (allowed)) THEN
+    RAISE EXCEPTION 'role_assignment_illegal_transition % -> %', OLD.status, NEW.status
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_scheduled_actions_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1119,6 +1164,35 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions FORCE ROW LEVEL SECURI
 
 
 --
+-- Name: role_assignment_approvals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.role_assignment_approvals (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    role_assignment_id uuid NOT NULL,
+    sequence_number integer NOT NULL,
+    approver_account_id uuid,
+    approver_platform_id uuid,
+    authority text NOT NULL,
+    decision text NOT NULL,
+    reason text,
+    decided_at timestamp(6) with time zone NOT NULL,
+    policy_version text NOT NULL,
+    separation_result text NOT NULL,
+    correlation_id uuid NOT NULL,
+    CONSTRAINT approval_has_exactly_one_approver CHECK (((approver_account_id IS NULL) <> (approver_platform_id IS NULL))),
+    CONSTRAINT role_assignment_approvals_decision_check CHECK ((decision = ANY (ARRAY['approve'::text, 'reject'::text]))),
+    CONSTRAINT role_assignment_approvals_separation_result_check CHECK ((separation_result = ANY (ARRAY['distinct'::text, 'same_principal'::text]))),
+    CONSTRAINT role_assignment_approvals_sequence_number_check CHECK ((sequence_number >= 1))
+);
+
+ALTER TABLE ONLY public.role_assignment_approvals FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: role_assignments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1139,10 +1213,26 @@ CREATE TABLE public.role_assignments (
     expires_at timestamp(6) with time zone,
     scope_sha256 bytea,
     protected_permission_allowlist jsonb DEFAULT '[]'::jsonb NOT NULL,
+    requester_account_id uuid,
+    requested_at timestamp(6) with time zone,
+    approval_due_at timestamp(6) with time zone,
+    terminated_at timestamp(6) with time zone,
+    reason text,
+    transition_reason_code text,
+    decision_authorization_epoch bigint,
+    idempotency_key_digest bytea,
+    fulfilled_invitation_id uuid,
+    CONSTRAINT role_assignment_active_is_effective CHECK (((status <> 'active'::text) OR (effective_at IS NOT NULL))),
+    CONSTRAINT role_assignment_approval_due_is_24_hours CHECK (((approval_due_at IS NULL) OR (requested_at IS NULL) OR (approval_due_at = (requested_at + '24:00:00'::interval)))),
+    CONSTRAINT role_assignment_pending_is_not_effective CHECK (((status <> 'pending'::text) OR (effective_at IS NULL))),
+    CONSTRAINT role_assignment_protected_expiry_within_30_days CHECK (((jsonb_array_length(protected_permission_allowlist) = 0) OR (effective_at IS NULL) OR (expires_at IS NULL) OR (expires_at <= (effective_at + '30 days'::interval)))),
+    CONSTRAINT role_assignments_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
     CONSTRAINT role_assignments_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
     CONSTRAINT role_assignments_protected_permission_allowlist_check CHECK ((jsonb_typeof(protected_permission_allowlist) = 'array'::text)),
+    CONSTRAINT role_assignments_reason_check CHECK (((reason IS NULL) OR ((char_length(reason) >= 1) AND (char_length(reason) <= 2000)))),
     CONSTRAINT role_assignments_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
-    CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text])))
+    CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
+    CONSTRAINT role_assignments_transition_reason_code_check CHECK (((transition_reason_code IS NULL) OR (transition_reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text)))
 );
 
 ALTER TABLE ONLY public.role_assignments FORCE ROW LEVEL SECURITY;
@@ -1294,6 +1384,14 @@ ALTER TABLE ONLY public.accounts
 
 ALTER TABLE ONLY public.accounts
     ADD CONSTRAINT accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: role_assignment_approvals approval_records_are_ordered; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.role_assignment_approvals
+    ADD CONSTRAINT approval_records_are_ordered UNIQUE (role_assignment_id, sequence_number);
 
 
 --
@@ -1473,6 +1571,14 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 
 --
+-- Name: role_assignment_approvals role_assignment_approvals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.role_assignment_approvals
+    ADD CONSTRAINT role_assignment_approvals_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: role_assignments role_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1542,6 +1648,13 @@ CREATE UNIQUE INDEX one_active_assignment_per_tuple ON public.role_assignments U
 
 
 --
+-- Name: one_approval_per_approver; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_approval_per_approver ON public.role_assignment_approvals USING btree (role_assignment_id, COALESCE(approver_account_id, approver_platform_id));
+
+
+--
 -- Name: one_consumed_grant_per_principal; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1602,6 +1715,13 @@ CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (l
 --
 
 CREATE TRIGGER organizations_lifecycle_guard BEFORE UPDATE ON public.organizations FOR EACH ROW EXECUTE FUNCTION public.f1_organizations_lifecycle_guard();
+
+
+--
+-- Name: role_assignments role_assignments_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER role_assignments_lifecycle_guard BEFORE UPDATE ON public.role_assignments FOR EACH ROW EXECUTE FUNCTION public.f1_role_assignments_lifecycle_guard();
 
 
 --
@@ -1858,6 +1978,19 @@ CREATE POLICY receipt_by_principal ON public.identity_receipt_nonces USING ((boo
 
 
 --
+-- Name: role_assignment_approvals; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.role_assignment_approvals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: role_assignment_approvals role_assignment_approvals_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY role_assignment_approvals_context ON public.role_assignment_approvals USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: role_assignments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1909,6 +2042,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120015'),
 ('20260722120014'),
 ('20260722120013'),
 ('20260722120012'),
