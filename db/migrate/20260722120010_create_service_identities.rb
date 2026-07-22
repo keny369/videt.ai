@@ -36,9 +36,15 @@ class CreateServiceIdentities < ActiveRecord::Migration[8.1]
   EXECUTOR_ID = "0192f100-0000-7000-8000-00005c8ed010"
   EXECUTOR_SUBJECT = "f1.scheduled_action_executor"
 
+  # The reserved executor ROW is not seeded here. db/structure.sql carries no
+  # seed data, and `db:migrate` against an empty database materializes the schema
+  # from structure.sql rather than replaying migrations, so a migration-time
+  # INSERT is silently skipped on that route. Seeding therefore follows the
+  # existing proof-key pattern: one idempotent provisioning task
+  # (`f1:db:ensure_service_identities`) applied after every schema
+  # materialization, so the migrate path and the structure-load path converge.
   def up
     create_table_and_policy
-    seed_scheduled_action_executor
     bind_scheduled_actions
     require_active_identity_to_claim
   end
@@ -81,17 +87,6 @@ class CreateServiceIdentities < ActiveRecord::Migration[8.1]
       -- SECURITY DEFINER claim function.
       ALTER TABLE service_identities ENABLE ROW LEVEL SECURITY;
       REVOKE ALL ON service_identities FROM PUBLIC;
-    SQL
-  end
-
-  def seed_scheduled_action_executor
-    execute <<~SQL
-      INSERT INTO service_identities
-        (id, created_at, updated_at, subject, display_name, status, key_id, permission_scope, activated_at)
-      VALUES ('#{EXECUTOR_ID}', now(), now(), '#{EXECUTOR_SUBJECT}',
-              'F1 ScheduledAction executor', 'active', 'f1-scheduled-action-executor-v1',
-              '{"scheduled_action":["execute"]}'::jsonb, now())
-      ON CONFLICT (id) DO NOTHING;
     SQL
   end
 

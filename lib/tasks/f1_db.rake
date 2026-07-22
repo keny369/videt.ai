@@ -24,6 +24,14 @@ namespace :f1 do
       puts "[f1:db:ensure_context_key] #{applied ? 'inserted a random proof key' : 'proof key already present'}"
     end
 
+    desc "Ensure the reserved platform Service Identity rows exist (idempotent)"
+    task ensure_service_identities: :environment do
+      conn = ActiveRecord::Base.connection
+      applied = F1DbProvision.ensure_service_identities(conn)
+      F1DbProvision.assert_executor_identity!(conn)
+      puts "[f1:db:ensure_service_identities] #{applied} reserved service identity row(s) inserted; executor active"
+    end
+
     desc "Verify the runtime role (f1_web) can actually use the database, with RLS intact"
     task verify_runtime: :environment do
       F1DbProvision.verify_runtime!(ActiveRecord::Base.connection_db_config.configuration_hash)
@@ -33,6 +41,7 @@ namespace :f1 do
     task provision: :environment do
       Rake::Task["f1:db:grants"].invoke
       Rake::Task["f1:db:ensure_context_key"].invoke
+      Rake::Task["f1:db:ensure_service_identities"].invoke
       Rake::Task["f1:db:verify_runtime"].invoke
     end
   end
@@ -56,6 +65,52 @@ module F1DbProvision
       )
       SELECT count(*) FROM ins
     SQL
+  end
+
+  # Insert the reserved platform Service Identity rows iff absent, never
+  # overwriting an existing row (an operator may have suspended or revoked one,
+  # and re-activating it behind their back would defeat the control). Guarded so
+  # it is safe before the table exists.
+  #
+  # This is a provisioning step rather than a migration seed for the same reason
+  # the proof key is: db/structure.sql carries no data, and `db:migrate` against
+  # an empty database materializes the schema from structure.sql instead of
+  # replaying migrations, so a migration-time INSERT never runs on that route.
+  def ensure_service_identities(connection)
+    return 0 if connection.select_value("SELECT to_regclass('public.service_identities')::text").nil?
+
+    rows = [[Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR,
+             Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR_SUBJECT,
+             "F1 ScheduledAction executor", "f1-scheduled-action-executor-v1",
+             '{"scheduled_action":["execute"]}']]
+    rows.sum do |id, subject, display_name, key_id, scope|
+      connection.select_value(<<~SQL).to_i
+        WITH ins AS (
+          INSERT INTO public.service_identities
+            (id, created_at, updated_at, subject, display_name, status, key_id, permission_scope, activated_at)
+          VALUES ('#{id}', now(), now(), '#{subject}', '#{display_name}', 'active', '#{key_id}',
+                  '#{scope}'::jsonb, now())
+          ON CONFLICT (id) DO NOTHING
+          RETURNING 1
+        )
+        SELECT count(*) FROM ins
+      SQL
+    end
+  end
+
+  # Fail provisioning loudly if the ScheduledAction executor is missing or not
+  # active: without it the timer table's foreign key rejects every new action and
+  # the claim function refuses every existing one, so the service is inert.
+  def assert_executor_identity!(connection)
+    return if connection.select_value("SELECT to_regclass('public.service_identities')::text").nil?
+
+    active = connection.select_value(<<~SQL)
+      SELECT count(*) FROM public.service_identities
+      WHERE id = '#{Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR}' AND status = 'active'
+    SQL
+    return if active.to_i.positive?
+
+    abort "[f1:db:ensure_service_identities] FAILED: the reserved ScheduledAction executor is absent or not active"
   end
 
   # Connect as the runtime login role and prove the database is usable: metadata
@@ -120,7 +175,10 @@ module F1DbProvision
       "ScheduledAction transport NOT executable by f1_web" => -> { transport_privilege(conn, "f1_web") == "f" },
       "ScheduledAction transport NOT executable by PUBLIC" => -> { transport_privilege(conn, "public") == "f" },
       "ScheduledAction transport executable by f1_platform_worker" => -> { transport_privilege(conn, "f1_platform_worker") == "t" },
-      "no ScheduledAction transport function accepts a caller-supplied time" => -> { transport_takes_no_time(conn) == "t" }
+      "no ScheduledAction transport function accepts a caller-supplied time" => -> { transport_takes_no_time(conn) == "t" },
+      # Global service identities are platform control (POSTGRESQL_SCHEMA.md
+      # :166): the runtime holds no grant on the register at all.
+      "service_identities NOT readable by the runtime" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.service_identities','SELECT')").getvalue(0, 0) == "f" }
     }
   end
 end
@@ -134,5 +192,6 @@ end
     conn = ActiveRecord::Base.connection
     F1::RuntimeGrants.apply_all(conn)
     F1DbProvision.ensure_context_key(conn)
+    F1DbProvision.ensure_service_identities(conn)
   end
 end
