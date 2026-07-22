@@ -12,21 +12,30 @@ module Platform
   # enforce `exactly_one_actor_or_service`, so the executing identity is written
   # to `service_identity_id` and `actor_id` stays null.
   #
-  # The canonical `service_identities` table (schemas/POSTGRESQL_SCHEMA.md :202)
-  # belongs to a later slice. Until it exists, the executor is this reserved,
-  # stable, documented constant rather than a per-process random UUID: a
-  # scheduled action created today must still name the same executing identity
-  # when a different process runs it tomorrow. It is overridable by deployment so
-  # a managed environment can bind the real registered row without a code change.
+  # This is a pointer to a persisted row, not an identifier in its own right.
+  # POSTGRESQL_SCHEMA.md:43 classes `service_identity_id` as an F1 row identity
+  # requiring a "named FK/existence check", and :202 defines `service_identities`
+  # with a `status CHECK ('active','suspended','revoked')`. The reserved executor
+  # below is seeded by migration, referenced by a foreign key from
+  # `scheduled_actions`, and re-checked for `active` status every time work is
+  # claimed — so an unknown UUID cannot be scheduled and a suspended or revoked
+  # executor stops executing.
+  #
+  # The UUID is a fixed constant rather than a per-process value because an action
+  # scheduled by one release must still name the same executing identity when a
+  # later release runs it. There is deliberately no environment override: a
+  # deployment that needs a different executor registers the row and changes this
+  # constant under review, because an override could only ever name a row that
+  # the foreign key already requires to exist.
   module ServiceIdentity
     module_function
 
     # Reserved identity of the ScheduledAction executor (the `scheduler`/worker
-    # service of BACKGROUND_PROCESSING.md § Process And Queue Catalogue).
+    # service of BACKGROUND_PROCESSING.md § Process And Queue Catalogue), seeded
+    # by db/migrate/20260722120010_create_service_identities.rb.
     SCHEDULED_ACTION_EXECUTOR = "0192f100-0000-7000-8000-00005c8ed010"
+    SCHEDULED_ACTION_EXECUTOR_SUBJECT = "f1.scheduled_action_executor"
 
-    def scheduled_action_executor
-      ENV.fetch("F1_SCHEDULED_ACTION_SERVICE_IDENTITY_ID", SCHEDULED_ACTION_EXECUTOR)
-    end
+    def scheduled_action_executor = SCHEDULED_ACTION_EXECUTOR
   end
 end

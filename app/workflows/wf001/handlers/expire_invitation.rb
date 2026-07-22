@@ -78,11 +78,27 @@ module Workflows
           request_sha256 = request_hash(command, ctx)
           d = { store:, command:, ctx:, now:, org:, request_sha256:, key_digest: }
 
-          # 3. Read the target under the proved context. Not visible (unknown, or
-          #    another Organization's) => the single non-disclosing outcome, with
-          #    no ledger write that would confirm anything about it.
+          # 3. Read the target under the proved context. An invisible target —
+          #    unknown, or belonging to another Organization — means the action's
+          #    `organization_id` and `target_id` disagree, which cannot arise from
+          #    a correctly created action (creation happens inside the proved
+          #    Organization context under the policy's WITH CHECK). It is a
+          #    transport-integrity fault, so it fails closed: the worker
+          #    quarantines the action and no product work occurs
+          #    (BACKGROUND_PROCESSING.md :245).
+          #
+          #    It is still audited. contracts/S-01.json requires that "a rejected
+          #    no-state command emits only the standard audited command outcome",
+          #    and an attempted service execution is exactly that. The record is
+          #    written in the ACTION's Organization — the only Organization this
+          #    execution ever proved — and names the target only by the id the
+          #    action already carried, so it discloses neither the target's real
+          #    Organization nor whether it exists anywhere else.
           inv = store.read_invitation(command.invitation_id)
-          return in_memory_failure(command, ctx, "invitation_not_active") if inv.nil?
+          if inv.nil?
+            return deny(**d, outward: "scheduled_action_target_mismatch",
+                        internal: "scheduled_action_target_mismatch", replayable: false)
+          end
 
           # 4. Exact replay: a redelivered action returns the stored result and
           #    emits nothing.

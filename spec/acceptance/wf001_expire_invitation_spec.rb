@@ -255,16 +255,57 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
   end
 
   describe "non-disclosure and fail-closed guards" do
-    it "discloses nothing and changes nothing when the action names another Organization's Invitation" do
+    # An invisible target means the action's organization_id and target_id
+    # disagree, which a correctly created action cannot do. It fails closed, and
+    # it is audited: the record is written in the ACTION's Organization — the only
+    # one this execution ever proved — and names the target only by the id the
+    # action already carried, so nothing about the target's real Organization or
+    # its existence elsewhere is disclosed (contracts/S-01.json audit_record;
+    # BACKGROUND_PROCESSING.md :245).
+    it "audits a non-disclosing rejected outcome and changes nothing when the action names another Organization's Invitation" do
       inv = invitation
       other_org = TenantSeeder.create_organization
       result = execute_directly(inv, organization_id: other_org)
 
       expect(result).to be_failure
-      expect(result.reason_code).to eq("invitation_not_active")
+      expect(result.reason_code).to eq("scheduled_action_target_mismatch")
       expect(invitation_row["state"]).to eq("active")
       expect(events).to be_empty
-      expect(DbInspector.count("command_executions")).to eq(0)
+
+      audit = DbInspector.one("SELECT * FROM audit_record_registry")
+      expect(DbInspector.count("command_executions")).to eq(1)
+      expect(audit["organization_id"]).to eq(other_org)
+      expect(audit["outcome"]).to eq("failure")
+      expect(audit["reason_code"]).to eq("scheduled_action_target_mismatch")
+      expect(audit["service_identity_id"]).to eq(Platform::ServiceIdentity.scheduled_action_executor)
+      expect(audit["actor_id"]).to be_nil
+      # The payload names the action's Organization only, never the target's.
+      expect(JSON.parse(audit["payload"])["organization_id"]).to eq(other_org)
+      expect(audit["payload"]).not_to include(org)
+      # Nothing is bound to the action identity, so a redelivery re-evaluates
+      # rather than recovering this rejection.
+      expect(DbInspector.count("idempotency_records")).to eq(0)
+    end
+
+    it "quarantines the action rather than replaying it when its target is not visible" do
+      inv = invitation
+      other_org = TenantSeeder.create_organization
+      other_inv = TenantSeeder.create_invitation(organization_id: other_org, activated_at:,
+                                                 with_expiry_action: false)
+      # An action in Organization B pointing at Organization A's Invitation.
+      action_id = ScheduledActionHarness.create(
+        organization_id: other_org, target_id: inv[:invitation_id], due_at: expires_at
+      )[:id]
+
+      outcomes = run_worker
+
+      corrupt = outcomes.find { |o| o.action_id == action_id }
+      expect(corrupt.disposition).to eq(:quarantined)
+      expect(corrupt.reason).to eq("scheduled_action_target_mismatch")
+      expect(action_row(action_id).values_at("status", "reason"))
+        .to eq(%w[quarantined scheduled_action_target_mismatch])
+      expect(DbInspector.one("SELECT state FROM invitations WHERE id = $1::uuid",
+                             [other_inv[:invitation_id]])["state"]).to eq("active")
     end
 
     it "fails closed rather than expiring early when the action's due instant is not the target's expiry instant" do

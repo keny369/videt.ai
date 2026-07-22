@@ -95,11 +95,13 @@ BEGIN
   RETURN QUERY
   WITH due AS (
     SELECT a.id FROM scheduled_actions a
+    JOIN service_identities s ON s.id = a.executing_service_identity_id
     WHERE a.status = 'pending'
       AND a.due_at <= v_now
       AND (a.not_before_at IS NULL OR a.not_before_at <= v_now)
+      AND s.status = 'active'
     ORDER BY a.due_at, a.id
-    FOR UPDATE SKIP LOCKED
+    FOR UPDATE OF a SKIP LOCKED
     LIMIT greatest(p_limit, 0)
   )
   UPDATE scheduled_actions a
@@ -1139,6 +1141,30 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: service_identities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.service_identities (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid,
+    project_id uuid,
+    subject text NOT NULL,
+    display_name text NOT NULL,
+    status text NOT NULL,
+    key_id text NOT NULL,
+    permission_scope jsonb NOT NULL,
+    activated_at timestamp(6) with time zone,
+    revoked_at timestamp(6) with time zone,
+    CONSTRAINT service_identities_status_check CHECK ((status = ANY (ARRAY['active'::text, 'suspended'::text, 'revoked'::text]))),
+    CONSTRAINT service_identity_status_times CHECK (((status = 'active'::text) = ((activated_at IS NOT NULL) AND (revoked_at IS NULL))))
+);
+
+
+--
 -- Name: sessions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1394,6 +1420,22 @@ ALTER TABLE ONLY public.schema_migrations
 
 
 --
+-- Name: service_identities service_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_identities
+    ADD CONSTRAINT service_identities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: service_identities service_identities_subject_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_identities
+    ADD CONSTRAINT service_identities_subject_key UNIQUE (subject);
+
+
+--
 -- Name: sessions sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1484,6 +1526,14 @@ CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions
 
 ALTER TABLE ONLY public.identity_receipt_consumptions
     ADD CONSTRAINT identity_receipt_consumptions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.identity_receipt_nonces(id);
+
+
+--
+-- Name: scheduled_actions scheduled_actions_executing_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_actions
+    ADD CONSTRAINT scheduled_actions_executing_service_identity_fkey FOREIGN KEY (executing_service_identity_id) REFERENCES public.service_identities(id);
 
 
 --
@@ -1703,6 +1753,12 @@ CREATE POLICY scheduled_actions_context ON public.scheduled_actions USING ((orga
 
 
 --
+-- Name: service_identities; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.service_identities ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: sessions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1722,6 +1778,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120010'),
 ('20260722120009'),
 ('20260722120008'),
 ('20260722120007'),

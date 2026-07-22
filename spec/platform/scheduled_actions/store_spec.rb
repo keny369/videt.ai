@@ -275,6 +275,52 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       end.to raise_error(PG::Error, /claim_generation_regressed/)
     end
 
+    # `service_identity_id` is an F1 row identity requiring a named FK/existence
+    # check (POSTGRESQL_SCHEMA.md :43), and :202 gives the record a
+    # ('active','suspended','revoked') status. A UUID that names no row cannot be
+    # scheduled, and an identity that is no longer active stops executing.
+    it "refuses an executing service identity that names no persisted row" do
+      expect { create(executing_service_identity_id: SecureRandom.uuid_v7) }
+        .to raise_error(PG::ForeignKeyViolation, /service_identit/i)
+      expect(ScheduledActionHarness.count).to eq(0)
+    end
+
+    it "binds the reserved executor to a real, active, revocable Service Identity row" do
+      row = DbInspector.one("SELECT * FROM service_identities WHERE id = $1::uuid",
+                            [Platform::ServiceIdentity.scheduled_action_executor])
+      expect(row["subject"]).to eq(Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR_SUBJECT)
+      expect(row["status"]).to eq("active")
+      expect(row["activated_at"]).not_to be_nil
+    end
+
+    it "stops claiming work for a suspended or revoked executing identity" do
+      id = create[:id]
+      %w[suspended revoked].each do |status|
+        ScheduledActionHarness.owner_exec(<<~SQL, [Platform::ServiceIdentity.scheduled_action_executor, status])
+          UPDATE service_identities
+          SET status = $2, activated_at = NULL, revoked_at = CASE WHEN $2 = 'revoked' THEN now() END
+          WHERE id = $1::uuid
+        SQL
+        claimed = ScheduledActionHarness.transport_store { |store| store.claim_due(owner:, limit: 10) }
+        expect(claimed).to be_empty, "claimed work for a #{status} executor"
+        expect(ScheduledActionHarness.row(id)["status"]).to eq("pending")
+      end
+
+      ScheduledActionHarness.owner_exec(<<~SQL, [Platform::ServiceIdentity.scheduled_action_executor])
+        UPDATE service_identities SET status = 'active', activated_at = now(), revoked_at = NULL WHERE id = $1::uuid
+      SQL
+      expect(ScheduledActionHarness.transport_store { |store| store.claim_due(owner:, limit: 10) }.map(&:id)).to eq([id])
+    end
+
+    it "keeps the Service Identity register unreadable and unwritable by the runtime" do
+      privileges = DbInspector.one(<<~SQL)
+        SELECT has_table_privilege('f1_web','public.service_identities','SELECT') AS web_sel,
+               has_table_privilege('f1_platform_worker','public.service_identities','SELECT') AS platform_sel,
+               has_table_privilege('f1_web','public.service_identities','UPDATE') AS web_upd
+      SQL
+      expect(privileges.values_at("web_sel", "platform_sel", "web_upd")).to eq(%w[f f f])
+    end
+
     it "rejects an action_kind outside the ratified catalogue" do
       expect { create(action_kind: "invitation_expire_v2") }
         .to raise_error(PG::Error, /action_kind_check|violates check constraint/i)
