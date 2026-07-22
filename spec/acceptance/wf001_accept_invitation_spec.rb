@@ -18,7 +18,9 @@ RSpec.describe "WF-001 AcceptInvitation", type: :acceptance,
   after { ReceiptMinter.truncate_all }
 
   def fixed_now = Time.utc(2026, 7, 20, 10, 0, 0)
-  let(:service_id) { SecureRandom.uuid_v7 }
+  # The approved identity/bootstrap service is a registered principal, not a
+  # value each caller invents (WORKFLOW_SPECIFICATIONS.md § onboarding-interim-v1).
+  let(:service_id) { Platform::ServiceIdentity.identity_service }
   let(:invitee) do
     { issuer_key: "https://id.example/oidc", subject: "sub-#{SecureRandom.hex(8)}",
       email: "invitee-#{SecureRandom.hex(4)}@example.com" }
@@ -319,8 +321,8 @@ RSpec.describe "WF-001 AcceptInvitation", type: :acceptance,
       org = TenantSeeder.create_organization
       inv = seed_invitation(org:, state: "accepted")
       rows = DbInspector.connection.exec_params(
-        "SELECT organization_id FROM f1_resolve_invitation_reference($1, $2::timestamptz)",
-        [{ value: inv[:reference_digest], format: 1 }, fixed_now.iso8601(6)]
+        "SELECT organization_id FROM f1_resolve_invitation_reference($1)",
+        [{ value: inv[:reference_digest], format: 1 }]
       ).to_a
       expect(rows).to be_empty
     end

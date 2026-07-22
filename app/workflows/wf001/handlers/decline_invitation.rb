@@ -43,7 +43,7 @@ module Workflows
             replayed = try_exact_replay(store, pg, command, ctx, reference_digest, key_digest, request_sha256)
             return replayed if replayed
 
-            binding = IdentityAccess::Infrastructure::InvitationResolver.new(pg).resolve(reference_digest:, now:)
+            binding = IdentityAccess::Infrastructure::InvitationResolver.new(pg).resolve(reference_digest:)
             return invitation_not_active_in_memory(command, ctx) if binding.nil?
 
             receipt = store.enter_context(receipt_digest: command.receipt_digest,

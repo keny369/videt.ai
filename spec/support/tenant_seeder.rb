@@ -20,6 +20,10 @@ module TenantSeeder
   def bytea(bytes) = { value: bytes, format: 1 }
   def ts(time) = time.getutc.iso8601(6)
 
+  # PostgreSQL's current instant, for fixtures whose validity is decided by the
+  # database clock rather than by an injected application clock.
+  def db_now = Time.parse(conn.exec("SELECT transaction_timestamp()").getvalue(0, 0)).getutc
+
   def create_organization(id: SecureRandom.uuid_v7, status: "active",
                           authorization_epoch: 7, display_name: "Acme Org")
     conn.exec_params(<<~SQL, [id, status, authorization_epoch, display_name])
@@ -92,8 +96,14 @@ module TenantSeeder
                         target_identity_issuer_key: nil, target_identity_subject: nil,
                         canonical_role: "MarketingOperator", permission_mode: "standard", persona: nil,
                         scope_sha256: Digest::SHA256.digest("scope:organization"),
-                        state: "active", activated_at: Time.utc(2026, 7, 18, 10, 0, 0),
+                        state: "active", activated_at: nil,
                         requester_account_id: nil, with_expiry_action: true)
+    # PostgreSQL is the authoritative clock for reference resolution, so the
+    # default activation is anchored to database time (yesterday => six days of
+    # remaining validity). A spec that needs an already-due expiry passes an
+    # explicit past `activated_at`; one that needs an unreachable expiry passes a
+    # far-future one. Neither depends on the calendar date the suite runs on.
+    activated_at ||= db_now - (24 * 3600)
     reference = SecureRandom.random_bytes(32)
     reference_digest = Digest::SHA256.digest(reference)
     email_sha = Digest::SHA256.digest(target_email)

@@ -13,15 +13,21 @@ module IdentityAccess
     #
     # It sets no context; the caller enters the resolved Organization afterwards
     # with f1_enter_context.
+    #
+    # Expiry is evaluated against PostgreSQL transaction time inside the function.
+    # No caller — including this one — can supply the effective current instant,
+    # so an expired reference cannot be revived by presenting a historical
+    # timestamp, and equality behaves as ratified: at `now >= expires_at` the
+    # reference stops resolving and expiry wins (WORKFLOW_SPECIFICATIONS.md :242).
     class InvitationResolver
       def initialize(pg_connection)
         @pg = pg_connection
       end
 
       # Returns { organization_id:, invitation_id: } or nil.
-      def resolve(reference_digest:, now:)
-        sql = "SELECT organization_id, invitation_id FROM f1_resolve_invitation_reference($1, $2::timestamptz)"
-        row = @pg.exec_params(sql, [{ value: reference_digest, format: 1 }, now.getutc.iso8601(6)]).to_a.first
+      def resolve(reference_digest:)
+        sql = "SELECT organization_id, invitation_id FROM f1_resolve_invitation_reference($1)"
+        row = @pg.exec_params(sql, [{ value: reference_digest, format: 1 }]).to_a.first
         return nil if row.nil?
 
         { organization_id: row["organization_id"], invitation_id: row["invitation_id"] }

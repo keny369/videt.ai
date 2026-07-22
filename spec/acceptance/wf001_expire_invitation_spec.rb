@@ -161,8 +161,8 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
       expect(registry["terminal_at"]).not_to be_nil
 
       resolved = DbInspector.all(
-        "SELECT * FROM f1_resolve_invitation_reference($1, $2::timestamptz)",
-        [{ value: inv[:reference_digest], format: 1 }, expires_at.iso8601(6)]
+        "SELECT * FROM f1_resolve_invitation_reference($1)",
+        [{ value: inv[:reference_digest], format: 1 }]
       )
       expect(resolved).to be_empty
     end
@@ -195,8 +195,8 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
     it "expires at equality, so an acceptance attempt at the same instant already sees no active reference" do
       inv = invitation
       resolved_at_boundary = DbInspector.all(
-        "SELECT * FROM f1_resolve_invitation_reference($1, $2::timestamptz)",
-        [{ value: inv[:reference_digest], format: 1 }, expires_at.iso8601(6)]
+        "SELECT * FROM f1_resolve_invitation_reference($1)",
+        [{ value: inv[:reference_digest], format: 1 }]
       )
       expect(resolved_at_boundary).to be_empty
 

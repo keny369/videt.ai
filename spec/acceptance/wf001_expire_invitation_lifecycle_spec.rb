@@ -27,11 +27,25 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
 
   after { ReceiptMinter.truncate_all }
 
+  # Two fixture shapes, because PostgreSQL is now the authority for BOTH clocks
+  # that matter here: the reference resolver's expiry check and the due-action
+  # claim.
+  #
+  #   `seed`      — expiry already past, so the timer is genuinely due and the
+  #                 worker path is exercised end to end. The public reference no
+  #                 longer resolves, which is itself the ratified behaviour.
+  #   `seed_live` — expiry still ahead, so a recipient or administrator can still
+  #                 act. The timer is correctly NOT due, so expiry is driven
+  #                 through its handler with an injected clock at the boundary —
+  #                 which is exactly the production race: a response arriving a
+  #                 moment before the instant the timer fires at.
   def activated_at = Time.utc(2026, 6, 1, 10, 0, 0)
   def expires_at = activated_at + (7 * 24 * 3600)   # 2026-06-08 10:00:00Z, already past
   def just_before = expires_at - Rational(1, 1_000_000)
 
-  let(:service_id) { SecureRandom.uuid_v7 }
+  # The approved identity/bootstrap service is a registered principal, not a
+  # value each caller invents (WORKFLOW_SPECIFICATIONS.md § onboarding-interim-v1).
+  let(:service_id) { Platform::ServiceIdentity.identity_service }
   let(:invitee) do
     { issuer_key: "https://id.example/oidc", subject: "sub-#{SecureRandom.hex(8)}",
       email: "invitee-#{SecureRandom.hex(4)}@example.com" }
@@ -44,6 +58,36 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
     inv = TenantSeeder.create_invitation(organization_id: admin[:organization_id], activated_at:,
                                          target_email: invitee[:email], requester_account_id: admin[:account_id])
     [admin, inv]
+  end
+
+  # An Invitation whose expiry PostgreSQL has not reached, so its public
+  # reference still resolves and accept/decline/revoke remain executable.
+  def seed_live
+    admin = TenantSeeder.seed_authorized_admin
+    inv = TenantSeeder.create_invitation(organization_id: admin[:organization_id],
+                                         target_email: invitee[:email], requester_account_id: admin[:account_id])
+    admin = admin.merge(session_id: TenantSeeder.create_session(
+      organization_id: admin[:organization_id], account_id: admin[:account_id],
+      issued_at: inv[:expires_at] - 900
+    ))
+    [admin, inv]
+  end
+
+  # Expire a still-live Invitation at its own boundary instant, through the
+  # handler the worker would invoke. The timer is not yet due, so this is the
+  # only faithful way to stage the race.
+  def expire_at_boundary(inv)
+    run_expire_handler(
+      expire_command(inv, Platform::ScheduledActions::Identity.digest(action_identity(inv))),
+      now: inv[:expires_at]
+    )
+  end
+
+  def live_now(inv) = inv[:expires_at] - Rational(1, 1_000_000)
+
+  def live_receipt(inv)
+    ReceiptMinter.mint_invitation_receipt(validated_at: live_now(inv), issuer_key: invitee[:issuer_key],
+                                          subject: invitee[:subject], normalized_email: invitee[:email])
   end
 
   def receipt_for(validated_at: just_before)
@@ -145,21 +189,21 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
     end
 
     it "expire vs accept: one terminal transition, with acceptance side effects only when accept wins" do
-      _admin, inv = seed
-      receipt = receipt_for
+      _admin, inv = seed_live
+      receipt = live_receipt(inv)
       accounts_before = DbInspector.count("accounts")
       sessions_before = DbInspector.count("sessions")
 
-      expire_outcomes, accepted = race(-> { expire }, -> { accept(inv, receipt) })
+      expired, accepted = race(-> { expire_at_boundary(inv) }, -> { accept(inv, receipt, now: live_now(inv)) })
 
       state = invitation_state
       if state == "accepted"
         expect(accepted).to be_success
-        expect(expire_outcomes.first.reason).to eq("invitation_not_active")
+        expect(expired.reason_code).to eq("invitation_not_active")
       else
         expect(accepted).to be_failure
         expect(accepted.reason_code).to eq("invitation_not_active")
-        expect(expire_outcomes.first.reason).to be_nil
+        expect(expired).to be_success
       end
       expect(state).to be_in(%w[expired accepted])
       expect(terminal_events).to eq([state == "accepted" ? "InvitationAccepted" : "InvitationExpired"])
@@ -173,35 +217,32 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
         expect(DbInspector.count("sessions")).to eq(sessions_before)
         expect(DbInspector.count("role_assignments")).to eq(1)   # admin only
       end
-      expect(action_status(inv[:scheduled_action_id])).to eq("completed")
     end
 
     it "expire vs decline: one terminal transition and one event" do
-      _admin, inv = seed
-      receipt = receipt_for
+      _admin, inv = seed_live
+      receipt = live_receipt(inv)
 
-      race(-> { expire }, -> { decline(inv, receipt) })
+      race(-> { expire_at_boundary(inv) }, -> { decline(inv, receipt, now: live_now(inv)) })
 
       state = invitation_state
       expect(state).to be_in(%w[expired declined])
       expect(terminal_events).to eq([state == "declined" ? "InvitationDeclined" : "InvitationExpired"])
-      expect(action_status(inv[:scheduled_action_id])).to eq("completed")
     end
 
     it "expire vs revoke: one terminal transition and one event" do
-      admin, inv = seed
+      admin, inv = seed_live
 
-      race(-> { expire }, -> { revoke(admin, inv) })
+      race(-> { expire_at_boundary(inv) }, -> { revoke(admin, inv, now: live_now(inv)) })
 
       state = invitation_state
       expect(state).to be_in(%w[expired revoked])
       expect(terminal_events).to eq([state == "revoked" ? "InvitationRevoked" : "InvitationExpired"])
-      expect(action_status(inv[:scheduled_action_id])).to eq("completed")
     end
   end
 
-  describe "expiry wins at equality" do
-    it "refuses acceptance and decline at the exact expiry instant, before the timer has even run" do
+  describe "expiry wins from the boundary onwards" do
+    it "refuses acceptance and decline once PostgreSQL is at or past the expiry instant, before the timer has run" do
       _admin, inv = seed
       receipt = receipt_for(validated_at: expires_at)
 
@@ -239,24 +280,25 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
       expect(DbInspector.count("sessions")).to eq(sessions)
     end
 
-    it "expiry after a winning accept, decline or revoke completes harmlessly without a second event" do
+    it "expiry after a winning accept, decline or revoke produces the harmless terminal result" do
       [:accept, :decline, :revoke].each do |winner|
         ReceiptMinter.truncate_all
-        admin, inv = seed
+        admin, inv = seed_live
+        now = live_now(inv)
         first = case winner
-                when :accept then accept(inv, receipt_for)
-                when :decline then decline(inv, receipt_for)
-                else revoke(admin, inv)
+                when :accept then accept(inv, live_receipt(inv), now:)
+                when :decline then decline(inv, live_receipt(inv), now:)
+                else revoke(admin, inv, now:)
                 end
         expect(first).to be_success, "#{winner} should have won"
         events_after_winner = terminal_events
 
-        outcomes = expire
+        expired = expire_at_boundary(inv)
 
-        expect(outcomes.map(&:disposition)).to eq([:completed])
+        expect(expired).to be_failure
+        expect(expired.reason_code).to eq("invitation_not_active")
         expect(terminal_events).to eq(events_after_winner)
         expect(invitation_state).not_to eq("expired")
-        expect(action_status(inv[:scheduled_action_id])).to eq("completed")
       end
     end
   end

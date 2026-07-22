@@ -402,10 +402,10 @@ $$;
 
 
 --
--- Name: f1_resolve_invitation_reference(bytea, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_resolve_invitation_reference(bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_resolve_invitation_reference(p_reference_digest bytea, p_now timestamp with time zone) RETURNS TABLE(organization_id uuid, invitation_id uuid)
+CREATE FUNCTION public.f1_resolve_invitation_reference(p_reference_digest bytea) RETURNS TABLE(organization_id uuid, invitation_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
@@ -413,7 +413,7 @@ CREATE FUNCTION public.f1_resolve_invitation_reference(p_reference_digest bytea,
   FROM invitation_reference_registry r
   WHERE r.opaque_reference_sha256 = p_reference_digest
     AND r.invitation_state = 'active'
-    AND (r.expires_at IS NULL OR p_now < r.expires_at);
+    AND (r.expires_at IS NULL OR transaction_timestamp() < r.expires_at);
 $$;
 
 
@@ -475,6 +475,21 @@ BEGIN
 
   RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: f1_service_identity_active(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_service_identity_active(p_service_identity_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM service_identities s
+    WHERE s.id = p_service_identity_id AND s.status = 'active'
+  );
 $$;
 
 
@@ -1521,11 +1536,51 @@ CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions
 
 
 --
+-- Name: audit_record_registry audit_records_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_record_registry
+    ADD CONSTRAINT audit_records_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: bootstrap_grants bootstrap_grants_issuer_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bootstrap_grants
+    ADD CONSTRAINT bootstrap_grants_issuer_service_identity_fkey FOREIGN KEY (issuer_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: command_executions command_executions_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.command_executions
+    ADD CONSTRAINT command_executions_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: command_results command_results_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.command_results
+    ADD CONSTRAINT command_results_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
 -- Name: identity_receipt_consumptions identity_receipt_consumptions_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.identity_receipt_consumptions
     ADD CONSTRAINT identity_receipt_consumptions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.identity_receipt_nonces(id);
+
+
+--
+-- Name: pretenant_authorization_decisions pretenant_decisions_subject_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pretenant_authorization_decisions
+    ADD CONSTRAINT pretenant_decisions_subject_service_identity_fkey FOREIGN KEY (subject_service_identity_id) REFERENCES public.service_identities(id);
 
 
 --
@@ -1778,6 +1833,8 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120012'),
+('20260722120011'),
 ('20260722120010'),
 ('20260722120009'),
 ('20260722120008'),

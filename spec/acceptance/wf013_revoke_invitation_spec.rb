@@ -311,8 +311,8 @@ RSpec.describe "WF-013 RevokeInvitation", type: :acceptance,
       admin, inv = authorized_admin_with_invitation
       revoke(session_id: admin[:session_id], reference: inv[:reference])
       rows = DbInspector.connection.exec_params(
-        "SELECT organization_id FROM f1_resolve_invitation_reference($1, $2::timestamptz)",
-        [{ value: inv[:reference_digest], format: 1 }, fixed_now.iso8601(6)]
+        "SELECT organization_id FROM f1_resolve_invitation_reference($1)",
+        [{ value: inv[:reference_digest], format: 1 }]
       ).to_a
       expect(rows).to be_empty
     end
