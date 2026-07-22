@@ -79,11 +79,7 @@ module F1DbProvision
   def ensure_service_identities(connection)
     return 0 if connection.select_value("SELECT to_regclass('public.service_identities')::text").nil?
 
-    rows = [[Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR,
-             Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR_SUBJECT,
-             "F1 ScheduledAction executor", "f1-scheduled-action-executor-v1",
-             '{"scheduled_action":["execute"]}']]
-    rows.sum do |id, subject, display_name, key_id, scope|
+    Platform::ServiceIdentity::RESERVED.sum do |id, subject, display_name, key_id, scope|
       connection.select_value(<<~SQL).to_i
         WITH ins AS (
           INSERT INTO public.service_identities
@@ -104,13 +100,13 @@ module F1DbProvision
   def assert_executor_identity!(connection)
     return if connection.select_value("SELECT to_regclass('public.service_identities')::text").nil?
 
+    ids = Platform::ServiceIdentity::RESERVED.map { |id, *| "'#{id}'" }.join(",")
     active = connection.select_value(<<~SQL)
-      SELECT count(*) FROM public.service_identities
-      WHERE id = '#{Platform::ServiceIdentity::SCHEDULED_ACTION_EXECUTOR}' AND status = 'active'
+      SELECT count(*) FROM public.service_identities WHERE id IN (#{ids}) AND status = 'active'
     SQL
-    return if active.to_i.positive?
+    return if active.to_i == Platform::ServiceIdentity::RESERVED.size
 
-    abort "[f1:db:ensure_service_identities] FAILED: the reserved ScheduledAction executor is absent or not active"
+    abort "[f1:db:ensure_service_identities] FAILED: a reserved Service Identity is absent or not active"
   end
 
   # Connect as the runtime login role and prove the database is usable: metadata

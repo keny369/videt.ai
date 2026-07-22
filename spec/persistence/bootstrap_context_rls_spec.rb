@@ -29,7 +29,7 @@ RSpec.describe "Bootstrap context RLS", type: :persistence do
          issued_at, expires_at, state)
       VALUES
         ('#{id}', now(), now(), gen_random_uuid(), gen_random_uuid(),
-         #{hexlit(principal_digest)}, 'organization.bootstrap', gen_random_uuid(), 'onboarding-interim-v1',
+         #{hexlit(principal_digest)}, 'organization.bootstrap', '#{Platform::ServiceIdentity.identity_service}', 'onboarding-interim-v1',
          now(), now() + interval '15 minutes', 'issued')
     SQL
     id

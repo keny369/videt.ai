@@ -75,7 +75,12 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)"
+      "f1_enter_org_context(uuid, uuid)",
+      # The execution-boundary Service Identity status predicate. Existence is
+      # guaranteed by the ledger foreign keys; this is the separate question of
+      # whether the identity is still permitted to act. Fixed boolean projection,
+      # so it cannot enumerate the platform-control register.
+      "f1_service_identity_active(uuid)"
     ].freeze
 
     # Platform-control authority, deliberately NOT in f1_runtime.
@@ -116,7 +121,8 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)"
+      "f1_enter_org_context(uuid, uuid)",
+      "f1_service_identity_active(uuid)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.

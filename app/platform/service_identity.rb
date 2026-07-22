@@ -31,11 +31,41 @@ module Platform
     module_function
 
     # Reserved identity of the ScheduledAction executor (the `scheduler`/worker
-    # service of BACKGROUND_PROCESSING.md § Process And Queue Catalogue), seeded
-    # by db/migrate/20260722120010_create_service_identities.rb.
+    # service of BACKGROUND_PROCESSING.md § Process And Queue Catalogue).
     SCHEDULED_ACTION_EXECUTOR = "0192f100-0000-7000-8000-00005c8ed010"
     SCHEDULED_ACTION_EXECUTOR_SUBJECT = "f1.scheduled_action_executor"
 
+    # Reserved identity of the approved identity/bootstrap service. WF-001 names
+    # it as the command service identity for grant issuance, invitation response
+    # and existing-account sign-in (WORKFLOW_SPECIFICATIONS.md § onboarding-interim-v1;
+    # § existing-account sign-in "the approved identity service as the command
+    # service identity"), so it is one registered principal, not a value each
+    # caller invents.
+    IDENTITY_SERVICE = "0192f100-0000-7000-8000-00001de77001"
+    IDENTITY_SERVICE_SUBJECT = "f1.identity_service"
+
+    # Reserved rows, seeded by `f1:db:ensure_service_identities` after every
+    # schema materialization. Shape: [id, subject, display name, key id, scope].
+    RESERVED = [
+      [SCHEDULED_ACTION_EXECUTOR, SCHEDULED_ACTION_EXECUTOR_SUBJECT,
+       "F1 ScheduledAction executor", "f1-scheduled-action-executor-v1",
+       '{"scheduled_action":["execute"]}'],
+      [IDENTITY_SERVICE, IDENTITY_SERVICE_SUBJECT,
+       "F1 approved identity and bootstrap service", "f1-identity-service-v1",
+       '{"identity":["issue_grant","respond_to_invitation","sign_in"]}']
+    ].freeze
+
     def scheduled_action_executor = SCHEDULED_ACTION_EXECUTOR
+    def identity_service = IDENTITY_SERVICE
+
+    # The execution-boundary status check. Existence is guaranteed by the ledger
+    # foreign keys; this answers the separate question of whether the identity is
+    # still permitted to act, and is deliberately NOT applied to historical rows.
+    def active?(service_identity_id, pg_connection)
+      result = pg_connection.exec_params(
+        "SELECT f1_service_identity_active($1::uuid)", [service_identity_id]
+      ).values.dig(0, 0)
+      result == "t" || result == true
+    end
   end
 end

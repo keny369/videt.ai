@@ -18,7 +18,9 @@ RSpec.describe "WF-001 SignInExistingAccount", type: :acceptance,
   after { ReceiptMinter.truncate_all }
 
   def fixed_now = Time.utc(2026, 7, 20, 10, 0, 0)
-  let(:service_id) { SecureRandom.uuid_v7 }
+  # The approved identity/bootstrap service is a registered principal, not a
+  # value each caller invents (WORKFLOW_SPECIFICATIONS.md § onboarding-interim-v1).
+  let(:service_id) { Platform::ServiceIdentity.identity_service }
   let(:principal) { { issuer_key: "https://id.example/oidc", subject: "sub-#{SecureRandom.hex(8)}" } }
 
   def context(clock_now: fixed_now)

@@ -14,7 +14,9 @@ RSpec.describe "WF-001 RequestBootstrapGrant", type: :acceptance,
   after { ReceiptMinter.truncate_all }
 
   def fixed_now = Time.utc(2026, 7, 20, 10, 0, 0)
-  let(:service_id) { SecureRandom.uuid_v7 }
+  # The approved identity/bootstrap service is a registered principal, not a
+  # value each caller invents (WORKFLOW_SPECIFICATIONS.md § onboarding-interim-v1).
+  let(:service_id) { Platform::ServiceIdentity.identity_service }
 
   def context(clock_now: fixed_now)
     Platform::RequestContext.for_service(
@@ -123,13 +125,14 @@ RSpec.describe "WF-001 RequestBootstrapGrant", type: :acceptance,
 
     it "rejects a principal that already completed self-service (F1-DOMAIN-409)" do
       receipt = fresh_receipt
-      DbInspector.connection.exec_params(<<~SQL, [{ value: receipt[:principal_digest], format: 1 }])
+      params = [{ value: receipt[:principal_digest], format: 1 }, Platform::ServiceIdentity.identity_service]
+      DbInspector.connection.exec_params(<<~SQL, params)
         INSERT INTO bootstrap_grants
           (id, state_version, lock_version, created_at, updated_at, correlation_id, causation_id,
            bootstrap_principal_digest, allowed_action, issuer_service_identity_id, policy_version,
            issued_at, expires_at, state)
         VALUES (gen_random_uuid(),0,0,now(),now(),gen_random_uuid(),gen_random_uuid(),
-                $1,'organization.bootstrap',gen_random_uuid(),'onboarding-interim-v1',
+                $1,'organization.bootstrap',$2::uuid,'onboarding-interim-v1',
                 now(),now()+interval '15 minutes','consumed')
       SQL
       result = issue(receipt)
