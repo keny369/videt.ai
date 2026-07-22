@@ -40,6 +40,44 @@ $$;
 
 
 --
+-- Name: f1_billing_entities_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_billing_entities_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- ":413 reserved `past_due`/`suspended` … MUST be unreachable" in the
+  -- accepted baseline: no path may land on them.
+  IF NEW.state IN ('past_due','suspended') THEN
+    RAISE EXCEPTION 'billing_entity_reserved_state_unreachable %', NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    -- Genesis identity is immutable.
+    IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+       OR NEW.internal_contract_reference IS DISTINCT FROM OLD.internal_contract_reference THEN
+      RAISE EXCEPTION 'billing_entity_genesis_immutable' USING ERRCODE = 'raise_exception';
+    END IF;
+    -- Baseline transitions only: pending -> active, active/pending -> closed.
+    IF NOT (
+         (OLD.state = 'pending'  AND NEW.state IN ('pending','active','closed')) OR
+         (OLD.state = 'active'   AND NEW.state IN ('active','closed')) OR
+         (OLD.state = 'closed'   AND NEW.state = 'closed')
+       ) THEN
+      RAISE EXCEPTION 'billing_entity_illegal_transition % -> %', OLD.state, NEW.state
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_bootstrap_principal_uuid(bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -308,6 +346,33 @@ BEGIN
   PERFORM set_config('app.context_org', p_org::text, true);
   PERFORM set_config('app.f1_proof', v_proof, true);
   RETURN p_org;
+END;
+$$;
+
+
+--
+-- Name: f1_enter_self_service_context(bytea, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_enter_self_service_context(p_receipt_digest bytea, p_org_id uuid, p_correlation_id uuid) RETURNS TABLE(receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, mfa_satisfied boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, bootstrap_principal_digest bytea, organization_id uuid)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE r identity_receipt_nonces%ROWTYPE; v_principal bytea; v_hex text; v_proof text;
+BEGIN
+  SELECT * INTO r FROM identity_receipt_nonces WHERE receipt_digest = p_receipt_digest;
+  IF NOT FOUND THEN RETURN; END IF;
+
+  v_principal := coalesce(r.bootstrap_principal_digest, r.identity_principal_digest);
+  v_hex := encode(v_principal, 'hex');
+  v_proof := f1_context_proof(v_hex, p_org_id::text);
+  PERFORM set_config('app.bootstrap_principal_digest', v_hex, true);
+  PERFORM set_config('app.context_org', p_org_id::text, true);
+  PERFORM set_config('app.f1_proof', v_proof, true);
+
+  RETURN QUERY SELECT r.id, r.purpose, r.validated_at, r.expires_at, r.email_verified,
+                      r.mfa_satisfied, r.issuer_key, r.issuer_subject, r.receipt_schema_version,
+                      r.assurance_version, v_principal, p_org_id;
 END;
 $$;
 
@@ -648,6 +713,7 @@ CREATE TABLE public.access_policies (
     content_sha256 bytea,
     effective_at timestamp(6) with time zone,
     expires_at timestamp(6) with time zone,
+    plan_scope text,
     CONSTRAINT access_policies_content_sha256_check CHECK (((content_sha256 IS NULL) OR (octet_length(content_sha256) = 32))),
     CONSTRAINT access_policies_policy_type_check CHECK ((policy_type = 'access'::text)),
     CONSTRAINT access_policies_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'superseded'::text, 'retired'::text])))
@@ -774,6 +840,34 @@ ALTER TABLE ONLY public.authorization_decisions FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: billing_entities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.billing_entities (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    internal_contract_reference text NOT NULL,
+    active_plan_assignment_id uuid,
+    state text NOT NULL,
+    effective_at timestamp(6) with time zone,
+    activated_at timestamp(6) with time zone,
+    closed_at timestamp(6) with time zone,
+    lifecycle_reason text,
+    last_billing_event_id uuid,
+    CONSTRAINT billing_active_has_plan CHECK (((state <> 'active'::text) OR (active_plan_assignment_id IS NOT NULL))),
+    CONSTRAINT billing_entities_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'active'::text, 'past_due'::text, 'suspended'::text, 'closed'::text]))),
+    CONSTRAINT billing_pending_has_no_plan CHECK (((state <> 'pending'::text) OR (active_plan_assignment_id IS NULL)))
+);
+
+ALTER TABLE ONLY public.billing_entities FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: bootstrap_grants; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -891,6 +985,32 @@ CREATE TABLE public.command_results (
 );
 
 ALTER TABLE ONLY public.command_results FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: entitlement_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_policies (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    policy_type text NOT NULL,
+    semantic_version text NOT NULL,
+    plan_version text NOT NULL,
+    status text NOT NULL,
+    content_sha256 bytea,
+    effective_at timestamp(6) with time zone,
+    expires_at timestamp(6) with time zone,
+    CONSTRAINT entitlement_policies_content_sha256_check CHECK (((content_sha256 IS NULL) OR (octet_length(content_sha256) = 32))),
+    CONSTRAINT entitlement_policies_policy_type_check CHECK ((policy_type = 'entitlement'::text)),
+    CONSTRAINT entitlement_policies_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'superseded'::text, 'retired'::text])))
+);
+
+ALTER TABLE ONLY public.entitlement_policies FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -1134,6 +1254,14 @@ CREATE TABLE public.organizations (
     closed_at timestamp(6) with time zone,
     reactivated_at timestamp(6) with time zone,
     lifecycle_reason text,
+    creator_account_id uuid,
+    default_locale text,
+    reporting_time_zone text,
+    profile_schema_version text,
+    current_access_policy_id uuid,
+    current_entitlement_policy_id uuid,
+    current_plan_assignment_id uuid,
+    current_billing_entity_id uuid,
     CONSTRAINT organization_suspended_has_time CHECK (((status <> 'suspended'::text) OR (suspended_at IS NOT NULL))),
     CONSTRAINT organizations_authorization_epoch_check CHECK ((authorization_epoch >= 0)),
     CONSTRAINT organizations_lifecycle_reason_check CHECK (((lifecycle_reason IS NULL) OR ((char_length(lifecycle_reason) >= 1) AND (char_length(lifecycle_reason) <= 2000)))),
@@ -1141,6 +1269,37 @@ CREATE TABLE public.organizations (
 );
 
 ALTER TABLE ONLY public.organizations FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: plan_assignments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.plan_assignments (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    billing_entity_id uuid NOT NULL,
+    plan_version text NOT NULL,
+    approval_version text NOT NULL,
+    policy_version text NOT NULL,
+    content_sha256 bytea NOT NULL,
+    assigned_by_service_identity_id uuid,
+    effective_at timestamp(6) with time zone NOT NULL,
+    ended_at timestamp(6) with time zone,
+    superseded_at timestamp(6) with time zone,
+    revoked_at timestamp(6) with time zone,
+    revoked_reason text,
+    state text NOT NULL,
+    CONSTRAINT plan_assignments_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT plan_assignments_state_check CHECK ((state = ANY (ARRAY['active'::text, 'superseded'::text, 'revoked'::text])))
+);
+
+ALTER TABLE ONLY public.plan_assignments FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -1175,6 +1334,34 @@ CREATE TABLE public.pretenant_authorization_decisions (
 );
 
 ALTER TABLE ONLY public.pretenant_authorization_decisions FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: projects; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.projects (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    display_name text NOT NULL,
+    locale text NOT NULL,
+    time_zone text NOT NULL,
+    objective text,
+    state text NOT NULL,
+    source_set_version bigint DEFAULT 0 NOT NULL,
+    activated_at timestamp(6) with time zone,
+    paused_at timestamp(6) with time zone,
+    archived_at timestamp(6) with time zone,
+    lifecycle_reason text,
+    CONSTRAINT projects_state_check CHECK ((state = ANY (ARRAY['draft'::text, 'active'::text, 'paused'::text, 'archived'::text])))
+);
+
+ALTER TABLE ONLY public.projects FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -1460,6 +1647,22 @@ ALTER TABLE ONLY public.authorization_decisions
 
 
 --
+-- Name: billing_entities billing_entities_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_entities
+    ADD CONSTRAINT billing_entities_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: billing_entities billing_entities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.billing_entities
+    ADD CONSTRAINT billing_entities_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: bootstrap_grants bootstrap_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1489,6 +1692,14 @@ ALTER TABLE ONLY public.command_results
 
 ALTER TABLE ONLY public.command_results
     ADD CONSTRAINT command_results_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entitlement_policies entitlement_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_policies
+    ADD CONSTRAINT entitlement_policies_pkey PRIMARY KEY (id);
 
 
 --
@@ -1604,6 +1815,14 @@ ALTER TABLE ONLY public.organizations
 
 
 --
+-- Name: plan_assignments plan_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_assignments
+    ADD CONSTRAINT plan_assignments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: pretenant_authorization_decisions pretenant_authorization_decisions_command_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1617,6 +1836,22 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 ALTER TABLE ONLY public.pretenant_authorization_decisions
     ADD CONSTRAINT pretenant_authorization_decisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: projects projects_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.projects
+    ADD CONSTRAINT projects_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: projects projects_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.projects
+    ADD CONSTRAINT projects_pkey PRIMARY KEY (id);
 
 
 --
@@ -1705,6 +1940,20 @@ CREATE UNIQUE INDEX one_active_assignment_per_tuple ON public.role_assignments U
 
 
 --
+-- Name: one_active_entitlement_policy_per_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_active_entitlement_policy_per_org ON public.entitlement_policies USING btree (organization_id, policy_type) WHERE (status = 'active'::text);
+
+
+--
+-- Name: one_active_plan_assignment_per_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_active_plan_assignment_per_org ON public.plan_assignments USING btree (organization_id) WHERE (state = 'active'::text);
+
+
+--
 -- Name: one_approval_per_approver; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1747,6 +1996,13 @@ CREATE UNIQUE INDEX one_issued_grant_per_principal ON public.bootstrap_grants US
 
 
 --
+-- Name: one_nonclosed_billing_entity_per_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_nonclosed_billing_entity_per_org ON public.billing_entities USING btree (organization_id) WHERE (state <> 'closed'::text);
+
+
+--
 -- Name: one_open_invitation_per_preimage; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1772,6 +2028,13 @@ CREATE UNIQUE INDEX scheduled_actions_identity ON public.scheduled_actions USING
 --
 
 CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (lease_expires_at) WHERE (status = ANY (ARRAY['claimed'::text, 'dispatched'::text]));
+
+
+--
+-- Name: billing_entities billing_entities_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_entities FOR EACH ROW EXECUTE FUNCTION public.f1_billing_entities_guard();
 
 
 --
@@ -1833,6 +2096,14 @@ ALTER TABLE ONLY public.command_results
 
 ALTER TABLE ONLY public.identity_receipt_consumptions
     ADD CONSTRAINT identity_receipt_consumptions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.identity_receipt_nonces(id);
+
+
+--
+-- Name: plan_assignments plan_assignment_billing_same_org; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_assignments
+    ADD CONSTRAINT plan_assignment_billing_same_org FOREIGN KEY (organization_id, billing_entity_id) REFERENCES public.billing_entities(organization_id, id);
 
 
 --
@@ -1904,6 +2175,19 @@ CREATE POLICY authorization_decisions_context ON public.authorization_decisions 
 
 
 --
+-- Name: billing_entities; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.billing_entities ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: billing_entities billing_entities_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY billing_entities_context ON public.billing_entities USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: bootstrap_grants; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -1942,6 +2226,19 @@ ALTER TABLE public.command_results ENABLE ROW LEVEL SECURITY;
 CREATE POLICY command_results_context ON public.command_results USING ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions))) WITH CHECK ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions)));
+
+
+--
+-- Name: entitlement_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_policies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_policies entitlement_policies_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_policies_context ON public.entitlement_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -2022,6 +2319,19 @@ CREATE POLICY organizations_context ON public.organizations USING ((id = public.
 
 
 --
+-- Name: plan_assignments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.plan_assignments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: plan_assignments plan_assignments_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY plan_assignments_context ON public.plan_assignments USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: pretenant_authorization_decisions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2032,6 +2342,19 @@ ALTER TABLE public.pretenant_authorization_decisions ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY pretenant_authorization_decisions_context ON public.pretenant_authorization_decisions USING ((bootstrap_principal_digest = public.f1_current_bootstrap_principal())) WITH CHECK ((bootstrap_principal_digest = public.f1_current_bootstrap_principal()));
+
+
+--
+-- Name: projects; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: projects projects_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY projects_context ON public.projects USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -2119,6 +2442,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260723120019'),
 ('20260722120018'),
 ('20260722120017'),
 ('20260722120016'),

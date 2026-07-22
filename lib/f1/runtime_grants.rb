@@ -35,7 +35,17 @@ module F1
       "role_assignment_approvals"         => "SELECT, INSERT",
       # Immutable decision record (:343): insert/read only.
       "role_expiry_block_decisions"       => "SELECT, INSERT",
-      "access_policies"                   => "SELECT",
+      # The genesis Access Policy is written once at bootstrap and read thereafter;
+      # its supersession is a later slice, so INSERT joins the sign-in SELECT.
+      "access_policies"                   => "SELECT, INSERT",
+      # The S-02 genesis roots. BillingEntity and the draft Project are written and
+      # later transitioned (activation, closure), so they carry UPDATE; the policy
+      # and Plan Assignment artifacts are activated in place at genesis and
+      # superseded (not mutated) later, so they are insert/read here.
+      "billing_entities"                  => "SELECT, INSERT, UPDATE",
+      "plan_assignments"                  => "SELECT, INSERT, UPDATE",
+      "entitlement_policies"              => "SELECT, INSERT, UPDATE",
+      "projects"                          => "SELECT, INSERT, UPDATE",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",
@@ -80,6 +90,10 @@ module F1
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
       "f1_enter_org_context(uuid, uuid)",
+      # The self-service genesis context: resolves the second self-service receipt
+      # and enters a combined principal+real-Organization context so the Bootstrap
+      # Grant and the tenant roots are both reachable in one transaction.
+      "f1_enter_self_service_context(bytea, uuid, uuid)",
       # The execution-boundary Service Identity status predicate. Existence is
       # guaranteed by the ledger foreign keys; this is the separate question of
       # whether the identity is still permitted to act. Fixed boolean projection,
@@ -126,6 +140,7 @@ module F1
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
       "f1_enter_org_context(uuid, uuid)",
+      "f1_enter_self_service_context(bytea, uuid, uuid)",
       "f1_service_identity_active(uuid)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
