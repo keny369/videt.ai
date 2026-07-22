@@ -63,16 +63,18 @@ module TenantSeeder
   def create_role_assignment(organization_id:, account_id:, canonical_role: "OrganizationAdmin",
                              id: SecureRandom.uuid_v7, permission_mode: "standard", persona: nil,
                              status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil,
-                             scope_sha256: nil, protected_permission_allowlist: [])
+                             scope_sha256: nil, protected_permission_allowlist: [],
+                             bootstrap_admin_exception: false)
     params = [id, organization_id, account_id, canonical_role, permission_mode, persona,
               status, (effective_at ? ts(effective_at) : nil), (expires_at ? ts(expires_at) : nil),
-              (scope_sha256 ? bytea(scope_sha256) : nil), JSON.generate(protected_permission_allowlist)]
+              (scope_sha256 ? bytea(scope_sha256) : nil), JSON.generate(protected_permission_allowlist),
+              bootstrap_admin_exception]
     conn.exec_params(<<~SQL, params)
       INSERT INTO role_assignments
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
          canonical_role, permission_mode, persona, status, effective_at, expires_at, scope_sha256,
-         protected_permission_allowlist)
-      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10,$11::jsonb)
+         protected_permission_allowlist, bootstrap_admin_exception)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10,$11::jsonb,$12)
     SQL
     id
   end
@@ -186,7 +188,12 @@ module TenantSeeder
     org = organization_id || create_organization
     account_id = create_account(organization_id: org, issuer_key: "https://id.example/oidc",
                                 subject: "admin-#{SecureRandom.hex(6)}", status: account_status)
-    create_role_assignment(organization_id: org, account_id:, canonical_role:) unless canonical_role.nil?
+    unless canonical_role.nil?
+      # Stands in for the WF-001 bootstrap first OrganizationAdmin, which :333
+      # names as the sole tenant-bootstrap exception to protected approval.
+      create_role_assignment(organization_id: org, account_id:, canonical_role:,
+                             bootstrap_admin_exception: canonical_role == "OrganizationAdmin")
+    end
     create_access_policy(organization_id: org) if with_policy
     session_id = create_session(organization_id: org, account_id:, status: session_status, **session_opts)
     { organization_id: org, account_id: account_id, session_id: session_id }

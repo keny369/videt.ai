@@ -99,9 +99,13 @@ module IdentityAccess
       def confers?(capability, assignment)
         return false unless Platform::PermissionBaseline.permits?(capability, [assignment["canonical_role"]])
         return true unless Platform::PermissionBaseline::PROTECTED.key?(capability)
+        # ":329 … or in the expressly defined first-admin/bootstrap exception."
+        return true if truthy(assignment["bootstrap_admin_exception"])
 
         Platform::PermissionBaseline.protected_grant?(capability, allowlist(assignment))
       end
+
+      def truthy(value) = value == true || value == "t"
 
       def allowlist(assignment)
         raw = assignment["protected_permission_allowlist"]

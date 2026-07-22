@@ -26,7 +26,8 @@ RSpec.describe "WF-013 reactivate organization", type: :acceptance,
     org = TenantSeeder.create_organization
     account = TenantSeeder.create_account(organization_id: org, issuer_key: identity[:issuer_key],
                                           subject: identity[:subject])
-    TenantSeeder.create_role_assignment(organization_id: org, account_id: account)
+    TenantSeeder.create_role_assignment(organization_id: org, account_id: account,
+                                        bootstrap_admin_exception: true)
     TenantSeeder.create_access_policy(organization_id: org)
     session = TenantSeeder.create_session(organization_id: org, account_id: account, issued_at: fixed_now - 900)
     cmd = Workflows::Wf013::Commands::SuspendOrganization.new(

@@ -53,7 +53,8 @@ module IdentityAccess
       def effective_role_assignments(account_id:, now:)
         sql = <<~SQL
           SELECT id, canonical_role, state_version, permission_mode, persona,
-                 encode(scope_sha256,'hex') AS scope_hex, protected_permission_allowlist
+                 encode(scope_sha256,'hex') AS scope_hex, protected_permission_allowlist,
+                 bootstrap_admin_exception
           FROM role_assignments
           WHERE account_id = $1::uuid AND status = 'active'
             AND effective_at IS NOT NULL AND effective_at <= $2::timestamptz

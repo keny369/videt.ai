@@ -106,7 +106,11 @@ module Platform
       "stale_authorization_epoch"         => "F1-DOMAIN-409",
       "access_policy_unavailable"         => "F1-DOMAIN-409",
       "organization_admin_unavailable"    => "F1-AUTH-403",
-      "organization_reason_invalid"       => "F1-VALIDATION-400"
+      "organization_reason_invalid"       => "F1-VALIDATION-400",
+      # ":244 the requester can offer only a role/scope/permission set it may
+      # grant under the effective-permission algorithm" — missing authority to
+      # grant is an authorization failure, not a validation one.
+      "grant_scope_exceeded"              => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

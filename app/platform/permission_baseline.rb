@@ -32,7 +32,13 @@ module Platform
       # OrganizationAdmin arm is reachable here; neither is a protected permission
       # (:333 omits both), so no protected-allowlist gate applies.
       "organization.suspend" => %w[OrganizationAdmin].freeze,
-      "organization.reactivate" => %w[OrganizationAdmin].freeze
+      "organization.reactivate" => %w[OrganizationAdmin].freeze,
+      # ":140 `role.manage` | allow for non-protected tenant grants | deny | deny |
+      # allow |". It IS a protected permission (:333), so the baseline allow is
+      # necessary but not sufficient: step 4's allowlist gate applies, and the
+      # OrganizationAdmin cell's "non-protected tenant grants" limb is enforced by
+      # IdentityAccess::Authorization::GrantAuthority.
+      "role.manage" => %w[OrganizationAdmin SecurityOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

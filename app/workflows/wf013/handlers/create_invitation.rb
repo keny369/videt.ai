@@ -73,6 +73,18 @@ module Workflows
               return deny(**d, invitation_id: nil, outward: decision.reason, internal: decision.reason)
             end
 
+            # ":244 the requester can offer only a role/scope/permission set it may
+            # grant". Creating an Invitation is not itself a direct grant — a
+            # protected offer goes to approval — so grant authority is evaluated
+            # with `direct: false` and only the role/scope limbs apply.
+            grant = IdentityAccess::Authorization::GrantAuthority.evaluate(
+              authorizer: auth, actor:, now:, canonical_role: command.canonical_role,
+              scope_hex: offer[:scope_sha256]&.unpack1("H*"), direct: false
+            )
+            unless grant.allowed?
+              return deny(**d, invitation_id: nil, outward: grant.reason, internal: grant.reason)
+            end
+
             process(**d)
           end
         rescue ActiveRecord::RecordNotUnique, PG::UniqueViolation => e

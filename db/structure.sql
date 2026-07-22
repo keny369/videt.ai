@@ -471,11 +471,12 @@ CREATE FUNCTION public.f1_role_assignments_lifecycle_guard() RETURNS trigger
     AS $$
 DECLARE allowed text[];
 BEGIN
-  -- The approved protected authority of an Assignment is an immutable
-  -- historical fact: step 4 of the effective-permission algorithm reads it,
-  -- so a later edit would silently re-authorize history.
   IF NEW.protected_permission_allowlist IS DISTINCT FROM OLD.protected_permission_allowlist THEN
     RAISE EXCEPTION 'role_assignment_allowlist_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.bootstrap_admin_exception IS DISTINCT FROM OLD.bootstrap_admin_exception THEN
+    RAISE EXCEPTION 'role_assignment_bootstrap_exception_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
@@ -489,8 +490,6 @@ BEGIN
     RAISE EXCEPTION 'role_assignment_grant_content_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- ":316 Valid transitions are pending to active, rejected, or expired;
-  -- active to revoked or expired. Revoked, rejected, and expired are terminal."
   allowed := CASE OLD.status
                WHEN 'pending' THEN ARRAY['pending','active','rejected','expired']
                WHEN 'active'  THEN ARRAY['active','revoked','expired']
@@ -1222,8 +1221,10 @@ CREATE TABLE public.role_assignments (
     decision_authorization_epoch bigint,
     idempotency_key_digest bytea,
     fulfilled_invitation_id uuid,
+    bootstrap_admin_exception boolean DEFAULT false NOT NULL,
     CONSTRAINT role_assignment_active_is_effective CHECK (((status <> 'active'::text) OR (effective_at IS NOT NULL))),
     CONSTRAINT role_assignment_approval_due_is_24_hours CHECK (((approval_due_at IS NULL) OR (requested_at IS NULL) OR (approval_due_at = (requested_at + '24:00:00'::interval)))),
+    CONSTRAINT role_assignment_bootstrap_exception_is_admin CHECK (((bootstrap_admin_exception = false) OR (canonical_role = 'OrganizationAdmin'::text))),
     CONSTRAINT role_assignment_pending_is_not_effective CHECK (((status <> 'pending'::text) OR (effective_at IS NULL))),
     CONSTRAINT role_assignment_protected_expiry_within_30_days CHECK (((jsonb_array_length(protected_permission_allowlist) = 0) OR (effective_at IS NULL) OR (expires_at IS NULL) OR (expires_at <= (effective_at + '30 days'::interval)))),
     CONSTRAINT role_assignments_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
@@ -1655,6 +1656,13 @@ CREATE UNIQUE INDEX one_approval_per_approver ON public.role_assignment_approval
 
 
 --
+-- Name: one_bootstrap_admin_per_organization; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_bootstrap_admin_per_organization ON public.role_assignments USING btree (organization_id) WHERE bootstrap_admin_exception;
+
+
+--
 -- Name: one_consumed_grant_per_principal; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2042,6 +2050,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120016'),
 ('20260722120015'),
 ('20260722120014'),
 ('20260722120013'),
