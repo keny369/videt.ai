@@ -103,6 +103,46 @@ RSpec.describe "ScheduledAction action-kind catalogue", type: :model do
     expect(database_kind_literals.sort).to eq(kind_rows.map(&:first).sort)
   end
 
+  # Being catalogued is not permission to execute: the catalogue is the closed
+  # vocabulary, the registry is the executable authority, and they are separate.
+  it "keeps catalogue membership and executability separate, and fails closed on a catalogued kind with no handler" do
+    registry = Platform::ScheduledActions::Registry.new
+    registry.register(action_kind: "invitation_expire", action_schema_version: "1.0",
+                      operation: "ExpireInvitation", handler: Class.new, command: Class.new)
+
+    catalogued_but_unregistered = Platform::ScheduledActions::Catalogue.kinds - ["invitation_expire"]
+    expect(catalogued_but_unregistered.size).to eq(52)
+    catalogued_but_unregistered.each do |kind|
+      expect(Platform::ScheduledActions::Catalogue.kind?(kind)).to be(true)
+      expect(registry.resolve(action_kind: kind, action_schema_version: "1.0")).to be_nil
+    end
+  end
+
+  it "refuses to register a kind the ratified catalogue does not contain" do
+    expect do
+      Platform::ScheduledActions::Registry.new.register(
+        action_kind: "invitation_expire_v2", action_schema_version: "1.0",
+        operation: "ExpireInvitation", handler: Class.new, command: Class.new
+      )
+    end.to raise_error(Platform::ScheduledActions::Registry::UnknownActionKind)
+  end
+
+  # The action identity binds both the kind and the schema version, so a
+  # differently-versioned action of the same kind is a different durable action
+  # and can never replay against the other's idempotency key.
+  it "binds action kind and schema version into the immutable action identity" do
+    base = { organization_id: SecureRandom.uuid_v7, project_id: nil, target_type: "invitation",
+             target_id: SecureRandom.uuid_v7, product_generation: 0, schedule_generation: 1,
+             due_at: Time.utc(2026, 6, 8, 10, 0, 0) }
+    v1 = Platform::ScheduledActions::Identity.preimage(action_kind: "invitation_expire", action_schema_version: "1.0", **base)
+    v2 = Platform::ScheduledActions::Identity.preimage(action_kind: "invitation_expire", action_schema_version: "2.0", **base)
+    other_kind = Platform::ScheduledActions::Identity.preimage(action_kind: "session_expire", action_schema_version: "1.0", **base)
+
+    digests = [v1, v2, other_kind].map { |p| Platform::ScheduledActions::Identity.digest(p) }
+    expect(digests.uniq.size).to eq(3)
+    expect(v1).to include("invitation_expire", "1.0")
+  end
+
   it "routes every generic-dispatch kind to scheduled_action_dispatch and no specialized kind into that table" do
     generic = Platform::ScheduledActions::Catalogue::GENERIC_OPERATIONS.keys
     generic.each do |kind|

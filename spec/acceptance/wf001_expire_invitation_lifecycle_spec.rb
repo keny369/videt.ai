@@ -333,6 +333,54 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
       expect(attempts).to eq(2)
     end
 
+    # BACKGROUND_PROCESSING.md prescribes no attempt ceiling for this class of
+    # failure. The only ratified ceiling (:313, five attempts then
+    # `redis_dispatch_exhausted`) governs failure to ENQUEUE an already-persisted
+    # identity, and this slice has no enqueue. For a pure deterministic
+    # computation with no committed terminal result the ratified recovery is
+    # exactly "release the transport claim and recompute the same product attempt
+    # identity" (:297), and "Reclaim increments only `claim_generation`. It does
+    # not increment product attempt, retry, replay, reservation, Delivery, or
+    # recovery generation" (:301). So repetition is bounded by nothing but the
+    # poll interval — which is safe precisely because it can never accumulate a
+    # product effect. That is what this proves.
+    it "never accumulates a product outcome however many times a deterministic handler failure repeats" do
+      _admin, inv = seed
+      attempts = 0
+      always_failing = Class.new do
+        define_method(:call) do |command:, request_context:|
+          attempts += 1
+          raise "deterministic dependency failure"
+        end
+      end
+      registry = Platform::ScheduledActions::Registry.new.register(
+        action_kind: "invitation_expire", action_schema_version: "1.0", operation: "ExpireInvitation",
+        handler: always_failing, command: Workflows::Wf001::Commands::ExpireInvitation
+      )
+      worker = Platform::ScheduledActions::Worker.new(
+        registry:, scheduler: Platform::ScheduledActions::Scheduler.new,
+        clock: Platform::Clock.fixed(expires_at), ids: Platform::Ids.system
+      )
+
+      5.times { expect(worker.run_due_batch.map(&:disposition)).to eq([:released]) }
+
+      expect(attempts).to eq(5)
+      expect(invitation_state).to eq("active")
+      expect(terminal_events).to be_empty
+      expect(DbInspector.count("command_executions")).to eq(0)
+      expect(DbInspector.count("idempotency_records")).to eq(0)
+      row = ScheduledActionHarness.row(inv[:scheduled_action_id])
+      # Operator-visible: the bounded classification token plus a claim
+      # generation that counts every attempt.
+      expect(row.values_at("status", "reason")).to eq(%w[pending scheduled_action_execution_failed])
+      expect(row["claim_generation"].to_i).to eq(5)
+
+      # And the eventual success is still exactly one expiry.
+      expect(expire.map(&:disposition)).to eq([:completed])
+      expect(terminal_events).to eq(["InvitationExpired"])
+      expect(invitation_state).to eq("expired")
+    end
+
     it "leaves the Invitation untouched when the action is quarantined for an unregistered kind" do
       _admin, inv = seed
       empty_registry = Platform::ScheduledActions::Registry.new
@@ -347,6 +395,58 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
       expect(invitation_state).to eq("active")
       expect(terminal_events).to be_empty
       expect(action_status(inv[:scheduled_action_id])).to eq("quarantined")
+    end
+  end
+
+  # Only a result that can never become stale may be bound to the action identity
+  # and replayed. A terminal Invitation state is monotonic — expiry, acceptance,
+  # decline and revocation are all terminal (WORKFLOW_SPECIFICATIONS.md :242) —
+  # so `invitation_not_active` is a durable final result. A deadline or
+  # transport-integrity rejection is not final and is deliberately not bound.
+  describe "denial replay is confined to durably final results" do
+    it "binds and replays invitation_not_active, which a terminal Invitation can never contradict" do
+      admin, inv = seed
+      expect(revoke(admin, inv)).to be_success
+      digest = Platform::ScheduledActions::Identity.digest(action_identity(inv))
+
+      first = run_expire_handler(expire_command(inv, digest))
+      second = run_expire_handler(expire_command(inv, digest))
+
+      expect(first.reason_code).to eq("invitation_not_active")
+      expect(second.reason_code).to eq("invitation_not_active")
+      expect(second.replayed).to be(true)
+      expect(second.result_id).to eq(first.result_id)
+      expect(invitation_state).to eq("revoked")
+      expect(terminal_events).to eq(["InvitationRevoked"])
+      expect(DbInspector.count("command_executions")).to eq(2) # revoke + one expiry rejection
+    end
+
+    it "does not bind a not-yet-due rejection, so a later legitimate delivery still expires" do
+      _admin, inv = seed
+      digest = Platform::ScheduledActions::Identity.digest(action_identity(inv))
+
+      early = run_expire_handler(expire_command(inv, digest), now: expires_at - Rational(1, 1_000_000))
+      expect(early.reason_code).to eq("scheduled_action_not_due")
+      expect(DbInspector.count("idempotency_records")).to eq(0)
+
+      later = run_expire_handler(expire_command(inv, digest))
+      expect(later).to be_success
+      expect(later.replayed).to be(false)
+      expect(invitation_state).to eq("expired")
+      expect(terminal_events).to eq(["InvitationExpired"])
+    end
+
+    it "does not bind a target-mismatch rejection, so a corrected action is re-evaluated" do
+      _admin, inv = seed
+      digest = Platform::ScheduledActions::Identity.digest(action_identity(inv))
+
+      mismatched = run_expire_handler(expire_command(inv, digest).with(due_at: expires_at - 3600))
+      expect(mismatched.reason_code).to eq("scheduled_action_target_mismatch")
+      expect(DbInspector.count("idempotency_records")).to eq(0)
+
+      corrected = run_expire_handler(expire_command(inv, digest))
+      expect(corrected).to be_success
+      expect(invitation_state).to eq("expired")
     end
   end
 

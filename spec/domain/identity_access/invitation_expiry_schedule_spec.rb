@@ -114,5 +114,49 @@ RSpec.describe IdentityAccess::Domain::InvitationExpirySchedule, type: :model do
       TenantSeeder.create_invitation(organization_id: org, state: "pending_approval")
       expect(ScheduledActionHarness.count).to eq(0)
     end
+
+    # The product invariant this operation exists to hold: an Invitation that has
+    # ever been activated has an expiry timer, because activation and scheduling
+    # are the same commit. Asserted across every state an activated Invitation can
+    # reach, so a future activation path that forgets to schedule fails here.
+    it "holds the invariant that every activated Invitation has exactly one expiry timer" do
+      %w[active accepted declined revoked expired].each do |state|
+        TenantSeeder.create_invitation(organization_id: org, activated_at:, state:)
+      end
+      TenantSeeder.create_invitation(organization_id: org, state: "pending_approval")
+
+      orphans = DbInspector.all(<<~SQL)
+        SELECT i.id FROM invitations i
+        WHERE i.activated_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM scheduled_actions a
+            WHERE a.action_kind = 'invitation_expire' AND a.target_type = 'invitation'
+              AND a.target_id = i.id AND a.organization_id = i.organization_id
+              AND a.due_at = i.expires_at
+          )
+      SQL
+      expect(orphans).to be_empty
+      expect(ScheduledActionHarness.count).to eq(5)
+    end
+  end
+
+  # REACHABILITY. Nothing in app/ activates an Invitation yet: the ratified
+  # activation commands `Workflows::Wf013::CreateInvitation` and
+  # `DecideInvitation` (contracts/S-23.json) belong to S-23 and are not
+  # implemented. This operation is the boundary they must call. The assertion
+  # below is the guard rail for that hand-off — it fails the moment a production
+  # path starts writing Invitations, so scheduling cannot be forgotten silently.
+  describe "production reachability" do
+    it "has no production caller yet, and no production path creates an Invitation" do
+      writers = Dir.glob("app/**/*.rb").select { |f| File.read(f).match?(/INSERT INTO invitations\b/) }
+      callers = Dir.glob("app/**/*.rb").grep_v(%r{invitation_expiry_schedule\.rb\z})
+                   .select { |f| File.read(f).include?("InvitationExpirySchedule") }
+
+      expect(writers).to be_empty,
+                         "an Invitation is now created in #{writers.join(', ')}; that transaction must call " \
+                         "IdentityAccess::Domain::InvitationExpirySchedule and this guard must be replaced " \
+                         "with a direct assertion on it"
+      expect(callers).to be_empty
+    end
   end
 end
