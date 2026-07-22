@@ -1,5 +1,11 @@
 # Project State
 
+> The Snapshot, Baseline Summary, Domain Progress, Active Workstream, Risks and
+> Next Checkpoints below are the **specification planning baseline as of
+> 2026-07-17** and intentionally lag production implementation. Live engineering
+> progress is tracked in [Implementation State](#implementation-state) and on
+> `implementation/s01-registration-access`.
+
 ## Snapshot
 
 - Date: 2026-07-17
@@ -9,9 +15,62 @@
 - Initial Volume II Draft Commit: `7213e9a`
 - Current Gate: CLEARED for the Volume II baseline. Under ADR-021 the gate is measured by blocking status rather than by a count. `UPSTREAM-V1-PROJECT-LIFECYCLE-003` (OD-014) and `UPSTREAM-V1-CREDENTIAL-ROTATION-TOKEN-009` (OD-023) remain live and pending under their deterministic neutral interims, and each records `Volume II — no`; every other Pass 001 blocker is retired by ratified Owner Decisions integrated under ADR-019 and ADR-020, and ADR-023 re-anchored all 72 sites that still cited one as a live reason. Production implementation may begin at S-01 from [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md)
 
+## Implementation State
+
+- Date: 2026-07-22
+- Branch: `implementation/s01-registration-access` (local only; the origin-trust gate still forbids pushing or moving tags)
+- Suite: 295 examples, 0 failures; Zeitwerk and Packwerk clean; both databases build from empty with no `db/structure.sql` drift
+
+**The project has crossed from platform construction into workflow implementation.**
+The architectural primitives below are complete and are no longer under
+construction. New workflows are expected to CONSUME them — validate,
+authenticate, authorize, read the target, check the expected version, transition,
+emit, record — rather than to extend or redesign them. A review of new work
+should ask "does this workflow consume the existing primitives correctly?", not
+"should this primitive be reshaped?". Reopening a primitive requires a
+demonstrated defect in it, exposed by a real consumer.
+
+### Platform maturity — complete
+
+| Capability | Where it lives |
+| --- | --- |
+| Identity model and proved tenant context | `f1_enter_context`, `f1_enter_org_context`, `f1_enter_bootstrap_context`; forced RLS on every tenant table |
+| Session authorization (org actor) | `IdentityAccess::Authorization::CommandAuthorizer`, `f1_authenticate_session` |
+| Permission engine | `Platform::PermissionBaseline` (`permission-baseline-v1`), `authorization_decisions` |
+| Service identities | `service_identities`, `Platform::ServiceIdentity`, foreign keys on all six attribution columns, `f1_service_identity_active` |
+| Human actor vs service separation | `exactly_one_actor_or_service` plus per-workflow attribution, regression-covered |
+| Command ledger | `command_executions`, `command_results`, `Platform::CommandResult`/`Failure`/`ErrorCatalog` |
+| Event ledger | `event_registry` with canonical-JSON envelopes and database-recomputed digests |
+| Audit | `audit_record_registry` |
+| Idempotency and request digests | `idempotency_records`, `Platform::CanonicalJson` |
+| Reference registry and non-disclosing resolution | `invitation_reference_registry`, `f1_resolve_invitation_reference` |
+| ScheduledAction (durable timers) | `scheduled_actions`, `Platform::ScheduledActions::*`, the 53-literal ratified catalogue |
+| Worker/transport authority | restricted transport functions granted to `f1_platform_worker` only; `TransportConnection` off the Active Record pool |
+| Time authority | PostgreSQL `transaction_timestamp()` for every deadline; `Platform::Clock` for application-side instants only |
+| Concurrency | one per-invitation advisory lock shared by all terminal transitions; `FOR UPDATE SKIP LOCKED` claiming |
+| Reproducible provisioning | `bin/f1-provision-db`, `F1::RuntimeGrants` as the single grant source, `f1:db:verify_runtime` |
+
+### Application maturity
+
+- Invitation terminal lifecycle complete as a domain model: accept, decline, revoke, expire — one winner under concurrency, exactly one terminal event, no terminal state reopens.
+- Expiry infrastructure complete: `ExpireInvitation` is built and correct, and is **not yet production-reachable** because nothing activates an Invitation. A guard spec fails the moment a production path starts creating Invitations without scheduling expiry.
+- Bootstrap grant issuance and existing-account sign-in complete.
+
+### Remaining
+
+Invitation activation, then invitation creation and approval, then the remaining
+organization, role, account, bootstrap and policy workflows. Ordering stays with
+[specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md).
+
 ## Current Objective
 
-Begin production implementation at S-01 Registration and Access, working [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md) in order. The acceptance criterion is the oracle. Report rather than invent every limb the seven pending decisions reserve, and never resolve one by inference.
+Implement invitation activation — the first workflow that exercises the whole
+platform at once: Permission Baseline, Session actor authorization, service
+identities, ScheduledAction and `ExpireInvitation`, request digests, eventing,
+audit, the reference registry, idempotency and concurrency. It makes the already
+built expiry capability production-reachable rather than foundational.
+
+Continue working [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md) in order. The acceptance criterion is the oracle. Report rather than invent every limb the seven pending decisions reserve, and never resolve one by inference.
 
 ## Operating Constraints
 
