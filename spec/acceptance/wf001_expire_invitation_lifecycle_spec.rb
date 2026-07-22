@@ -27,8 +27,8 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
 
   after { ReceiptMinter.truncate_all }
 
-  def activated_at = Time.utc(2026, 7, 18, 10, 0, 0)
-  def expires_at = activated_at + (7 * 24 * 3600)   # 2026-07-25 10:00:00Z
+  def activated_at = Time.utc(2026, 6, 1, 10, 0, 0)
+  def expires_at = activated_at + (7 * 24 * 3600)   # 2026-06-08 10:00:00Z, already past
   def just_before = expires_at - Rational(1, 1_000_000)
 
   let(:service_id) { SecureRandom.uuid_v7 }
@@ -98,7 +98,8 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
     )
   end
 
-  def expire(now: expires_at, worker: new_worker(now:)) = worker.run_due_batch(now:)
+  # The transport takes no instant; `now` is only the handler-side injected clock.
+  def expire(now: expires_at, worker: new_worker(now:)) = worker.run_due_batch
 
   def invitation_state = DbInspector.one("SELECT state FROM invitations")["state"]
   def action_status(id) = ScheduledActionHarness.row(id)["status"]
@@ -122,7 +123,7 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
       a = new_worker
       b = new_worker
 
-      outcomes = race(-> { a.run_due_batch(now: expires_at) }, -> { b.run_due_batch(now: expires_at) }).flatten
+      outcomes = race(-> { a.run_due_batch }, -> { b.run_due_batch }).flatten
 
       expect(outcomes.count { |o| o.disposition == :completed }).to eq(1)
       expect(invitation_state).to eq("expired")
@@ -264,11 +265,12 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
     it "recovers a worker lost after claiming, then expires exactly once" do
       _admin, inv = seed
       scheduler = Platform::ScheduledActions::Scheduler.new
-      scheduler.claim_due(now: expires_at)              # the process dies here
+      claimed = scheduler.claim_due.first              # the process dies here
       expect(invitation_state).to eq("active")
+      ScheduledActionHarness.elapse_lease!(claimed.id)
 
-      expect(scheduler.recover_expired_leases(now: expires_at + 31)).to eq(1)
-      expect(expire(now: expires_at + 31).map(&:disposition)).to eq([:completed])
+      expect(scheduler.recover_expired_leases).to eq(1)
+      expect(expire.map(&:disposition)).to eq([:completed])
       expect(terminal_events).to eq(["InvitationExpired"])
       expect(action_status(inv[:scheduled_action_id])).to eq("completed")
     end
@@ -280,19 +282,19 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
         registry: Platform::ScheduledActions::Registry.default, scheduler:,
         clock: Platform::Clock.fixed(expires_at), ids: Platform::Ids.system
       )
-      action = scheduler.claim_due(now: expires_at).first
+      action = scheduler.claim_due.first
       ScheduledActionHarness.transport_store do |store|
         store.dispatch(action_id: action.id, expected_owner: scheduler.owner,
-                       expected_generation: action.claim_generation, worker_owner: worker.owner,
-                       now: expires_at)
+                       expected_generation: action.claim_generation, worker_owner: worker.owner)
       end
       # The product effect commits; the process dies before recording completion.
       run_expire_handler(expire_command(inv, Platform::ScheduledActions::Identity.digest(action_identity(inv))))
       expect(invitation_state).to eq("expired")
       expect(action_status(inv[:scheduled_action_id])).to eq("dispatched")
+      ScheduledActionHarness.elapse_lease!(inv[:scheduled_action_id])
 
-      expect(scheduler.recover_expired_leases(now: expires_at + 31)).to eq(1)
-      expect(expire(now: expires_at + 31).map(&:disposition)).to eq([:completed])
+      expect(scheduler.recover_expired_leases).to eq(1)
+      expect(expire.map(&:disposition)).to eq([:completed])
 
       expect(terminal_events).to eq(["InvitationExpired"])
       expect(DbInspector.count("command_executions")).to eq(1)
@@ -319,13 +321,13 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
         clock: Platform::Clock.fixed(expires_at), ids: Platform::Ids.system
       )
 
-      expect(worker.run_due_batch(now: expires_at).map(&:disposition)).to eq([:released])
+      expect(worker.run_due_batch.map(&:disposition)).to eq([:released])
       expect(invitation_state).to eq("active")
       expect(terminal_events).to be_empty
       released = ScheduledActionHarness.row(inv[:scheduled_action_id])
       expect(released.values_at("status", "reason")).to eq(%w[pending scheduled_action_execution_failed])
 
-      expect(worker.run_due_batch(now: expires_at).map(&:disposition)).to eq([:completed])
+      expect(worker.run_due_batch.map(&:disposition)).to eq([:completed])
       expect(invitation_state).to eq("expired")
       expect(terminal_events).to eq(["InvitationExpired"])
       expect(attempts).to eq(2)
@@ -339,7 +341,7 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
         clock: Platform::Clock.fixed(expires_at), ids: Platform::Ids.system
       )
 
-      outcomes = worker.run_due_batch(now: expires_at)
+      outcomes = worker.run_due_batch
 
       expect(outcomes.map(&:reason)).to eq(["scheduled_work_mapping_mismatch"])
       expect(invitation_state).to eq("active")
@@ -352,7 +354,9 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
     it "expires only the Organization whose action is due, and neither reveals nor touches the other" do
       _admin_a, inv_a = seed
       org_b = TenantSeeder.create_organization
-      inv_b = TenantSeeder.create_invitation(organization_id: org_b, activated_at: activated_at + 3600)
+      # Organization B's Invitation is nowhere near its expiry boundary, so
+      # PostgreSQL never offers its action to the claimer.
+      inv_b = TenantSeeder.create_invitation(organization_id: org_b, activated_at: Time.utc(2099, 1, 1, 10, 0, 0))
 
       expect(expire.map(&:disposition)).to eq([:completed])
 

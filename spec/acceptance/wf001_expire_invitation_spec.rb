@@ -19,9 +19,13 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
 
   after { ReceiptMinter.truncate_all }
 
-  # Activation at 2026-07-18 10:00 => expiry exactly seven days later.
-  def activated_at = Time.utc(2026, 7, 18, 10, 0, 0)
+  # Activation at 2026-06-01 10:00 => expiry exactly seven days later, an instant
+  # PostgreSQL already considers past, so the action is genuinely due by database
+  # time rather than by a clock the test supplies to the transport.
+  def activated_at = Time.utc(2026, 6, 1, 10, 0, 0)
   def expires_at = activated_at + (7 * 24 * 3600)
+  # An activation whose expiry PostgreSQL will not consider due for years.
+  def not_yet_activated_at = Time.utc(2099, 1, 1, 10, 0, 0)
 
   let(:org) { TenantSeeder.create_organization }
   let(:requester) do
@@ -40,9 +44,11 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
     )
   end
 
-  # Claim and execute every action due at `now`, as the running service would.
+  # Claim and execute whatever PostgreSQL says is due, as the running service
+  # would. `now` is the handler-side injected clock only — the transport takes no
+  # instant from anyone.
   def run_worker(now: expires_at, worker: worker(now:))
-    worker.run_due_batch(now:)
+    worker.run_due_batch
   end
 
   def invitation_row = DbInspector.one("SELECT * FROM invitations")
@@ -163,13 +169,26 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
   end
 
   describe "due-time boundary" do
-    it "does not claim or expire the Invitation a microsecond before its expiry instant" do
-      inv = invitation
-      outcomes = run_worker(now: expires_at - Rational(1, 1_000_000))
+    it "does not claim or expire an Invitation whose expiry instant PostgreSQL has not reached" do
+      inv = TenantSeeder.create_invitation(organization_id: org, activated_at: not_yet_activated_at,
+                                           requester_account_id: requester)
+      outcomes = run_worker
 
       expect(outcomes).to be_empty
       expect(invitation_row["state"]).to eq("active")
       expect(action_row(inv[:scheduled_action_id])["status"]).to eq("pending")
+      expect(events).to be_empty
+    end
+
+    # The handler independently rechecks the product deadline at transaction time
+    # (BACKGROUND_PROCESSING.md :121) against its injected clock, so an execution
+    # that somehow arrives early still cannot expire anything.
+    it "refuses to expire when the handler's transaction time precedes the expiry instant" do
+      inv = invitation
+      result = execute_directly(inv, now: expires_at - Rational(1, 1_000_000))
+
+      expect(result.reason_code).to eq("scheduled_action_not_due")
+      expect(invitation_row["state"]).to eq("active")
       expect(events).to be_empty
     end
 
@@ -253,15 +272,6 @@ RSpec.describe "WF-001 expire invitation", type: :acceptance,
       result = execute_directly(inv, due_at: expires_at - 3600)
 
       expect(result.reason_code).to eq("scheduled_action_target_mismatch")
-      expect(invitation_row["state"]).to eq("active")
-      expect(events).to be_empty
-    end
-
-    it "fails closed when executed before the target's expiry instant" do
-      inv = invitation
-      result = execute_directly(inv, now: expires_at - 1)
-
-      expect(result.reason_code).to eq("scheduled_action_not_due")
       expect(invitation_row["state"]).to eq("active")
       expect(events).to be_empty
     end

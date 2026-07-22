@@ -60,14 +60,14 @@ $$;
 
 
 --
--- Name: f1_cancel_scheduled_action(uuid, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_cancel_scheduled_action(uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_cancel_scheduled_action(p_action_id uuid, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+CREATE FUNCTION public.f1_cancel_scheduled_action(p_action_id uuid, p_reason text) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
 BEGIN
   UPDATE scheduled_actions a
   SET status = 'canceled', canceled_at = v_now, reason = coalesce(p_reason, a.reason),
@@ -82,15 +82,15 @@ $$;
 
 
 --
--- Name: f1_claim_due_scheduled_actions(uuid, integer, integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_claim_due_scheduled_actions(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_claim_due_scheduled_actions(p_owner uuid, p_limit integer, p_lease_seconds integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb)
+CREATE FUNCTION public.f1_claim_due_scheduled_actions(p_owner uuid, p_limit integer, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 #variable_conflict use_column
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp());
+DECLARE v_now timestamptz(6) := transaction_timestamp();
 BEGIN
   RETURN QUERY
   WITH due AS (
@@ -203,15 +203,15 @@ $$;
 
 
 --
--- Name: f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_dispatch_scheduled_action(p_action_id uuid, p_expected_owner uuid, p_expected_generation bigint, p_worker_owner uuid, p_lease_seconds integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, identity_sha256 bytea)
+CREATE FUNCTION public.f1_dispatch_scheduled_action(p_action_id uuid, p_expected_owner uuid, p_expected_generation bigint, p_worker_owner uuid, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, identity_sha256 bytea)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 #variable_conflict use_column
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp());
+DECLARE v_now timestamptz(6) := transaction_timestamp();
 BEGIN
   RETURN QUERY
   UPDATE scheduled_actions a
@@ -333,14 +333,14 @@ $$;
 
 
 --
--- Name: f1_release_expired_scheduled_action_leases(integer, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_release_expired_scheduled_action_leases(integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_release_expired_scheduled_action_leases(p_limit integer, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS integer
+CREATE FUNCTION public.f1_release_expired_scheduled_action_leases(p_limit integer) RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
 BEGIN
   WITH expired AS (
     SELECT a.id FROM scheduled_actions a
@@ -362,14 +362,14 @@ $$;
 
 
 --
--- Name: f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_release_scheduled_action_claim(uuid, uuid, bigint, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_release_scheduled_action_claim(p_action_id uuid, p_owner uuid, p_generation bigint, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+CREATE FUNCTION public.f1_release_scheduled_action_claim(p_action_id uuid, p_owner uuid, p_generation bigint, p_reason text) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
 BEGIN
   UPDATE scheduled_actions a
   SET status = 'pending', claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
@@ -477,14 +477,14 @@ $$;
 
 
 --
--- Name: f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_settle_scheduled_action(uuid, uuid, bigint, text, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_settle_scheduled_action(p_action_id uuid, p_owner uuid, p_generation bigint, p_status text, p_reason text, p_now timestamp with time zone DEFAULT NULL::timestamp with time zone) RETURNS boolean
+CREATE FUNCTION public.f1_settle_scheduled_action(p_action_id uuid, p_owner uuid, p_generation bigint, p_status text, p_reason text) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
-DECLARE v_now timestamptz(6) := coalesce(p_now, transaction_timestamp()); v_changed integer;
+DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
 BEGIN
   IF p_status NOT IN ('completed','quarantined') THEN
     RAISE EXCEPTION 'scheduled_action_settle_status_invalid' USING ERRCODE = 'raise_exception';
@@ -500,8 +500,6 @@ BEGIN
   WHERE a.id = p_action_id
     AND a.claim_owner = p_owner
     AND a.claim_generation = p_generation
-    -- `completed` only from `dispatched` (the guard trigger's transition
-    -- table); a fail-closed quarantine may terminalize either claim phase.
     AND (a.status = 'dispatched' OR (a.status = 'claimed' AND p_status = 'quarantined'));
   GET DIAGNOSTICS v_changed = ROW_COUNT;
   RETURN v_changed > 0;
@@ -1724,6 +1722,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120009'),
 ('20260722120008'),
 ('20260722120007'),
 ('20260722120006'),

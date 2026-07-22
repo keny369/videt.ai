@@ -40,11 +40,33 @@ module ScheduledActionHarness
     end
   end
 
-  # A Store on the runtime connection with no Organization context: the transport
-  # path, which resolves due work across Organizations only through the
-  # restricted SECURITY DEFINER functions.
+  # A Store on the real platform-worker transport connection: the only principal
+  # permitted to claim, dispatch, settle, release, sweep or cancel scheduled work.
   def transport_store
-    Platform::UnitOfWork.run { |conn| yield Platform::ScheduledActions::Store.new(conn.raw_connection) }
+    Platform::ScheduledActions::TransportConnection.with do |pg|
+      yield Platform::ScheduledActions::Store.new(pg)
+    end
+  end
+
+  # Deterministic time control without a caller-supplied clock and without
+  # sleeping. PostgreSQL transaction time is the authority, so a test makes an
+  # action due, or a lease elapsed, by writing the row's own instants. `due_at` is
+  # immutable, so due-ness is chosen at creation; `lease_expires_at` is mutable
+  # within the same status, which is exactly what a lease is.
+  def elapse_lease!(id)
+    owner_exec(<<~SQL, [id])
+      UPDATE scheduled_actions
+      SET lease_expires_at = transaction_timestamp() - interval '1 second'
+      WHERE id = $1::uuid
+    SQL
+  end
+
+  # An instant PostgreSQL already considers past / still future.
+  def past(seconds = 3600) = db_instant("- interval '#{seconds} seconds'")
+  def future(seconds = 3600) = db_instant("+ interval '#{seconds} seconds'")
+
+  def db_instant(offset = "")
+    Time.parse(DbInspector.connection.exec("SELECT transaction_timestamp() #{offset}").getvalue(0, 0)).getutc
   end
 
   def row(id) = DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [id])
@@ -55,5 +77,17 @@ module ScheduledActionHarness
   # application — rejects an illegal mutation.
   def owner_exec(sql, params = [])
     DbInspector.connection.exec_params(sql, params)
+  end
+
+  # A short-lived connection as a named login role, for proving what a principal
+  # genuinely cannot do rather than what the application declines to attempt.
+  def as_role(role)
+    cfg = ActiveRecord::Base.connection_db_config.configuration_hash
+    conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: role)
+    begin
+      yield conn
+    ensure
+      conn.close
+    end
   end
 end

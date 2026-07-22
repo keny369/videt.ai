@@ -75,17 +75,32 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)",
-      # Restricted ScheduledAction transport (BACKGROUND_PROCESSING.md § Durable
-      # Scheduling): the only reachable mutations of scheduled_actions. They read
-      # across Organizations as the owner to find due work, which is exactly why
-      # each is SECURITY DEFINER with a fixed search_path and no PUBLIC execute.
-      "f1_claim_due_scheduled_actions(uuid, integer, integer, timestamptz)",
-      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamptz)",
-      "f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamptz)",
-      "f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamptz)",
-      "f1_release_expired_scheduled_action_leases(integer, timestamptz)",
-      "f1_cancel_scheduled_action(uuid, text, timestamptz)"
+      "f1_enter_org_context(uuid, uuid)"
+    ].freeze
+
+    # Platform-control authority, deliberately NOT in f1_runtime.
+    #
+    # schemas/POSTGRESQL_SCHEMA.md:175 requires the scheduler's dispatch function
+    # to be "revoked from `PUBLIC`, granted only to `f1_platform_worker`"; :166
+    # scopes scheduler leadership and dead-letter administration to
+    # `f1_platform_worker` registered functions; :136 limits `f1_web` to
+    # "registered browser/API tables and functions only"; and :143 requires every
+    # reviewed restricted function to be "granted only to its named runtime role".
+    #
+    # These six are the only reachable mutations of `scheduled_actions` and they
+    # read across every Organization as the owner, so an ordinary request-serving
+    # connection must not be able to claim, dispatch, settle, release, sweep or
+    # cancel scheduled work. The runtime keeps SELECT/INSERT on the table alone,
+    # which is what the activation transaction needs and nothing more.
+    PLATFORM_WORKER_ROLE = "f1_platform_worker"
+
+    PLATFORM_WORKER_FUNCTIONS = [
+      "f1_claim_due_scheduled_actions(uuid, integer, integer)",
+      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer)",
+      "f1_settle_scheduled_action(uuid, uuid, bigint, text, text)",
+      "f1_release_scheduled_action_claim(uuid, uuid, bigint, text)",
+      "f1_release_expired_scheduled_action_leases(integer)",
+      "f1_cancel_scheduled_action(uuid, text)"
     ].freeze
 
     # Functions that must NOT be PUBLIC-executable. structure.sql load recreates
@@ -101,14 +116,8 @@ module F1
       "f1_resolve_invitation_reference(bytea, timestamptz)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
-      "f1_enter_org_context(uuid, uuid)",
-      "f1_claim_due_scheduled_actions(uuid, integer, integer, timestamptz)",
-      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer, timestamptz)",
-      "f1_settle_scheduled_action(uuid, uuid, bigint, text, text, timestamptz)",
-      "f1_release_scheduled_action_claim(uuid, uuid, bigint, text, timestamptz)",
-      "f1_release_expired_scheduled_action_leases(integer, timestamptz)",
-      "f1_cancel_scheduled_action(uuid, text, timestamptz)"
-    ].freeze
+      "f1_enter_org_context(uuid, uuid)"
+    ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.
     def statements
@@ -118,6 +127,13 @@ module F1
       METADATA_TABLES.each { |t| stmts << table_guard(t, "GRANT SELECT ON public.#{t} TO #{RUNTIME_ROLE}") }
       REVOKE_PUBLIC_FUNCTIONS.each { |fn| stmts << function_guard(fn, "REVOKE ALL ON FUNCTION public.#{fn} FROM PUBLIC") }
       RUNTIME_FUNCTIONS.each { |fn| stmts << function_guard(fn, "GRANT EXECUTE ON FUNCTION public.#{fn} TO #{RUNTIME_ROLE}") }
+      # Explicitly withdraw the transport from the runtime group before granting
+      # it to the platform worker, so a database provisioned by an earlier build
+      # converges on the restricted posture rather than keeping a stale grant.
+      PLATFORM_WORKER_FUNCTIONS.each do |fn|
+        stmts << function_guard(fn, "REVOKE ALL ON FUNCTION public.#{fn} FROM #{RUNTIME_ROLE}")
+        stmts << function_guard(fn, "GRANT EXECUTE ON FUNCTION public.#{fn} TO #{PLATFORM_WORKER_ROLE}")
+      end
       stmts
     end
 

@@ -14,6 +14,11 @@ module Platform
     # the singleton scheduler lease of :67 exists to stop duplicate *enqueue* to
     # Redis, and this slice has no Redis hop to duplicate.
     #
+    # Both run on the platform-worker transport connection, never the
+    # request-serving one, and neither accepts a caller-supplied instant:
+    # due-ness and lease expiry are decided by PostgreSQL transaction time alone
+    # (BACKGROUND_PROCESSING.md :114, verification gate 7 :519).
+    #
     # `claim_owner` is a random process-instance UUID per WORK-CLAIM (:281).
     class Scheduler
       # The ratified poll bound and claim lease (:114 "at most 100 eligible rows",
@@ -27,22 +32,19 @@ module Platform
         @owner = owner
       end
 
-      # Claim at most `limit` due actions and return them. `now` is nil in
-      # production, where PostgreSQL transaction time decides due-time equality
-      # (:110; verification gate 7 :519).
-      def claim_due(limit: BATCH_LIMIT, lease_seconds: CLAIM_LEASE_SECONDS, now: nil)
-        Platform::UnitOfWork.run do |conn|
-          Store.new(conn.raw_connection)
-               .claim_due(owner:, limit: [limit, BATCH_LIMIT].min, lease_seconds:, now:)
+      # Claim at most `limit` actions that PostgreSQL says are due.
+      def claim_due(limit: BATCH_LIMIT, lease_seconds: CLAIM_LEASE_SECONDS)
+        TransportConnection.with do |pg|
+          Store.new(pg).claim_due(owner:, limit: [limit, BATCH_LIMIT].min, lease_seconds:)
         end
       end
 
       # Return expired claims to `pending` so the same action identity is
       # recomputed (:297). This is what makes worker loss non-stranding: a process
       # that dies between claim and completion loses only its lease.
-      def recover_expired_leases(limit: BATCH_LIMIT, now: nil)
-        Platform::UnitOfWork.run do |conn|
-          Store.new(conn.raw_connection).release_expired_leases(limit: [limit, BATCH_LIMIT].min, now:)
+      def recover_expired_leases(limit: BATCH_LIMIT)
+        TransportConnection.with do |pg|
+          Store.new(pg).release_expired_leases(limit: [limit, BATCH_LIMIT].min)
         end
       end
     end

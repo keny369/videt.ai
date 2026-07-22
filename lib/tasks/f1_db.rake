@@ -74,6 +74,30 @@ module F1DbProvision
     puts "[f1:db:verify_runtime] OK as f1_web — #{all.size} checks passed (RLS intact)"
   end
 
+  TRANSPORT_FUNCTIONS = <<~SQL
+    SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname IN (
+      'f1_claim_due_scheduled_actions','f1_dispatch_scheduled_action','f1_settle_scheduled_action',
+      'f1_release_scheduled_action_claim','f1_release_expired_scheduled_action_leases',
+      'f1_cancel_scheduled_action')
+  SQL
+
+  # 't' only when EVERY transport function is executable by the role.
+  def transport_privilege(conn, role)
+    conn.exec_params(<<~SQL, [role]).getvalue(0, 0)
+      SELECT coalesce(bool_and(has_function_privilege($1, oid, 'EXECUTE')), false)
+      FROM (#{TRANSPORT_FUNCTIONS}) f
+    SQL
+  end
+
+  # 't' only when NO transport function declares a timestamptz argument.
+  def transport_takes_no_time(conn)
+    conn.exec(<<~SQL).getvalue(0, 0)
+      SELECT coalesce(bool_and(NOT ('timestamptz'::regtype = ANY (p.proargtypes::oid[]))), false)
+      FROM pg_proc p WHERE p.oid IN (SELECT oid FROM (#{TRANSPORT_FUNCTIONS}) f)
+    SQL
+  end
+
   def checks(conn)
     {
       "schema_migrations readable" => -> { conn.exec("SELECT count(*) FROM schema_migrations").getvalue(0, 0).to_i >= 0 },
@@ -89,8 +113,14 @@ module F1DbProvision
       "scheduled_actions selectable, 0 rows without context (RLS intact)" => -> { conn.exec("SELECT count(*) FROM scheduled_actions").getvalue(0, 0) == "0" },
       "scheduled_actions INSERT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.scheduled_actions','INSERT')").getvalue(0, 0) == "t" },
       "scheduled_actions UPDATE NOT granted" => -> { conn.exec("SELECT has_table_privilege('f1_web','public.scheduled_actions','UPDATE')").getvalue(0, 0) == "f" },
-      "f1_claim_due_scheduled_actions executable by runtime" => -> { conn.exec("SELECT has_function_privilege('f1_web','public.f1_claim_due_scheduled_actions(uuid,integer,integer,timestamptz)','EXECUTE')").getvalue(0, 0) == "t" },
-      "f1_claim_due_scheduled_actions NOT executable by PUBLIC" => -> { conn.exec("SELECT has_function_privilege('public','public.f1_claim_due_scheduled_actions(uuid,integer,integer,timestamptz)','EXECUTE')").getvalue(0, 0) == "f" }
+      # The ScheduledAction transport is platform-control authority
+      # (POSTGRESQL_SCHEMA.md :166, :175): the request-serving role must not be
+      # able to claim, dispatch, settle, release, sweep or cancel scheduled work,
+      # and no transport function may accept a caller-supplied instant.
+      "ScheduledAction transport NOT executable by f1_web" => -> { transport_privilege(conn, "f1_web") == "f" },
+      "ScheduledAction transport NOT executable by PUBLIC" => -> { transport_privilege(conn, "public") == "f" },
+      "ScheduledAction transport executable by f1_platform_worker" => -> { transport_privilege(conn, "f1_platform_worker") == "t" },
+      "no ScheduledAction transport function accepts a caller-supplied time" => -> { transport_takes_no_time(conn) == "t" }
     }
   end
 end

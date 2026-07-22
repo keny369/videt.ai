@@ -19,7 +19,9 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
   SpyCommand = ScheduledActionSpies::Command
 
   let(:org) { TenantSeeder.create_organization }
-  let(:due) { Time.utc(2026, 7, 25, 10, 0, 0) }
+  # Due-ness is PostgreSQL's decision; the handler-side clock is separate and
+  # remains injected.
+  let(:due) { ScheduledActionHarness.past }
   let(:registry) { Platform::ScheduledActions::Registry.new }
   let(:scheduler) { Platform::ScheduledActions::Scheduler.new }
   let(:worker) do
@@ -59,7 +61,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       register
       id = create
 
-      outcomes = worker.run_due_batch(now: due)
+      outcomes = worker.run_due_batch
 
       expect(outcomes.map(&:disposition)).to eq([:completed])
       expect(SpyHandler.calls.size).to eq(1)
@@ -73,7 +75,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       register
       create
 
-      worker.run_due_batch(now: due)
+      worker.run_due_batch
       ctx = SpyHandler.calls.first[:request_context]
 
       expect(ctx.service_identity_id).to eq(Platform::ServiceIdentity.scheduled_action_executor)
@@ -87,7 +89,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       SpyHandler.reset! { |_, _| ok_result("invitation_not_active") }
       id = create
 
-      outcomes = worker.run_due_batch(now: due)
+      outcomes = worker.run_due_batch
 
       expect(outcomes.map(&:disposition)).to eq([:completed])
       expect(row(id)["status"]).to eq("completed")
@@ -99,10 +101,10 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
     it "executes exactly once when the same claimed action is delivered twice" do
       register
       id = create
-      action = scheduler.claim_due(now: due).first
+      action = scheduler.claim_due.first
 
-      first = worker.execute(action, now: due)
-      second = worker.execute(action, now: due)
+      first = worker.execute(action)
+      second = worker.execute(action)
 
       expect(first.disposition).to eq(:completed)
       expect(second.disposition).to eq(:skipped)
@@ -119,7 +121,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       end
 
       outcomes = workers.map do |w|
-        Thread.new { ActiveRecord::Base.connection_pool.with_connection { w.run_due_batch(now: due) } }
+        Thread.new { ActiveRecord::Base.connection_pool.with_connection { w.run_due_batch } }
       end.map(&:value).flatten
 
       expect(outcomes.map(&:disposition)).to eq([:completed])
@@ -131,7 +133,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
   describe "fail-closed dispatch" do
     it "quarantines an action whose kind has no registered handler and performs no product work" do
       id = create
-      outcomes = worker.run_due_batch(now: due)
+      outcomes = worker.run_due_batch
 
       expect(outcomes.map(&:disposition)).to eq([:quarantined])
       expect(outcomes.first.reason).to eq("scheduled_work_mapping_mismatch")
@@ -143,7 +145,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       register(action_schema_version: "2.0")
       id = create(action_schema_version: "1.0")
 
-      outcomes = worker.run_due_batch(now: due)
+      outcomes = worker.run_due_batch
 
       expect(outcomes.first.reason).to eq("scheduled_action_schema_unsupported")
       expect(SpyHandler.calls).to be_empty
@@ -155,15 +157,15 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       SpyHandler.reset! { |_, _| ok_result("scheduled_action_target_mismatch") }
       id = create
 
-      expect(worker.run_due_batch(now: due).map(&:disposition)).to eq([:quarantined])
+      expect(worker.run_due_batch.map(&:disposition)).to eq([:quarantined])
       expect(row(id).values_at("status", "reason")).to eq(%w[quarantined scheduled_action_target_mismatch])
     end
 
     it "never recovers a quarantined action through the lease sweep" do
       id = create
-      worker.run_due_batch(now: due)
+      worker.run_due_batch
 
-      expect(scheduler.recover_expired_leases(now: due + 3600)).to eq(0)
+      expect(scheduler.recover_expired_leases).to eq(0)
       expect(row(id)["status"]).to eq("quarantined")
     end
   end
@@ -180,14 +182,14 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       end
       id = create
 
-      first = worker.run_due_batch(now: due)
+      first = worker.run_due_batch
       expect(first.map(&:disposition)).to eq([:released])
       released = row(id)
       expect(released["status"]).to eq("pending")
       expect(released["reason"]).to eq("scheduled_action_execution_failed")
       expect(released["claim_generation"].to_i).to eq(1)
 
-      second = worker.run_due_batch(now: due)
+      second = worker.run_due_batch
       expect(second.map(&:disposition)).to eq([:completed])
       expect(SpyHandler.calls.size).to eq(2)
       expect(row(id)["claim_generation"].to_i).to eq(2)
@@ -198,17 +200,18 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       SpyHandler.reset! { |_, _| raise "PG::UndefinedTable: relation \"secrets\" does not exist at /app/x.rb:9" }
       id = create
 
-      worker.run_due_batch(now: due)
+      worker.run_due_batch
       expect(row(id)["reason"]).to eq("scheduled_action_execution_failed")
     end
 
     it "recovers a worker lost after claiming but before dispatching" do
       register
       id = create
-      scheduler.claim_due(now: due) # the process dies here
+      scheduler.claim_due # the process dies here
+      ScheduledActionHarness.elapse_lease!(id)
 
-      expect(scheduler.recover_expired_leases(now: due + 31)).to eq(1)
-      expect(worker.run_due_batch(now: due + 31).map(&:disposition)).to eq([:completed])
+      expect(scheduler.recover_expired_leases).to eq(1)
+      expect(worker.run_due_batch.map(&:disposition)).to eq([:completed])
       expect(SpyHandler.calls.size).to eq(1)
       expect(row(id)["status"]).to eq("completed")
     end
@@ -216,21 +219,22 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
     it "recovers a worker lost after a committed execution, and the re-execution is a duplicate no-op" do
       register
       id = create
-      action = scheduler.claim_due(now: due).first
+      action = scheduler.claim_due.first
       # Dispatch and run the handler, then lose the process before the settle
       # transaction — the product effect is committed, the action is not.
       ScheduledActionHarness.transport_store do |store|
         store.dispatch(action_id: id, expected_owner: scheduler.owner,
                        expected_generation: action.claim_generation,
-                       worker_owner: worker.owner, now: due)
+                       worker_owner: worker.owner)
       end
       SpyHandler.calls << :committed_but_unrecorded
       expect(row(id)["status"]).to eq("dispatched")
+      ScheduledActionHarness.elapse_lease!(id)
 
-      expect(scheduler.recover_expired_leases(now: due + 31)).to eq(1)
+      expect(scheduler.recover_expired_leases).to eq(1)
       # The idempotent handler reports the already-terminal result on replay.
       SpyHandler.reset! { |_, _| ok_result("invitation_not_active") }
-      expect(worker.run_due_batch(now: due + 31).map(&:disposition)).to eq([:completed])
+      expect(worker.run_due_batch.map(&:disposition)).to eq([:completed])
       expect(row(id).values_at("status", "reason")).to eq(%w[completed invitation_not_active])
     end
   end

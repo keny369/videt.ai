@@ -71,45 +71,48 @@ module Platform
       end
 
       # ---- restricted transport functions --------------------------------------
+      #
+      # These run on the platform-worker transport connection, never the
+      # request-serving one, and none of them accepts a time: PostgreSQL
+      # transaction time is the sole due-time and lease authority
+      # (BACKGROUND_PROCESSING.md :114, verification gate 7 :519).
 
       # Step 3-4 of the ratified due-time claim: at most `limit` due, pending,
       # not-before-satisfied actions in (due_at, id) order under FOR UPDATE SKIP
-      # LOCKED. `now` is nil in production, where PostgreSQL transaction time is
-      # the due-time authority.
-      def claim_due(owner:, limit: 100, lease_seconds: 30, now: nil)
-        sql = "SELECT * FROM f1_claim_due_scheduled_actions($1::uuid, $2, $3, $4::timestamptz)"
-        exec(sql, [owner, limit, lease_seconds, iso_or_nil(now)]).to_a.map { |row| to_action(row) }
+      # LOCKED.
+      def claim_due(owner:, limit: 100, lease_seconds: 30)
+        sql = "SELECT * FROM f1_claim_due_scheduled_actions($1::uuid, $2, $3)"
+        exec(sql, [owner, limit, lease_seconds]).to_a.map { |row| to_action(row) }
       end
 
       # The scheduler-to-worker compare-and-swap handoff. Returns the Action, or
       # nil when this caller does not own the exact claim generation — a duplicate
       # delivery, a reclaimed lease or a terminal action, each of which exits
       # without product work.
-      def dispatch(action_id:, expected_owner:, expected_generation:, worker_owner:, lease_seconds: 30, now: nil)
-        sql = "SELECT * FROM f1_dispatch_scheduled_action($1::uuid,$2::uuid,$3,$4::uuid,$5,$6::timestamptz)"
-        row = exec(sql, [action_id, expected_owner, expected_generation, worker_owner,
-                         lease_seconds, iso_or_nil(now)]).to_a.first
+      def dispatch(action_id:, expected_owner:, expected_generation:, worker_owner:, lease_seconds: 30)
+        sql = "SELECT * FROM f1_dispatch_scheduled_action($1::uuid,$2::uuid,$3,$4::uuid,$5)"
+        row = exec(sql, [action_id, expected_owner, expected_generation, worker_owner, lease_seconds]).to_a.first
         row && to_action(row)
       end
 
-      def settle(action_id:, owner:, generation:, status:, reason: nil, now: nil)
-        sql = "SELECT f1_settle_scheduled_action($1::uuid,$2::uuid,$3,$4,$5,$6::timestamptz)"
-        truthy(exec(sql, [action_id, owner, generation, status, reason, iso_or_nil(now)]).values.dig(0, 0))
+      def settle(action_id:, owner:, generation:, status:, reason: nil)
+        sql = "SELECT f1_settle_scheduled_action($1::uuid,$2::uuid,$3,$4,$5)"
+        truthy(exec(sql, [action_id, owner, generation, status, reason]).values.dig(0, 0))
       end
 
-      def release_claim(action_id:, owner:, generation:, reason: nil, now: nil)
-        sql = "SELECT f1_release_scheduled_action_claim($1::uuid,$2::uuid,$3,$4,$5::timestamptz)"
-        truthy(exec(sql, [action_id, owner, generation, reason, iso_or_nil(now)]).values.dig(0, 0))
+      def release_claim(action_id:, owner:, generation:, reason: nil)
+        sql = "SELECT f1_release_scheduled_action_claim($1::uuid,$2::uuid,$3,$4)"
+        truthy(exec(sql, [action_id, owner, generation, reason]).values.dig(0, 0))
       end
 
-      def release_expired_leases(limit: 100, now: nil)
-        sql = "SELECT f1_release_expired_scheduled_action_leases($1,$2::timestamptz)"
-        exec(sql, [limit, iso_or_nil(now)]).values.dig(0, 0).to_i
+      def release_expired_leases(limit: 100)
+        sql = "SELECT f1_release_expired_scheduled_action_leases($1)"
+        exec(sql, [limit]).values.dig(0, 0).to_i
       end
 
-      def cancel(action_id:, reason: nil, now: nil)
-        sql = "SELECT f1_cancel_scheduled_action($1::uuid,$2,$3::timestamptz)"
-        truthy(exec(sql, [action_id, reason, iso_or_nil(now)]).values.dig(0, 0))
+      def cancel(action_id:, reason: nil)
+        sql = "SELECT f1_cancel_scheduled_action($1::uuid,$2)"
+        truthy(exec(sql, [action_id, reason]).values.dig(0, 0))
       end
 
       private

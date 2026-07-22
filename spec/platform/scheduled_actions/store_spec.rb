@@ -18,7 +18,9 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
 
   let(:org) { TenantSeeder.create_organization }
   let(:target) { SecureRandom.uuid_v7 }
-  let(:due) { Time.utc(2026, 7, 25, 10, 0, 0) }
+  # PostgreSQL transaction time is the due-time authority, so due-ness is
+  # arranged by writing `due_at`, never by supplying an instant to the transport.
+  let(:due) { ScheduledActionHarness.past }
   let(:owner) { SecureRandom.uuid_v7 }
 
   def create(**overrides)
@@ -121,11 +123,18 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       expect(privileges.values_at("sel", "ins", "upd", "del")).to eq(%w[t t f f])
     end
 
-    it "keeps every restricted transport function SECURITY DEFINER with a fixed search_path and no PUBLIC execute" do
+    # The transport is platform-control authority, not request-serving authority
+    # (POSTGRESQL_SCHEMA.md :136 f1_web is "registered browser/API tables and
+    # functions only"; :166 scheduler leadership is `f1_platform_worker`
+    # registered functions; :175 "granted only to `f1_platform_worker`").
+    it "confines every restricted transport function to the platform worker, with a fixed search_path" do
       functions = DbInspector.all(<<~SQL)
         SELECT p.proname, p.prosecdef, array_to_string(p.proconfig, ';') AS config,
                has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec,
-               has_function_privilege('f1_web', p.oid, 'EXECUTE') AS runtime_exec
+               has_function_privilege('f1_web', p.oid, 'EXECUTE') AS web_exec,
+               has_function_privilege('f1_worker', p.oid, 'EXECUTE') AS worker_exec,
+               has_function_privilege('f1_platform_worker', p.oid, 'EXECUTE') AS platform_exec,
+               ('timestamptz'::regtype = ANY (p.proargtypes::oid[])) AS takes_time
         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
         WHERE n.nspname = 'public' AND p.proname LIKE '%scheduled_action%'
           AND p.prorettype <> 'trigger'::regtype::oid
@@ -137,18 +146,57 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
         "f1_settle_scheduled_action"
       )
       functions.each do |f|
-        expect(f["prosecdef"]).to eq("t"), "#{f['proname']} is not SECURITY DEFINER"
-        expect(f["config"]).to eq("search_path=pg_catalog, public"), "#{f['proname']} search_path"
-        expect(f["public_exec"]).to eq("f"), "#{f['proname']} is PUBLIC executable"
-        expect(f["runtime_exec"]).to eq("t"), "#{f['proname']} is not runtime executable"
+        name = f["proname"]
+        expect(f["prosecdef"]).to eq("t"), "#{name} is not SECURITY DEFINER"
+        expect(f["config"]).to eq("search_path=pg_catalog, public"), "#{name} search_path"
+        expect(f["public_exec"]).to eq("f"), "#{name} is PUBLIC executable"
+        expect(f["web_exec"]).to eq("f"), "#{name} is executable by the request-serving role"
+        expect(f["worker_exec"]).to eq("f"), "#{name} is executable by the tenant job role"
+        expect(f["platform_exec"]).to eq("t"), "#{name} is not executable by the platform worker"
+        # PostgreSQL transaction time is the sole due-time authority
+        # (BACKGROUND_PROCESSING.md :114; verification gate 7 :519).
+        expect(f["takes_time"]).to eq("f"), "#{name} accepts a caller-supplied instant"
       end
+    end
+
+    it "refuses a request-path attempt to claim scheduled work" do
+      id = create[:id]
+      expect { ScheduledActionHarness.as_role("f1_web") { |pg| pg.exec_params("SELECT * FROM f1_claim_due_scheduled_actions($1::uuid,10,30)", [owner]) } }
+        .to raise_error(PG::InsufficientPrivilege, /permission denied/i)
+      expect(ScheduledActionHarness.row(id)["status"]).to eq("pending")
+    end
+
+    it "refuses a request-path attempt to settle, release, sweep or cancel scheduled work" do
+      id = create[:id]
+      attempts = {
+        "SELECT f1_settle_scheduled_action($1::uuid,$1::uuid,1,'completed',NULL)" => [id],
+        "SELECT f1_release_scheduled_action_claim($1::uuid,$1::uuid,1,NULL)" => [id],
+        "SELECT f1_release_expired_scheduled_action_leases(100)" => [],
+        "SELECT f1_cancel_scheduled_action($1::uuid,NULL)" => [id]
+      }
+      attempts.each do |sql, params|
+        expect { ScheduledActionHarness.as_role("f1_web") { |pg| pg.exec_params(sql, params) } }
+          .to raise_error(PG::InsufficientPrivilege, /permission denied/i), sql
+      end
+      expect(ScheduledActionHarness.row(id)["status"]).to eq("pending")
+    end
+
+    # `p_now` is gone, so there is no argument through which any caller — trusted
+    # or not — can move an action's due time forward.
+    it "offers no overload through which a caller can supply its own clock" do
+      overloads = DbInspector.all(<<~SQL).map { |r| r["args"] }
+        SELECT pg_get_function_arguments(p.oid) AS args
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'f1_claim_due_scheduled_actions'
+      SQL
+      expect(overloads).to eq(["p_owner uuid, p_limit integer, p_lease_seconds integer"])
     end
   end
 
   describe "the state machine, enforced at the database boundary" do
     def claim
       ScheduledActionHarness.transport_store do |store|
-        store.claim_due(owner:, limit: 10, now: due).first
+        store.claim_due(owner:, limit: 10).first
       end
     end
 
@@ -161,13 +209,13 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       worker = SecureRandom.uuid_v7
       dispatched = ScheduledActionHarness.transport_store do |store|
         store.dispatch(action_id: id, expected_owner: owner, expected_generation: 1,
-                       worker_owner: worker, now: due)
+                       worker_owner: worker)
       end
       expect(dispatched).not_to be_nil
       expect(ScheduledActionHarness.row(id).values_at("status", "claim_phase")).to eq(%w[dispatched worker])
 
       settled = ScheduledActionHarness.transport_store do |store|
-        store.settle(action_id: id, owner: worker, generation: 1, status: "completed", now: due)
+        store.settle(action_id: id, owner: worker, generation: 1, status: "completed")
       end
       row = ScheduledActionHarness.row(id)
       expect(settled).to be(true)
@@ -182,9 +230,9 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       worker = SecureRandom.uuid_v7
       ScheduledActionHarness.transport_store do |store|
         store.dispatch(action_id: id, expected_owner: owner, expected_generation: action.claim_generation,
-                       worker_owner: worker, now: due)
+                       worker_owner: worker)
         store.settle(action_id: id, owner: worker, generation: action.claim_generation,
-                     status: "completed", now: due)
+                     status: "completed")
       end
 
       expect do
@@ -203,7 +251,7 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
     it "rejects a change to any immutable identity column" do
       id = create[:id]
       {
-        "due_at = $2::timestamptz" => (due + 60).iso8601(6),
+        "due_at = $2::timestamptz" => (due + 60).getutc.iso8601(6),
         "target_id = $2::uuid" => SecureRandom.uuid_v7,
         "action_kind = $2" => "session_expire",
         "identity_sha256 = decode($2,'hex')" => Digest::SHA256.hexdigest("other"),
