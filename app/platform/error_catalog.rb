@@ -123,7 +123,13 @@ module Platform
       # already applies to revoke."
       "expiry_blocked_last_admin"         => "F1-DOMAIN-409",
       "role_assignment_not_active"        => "F1-DOMAIN-409",
-      "last_organization_admin"           => "F1-DOMAIN-409"
+      "last_organization_admin"           => "F1-DOMAIN-409",
+      "role_reason_invalid"               => "F1-VALIDATION-400",
+      # ":967 OrganizationAdmin may manage non-protected tenant grants …;
+      # SecurityOperator may manage … protected grants" — revoking a protected
+      # Assignment is outside the OrganizationAdmin cell limb, an authorization
+      # failure rather than a validation one.
+      "role_protected_authority_required" => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

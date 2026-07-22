@@ -12,6 +12,8 @@ module IdentityAccess
     # a human's — ":348 produced solely by the role-expiry lifecycle service, and
     # no human actor commands a block".
     class RoleExpiryStore
+      include LastAdministratorPredicate
+
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -46,22 +48,6 @@ module IdentityAccess
               updated_at = $3::timestamptz
           WHERE id = $1::uuid AND authorization_epoch = $2
         SQL
-      end
-
-      # ":344 the expiry is blocked when committing it would leave the Organization
-      # with no OTHER Account holding an active, in-scope Role Assignment
-      # conferring effective OrganizationAdmin authority, evaluated against the
-      # current Organization authorization epoch." Evaluated in the database, at
-      # transaction time, never from cached application state.
-      def other_effective_admins(role_assignment_id:, account_id:, now:)
-        sql = <<~SQL
-          SELECT count(*) FROM role_assignments
-          WHERE canonical_role = 'OrganizationAdmin' AND status = 'active'
-            AND id <> $1::uuid AND account_id <> $2::uuid
-            AND effective_at IS NOT NULL AND effective_at <= $3::timestamptz
-            AND (expires_at IS NULL OR $3::timestamptz < expires_at)
-        SQL
-        exec(sql, [role_assignment_id, account_id, iso(now)]).values.dig(0, 0).to_i
       end
 
       def expire(id, expected_version, now)

@@ -13,6 +13,7 @@ module IdentityAccess
     # write that sets an allowlist, and it does so on a row that has none.
     class RoleAssignmentStore
       include ActorLedgerWriters
+      include LastAdministratorPredicate
 
       def initialize(pg_connection)
         @pg = pg_connection
@@ -105,6 +106,20 @@ module IdentityAccess
               transition_reason_code = 'role_assignment_rejected', decision_authorization_epoch = $5,
               state_version = state_version + 1, updated_at = $3::timestamptz
           WHERE id = $1::uuid AND status = 'pending' AND state_version = $2
+        SQL
+      end
+
+      # Guarded active -> revoked (:316). The allowlist, the approval rows and the
+      # grant content are deliberately untouched: revocation ends the authority,
+      # it does not erase the history of how the authority was obtained.
+      def revoke(id, expected_version, now, reason, epoch)
+        params = [id, expected_version, iso(now), reason, epoch]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE role_assignments
+          SET status = 'revoked', terminated_at = $3::timestamptz, reason = $4,
+              transition_reason_code = 'role_assignment_revoked', decision_authorization_epoch = $5,
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND status = 'active' AND state_version = $2
         SQL
       end
 
