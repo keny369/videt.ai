@@ -969,13 +969,15 @@ CREATE TABLE public.invitations (
     state text NOT NULL,
     reason text,
     requester_account_id uuid,
+    transition_reason_code text,
     CONSTRAINT invitation_active_expiry_is_seven_days CHECK (((activated_at IS NULL) OR (expires_at = (activated_at + '7 days'::interval)))),
     CONSTRAINT invitation_bound_identity_pairwise CHECK (((target_identity_issuer_key IS NULL) = (target_identity_subject IS NULL))),
     CONSTRAINT invitations_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
     CONSTRAINT invitations_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
     CONSTRAINT invitations_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT invitations_state_check CHECK ((state = ANY (ARRAY['pending_approval'::text, 'active'::text, 'accepted'::text, 'declined'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
-    CONSTRAINT invitations_target_email_sha256_check CHECK ((octet_length(target_email_sha256) = 32))
+    CONSTRAINT invitations_target_email_sha256_check CHECK ((octet_length(target_email_sha256) = 32)),
+    CONSTRAINT invitations_transition_reason_code_check CHECK (((transition_reason_code IS NULL) OR (transition_reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text)))
 );
 
 ALTER TABLE ONLY public.invitations FORCE ROW LEVEL SECURITY;
@@ -1722,6 +1724,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120008'),
 ('20260722120007'),
 ('20260722120006'),
 ('20260721120005'),

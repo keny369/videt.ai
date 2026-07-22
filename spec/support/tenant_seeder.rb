@@ -75,16 +75,25 @@ module TenantSeeder
   # locator, consistently. Invitation creation is a later WF; until then the
   # acceptance suite arranges the precondition directly. `activated_at` drives the
   # 7-day active expiry (CHECK); pass an old activated_at to build an expired one.
+  #
+  # Activation is also the canonical creation point of the Invitation's expiry
+  # timer, so an Invitation that has ever been activated is seeded WITH its
+  # `invitation_expire` ScheduledAction, through the same
+  # IdentityAccess::Domain::InvitationExpirySchedule operation the ratified
+  # WF-013 activation transaction must call. `with_expiry_action: false` builds
+  # the no-timer case deliberately.
+  #
   # Returns { invitation_id:, reference: (32 bytes), reference_digest:,
   #           target_email:, target_email_sha256:, canonical_role:, permission_mode:,
-  #           persona:, scope_sha256:, organization_id: }.
+  #           persona:, scope_sha256:, organization_id:, expires_at:,
+  #           scheduled_action_id: }.
   def create_invitation(organization_id:, id: SecureRandom.uuid_v7,
                         target_email: "invitee-#{SecureRandom.hex(4)}@example.com",
                         target_identity_issuer_key: nil, target_identity_subject: nil,
                         canonical_role: "MarketingOperator", permission_mode: "standard", persona: nil,
                         scope_sha256: Digest::SHA256.digest("scope:organization"),
                         state: "active", activated_at: Time.utc(2026, 7, 18, 10, 0, 0),
-                        requester_account_id: nil)
+                        requester_account_id: nil, with_expiry_action: true)
     reference = SecureRandom.random_bytes(32)
     reference_digest = Digest::SHA256.digest(reference)
     email_sha = Digest::SHA256.digest(target_email)
@@ -115,10 +124,18 @@ module TenantSeeder
       VALUES ($1,now(),now(),$2,$3,$4,$5::timestamptz,$6::timestamptz,$7::timestamptz,'identity_commercial')
     SQL
 
+    action_id = nil
+    if with_expiry_action && expires
+      action_id = IdentityAccess::Domain::InvitationExpirySchedule.schedule(
+        store: Platform::ScheduledActions::Store.new(conn), organization_id:, invitation_id: id,
+        expires_at: expires, now: activated, correlation_id: SecureRandom.uuid_v7
+      )[:id]
+    end
+
     { invitation_id: id, reference: reference, reference_digest: reference_digest,
       target_email: target_email, target_email_sha256: email_sha, canonical_role: canonical_role,
       permission_mode: permission_mode, persona: persona, scope_sha256: scope_sha256,
-      organization_id: organization_id }
+      organization_id: organization_id, expires_at: expires, scheduled_action_id: action_id }
   end
 
   # Seeds a Session for an org actor. Defaults are valid at a 2026-07-20 10:00 fixed

@@ -78,7 +78,16 @@ module Platform
       # capability denies before/at the checkpoint with F1-AUTH-403.
       "session_invalid"                   => "F1-AUTHN-401",
       "account_inactive"                  => "F1-AUTH-403",
-      "missing_authority"                 => "F1-AUTH-403"
+      "missing_authority"                 => "F1-AUTH-403",
+      # WF-001 ExpireInvitation transport-integrity deviations. A claimed
+      # ScheduledAction whose due instant is not its target's expiry instant, or
+      # which arrives before that instant, must not expire anything: it is a
+      # state conflict between the persisted action and its target
+      # (WORKFLOW_SPECIFICATIONS.md :252 state conflicts -> F1-DOMAIN-409), and
+      # the worker quarantines the action rather than replaying it
+      # (BACKGROUND_PROCESSING.md :245).
+      "scheduled_action_target_mismatch"  => "F1-DOMAIN-409",
+      "scheduled_action_not_due"          => "F1-DOMAIN-409"
     }.freeze
 
     def failure(reason_code, support_reference:)
