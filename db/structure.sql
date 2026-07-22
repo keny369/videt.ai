@@ -471,8 +471,23 @@ CREATE FUNCTION public.f1_role_assignments_lifecycle_guard() RETURNS trigger
     AS $$
 DECLARE allowed text[];
 BEGIN
+  -- The approved protected authority is written once, by the transition that
+  -- makes the grant effective, and is immutable from then on. Step 4 of the
+  -- effective-permission algorithm reads it, so a later edit would silently
+  -- re-authorize history.
   IF NEW.protected_permission_allowlist IS DISTINCT FROM OLD.protected_permission_allowlist THEN
-    RAISE EXCEPTION 'role_assignment_allowlist_immutable' USING ERRCODE = 'raise_exception';
+    IF NOT (OLD.status = 'pending' AND NEW.status = 'active') THEN
+      RAISE EXCEPTION 'role_assignment_allowlist_immutable' USING ERRCODE = 'raise_exception';
+    END IF;
+    IF jsonb_array_length(OLD.protected_permission_allowlist) <> 0 THEN
+      RAISE EXCEPTION 'role_assignment_allowlist_immutable' USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+
+  -- A pending Assignment "confers no permission while pending" (:316), so it
+  -- may never carry approved protected authority.
+  IF NEW.status = 'pending' AND jsonb_array_length(NEW.protected_permission_allowlist) <> 0 THEN
+    RAISE EXCEPTION 'role_assignment_pending_confers_nothing' USING ERRCODE = 'raise_exception';
   END IF;
 
   IF NEW.bootstrap_admin_exception IS DISTINCT FROM OLD.bootstrap_admin_exception THEN
@@ -1225,6 +1240,7 @@ CREATE TABLE public.role_assignments (
     CONSTRAINT role_assignment_active_is_effective CHECK (((status <> 'active'::text) OR (effective_at IS NOT NULL))),
     CONSTRAINT role_assignment_approval_due_is_24_hours CHECK (((approval_due_at IS NULL) OR (requested_at IS NULL) OR (approval_due_at = (requested_at + '24:00:00'::interval)))),
     CONSTRAINT role_assignment_bootstrap_exception_is_admin CHECK (((bootstrap_admin_exception = false) OR (canonical_role = 'OrganizationAdmin'::text))),
+    CONSTRAINT role_assignment_pending_has_no_allowlist CHECK (((status <> 'pending'::text) OR (jsonb_array_length(protected_permission_allowlist) = 0))),
     CONSTRAINT role_assignment_pending_is_not_effective CHECK (((status <> 'pending'::text) OR (effective_at IS NULL))),
     CONSTRAINT role_assignment_protected_expiry_within_30_days CHECK (((jsonb_array_length(protected_permission_allowlist) = 0) OR (effective_at IS NULL) OR (expires_at IS NULL) OR (expires_at <= (effective_at + '30 days'::interval)))),
     CONSTRAINT role_assignments_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
@@ -2050,6 +2066,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120017'),
 ('20260722120016'),
 ('20260722120015'),
 ('20260722120014'),

@@ -65,7 +65,7 @@ module Workflows
           "causation_id" => ctx.correlation_id, "command_id" => command.command_id,
           "correlation_id" => ctx.correlation_id, "event_id" => ids[:event], "event_profile" => profile,
           "event_type" => type, "idempotency_identity_hash" => hex(key_digest),
-          "input_hash" => hex(request_sha256), "invitation_id" => invitation_id,
+          "input_hash" => hex(request_sha256), "#{self.class::TARGET_TYPE}_id" => invitation_id,
           "occurred_at_utc" => now.iso8601(6), "organization_epoch" => actor.authorization_epoch,
           "organization_id" => org, "outcome" => "success", "project_id" => nil, "reason_code" => nil,
           "requester_account_id" => requester, "schema_version" => "1.0",
@@ -88,7 +88,7 @@ module Workflows
           causation_id: ctx.correlation_id, command_id: command.command_id,
           command_execution_id: ids[:execution], outcome: "success", organization_id: org,
           actor_id: actor.account_id, completed_at: iso(now), authorization_check_at: iso(now),
-          target_refs: JSON.generate({ "invitation" => invitation_id }),
+          target_refs: JSON.generate({ self.class::TARGET_TYPE => invitation_id }),
           governing_policy_versions: policy_versions_json, failure: nil,
           authorized_payload: JSON.generate(payload), audit_record_id: ids[:audit]
         )

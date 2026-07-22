@@ -110,7 +110,13 @@ module Platform
       # ":244 the requester can offer only a role/scope/permission set it may
       # grant under the effective-permission algorithm" — missing authority to
       # grant is an authorization failure, not a validation one.
-      "grant_scope_exceeded"              => "F1-AUTH-403"
+      "grant_scope_exceeded"              => "F1-AUTH-403",
+      # ":316 Its active expiry is mandatory and no later than 30 days after
+      # effectiveness" for a protected Assignment; input-shape -> F1-VALIDATION-400.
+      "role_expiry_required"              => "F1-VALIDATION-400",
+      "role_expiry_invalid"               => "F1-VALIDATION-400",
+      "role_assignment_not_pending"       => "F1-DOMAIN-409",
+      "role_approver_conflict"            => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

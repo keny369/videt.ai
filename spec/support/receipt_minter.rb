@@ -198,7 +198,7 @@ module ReceiptMinter
                pretenant_authorization_decisions, audit_record_registry, event_registry,
                organizations, accounts, role_assignments, access_policies, sessions,
                invitations, invitation_reference_registry, authorization_decisions,
-               scheduled_actions
+               scheduled_actions, role_assignment_approvals
       RESTART IDENTITY CASCADE;
     SQL
   end
