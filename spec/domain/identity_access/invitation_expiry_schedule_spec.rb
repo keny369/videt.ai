@@ -159,7 +159,8 @@ RSpec.describe IdentityAccess::Domain::InvitationExpirySchedule, type: :model do
 
       activators = Dir.glob("app/**/*.rb").grep_v(%r{invitation_activation\.rb\z})
                       .select { |f| File.read(f).include?("InvitationActivation.schedule_expiry") }
-      expect(activators).to contain_exactly("app/workflows/wf013/handlers/create_invitation.rb")
+      expect(activators).to contain_exactly("app/workflows/wf013/handlers/create_invitation.rb",
+                                            "app/workflows/wf013/handlers/decide_invitation.rb")
     end
   end
 end
