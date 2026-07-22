@@ -19,7 +19,7 @@
 
 - Date: 2026-07-23
 - Branch: `implementation/s01-registration-access` (local only; the origin-trust gate still forbids pushing or moving tags)
-- Suite: 564 examples, 0 failures; Zeitwerk and Packwerk clean; both databases build from empty with no `db/structure.sql` drift
+- Suite: 605 examples, 0 failures; Zeitwerk and Packwerk clean; Brakeman clean; both databases build from empty with no `db/structure.sql` drift
 
 **The project has crossed from platform construction into workflow implementation.**
 The architectural primitives below are complete and are no longer under
@@ -54,6 +54,7 @@ demonstrated defect in it, exposed by a real consumer.
 
 ### Application maturity
 
+- **S-02 Organization Setup / tenant genesis complete** (`Workflows::Wf001::BootstrapOrganization`): the self-service commit atomically creates the Organization, Account, baseline BillingEntity, first OrganizationAdmin Assignment, baseline Access and Entitlement policies, BillingEntity-linked Plan Assignment, draft Project and Session, emits exactly the thirteen ordered events, and consumes the Bootstrap Grant — service-attributed, no billing-provider call, one atomic unit proved by rollback injection at every write. `Platform::BaselineContent` is the single canonical source of the three baseline artifacts; the command validates the caller's approved content hashes against it. The genesis is production-reachable: the bootstrapped admin acts through the shared boundary and cannot bypass protected approval.
 - Invitation lifecycle complete end to end: create, approve/reject, activate, accept, decline, revoke, expire — one winner under concurrency, exactly one terminal event, no terminal state reopens.
 - Organization lifecycle complete: suspend and reactivate under `reactivation-proof-v1`, with suspension's authority invalidation enforced at the shared authorization boundary.
 - **Role Assignment and Protected Authority complete**: request, decide (approve/reject), direct activation, revoke, timed expiry, and the OD-026 last-administrator expiry block with its immutable `RoleExpiryBlockDecision`. Protected authority is production-reachable through Request + Decide alone — no fixture writes an allowlist for a principal under test.
@@ -62,9 +63,17 @@ demonstrated defect in it, exposed by a real consumer.
 ### Remaining
 
 Account lifecycle, Support Session, Access Policy activation, Legal Hold and
-deletion, then the remaining bootstrap and organization-closure workflows.
-Ordering stays with
+deletion, then Organization Closure & Identity Retirement (now unblocked on the
+BillingEntity side by S-02; still needs the deletion subsystem for its
+LifecycleDeletionJob). Ordering stays with
 [specification/volume-ii/IMPLEMENTATION_BACKLOG.md](specification/volume-ii/IMPLEMENTATION_BACKLOG.md).
+
+Note on S-02 baseline content: `Platform::BaselineContent` owns the byte
+representation of the interim entitlement/plan artifacts (Volume I fixes their
+structure but not reproducible bytes — the OD-013 precedent). The metering engine
+that INTERPRETS the numeric limits is CAP-024 / S-22 and consumes these bytes
+rather than redefining them; do not treat the limits as invented product
+behaviour to "correct".
 
 Deliberately deferred, and NOT a gap: the blocked-expiry re-evaluation trigger.
 ":425 the guard is re-evaluated on each Organization authorization-epoch advance
