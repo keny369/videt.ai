@@ -985,9 +985,22 @@ CREATE TABLE public.invitations (
     reason text,
     requester_account_id uuid,
     transition_reason_code text,
+    requested_at timestamp(6) with time zone,
+    approval_due_at timestamp(6) with time zone,
+    security_approver_account_id uuid,
+    intended_assignment_expires_at timestamp(6) with time zone,
+    open_uniqueness_sha256 bytea,
+    creation_idempotency_key_digest bytea,
+    request_policy_version text,
+    approval_policy_version text,
     CONSTRAINT invitation_active_expiry_is_seven_days CHECK (((activated_at IS NULL) OR (expires_at = (activated_at + '7 days'::interval)))),
+    CONSTRAINT invitation_approval_due_is_24_hours CHECK (((approval_due_at IS NULL) OR (requested_at IS NULL) OR (approval_due_at = (requested_at + '24:00:00'::interval)))),
+    CONSTRAINT invitation_approver_only_after_decision CHECK (((security_approver_account_id IS NULL) OR (state <> 'pending_approval'::text))),
     CONSTRAINT invitation_bound_identity_pairwise CHECK (((target_identity_issuer_key IS NULL) = (target_identity_subject IS NULL))),
+    CONSTRAINT invitation_pending_approval_has_due_instant CHECK (((state <> 'pending_approval'::text) OR (approval_due_at IS NOT NULL))),
+    CONSTRAINT invitations_creation_idempotency_key_digest_check CHECK (((creation_idempotency_key_digest IS NULL) OR (octet_length(creation_idempotency_key_digest) = 32))),
     CONSTRAINT invitations_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
+    CONSTRAINT invitations_open_uniqueness_sha256_check CHECK (((open_uniqueness_sha256 IS NULL) OR (octet_length(open_uniqueness_sha256) = 32))),
     CONSTRAINT invitations_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
     CONSTRAINT invitations_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT invitations_state_check CHECK ((state = ANY (ARRAY['pending_approval'::text, 'active'::text, 'accepted'::text, 'declined'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
@@ -1078,7 +1091,9 @@ CREATE TABLE public.role_assignments (
     effective_at timestamp(6) with time zone,
     expires_at timestamp(6) with time zone,
     scope_sha256 bytea,
+    protected_permission_allowlist jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT role_assignments_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
+    CONSTRAINT role_assignments_protected_permission_allowlist_check CHECK ((jsonb_typeof(protected_permission_allowlist) = 'array'::text)),
     CONSTRAINT role_assignments_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text])))
 );
@@ -1508,6 +1523,13 @@ CREATE UNIQUE INDEX one_issued_grant_per_principal ON public.bootstrap_grants US
 
 
 --
+-- Name: one_open_invitation_per_preimage; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX one_open_invitation_per_preimage ON public.invitations USING btree (organization_id, open_uniqueness_sha256) WHERE (state = ANY (ARRAY['pending_approval'::text, 'active'::text]));
+
+
+--
 -- Name: scheduled_actions_due; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1833,6 +1855,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120013'),
 ('20260722120012'),
 ('20260722120011'),
 ('20260722120010'),

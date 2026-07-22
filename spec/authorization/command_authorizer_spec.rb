@@ -36,7 +36,7 @@ RSpec.describe "Permission Baseline + CommandAuthorizer", type: :authorization d
     end
 
     it "raises on an unmapped capability rather than silently deciding" do
-      expect { Platform::PermissionBaseline.permits?("invitation.approve", ["OrganizationAdmin"]) }
+      expect { Platform::PermissionBaseline.permits?("project.archive", ["OrganizationAdmin"]) }
         .to raise_error(Platform::InvariantViolation)
     end
   end

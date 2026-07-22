@@ -110,20 +110,23 @@ module TenantSeeder
     activated = %w[active accepted declined rejected revoked expired].include?(state) ? activated_at : nil
     expires = activated ? (activated + (7 * 24 * 3600)) : nil
     terminal = %w[accepted declined rejected revoked expired].include?(state) ? activated_at + (24 * 3600) : nil
+    # ":240 `approval_due_at_utc=requested_at_utc+24 hours` for protected invitations"
+    requested = activated_at - (24 * 3600)
+    approval_due = state == "pending_approval" ? requested + (24 * 3600) : nil
 
     inv_params = [id, organization_id, bytea(reference_digest), target_email, bytea(email_sha),
                   target_identity_issuer_key, target_identity_subject, canonical_role, permission_mode,
                   persona, (scope_sha256 ? bytea(scope_sha256) : nil), state,
                   (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil),
-                  requester_account_id]
+                  requester_account_id, ts(requested), (approval_due ? ts(approval_due) : nil)]
     conn.exec_params(<<~SQL, inv_params)
       INSERT INTO invitations
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
          opaque_reference_sha256, target_email, target_email_sha256, target_identity_issuer_key,
          target_identity_subject, canonical_role, permission_mode, persona, scope_sha256, state,
-         activated_at, expires_at, terminated_at, requester_account_id)
+         activated_at, expires_at, terminated_at, requester_account_id, requested_at, approval_due_at)
       VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-              $13::timestamptz,$14::timestamptz,$15::timestamptz,$16::uuid)
+              $13::timestamptz,$14::timestamptz,$15::timestamptz,$16::uuid,$17::timestamptz,$18::timestamptz)
     SQL
     reg_params = [bytea(reference_digest), organization_id, id, state,
                   (activated ? ts(activated) : nil), (expires ? ts(expires) : nil), (terminal ? ts(terminal) : nil)]

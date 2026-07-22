@@ -87,7 +87,16 @@ module Platform
       # the worker quarantines the action rather than replaying it
       # (BACKGROUND_PROCESSING.md :245).
       "scheduled_action_target_mismatch"  => "F1-DOMAIN-409",
-      "scheduled_action_not_due"          => "F1-DOMAIN-409"
+      "scheduled_action_not_due"          => "F1-DOMAIN-409",
+      # WF-013 invitation creation and approval (WORKFLOW_SPECIFICATIONS.md :244
+      # creation reasons; :252 input-shape -> F1-VALIDATION-400, state/uniqueness
+      # conflicts -> F1-DOMAIN-409; :314 `role_mode_invalid`).
+      "identity_email_invalid"            => "F1-VALIDATION-400",
+      "role_mode_invalid"                 => "F1-VALIDATION-400",
+      "invitation_duplicate_open"         => "F1-DOMAIN-409",
+      "invitation_grant_already_active"   => "F1-DOMAIN-409",
+      "invitation_approval_required"      => "F1-DOMAIN-409",
+      "invitation_approver_conflict"      => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

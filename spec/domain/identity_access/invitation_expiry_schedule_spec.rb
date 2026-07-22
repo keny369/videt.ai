@@ -140,23 +140,26 @@ RSpec.describe IdentityAccess::Domain::InvitationExpirySchedule, type: :model do
     end
   end
 
-  # REACHABILITY. Nothing in app/ activates an Invitation yet: the ratified
-  # activation commands `Workflows::Wf013::CreateInvitation` and
-  # `DecideInvitation` (contracts/S-23.json) belong to S-23 and are not
-  # implemented. This operation is the boundary they must call. The assertion
-  # below is the guard rail for that hand-off — it fails the moment a production
-  # path starts writing Invitations, so scheduling cannot be forgotten silently.
+  # REACHABILITY, now closed. `Workflows::Wf013::Handlers::CreateInvitation` is a
+  # production path that creates Invitations, and its nonprotected branch activates
+  # them in the same transaction. The previous tranche's guard — "no production
+  # path may create an Invitation without scheduling expiry" — has therefore done
+  # its job and is replaced by the direct assertion it was standing in for: every
+  # production creator reaches activation through this operation.
   describe "production reachability" do
-    it "has no production caller yet, and no production path creates an Invitation" do
-      writers = Dir.glob("app/**/*.rb").select { |f| File.read(f).match?(/INSERT INTO invitations\b/) }
-      callers = Dir.glob("app/**/*.rb").grep_v(%r{invitation_expiry_schedule\.rb\z})
-                   .select { |f| File.read(f).include?("InvitationExpirySchedule") }
+    it "is reached by the production activation path, and by no other route to activation" do
+      creators = Dir.glob("app/**/*.rb").select { |f| File.read(f).match?(/INSERT INTO invitations\b/) }
+      expect(creators).to eq(["app/contexts/identity_access/infrastructure/invitation_admin_store.rb"])
 
-      expect(writers).to be_empty,
-                         "an Invitation is now created in #{writers.join(', ')}; that transaction must call " \
-                         "IdentityAccess::Domain::InvitationExpirySchedule and this guard must be replaced " \
-                         "with a direct assertion on it"
-      expect(callers).to be_empty
+      # Activation is one routine, and it is the only place the expiry boundary is
+      # computed or a timer created.
+      schedulers = Dir.glob("app/**/*.rb").grep_v(%r{invitation_expiry_schedule\.rb\z})
+                      .select { |f| File.read(f).include?("InvitationExpirySchedule") }
+      expect(schedulers).to eq(["app/workflows/wf013/invitation_activation.rb"])
+
+      activators = Dir.glob("app/**/*.rb").grep_v(%r{invitation_activation\.rb\z})
+                      .select { |f| File.read(f).include?("InvitationActivation.schedule_expiry") }
+      expect(activators).to contain_exactly("app/workflows/wf013/handlers/create_invitation.rb")
     end
   end
 end
