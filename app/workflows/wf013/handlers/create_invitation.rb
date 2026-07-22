@@ -75,6 +75,14 @@ module Workflows
 
             process(**d)
           end
+        rescue ActiveRecord::RecordNotUnique, PG::UniqueViolation => e
+          # Two identical creations raced past the uniqueness read and the database
+          # decided it: `one_open_invitation_per_preimage` admitted exactly one.
+          # The loser's transaction rolled back entirely, so it changed nothing and
+          # returns the ratified duplicate reason (:244) rather than an exception.
+          raise unless e.message.include?("one_open_invitation_per_preimage")
+
+          in_memory_failure(command, ctx, "invitation_duplicate_open")
         end
 
         private
