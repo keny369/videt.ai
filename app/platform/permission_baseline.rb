@@ -25,7 +25,14 @@ module Platform
     CAPABILITIES = {
       "invitation.create" => %w[OrganizationAdmin].freeze,
       "invitation.revoke" => %w[OrganizationAdmin].freeze,
-      "invitation.approve" => %w[SecurityOperator].freeze
+      "invitation.approve" => %w[SecurityOperator].freeze,
+      # ":138 `organization.suspend`, `organization.reactivate` | allow for own
+      # Organization | … | support-session only | …". The SecurityOperator arm is
+      # support-session-only and Support Sessions are a later slice, so only the
+      # OrganizationAdmin arm is reachable here; neither is a protected permission
+      # (:333 omits both), so no protected-allowlist gate applies.
+      "organization.suspend" => %w[OrganizationAdmin].freeze,
+      "organization.reactivate" => %w[OrganizationAdmin].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

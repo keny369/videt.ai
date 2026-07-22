@@ -335,6 +335,50 @@ $$;
 
 
 --
+-- Name: f1_organizations_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_organizations_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE allowed text[];
+BEGIN
+  -- ":230 monotonically increasing authorization epoch". An epoch that could
+  -- go backwards would let a previously issued authority become current
+  -- again, so no path may decrease it.
+  IF NEW.authorization_epoch < OLD.authorization_epoch THEN
+    RAISE EXCEPTION 'organization_authorization_epoch_regressed' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- The lifecycle status and the epoch move together. Suspension that did not
+  -- advance the epoch, or an epoch advance that silently changed the status,
+  -- would be exactly the split-brain result the transaction boundary forbids.
+  IF NEW.status IS DISTINCT FROM OLD.status
+     AND NEW.authorization_epoch = OLD.authorization_epoch THEN
+    RAISE EXCEPTION 'organization_status_changed_without_epoch_advance' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- 016 STATE_MODEL.md :97: pending to active; active to suspended; suspended
+  -- to active; active to closed; suspended to closed. Nothing else, and
+  -- closed never reopens.
+  allowed := CASE OLD.status
+               WHEN 'pending'   THEN ARRAY['pending','active']
+               WHEN 'active'    THEN ARRAY['active','suspended','closed']
+               WHEN 'suspended' THEN ARRAY['suspended','active','closed']
+               ELSE ARRAY[OLD.status]
+             END;
+  IF NOT (NEW.status = ANY (allowed)) THEN
+    RAISE EXCEPTION 'organization_illegal_transition % -> %', OLD.status, NEW.status
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_release_expired_scheduled_action_leases(integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1029,8 +1073,11 @@ CREATE TABLE public.organizations (
     activated_at timestamp(6) with time zone,
     suspended_at timestamp(6) with time zone,
     closed_at timestamp(6) with time zone,
+    reactivated_at timestamp(6) with time zone,
     lifecycle_reason text,
+    CONSTRAINT organization_suspended_has_time CHECK (((status <> 'suspended'::text) OR (suspended_at IS NOT NULL))),
     CONSTRAINT organizations_authorization_epoch_check CHECK ((authorization_epoch >= 0)),
+    CONSTRAINT organizations_lifecycle_reason_check CHECK (((lifecycle_reason IS NULL) OR ((char_length(lifecycle_reason) >= 1) AND (char_length(lifecycle_reason) <= 2000)))),
     CONSTRAINT organizations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'suspended'::text, 'closed'::text])))
 );
 
@@ -1551,6 +1598,13 @@ CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (l
 
 
 --
+-- Name: organizations organizations_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER organizations_lifecycle_guard BEFORE UPDATE ON public.organizations FOR EACH ROW EXECUTE FUNCTION public.f1_organizations_lifecycle_guard();
+
+
+--
 -- Name: scheduled_actions scheduled_actions_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1855,6 +1909,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260722120014'),
 ('20260722120013'),
 ('20260722120012'),
 ('20260722120011'),

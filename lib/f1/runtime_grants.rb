@@ -28,11 +28,11 @@ module F1
     # table and the pretenant/tenant secrets are absent: they are reached only
     # through SECURITY DEFINER functions and carry no runtime grant.
     TABLE_PRIVILEGES = {
-      "organizations"                     => "SELECT",
+      "organizations"                     => "SELECT, UPDATE",
       "accounts"                          => "SELECT, INSERT, UPDATE",
       "role_assignments"                  => "SELECT, INSERT",
       "access_policies"                   => "SELECT",
-      "sessions"                          => "SELECT, INSERT",
+      "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",
       "bootstrap_grants"                  => "SELECT, INSERT, UPDATE",

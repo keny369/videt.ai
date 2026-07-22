@@ -96,7 +96,17 @@ module Platform
       "invitation_duplicate_open"         => "F1-DOMAIN-409",
       "invitation_grant_already_active"   => "F1-DOMAIN-409",
       "invitation_approval_required"      => "F1-DOMAIN-409",
-      "invitation_approver_conflict"      => "F1-AUTH-403"
+      "invitation_approver_conflict"      => "F1-AUTH-403",
+      # WF-013 Organization lifecycle (016 STATE_MODEL.md :97; contracts/S-23.json
+      # MTX-038; the ratified `reactivation-proof-v1` first-match failure order
+      # `access_policy_unavailable`, `organization_admin_unavailable`,
+      # `identity_assurance_failed`, `stale_state_version`,
+      # `stale_authorization_epoch`).
+      "organization_state_invalid"        => "F1-DOMAIN-409",
+      "stale_authorization_epoch"         => "F1-DOMAIN-409",
+      "access_policy_unavailable"         => "F1-DOMAIN-409",
+      "organization_admin_unavailable"    => "F1-AUTH-403",
+      "organization_reason_invalid"       => "F1-VALIDATION-400"
     }.freeze
 
     def failure(reason_code, support_reference:)
