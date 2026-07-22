@@ -28,7 +28,9 @@ module F1
     # table and the pretenant/tenant secrets are absent: they are reached only
     # through SECURITY DEFINER functions and carry no runtime grant.
     TABLE_PRIVILEGES = {
-      "organizations"                     => "SELECT, UPDATE",
+      # The self-service genesis inserts the Organization; suspend/reactivate/close
+      # update it.
+      "organizations"                     => "SELECT, INSERT, UPDATE",
       "accounts"                          => "SELECT, INSERT, UPDATE",
       "role_assignments"                  => "SELECT, INSERT, UPDATE",
       # ":314 ordered immutable approval records" — insert/read only.

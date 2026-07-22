@@ -41,6 +41,16 @@ module Platform
       "bootstrap_already_completed"       => "F1-DOMAIN-409",
       "bootstrap_grant_consumed"          => "F1-DOMAIN-409",
       "idempotency_conflict"              => "F1-DOMAIN-409",
+      # S-02 self-service genesis (AC-CAP-002). Profile/body shape and the three
+      # baseline content-hash mismatches are input-shape -> F1-VALIDATION-400; a
+      # missing/expired grant is a domain-state failure -> F1-DOMAIN-409.
+      "organization_profile_invalid"      => "F1-VALIDATION-400",
+      "project_body_invalid"              => "F1-VALIDATION-400",
+      "access_policy_hash_mismatch"       => "F1-VALIDATION-400",
+      "entitlement_policy_hash_mismatch"  => "F1-VALIDATION-400",
+      "plan_hash_mismatch"                => "F1-VALIDATION-400",
+      "bootstrap_grant_unavailable"       => "F1-DOMAIN-409",
+      "bootstrap_grant_expired"           => "F1-DOMAIN-409",
       # transient exhaustion -> F1-DEPENDENCY-503
       "onboarding_transaction_unavailable" => "F1-DEPENDENCY-503",
       # existing-account sign-in outward reasons (WORKFLOW_SPECIFICATIONS.md §
