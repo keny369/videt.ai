@@ -255,10 +255,12 @@ RSpec.describe "WF-002 create project", type: :acceptance,
       expect(project(pid)["state"]).to eq("draft")
     end
 
-    it "has no sources table or ProjectActivated event anywhere" do
+    it "creates no Source rows and emits no ProjectActivated event" do
       g = genesis
       create(session_id: g[:session_id], organization_id: g[:organization_id], profile: reason_profile)
-      expect(DbInspector.one("SELECT to_regclass('public.sources') AS t")["t"]).to be_nil
+      # The `sources` table exists once S-04 is built, but CreateProject never
+      # touches it and never activates the Project.
+      expect(DbInspector.count("sources")).to eq(0)
       expect(count_where("SELECT count(*) AS c FROM event_registry WHERE event_type = 'ProjectActivated'")).to eq(0)
     end
   end

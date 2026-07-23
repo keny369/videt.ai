@@ -92,9 +92,8 @@ RSpec.describe "Project setup invariants", type: :model do
     end
   end
 
-  describe "no Source subsystem in this tranche" do
-    it "has no sources table" do
-      expect(DbInspector.one("SELECT to_regclass('public.sources') AS t")["t"]).to be_nil
-    end
-  end
+  # The Source subsystem is owned by S-04+; its schema and invariants are asserted
+  # in spec/persistence/source_onboarding_invariants_spec.rb. S-03's own invariant
+  # is only that CreateProject neither activates a Project nor writes a Source,
+  # which spec/acceptance/wf002_create_project_spec.rb proves through the command.
 end

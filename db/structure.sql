@@ -741,6 +741,53 @@ END;
 $$;
 
 
+--
+-- Name: f1_sources_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_sources_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- 011 DOMAIN_MODEL.md :119 "Source MUST belong to exactly one Project":
+  -- the tenant/Project identity is fixed for life.
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'source_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- ":402 immutable registration provenance". The submitted/canonical URIs,
+  -- canonical host, registration and normalization versions, and the seven
+  -- provenance fields are frozen at registration.
+  IF NEW.submitted_root_uri IS DISTINCT FROM OLD.submitted_root_uri
+     OR NEW.canonical_root_uri IS DISTINCT FROM OLD.canonical_root_uri
+     OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
+     OR NEW.registration_schema_version IS DISTINCT FROM OLD.registration_schema_version
+     OR NEW.host_normalization_version IS DISTINCT FROM OLD.host_normalization_version
+     OR NEW.registration_origin IS DISTINCT FROM OLD.registration_origin
+     OR NEW.registering_account_id IS DISTINCT FROM OLD.registering_account_id
+     OR NEW.registration_command_id IS DISTINCT FROM OLD.registration_command_id
+     OR NEW.registration_idempotency_key_digest IS DISTINCT FROM OLD.registration_idempotency_key_digest
+     OR NEW.registration_authorization_decision_id IS DISTINCT FROM OLD.registration_authorization_decision_id
+     OR NEW.registered_at IS DISTINCT FROM OLD.registered_at THEN
+    RAISE EXCEPTION 'source_registration_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- Source lifecycle transitions are owned by S-05 (proposed -> verified) and
+  -- S-06 (verified -> active; active -> disabled; disabled -> active/removed),
+  -- neither built. No path may change a Source's state in this baseline; each
+  -- of those slices will relax exactly its ratified edge.
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'source_lifecycle_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1651,6 +1698,48 @@ CREATE TABLE public.sessions (
 
 
 --
+-- Name: sources; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sources (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    submitted_root_uri text NOT NULL,
+    canonical_root_uri text NOT NULL,
+    canonical_host text NOT NULL,
+    registration_schema_version text NOT NULL,
+    host_normalization_version text NOT NULL,
+    registration_origin text NOT NULL,
+    registering_account_id uuid NOT NULL,
+    registration_command_id uuid NOT NULL,
+    registration_idempotency_key_digest bytea NOT NULL,
+    registration_authorization_decision_id uuid NOT NULL,
+    registered_at timestamp(6) with time zone NOT NULL,
+    state text NOT NULL,
+    current_scope_policy_id uuid,
+    verified_at timestamp(6) with time zone,
+    activated_at timestamp(6) with time zone,
+    disabled_at timestamp(6) with time zone,
+    removed_at timestamp(6) with time zone,
+    lifecycle_reason text,
+    CONSTRAINT sources_host_normalization_version_check CHECK ((host_normalization_version = 'ascii-host-v1'::text)),
+    CONSTRAINT sources_lifecycle_reason_check CHECK (((lifecycle_reason IS NULL) OR ((char_length(lifecycle_reason) >= 1) AND (char_length(lifecycle_reason) <= 2000)))),
+    CONSTRAINT sources_registration_idempotency_key_digest_check CHECK ((octet_length(registration_idempotency_key_digest) = 32)),
+    CONSTRAINT sources_registration_origin_check CHECK ((registration_origin = 'human_command'::text)),
+    CONSTRAINT sources_registration_schema_version_check CHECK ((registration_schema_version = 'source-registration-v1'::text)),
+    CONSTRAINT sources_state_check CHECK ((state = ANY (ARRAY['proposed'::text, 'verified'::text, 'active'::text, 'disabled'::text, 'removed'::text])))
+);
+
+ALTER TABLE ONLY public.sources FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: access_policies access_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1979,6 +2068,22 @@ ALTER TABLE ONLY public.sessions
 
 
 --
+-- Name: sources sources_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sources
+    ADD CONSTRAINT sources_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: sources sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sources
+    ADD CONSTRAINT sources_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: idempotency_scope_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2091,6 +2196,13 @@ CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (l
 
 
 --
+-- Name: sources_nonremoved_host_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sources_nonremoved_host_unique ON public.sources USING btree (organization_id, project_id, canonical_host) WHERE (state <> 'removed'::text);
+
+
+--
 -- Name: billing_entities billing_entities_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2123,6 +2235,13 @@ CREATE TRIGGER role_assignments_lifecycle_guard BEFORE UPDATE ON public.role_ass
 --
 
 CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions FOR EACH ROW EXECUTE FUNCTION public.f1_scheduled_actions_guard();
+
+
+--
+-- Name: sources sources_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER sources_lifecycle_guard BEFORE UPDATE ON public.sources FOR EACH ROW EXECUTE FUNCTION public.f1_sources_lifecycle_guard();
 
 
 --
@@ -2187,6 +2306,14 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 ALTER TABLE ONLY public.scheduled_actions
     ADD CONSTRAINT scheduled_actions_executing_service_identity_fkey FOREIGN KEY (executing_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: sources sources_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sources
+    ADD CONSTRAINT sources_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
 
 
 --
@@ -2503,12 +2630,26 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 
 
 --
+-- Name: sources; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.sources ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sources sources_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY sources_context ON public.sources USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260723120021'),
 ('20260723120020'),
 ('20260723120019'),
 ('20260722120018'),

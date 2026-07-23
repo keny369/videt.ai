@@ -156,7 +156,32 @@ module Platform
       "project_local_profile_invalid"     => "F1-VALIDATION-400",
       "project_objective_unsupported"     => "F1-VALIDATION-400",
       "project_create_unauthorized"       => "F1-AUTH-403",
-      "tenant_mismatch"                   => "F1-AUTH-403"
+      "tenant_mismatch"                   => "F1-AUTH-403",
+      # S-04 Source registration (WF-004 / CAP-004, contracts/S-04.json MTX-004
+      # error_contract). Class mapping: schema/URI/host reasons -> F1-VALIDATION-400;
+      # duplicate/state -> F1-DOMAIN-409; permission -> F1-AUTH-403. `tenant_mismatch`
+      # and `stale_state_version` and `idempotency_conflict` are reused from above.
+      #
+      # DEVIATION, ratified by owner (2026-07-24): S-04.json/WF-004 :406 classify
+      # `organization_inactive` as F1-DOMAIN-409, but S-01 existing-account sign-in
+      # and WF-013 ratified it as F1-AUTH-403 and ship tests asserting 403. A shared
+      # reason_code has exactly one class; changing it would rewrite previously
+      # ratified slices. Per the owner decision, `organization_inactive` remains
+      # F1-AUTH-403 (its existing mapping above) and the conflicting S-04.json/WF-004
+      # requirement is recorded as a Volume I specification defect for reconciliation.
+      "source_request_schema_unsupported" => "F1-VALIDATION-400",
+      "source_uri_malformed"              => "F1-VALIDATION-400",
+      "unsupported_source_scheme"         => "F1-VALIDATION-400",
+      "source_userinfo_prohibited"        => "F1-VALIDATION-400",
+      "source_port_unsupported"           => "F1-VALIDATION-400",
+      "source_path_not_root"              => "F1-VALIDATION-400",
+      "source_query_prohibited"           => "F1-VALIDATION-400",
+      "source_fragment_prohibited"        => "F1-VALIDATION-400",
+      "source_host_non_ascii"             => "F1-VALIDATION-400",
+      "source_host_invalid"               => "F1-VALIDATION-400",
+      "project_not_registerable"          => "F1-DOMAIN-409",
+      "source_host_already_registered"    => "F1-DOMAIN-409",
+      "source_register_unauthorized"      => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

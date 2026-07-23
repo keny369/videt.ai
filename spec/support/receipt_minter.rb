@@ -242,7 +242,7 @@ module ReceiptMinter
                organizations, accounts, role_assignments, access_policies, sessions,
                invitations, invitation_reference_registry, authorization_decisions,
                scheduled_actions, role_assignment_approvals, role_expiry_block_decisions,
-               billing_entities, plan_assignments, entitlement_policies, projects
+               billing_entities, plan_assignments, entitlement_policies, projects, sources
       RESTART IDENTITY CASCADE;
     SQL
   end

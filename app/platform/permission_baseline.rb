@@ -47,7 +47,14 @@ module Platform
       # the WF-002 activation limb (S-03 activate) is not built in this slice — its
       # draft->active transition is gated on an active same-Project Source owned by
       # S-04/S-05/S-06 — and this table carries only rows a build consumes.
-      "project.create" => %w[OrganizationAdmin MarketingOperator].freeze
+      "project.create" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # ":140 `source.register` | allow | allow | deny | allow |" — the CAP-004
+      # actors are Organization Administrator, Marketing Operator and Technical
+      # Implementer. It is NOT a protected permission (:333 omits it). The later
+      # Source lifecycle permissions (verification, scope, activation/disable/
+      # removal — S-05/S-06) are deliberately absent until their slices consume
+      # them.
+      "source.register" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

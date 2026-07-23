@@ -48,6 +48,11 @@ module F1
       "plan_assignments"                  => "SELECT, INSERT, UPDATE",
       "entitlement_policies"              => "SELECT, INSERT, UPDATE",
       "projects"                          => "SELECT, INSERT, UPDATE",
+      # S-04 registers a proposed Source and later slices transition it in place
+      # (verify/activate/disable) and set its scope policy, so it carries UPDATE;
+      # removal is a state transition to 'removed', never a row DELETE, so no
+      # DELETE is granted.
+      "sources"                           => "SELECT, INSERT, UPDATE",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",
