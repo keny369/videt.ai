@@ -139,7 +139,24 @@ module Platform
       # SecurityOperator may manage … protected grants" — revoking a protected
       # Assignment is outside the OrganizationAdmin cell limb, an authorization
       # failure rather than a validation one.
-      "role_protected_authority_required" => "F1-AUTH-403"
+      "role_protected_authority_required" => "F1-AUTH-403",
+      # S-03 Project creation (WF-002, contracts/S-03.json MTX-027 error_contract;
+      # class mapping "validation -> F1-VALIDATION-400, authority -> F1-AUTH-403,
+      # state/race -> F1-DOMAIN-409"). The creation first-match order is the eight
+      # profile/shape reasons, then organization_inactive, project_create_unauthorized,
+      # tenant_mismatch, stale_state_version, idempotency_conflict. organization_inactive,
+      # stale_state_version and idempotency_conflict are reused from above (identical
+      # semantics), so only the Project-specific reasons are added here.
+      "project_schema_unsupported"        => "F1-VALIDATION-400",
+      "project_display_name_invalid"      => "F1-VALIDATION-400",
+      "project_locale_unsupported"        => "F1-VALIDATION-400",
+      "project_time_zone_unsupported"     => "F1-VALIDATION-400",
+      "project_local_applicability_invalid" => "F1-VALIDATION-400",
+      "project_local_reason_invalid"      => "F1-VALIDATION-400",
+      "project_local_profile_invalid"     => "F1-VALIDATION-400",
+      "project_objective_unsupported"     => "F1-VALIDATION-400",
+      "project_create_unauthorized"       => "F1-AUTH-403",
+      "tenant_mismatch"                   => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)

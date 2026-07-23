@@ -38,7 +38,16 @@ module Platform
       # necessary but not sufficient: step 4's allowlist gate applies, and the
       # OrganizationAdmin cell's "non-protected tenant grants" limb is enforced by
       # IdentityAccess::Authorization::GrantAuthority.
-      "role.manage" => %w[OrganizationAdmin SecurityOperator].freeze
+      "role.manage" => %w[OrganizationAdmin SecurityOperator].freeze,
+      # ":140 `project.create` | allow | allow | deny | deny |" (WF-002 actors are
+      # Organization Administrator and Marketing Operator). It is NOT a protected
+      # permission (:333 omits it), so the baseline allow is sufficient and no
+      # protected-allowlist gate applies. `project.activate` is the ONLY other
+      # Project permission Volume I defines; it is deliberately absent here because
+      # the WF-002 activation limb (S-03 activate) is not built in this slice — its
+      # draft->active transition is gated on an active same-Project Source owned by
+      # S-04/S-05/S-06 — and this table carries only rows a build consumes.
+      "project.create" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

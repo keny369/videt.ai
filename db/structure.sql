@@ -444,6 +444,55 @@ $$;
 
 
 --
+-- Name: f1_projects_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_projects_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- DM-REQ (011 DOMAIN_MODEL.md :118) "Project MUST belong to exactly one
+  -- Organization": a Project's Organization and identity are fixed for life.
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id THEN
+    RAISE EXCEPTION 'project_organization_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- WF-002 State Transitions define Project.Draft -> Project.Active only, and
+  -- that transition is gated on >=1 active same-Project Source (CAP-003,
+  -- PRULE-004). The Source aggregate is owned by S-04/S-05/S-06 and is not
+  -- built, so activation is not implementable in this baseline; Project
+  -- pause/resume/archive are withheld under OD-014. No path may change a
+  -- Project's state here. The activation slice will relax this guard to
+  -- permit the single draft->active edge under its ratified prerequisites.
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'project_lifecycle_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- ":671 The baseline Local Business Profile is immutable with the Project
+  -- creation profile ... requires a new Project." The whole creation profile
+  -- is frozen at creation.
+  IF NEW.display_name IS DISTINCT FROM OLD.display_name
+     OR NEW.locale IS DISTINCT FROM OLD.locale
+     OR NEW.time_zone IS DISTINCT FROM OLD.time_zone
+     OR NEW.objective IS DISTINCT FROM OLD.objective
+     OR NEW.project_profile_schema_version IS DISTINCT FROM OLD.project_profile_schema_version
+     OR NEW.local_presence_applicable IS DISTINCT FROM OLD.local_presence_applicable
+     OR NEW.local_presence_reason IS DISTINCT FROM OLD.local_presence_reason
+     OR NEW.local_business_profile IS DISTINCT FROM OLD.local_business_profile
+     OR NEW.local_business_profile_content_sha256 IS DISTINCT FROM OLD.local_business_profile_content_sha256
+     OR NEW.profile_attesting_account_id IS DISTINCT FROM OLD.profile_attesting_account_id
+     OR NEW.profile_committed_at IS DISTINCT FROM OLD.profile_committed_at THEN
+    RAISE EXCEPTION 'project_profile_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_release_expired_scheduled_action_leases(integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1358,6 +1407,17 @@ CREATE TABLE public.projects (
     paused_at timestamp(6) with time zone,
     archived_at timestamp(6) with time zone,
     lifecycle_reason text,
+    project_profile_schema_version text,
+    local_presence_applicable boolean,
+    local_presence_reason text,
+    local_business_profile jsonb,
+    local_business_profile_content_sha256 bytea,
+    profile_attesting_account_id uuid,
+    profile_committed_at timestamp(6) with time zone,
+    CONSTRAINT projects_local_business_profile_content_sha256_check CHECK (((local_business_profile_content_sha256 IS NULL) OR (octet_length(local_business_profile_content_sha256) = 32))),
+    CONSTRAINT projects_local_presence_reason_check CHECK (((local_presence_reason IS NULL) OR ((char_length(local_presence_reason) >= 20) AND (char_length(local_presence_reason) <= 500)))),
+    CONSTRAINT projects_local_profile_shape CHECK ((((local_presence_applicable IS NULL) AND (local_presence_reason IS NULL) AND (local_business_profile IS NULL) AND (local_business_profile_content_sha256 IS NULL) AND (project_profile_schema_version IS NULL) AND (profile_attesting_account_id IS NULL) AND (profile_committed_at IS NULL)) OR ((local_presence_applicable = true) AND (project_profile_schema_version IS NOT NULL) AND (profile_attesting_account_id IS NOT NULL) AND (profile_committed_at IS NOT NULL) AND (local_presence_reason IS NULL) AND (local_business_profile IS NOT NULL) AND (local_business_profile_content_sha256 IS NOT NULL)) OR ((local_presence_applicable = false) AND (project_profile_schema_version IS NOT NULL) AND (profile_attesting_account_id IS NOT NULL) AND (profile_committed_at IS NOT NULL) AND (local_presence_reason IS NOT NULL) AND (local_business_profile IS NULL) AND (local_business_profile_content_sha256 IS NULL)))),
+    CONSTRAINT projects_project_profile_schema_version_check CHECK (((project_profile_schema_version IS NULL) OR (project_profile_schema_version = 'project-profile-v1'::text))),
     CONSTRAINT projects_state_check CHECK ((state = ANY (ARRAY['draft'::text, 'active'::text, 'paused'::text, 'archived'::text])))
 );
 
@@ -2045,6 +2105,13 @@ CREATE TRIGGER organizations_lifecycle_guard BEFORE UPDATE ON public.organizatio
 
 
 --
+-- Name: projects projects_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER projects_lifecycle_guard BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION public.f1_projects_lifecycle_guard();
+
+
+--
 -- Name: role_assignments role_assignments_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2442,6 +2509,7 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260723120020'),
 ('20260723120019'),
 ('20260722120018'),
 ('20260722120017'),
