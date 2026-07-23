@@ -19,7 +19,7 @@
 
 - Date: 2026-07-23
 - Branch: `implementation/s01-registration-access` (local only; the origin-trust gate still forbids pushing or moving tags)
-- Suite: 605 examples, 0 failures; Zeitwerk and Packwerk clean; Brakeman clean; both databases build from empty with no `db/structure.sql` drift
+- Suite: 641 examples, 0 failures; Zeitwerk and Packwerk clean; Brakeman clean; bundler-audit clean; both databases build from empty with no `db/structure.sql` drift
 
 **The project has crossed from platform construction into workflow implementation.**
 The architectural primitives below are complete and are no longer under
@@ -59,6 +59,8 @@ demonstrated defect in it, exposed by a real consumer.
 - Organization lifecycle complete: suspend and reactivate under `reactivation-proof-v1`, with suspension's authority invalidation enforced at the shared authorization boundary.
 - **Role Assignment and Protected Authority complete**: request, decide (approve/reject), direct activation, revoke, timed expiry, and the OD-026 last-administrator expiry block with its immutable `RoleExpiryBlockDecision`. Protected authority is production-reachable through Request + Decide alone — no fixture writes an allowlist for a principal under test.
 - Bootstrap grant issuance and existing-account sign-in complete.
+- **S-03 Project Setup — CreateProject limb complete** (`Workflows::Wf002::CreateProject`): an authorized Organization actor (`project.create`, OrganizationAdmin or MarketingOperator) creates one draft Project from a complete `project-profile-v1` body — display name, `en-AU`, `UTC`, `discoverability_assessment`, and either a local-presence reason or an immutable `local-business-profile-v1` whose business name equals the Organization display name and whose canonical content is SHA-256-hashed. Idempotent by key scoped to the Organization; exactly one `ProjectCreated`; production-reachable through the genesis Session; concurrency resolves to one winner + one replay; rollback injection leaves no partial state. The S-02 genesis project creation is unchanged (its reduced first-Project body carries the new profile columns as NULL). Project profile is immutable and the Organization identity and `state` are DB-guarded.
+- **S-03 ActivateProject is DEFERRED, not a gap.** WF-002 draft->active is gated on "at least one active same-Project Source" (CAP-003 Product Behavior, WORKFLOW_SPECIFICATIONS.md :659), and an active Source is produced only by CAP-004/CAP-005/CAP-006 — slices S-04 (register), S-05 (verify), S-06 (activate) — none of which exist. No `sources` table, Source read-model, Source state or Source fixture was invented; the projects lifecycle guard refuses every state transition until the activation slice lands and relaxes it for the single draft->active edge under its ratified prerequisites. `project.activate` is intentionally absent from the Permission Baseline until that slice consumes it. The dependency order is CreateProject -> Source register -> verify -> activate -> ActivateProject.
 
 ### Remaining
 
