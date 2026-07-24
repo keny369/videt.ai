@@ -31,6 +31,10 @@ module Platform
       ALLOWED_PORTS = [443].freeze
       DEFAULT_PORT = 443
 
+      # The default request User-Agent — the declared crawler token (SECURITY_PERFORMANCE.md
+      # :512). A caller may override it; robots matching is a caller concern (S-07).
+      DEFAULT_USER_AGENT = "F1DiscoverabilityBot"
+
       # Clamp a caller timeout into (0, max]. A value above the ceiling is reduced to the
       # ceiling; a non-positive, missing or NaN value (a caller bug — an instant-timeout
       # would break every request) falls back to the ceiling, which is still bounded.

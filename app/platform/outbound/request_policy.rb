@@ -20,9 +20,7 @@ module Platform
     #                    error surfaced as an unsupported-port rejection at request time.
     #  - user_agent    : the request User-Agent; defaults to the crawler token.
     RequestPolicy = Data.define(:timeout_s, :byte_cap, :max_redirects, :allowed_ports, :user_agent) do
-      DEFAULT_USER_AGENT = "F1DiscoverabilityBot"
-
-      def self.build(timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil, user_agent: DEFAULT_USER_AGENT)
+      def self.build(timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil, user_agent: Ceilings::DEFAULT_USER_AGENT)
         ports = Array(allowed_ports || Ceilings::ALLOWED_PORTS).map(&:to_i) & Ceilings::ALLOWED_PORTS
         new(
           timeout_s: Ceilings.clamp_positive(timeout_s, Ceilings::CONNECT_RESPONSE_TIMEOUT_MAX_S),
