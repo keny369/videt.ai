@@ -1,11 +1,11 @@
 # S-05 Ownership Verification — Architecture & Sequencing Review
 
-Status: **Owner decision required.** Implementation is HELD. This is a specification/sequencing review, not a spec change; it exists to remove demonstrated ambiguities and an ordering defect surfaced during S-05 pre-implementation review (permitted under PROJECT_STATE Operating Constraints). No Volume I/II contract is altered here.
+Status: **RATIFIED by owner 2026-07-24.** The F-01…F-04 foundation tranche (§6) is approved; DEF-1 and DEF-2 (§4) are resolved (see §7). Implementation resumes at **F-01**, not S-05. This is a specification/sequencing review, not a spec change; it exists to remove demonstrated ambiguities and an ordering defect surfaced during S-05 pre-implementation review (permitted under PROJECT_STATE Operating Constraints). No Volume I/II contract is altered here.
 
-- Date: 2026-07-24
+- Date: 2026-07-24 (reviewed and ratified same day)
 - Branch: `implementation/s01-registration-access` (local; nothing pushed, no tags moved)
 - Reviewer: implementation agent, at owner instruction ("review S-05/WF-003; stop on any ordering defect, primitive conflict, hidden coupling or contract ambiguity")
-- Verdict: **BLOCKED.** S-05 cannot be implemented faithfully as a self-contained slice. It depends on four shared foundations that do not exist and that the specification assigns to *other* slices, it crosses a security-critical outbound-surface ordering defect, and its two governing Volume II sources name different command classes.
+- Verdict: **CONFIRMED BLOCKED as a self-contained slice; RESOLVED by the ratified F-01…F-04 tranche below.** S-05 depends on four shared foundations that do not exist and that the specification assigned to *other* slices, it crosses a security-critical outbound-surface ordering defect, and its two governing Volume II sources named different command classes — all now resolved by owner decision (§7).
 
 Built through **S-04** (M1 — Genesis Intake Complete). This review governs whether S-05 may begin.
 
@@ -101,15 +101,17 @@ Alternative to a foundation tranche: **revise the slice ordering** so S-07's `de
 
 ---
 
-## 7. Owner decisions required (before S-05 resumes)
+## 7. Owner decisions — RATIFIED 2026-07-24 (DECISIONS.md ADR-024)
 
-1. **Approach:** ratify the F-01…F-04 foundation tranche (§6), or revise the slice ordering to pull the shared foundations ahead of S-05. *(Owner selected: hold + this review; ratify or revise pending.)*
-2. **DEF-1:** designate the canonical WF-003 command set — `S-05.json`'s or `APPLICATION_LAYER` VII:108's.
-3. **DEF-2:** confirm the SSRF-safe outbound adapter is a **shared foundation** (F-01), and correct the "S-07 is the only outbound surface" text, or specify the alternative.
-4. **Encryption key source:** confirm F-02's key ring is a platform boot secret (as the session-replay key ring is), or a Secrets-Manager-backed key, so the primitive is built to the right key-management contract.
-5. **Evidence boundary:** confirm S-05 (via F-03) may create the `evidence` table and append `verification_observation` records, with validation-decision/head tables deferred to CAP-013/S-09.
+All five are resolved. Recorded in `DECISIONS.md` ADR-024 and the `specification/foundations/` contracts; the specification amendments are applied.
 
-On these, S-05 proceeds on ratified ground with no invented infrastructure and no weakened slice.
+1. **Approach:** ✅ **Ratified the F-01…F-04 foundation tranche.** F-01 → F-02 → F-03 → F-04 → S-05. The next build is F-01, not S-05.
+2. **DEF-1:** ✅ **APPLICATION_LAYER owns the canonical WF-003 command vocabulary** (`IssueVerificationChallenge`, `ReserveVerificationAttempt`, `CompleteVerificationAttempt`, `CancelVerificationRequest`, `ExpireVerificationRequest`, `FailVerificationRequest`; retrieval is query `QRY-021`). `contracts/S-05.json` reconciled.
+3. **DEF-2:** ✅ **One shared outbound surface (F-01)**; S-05 and S-07 are consumers. "S-07 owns the only outbound surface" corrected in `SECURITY_PERFORMANCE.md` and `S-07.json`.
+4. **Encryption key source:** ✅ **Vendor-neutral `KeyProvider`**, initially a platform-managed key ring from deployment secrets (session-key style); no cloud vendor hard-coded.
+5. **Evidence boundary:** ✅ **S-05 (via F-03) creates the append-only Evidence store and produces `verification_observation`**; validation heads/decisions/adjudication/lifecycle stay CAP-013/S-09.
+
+S-05 will proceed on ratified ground after F-01…F-04, with no invented infrastructure and no weakened slice.
 
 ---
 

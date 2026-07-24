@@ -470,10 +470,17 @@ Structured contract: `specification/volume-ii/contracts/S-07.json`.
 Governing authority: `destination-safety-v1`, the robots and sitemap contracts, `crawl-policy-v1`
 and WF-005 Security Notes.
 
-S-07 owns the only outbound surface in the product. Every control below is Volume I authority,
-not a generic crawler convention: WF-005 Security Notes require the crawler to enforce "the exact
-verified Source, Source Scope Policy, robots, redirect, and current restrictive-policy
-boundaries defined above" and add that "it invents no broader legal exception or bypass".
+All platform-originated DNS and HTTP(S) access passes through **one shared outbound transport
+surface** (F-01, `FOUNDATION-001_OUTBOUND_TRANSPORT.md`). S-05 Ownership Verification (DNS TXT /
+HTTPS file observation) and S-07 Crawl Execution are **consumers** of that single surface; there
+is never a separate verification and crawler egress implementation. The `destination-safety-v1`
+predicate below is the shared egress guard, owned by F-01 rather than by S-07. (Superseded by
+ADR-024, 2026-07-24: the earlier statement that "S-07 owns the only outbound surface" is
+corrected — S-07 owns crawl *policy* over that surface, not the surface itself.) Every control
+below is Volume I authority, not a generic crawler convention: WF-005 Security Notes require the
+crawler to enforce "the exact verified Source, Source Scope Policy, robots, redirect, and current
+restrictive-policy boundaries defined above" and add that "it invents no broader legal exception
+or bypass".
 
 ### Destination safety applies to every connection
 

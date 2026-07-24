@@ -52,6 +52,16 @@ Slices are ordered by dependency. A slice may start when its prerequisites are c
 S-09 through S-15 form the evaluation pipeline and are strictly ordered, because each
 consumes the previous slice's output.
 
+**Shared Platform Foundations gate (ADR-024, 2026-07-24).** S-05 Ownership Verification
+depends on four shared platform foundations that S-05's pre-implementation review showed
+are not owned by any product slice: F-01 Shared Outbound Transport, F-02 Envelope
+Encryption and Key Management, F-03 Evidence Producer Foundation, F-04 Background
+Execution Foundation (see `specification/foundations/`). They are sequenced
+`F-01 -> F-02 -> F-03 -> F-04` and MUST complete before S-05. S-05 gates S-06 and, with
+S-03 ActivateProject, S-07; S-07 is a **consumer of F-01, not a second outbound surface**.
+The canonical order is therefore `... S-04 -> [F-01..F-04] -> S-05 -> S-06 -> S-03
+ActivateProject completion -> S-07 -> ...`.
+
 ```text
 S-00 Foundation
   └─ S-01 Registration and Access
@@ -60,9 +70,9 @@ S-00 Foundation
        │    └─ S-23 Account and Organization Lifecycle
        └─ S-03 Project Setup
             └─ S-04 Source Onboarding
-                 ├─ S-05 Ownership Verification
+                 ├─ S-05 Ownership Verification   (gated by F-01..F-04, ADR-024)
                  └─ S-06 Source Discovery and Scope
-                      └─ S-07 Crawl Execution and Recovery
+                      └─ S-07 Crawl Execution and Recovery (consumes F-01)
                            └─ S-08 Parsing and Validation
                                 └─ S-09 Inspection (technical, content, structured)
                                      └─ S-10 AI Discoverability Analysis

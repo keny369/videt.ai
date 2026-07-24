@@ -755,6 +755,65 @@ No shipped software, emitted event, persisted record or customer datum exists to
 Affected Downstream Documents:
 [specification/volume-i/OWNER_DECISION_REGISTER.md](specification/volume-i/OWNER_DECISION_REGISTER.md) (registration only). The Volume II set: INDEX, API_CONTRACTS, APPLICATION_LAYER, BACKGROUND_PROCESSING, FRONTEND_ARCHITECTURE, RATIFICATION_STATUS_OVERLAY, IMPLEMENTATION_MATRIX (generated), SPECIFICATION_FREEZE_CANDIDATE, RETIRED_BLOCKER_CLASSIFICATION, IMPLEMENTATION_READINESS_REPORT, IMPLEMENTATION_ENTRY_MAP, IMPLEMENTATION_BACKLOG. Contract sources: S-16, S-17, S-18, S-19, S-20, S-21, S-22, S-23, S-24, S-XC. Schema: [schemas/POSTGRESQL_SCHEMA.md](schemas/POSTGRESQL_SCHEMA.md). Control: [ROADMAP.md](ROADMAP.md), [PROJECT_STATE.md](PROJECT_STATE.md), [CHANGELOG.md](CHANGELOG.md), [TODO.md](TODO.md).
 
+## ADR-024: Shared Platform Foundations Precede Ownership Verification
+
+Status: Accepted
+Date: 2026-07-24
+Owner: Owner (ratified) / implementation agent (recorded)
+Reversibility: Reversible while no foundation is implemented; the dependency-ordering and command-vocabulary corrections are difficult to reverse once F-01..F-04 or S-05 depend on them.
+
+Decision:
+Ratify four shared platform foundations, and require them to precede S-05 Ownership Verification. Pre-implementation review of S-05 (recorded in `S-05_SEQUENCING_REVIEW.md`) demonstrated that S-05 is not a self-contained slice: it consumes an SSRF-safe outbound surface, envelope encryption with a key store, an append-only Evidence subsystem, and production-reachable background execution — none of which exist, and each of which the frozen specification assigned to a different slice. S-05 also crossed a security-critical outbound-surface ordering defect and its two governing Volume II sources named different WF-003 command classes. This decision introduces the four foundations as explicit, independently reviewable contracts, fixes the dependency order, and resolves the two defects. It does not implement the foundations and changes no ratified product behaviour.
+
+The four foundations, and their canonical contracts:
+
+1. **F-01 Shared Outbound Transport** — [specification/foundations/FOUNDATION-001_OUTBOUND_TRANSPORT.md](specification/foundations/FOUNDATION-001_OUTBOUND_TRANSPORT.md). The single guarded surface for all platform-originated DNS/HTTP; SSRF prevention before resolution and connection, DNS-rebinding pinning, redirect revalidation, size/timeout ceilings, secret redaction. Consumed by S-05 (verification observation) and S-07 (crawl).
+2. **F-02 Envelope Encryption and Key Management** — [specification/foundations/FOUNDATION-002_ENVELOPE_ENCRYPTION.md](specification/foundations/FOUNDATION-002_ENVELOPE_ENCRYPTION.md). Authenticated envelope encryption behind a vendor-neutral `KeyProvider`; versioned keys, per-record DEKs, rotation, cryptographic erasure, no plaintext at rest.
+3. **F-03 Evidence Producer Foundation** — [specification/foundations/FOUNDATION-003_EVIDENCE_PRODUCTION.md](specification/foundations/FOUNDATION-003_EVIDENCE_PRODUCTION.md). The append-only Evidence store and producer path. Producer-only; evaluation (validation decisions/heads, adjudication, interpretation) remains CAP-013/S-09.
+4. **F-04 Background Execution Foundation** — [specification/foundations/FOUNDATION-004_BACKGROUND_EXECUTION.md](specification/foundations/FOUNDATION-004_BACKGROUND_EXECUTION.md). Production-reachable durable async execution on the existing ScheduledAction substrate + Sidekiq operational wiring; idempotent claim/lease/retry; no fake inline pathway.
+
+Canonical dependency order (ratified):
+
+```
+F-01 -> F-02 -> F-03 -> F-04 -> S-05 -> S-06 -> S-03 ActivateProject completion -> S-07
+```
+
+Defects resolved:
+
+- **DEF-1 (command vocabulary).** `APPLICATION_LAYER.md` (VII:108, "This section is the canonical owner of the WF-003 application contract") owns the WF-003 command vocabulary: `IssueVerificationChallenge`, `ReserveVerificationAttempt`, `CompleteVerificationAttempt`, `CancelVerificationRequest`, `ExpireVerificationRequest`, `FailVerificationRequest`; pending-challenge retrieval is the nonmutating query `QRY-021`, not a command. `contracts/S-05.json` MTX-028's divergent list (`CreateVerificationRequest`/`RetrievePendingChallenge`/`RequestOnDemandObservation`/`RunAutomatedObservationSlot`) is reconciled to that set. The Application Layer, not a slice JSON contract, is the naming authority for application commands.
+- **DEF-2 (outbound surface ownership).** The statement that "S-07 owns the only outbound surface" is superseded: **all platform-originated network access passes through F-01**, and S-05 and S-07 are consumers of that one surface. There are never separate verification and crawler egress implementations. Ownership of the egress surface moves from S-07 to the F-01 foundation.
+
+Further owner decisions ratified here:
+
+- **KeyProvider.** F-02 depends on a vendor-neutral, versioned `KeyProvider`. The initial Genesis implementation loads a platform-managed key ring from deployment secrets, in the session-key style. No cloud-vendor secret service (AWS Secrets Manager, Google Secret Manager, Azure Key Vault, HashiCorp Vault) is hard-coded; the abstraction permits any of them later without a contract change.
+- **Evidence producer/evaluator boundary.** S-05 (via F-03) may create the append-only Evidence store and produce `verification_observation` Evidence. CAP-013/S-09 retains ownership of evidence evaluation, validation heads, decisions, and the broader evidence lifecycle. Capture is separated from interpretation.
+
+Context:
+S-01..S-04 (M1 — Genesis Intake Complete) were self-contained slices with no outbound I/O, no at-rest cryptography beyond hashing, no Evidence, and no background execution. S-05 is the first slice requiring all four at once. The foundations were implicit in the specification and deferred by S-00's deliberate scope; making them explicit is completion of the dependency graph the specification itself assumes, not new scope. The verification *product* logic is fully specified (`SCORE_EVIDENCE_MODEL.md`; OD-001 ratified) and is unaffected.
+
+Authority And Precedence:
+This ADR changes no ratified product behaviour and reopens no behavioural contract. It corrects two Volume II labelling/ownership defects (a command-naming divergence and an egress-ownership statement) and makes a dependency-ordering and foundation-ownership decision within the product-architecture scope. `v1.5-volume-i-frozen` remains the authoritative Volume I baseline, byte-unchanged. No foundation-layer (000-020) content changes, so PM-REQ-009 is not engaged. `ADR-014` in this registry ("Foundation Section Mapping Registry") is unrelated and unchanged; this decision was allocated the next unused number after ADR-023.
+
+Options Considered:
+
+1. Implement S-05 as one monolith, inventing the SSRF adapter, encryption and Evidence subsystem inline. Rejected: it would let a product slice silently author shared security primitives and ship an unguarded outbound surface — the exact failure mode the project's governance forbids.
+2. Ship a partial S-05 (requests that cannot verify), deferring the outbound observation. Rejected: it would be the first deliberately incomplete, non-production-reachable slice, weakening the established completeness standard.
+3. Ratify the four foundations explicitly, fix the dependency order, resolve DEF-1/DEF-2, then build the foundations before S-05. Chosen.
+
+Chosen-Option Rationale:
+Option 3 makes the dependency graph explicit, keeps each foundation independently reviewable and production-reachable, and — because F-01 is the single shared egress surface — resolves DEF-2 structurally rather than duplicating egress logic. It preserves every ratified invariant, invents no security primitive under cover of a feature, and lets the platform catch up to the architecture it already implies before feature delivery resumes.
+
+Consequences:
+
+- S-05 is HELD until F-01..F-04 are contracted and built; the next implementation step is F-01, not S-05.
+- One shared outbound surface exists platform-wide; S-05, S-07 and any future outbound consumer use it. No second egress path may be introduced.
+- The WF-003 command vocabulary is the Application Layer's; `contracts/S-05.json` is reconciled to it.
+- Encryption is KeyProvider-backed and vendor-neutral; Evidence is producer-only in this line, evaluation staying with CAP-013/S-09.
+- No software, migration, endpoint or provider integration is authorized by this decision; F-01..F-04 are contracts to be implemented under their own reviews. S-01..S-04 remain complete and green (678 examples).
+
+Affected Downstream Documents:
+[specification/volume-ii/SLICE_REGISTER.md](specification/volume-ii/SLICE_REGISTER.md) (dependency order + foundation prerequisite for S-05), [specification/volume-ii/SECURITY_PERFORMANCE.md](specification/volume-ii/SECURITY_PERFORMANCE.md) (DEF-2 egress ownership), [specification/volume-ii/contracts/S-05.json](specification/volume-ii/contracts/S-05.json) (DEF-1 command set), [specification/volume-ii/contracts/S-07.json](specification/volume-ii/contracts/S-07.json) (F-01 consumer), [PROJECT_STATE.md](PROJECT_STATE.md), and the new [specification/foundations/](specification/foundations/) contracts. `contracts/S-06.json` and the crawl/evidence rows inherit the corrected ownership by reference and are not rewritten here. Unrelated ratified behaviour is unchanged.
+
 Affected Tests, Diagrams, Schemas And Contracts:
 No acceptance criterion changes and no diagram changes. `scripts/build_volume_ii_matrix.py` gains the OD-034 and OD-035 withheld-limb texts. `scripts/validate_volume_ii.py` gains `unresolved_successor_decision`, a widened retired-blocker scope and an anchor-integrity check, each with a negative mutation control, and gains regression coverage for the prior `unauthorized_verification_method` vacuity. `schemas/POSTGRESQL_SCHEMA.md` is corrected to the ratified OD-013 Option 1 shape for the Incident and Investigation tables and to the retired-blocker status for the reassessment, Role-expiry, Document-lifecycle and Issue-collision notes.
 
