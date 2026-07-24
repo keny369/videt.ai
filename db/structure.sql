@@ -581,6 +581,20 @@ $$;
 
 
 --
+-- Name: f1_evidence_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_evidence_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'evidence_is_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_find_invitation_acceptance_replay(bytea, bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1352,6 +1366,44 @@ ALTER TABLE ONLY public.event_registry FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: evidence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evidence (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT now() NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid,
+    evaluation_id uuid,
+    evidence_type text NOT NULL,
+    producer_id text NOT NULL,
+    attempt_id text NOT NULL,
+    payload_reference text NOT NULL,
+    content_sha256 text NOT NULL,
+    captured_at_utc timestamp(6) with time zone NOT NULL,
+    observed_at_utc timestamp(6) with time zone NOT NULL,
+    source_system text NOT NULL,
+    collection_method text NOT NULL,
+    collector_version text NOT NULL,
+    validation_status text NOT NULL,
+    validation_reason_code text,
+    data_classification text NOT NULL,
+    payload_retention_class text NOT NULL,
+    correlation_id uuid NOT NULL,
+    CONSTRAINT evidence_content_sha256_check CHECK ((content_sha256 ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT evidence_data_classification_check CHECK ((data_classification = ANY (ARRAY['public'::text, 'internal'::text, 'confidential'::text, 'restricted'::text]))),
+    CONSTRAINT evidence_evidence_type_check CHECK ((evidence_type = ANY (ARRAY['source_document'::text, 'crawl_observation'::text, 'parsed_content'::text, 'external_measurement'::text, 'verification_observation'::text]))),
+    CONSTRAINT evidence_payload_retention_class_check CHECK ((payload_retention_class = 'product_evidence_payload'::text)),
+    CONSTRAINT evidence_validation_reason_consistency CHECK ((((validation_status = 'valid'::text) AND (validation_reason_code IS NULL)) OR ((validation_status <> 'valid'::text) AND (validation_reason_code IS NOT NULL)))),
+    CONSTRAINT evidence_validation_status_check CHECK ((validation_status = ANY (ARRAY['valid'::text, 'invalid'::text, 'quarantined'::text])))
+);
+
+ALTER TABLE ONLY public.evidence FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: f1_context_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2110,6 +2162,30 @@ ALTER TABLE ONLY public.event_registry
 
 
 --
+-- Name: evidence evidence_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidence
+    ADD CONSTRAINT evidence_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: evidence evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidence
+    ADD CONSTRAINT evidence_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evidence evidence_producer_attempt_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidence
+    ADD CONSTRAINT evidence_producer_attempt_unique UNIQUE (organization_id, producer_id, attempt_id);
+
+
+--
 -- Name: f1_context_keys f1_context_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2350,6 +2426,13 @@ ALTER TABLE ONLY public.sources
 
 
 --
+-- Name: evidence_content_hash_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX evidence_content_hash_lookup ON public.evidence USING btree (organization_id, content_sha256);
+
+
+--
 -- Name: f1_encrypted_records_by_wrapping_version; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2490,6 +2573,13 @@ CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_
 
 
 --
+-- Name: evidence evidence_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evidence_append_only BEFORE DELETE OR UPDATE ON public.evidence FOR EACH ROW EXECUTE FUNCTION public.f1_evidence_append_only();
+
+
+--
 -- Name: organizations organizations_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2554,6 +2644,22 @@ ALTER TABLE ONLY public.command_executions
 
 ALTER TABLE ONLY public.command_results
     ADD CONSTRAINT command_results_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: evidence evidence_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidence
+    ADD CONSTRAINT evidence_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: evidence evidence_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidence
+    ADD CONSTRAINT evidence_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -2726,6 +2832,19 @@ ALTER TABLE public.event_registry ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY event_registry_context ON public.event_registry USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: evidence; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.evidence ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: evidence evidence_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY evidence_context ON public.evidence USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -2929,6 +3048,7 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120026'),
 ('20260725120025'),
 ('20260725120024'),
 ('20260725120023'),

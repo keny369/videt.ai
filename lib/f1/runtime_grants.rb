@@ -53,6 +53,9 @@ module F1
       # removal is a state transition to 'removed', never a row DELETE, so no
       # DELETE is granted.
       "sources"                           => "SELECT, INSERT, UPDATE",
+      # F-03 Evidence is append-only: SELECT/INSERT, never UPDATE or DELETE. A trigger
+      # refuses UPDATE/DELETE from every role; the missing grant is defence in depth.
+      "evidence"                          => "SELECT, INSERT",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",
