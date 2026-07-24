@@ -1,0 +1,7 @@
+# Legal / trademark working papers are intentionally excluded from source control.
+# Privileged, binary, frequently revised, and not part of reproducible engineering.
+# See README.md and the OD-011 precedent (privileged material excluded by design).
+# Only this .gitignore and README.md are tracked.
+*
+!.gitignore
+!README.md
