@@ -394,6 +394,28 @@ $$;
 
 
 --
+-- Name: f1_encryption_destroy_version(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encryption_destroy_version(p_provider text, p_version text) RETURNS text
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_state text;
+BEGIN
+  SELECT state INTO v_state FROM f1_encryption_key_versions
+    WHERE provider = p_provider AND version = p_version;
+  IF v_state IS NULL THEN RETURN 'unknown'; END IF;
+  IF v_state = 'destroyed' THEN RETURN 'already_destroyed'; END IF;
+  UPDATE f1_encryption_key_versions
+    SET state = 'destroyed', key_fingerprint = NULL, destroyed_at = now()
+    WHERE provider = p_provider AND version = p_version;
+  RETURN 'destroyed';
+END;
+$$;
+
+
+--
 -- Name: f1_encryption_register_active_version(text, text, bytea, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2907,6 +2929,7 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120025'),
 ('20260725120024'),
 ('20260725120023'),
 ('20260725120022'),

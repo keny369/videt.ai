@@ -176,7 +176,9 @@ module F1
       "f1_encrypted_record_destroy(uuid)",
       "f1_encrypted_record_rewrap(uuid, text, text, bytea)",
       # F-02 owner-only key-version mutations: PUBLIC revoked, never granted to a runtime role.
-      "f1_encryption_retire_version(text, text)"
+      # destroy_version is bulk cryptographic erasure and MUST stay unreachable from the runtime.
+      "f1_encryption_retire_version(text, text)",
+      "f1_encryption_destroy_version(text, text)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.
