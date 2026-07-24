@@ -273,6 +273,74 @@ $$;
 
 
 --
+-- Name: f1_encryption_active_version(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encryption_active_version(p_provider text) RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT version FROM f1_encryption_key_versions
+  WHERE p_provider IS NOT NULL AND p_provider <> ''
+    AND provider = p_provider AND state = 'active'
+  LIMIT 1;
+$$;
+
+
+--
+-- Name: f1_encryption_describe_version(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encryption_describe_version(p_provider text, p_version text) RETURNS TABLE(state text, fingerprint_hex text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT state, encode(key_fingerprint, 'hex')
+  FROM f1_encryption_key_versions
+  WHERE p_provider IS NOT NULL AND p_provider <> ''
+    AND p_version IS NOT NULL AND p_version <> ''
+    AND provider = p_provider AND version = p_version;
+$$;
+
+
+--
+-- Name: f1_encryption_register_active_version(text, text, bytea, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encryption_register_active_version(p_provider text, p_version text, p_fingerprint bytea, p_reference text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_state text;
+BEGIN
+  IF p_provider IS NULL OR p_provider = '' OR p_version IS NULL OR p_version = '' THEN
+    RAISE EXCEPTION 'provider and version are required';
+  END IF;
+  IF p_fingerprint IS NULL OR octet_length(p_fingerprint) <> 32 THEN
+    RAISE EXCEPTION 'fingerprint must be 32 bytes';
+  END IF;
+
+  SELECT state INTO v_state FROM f1_encryption_key_versions
+    WHERE provider = p_provider AND version = p_version;
+  IF v_state = 'destroyed' THEN
+    RAISE EXCEPTION 'a destroyed key version cannot be reactivated';
+  END IF;
+
+  UPDATE f1_encryption_key_versions
+    SET state = 'retired', retired_at = now()
+    WHERE provider = p_provider AND state = 'active' AND version <> p_version;
+
+  INSERT INTO f1_encryption_key_versions
+      (provider, version, state, key_fingerprint, key_reference, activated_at)
+    VALUES (p_provider, p_version, 'active', p_fingerprint, p_reference, now())
+    ON CONFLICT (provider, version) DO UPDATE
+      SET state = 'active', key_fingerprint = EXCLUDED.key_fingerprint,
+          key_reference = EXCLUDED.key_reference, activated_at = now(), retired_at = NULL;
+END;
+$$;
+
+
+--
 -- Name: f1_enter_bootstrap_context(bytea, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1160,6 +1228,27 @@ CREATE TABLE public.f1_context_keys (
 
 
 --
+-- Name: f1_encryption_key_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.f1_encryption_key_versions (
+    provider text NOT NULL,
+    version text NOT NULL,
+    state text NOT NULL,
+    key_fingerprint bytea,
+    key_reference text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    activated_at timestamp with time zone,
+    retired_at timestamp with time zone,
+    destroyed_at timestamp with time zone,
+    CONSTRAINT f1_encryption_key_active_has_fingerprint CHECK (((state <> 'active'::text) OR (key_fingerprint IS NOT NULL))),
+    CONSTRAINT f1_encryption_key_destroyed_no_fingerprint CHECK (((state <> 'destroyed'::text) OR (key_fingerprint IS NULL))),
+    CONSTRAINT f1_encryption_key_fingerprint_len CHECK (((key_fingerprint IS NULL) OR (octet_length(key_fingerprint) = 32))),
+    CONSTRAINT f1_encryption_key_state_valid CHECK ((state = ANY (ARRAY['active'::text, 'retired'::text, 'destroyed'::text])))
+);
+
+
+--
 -- Name: idempotency_records; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1868,6 +1957,14 @@ ALTER TABLE ONLY public.f1_context_keys
 
 
 --
+-- Name: f1_encryption_key_versions f1_encryption_key_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.f1_encryption_key_versions
+    ADD CONSTRAINT f1_encryption_key_versions_pkey PRIMARY KEY (provider, version);
+
+
+--
 -- Name: idempotency_records idempotency_records_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2081,6 +2178,13 @@ ALTER TABLE ONLY public.sources
 
 ALTER TABLE ONLY public.sources
     ADD CONSTRAINT sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: f1_one_active_encryption_key_per_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX f1_one_active_encryption_key_per_provider ON public.f1_encryption_key_versions USING btree (provider) WHERE (state = 'active'::text);
 
 
 --
@@ -2649,6 +2753,7 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120022'),
 ('20260723120021'),
 ('20260723120020'),
 ('20260723120019'),

@@ -78,6 +78,7 @@ module F1
     # not guarantee it, and the receipt/secret tables must never be PUBLIC).
     REVOKE_PUBLIC_TABLES = (TABLE_PRIVILEGES.keys + %w[
       identity_receipt_nonces identity_receipt_consumptions f1_context_keys
+      f1_encryption_key_versions
     ]).freeze
 
     # Rails owns these outside our migrations; the runtime reads migration state.
@@ -105,7 +106,13 @@ module F1
       # guaranteed by the ledger foreign keys; this is the separate question of
       # whether the identity is still permitted to act. Fixed boolean projection,
       # so it cannot enumerate the platform-control register.
-      "f1_service_identity_active(uuid)"
+      "f1_service_identity_active(uuid)",
+      # F-02 key-ring READ boundary. The runtime may resolve the active version and
+      # describe a version (state + non-secret fingerprint) to wrap/unwrap DEKs, but the
+      # ring MATERIAL is out of band and the ring METADATA table carries no runtime grant.
+      # The register/lifecycle mutations are owner-only and deliberately absent here.
+      "f1_encryption_active_version(text)",
+      "f1_encryption_describe_version(text, text)"
     ].freeze
 
     # Platform-control authority, deliberately NOT in f1_runtime.
@@ -148,7 +155,12 @@ module F1
       "f1_authenticate_session(uuid)",
       "f1_enter_org_context(uuid, uuid)",
       "f1_enter_self_service_context(bytea, uuid, uuid)",
-      "f1_service_identity_active(uuid)"
+      "f1_service_identity_active(uuid)",
+      # F-02: the read boundary is SECURITY DEFINER (re-revoke PUBLIC on structure-load);
+      # the register mutation is owner-only — PUBLIC revoked and never granted anywhere.
+      "f1_encryption_active_version(text)",
+      "f1_encryption_describe_version(text, text)",
+      "f1_encryption_register_active_version(text, text, bytea, text)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.
