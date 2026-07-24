@@ -273,6 +273,70 @@ $$;
 
 
 --
+-- Name: f1_encrypted_record_destroy(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encrypted_record_destroy(p_id uuid) RETURNS text
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_state text;
+BEGIN
+  UPDATE f1_encrypted_records
+    SET envelope = NULL, state = 'destroyed', destroyed_at = now()
+    WHERE id = p_id AND state = 'active'
+    RETURNING state INTO v_state;
+  IF v_state IS NOT NULL THEN
+    RETURN 'destroyed';
+  END IF;
+  SELECT state INTO v_state FROM f1_encrypted_records WHERE id = p_id;
+  RETURN CASE WHEN v_state = 'destroyed' THEN 'already_destroyed' ELSE 'unknown' END;
+END;
+$$;
+
+
+--
+-- Name: f1_encrypted_record_get(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encrypted_record_get(p_id uuid) RETURNS TABLE(envelope_hex text, state text, content_digest_hex text, wrapping_key_version text, key_provider text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT encode(envelope, 'hex'), state, encode(content_digest, 'hex'), wrapping_key_version, key_provider
+  FROM f1_encrypted_records
+  WHERE p_id IS NOT NULL AND id = p_id;
+$$;
+
+
+--
+-- Name: f1_encrypted_record_put(text, text, text, text, text, text, text, text, bytea, bytea); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_encrypted_record_put(p_application text, p_record_type text, p_record_id text, p_purpose text, p_tenant text, p_aad_schema_version text, p_key_provider text, p_wrapping_key_version text, p_envelope bytea, p_content_digest bytea) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_id uuid;
+BEGIN
+  IF p_envelope IS NULL OR octet_length(p_envelope) = 0 THEN
+    RAISE EXCEPTION 'envelope is required';
+  END IF;
+  IF p_content_digest IS NULL OR octet_length(p_content_digest) <> 32 THEN
+    RAISE EXCEPTION 'content_digest must be 32 bytes';
+  END IF;
+  INSERT INTO f1_encrypted_records
+    (application, record_type, record_id, purpose, tenant, aad_schema_version,
+     key_provider, wrapping_key_version, envelope, content_digest, state)
+  VALUES (p_application, p_record_type, p_record_id, p_purpose, p_tenant, p_aad_schema_version,
+     p_key_provider, p_wrapping_key_version, p_envelope, p_content_digest, 'active')
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+
+
+--
 -- Name: f1_encryption_active_version(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1228,6 +1292,32 @@ CREATE TABLE public.f1_context_keys (
 
 
 --
+-- Name: f1_encrypted_records; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.f1_encrypted_records (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    application text NOT NULL,
+    record_type text NOT NULL,
+    record_id text NOT NULL,
+    purpose text NOT NULL,
+    tenant text,
+    aad_schema_version text NOT NULL,
+    key_provider text NOT NULL,
+    wrapping_key_version text NOT NULL,
+    envelope bytea,
+    content_digest bytea NOT NULL,
+    state text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    destroyed_at timestamp with time zone,
+    CONSTRAINT f1_encrypted_record_active_has_envelope CHECK (((state <> 'active'::text) OR (envelope IS NOT NULL))),
+    CONSTRAINT f1_encrypted_record_destroyed_no_envelope CHECK (((state <> 'destroyed'::text) OR (envelope IS NULL))),
+    CONSTRAINT f1_encrypted_record_digest_len CHECK ((octet_length(content_digest) = 32)),
+    CONSTRAINT f1_encrypted_record_state_valid CHECK ((state = ANY (ARRAY['active'::text, 'destroyed'::text])))
+);
+
+
+--
 -- Name: f1_encryption_key_versions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1957,6 +2047,14 @@ ALTER TABLE ONLY public.f1_context_keys
 
 
 --
+-- Name: f1_encrypted_records f1_encrypted_records_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.f1_encrypted_records
+    ADD CONSTRAINT f1_encrypted_records_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: f1_encryption_key_versions f1_encryption_key_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2178,6 +2276,13 @@ ALTER TABLE ONLY public.sources
 
 ALTER TABLE ONLY public.sources
     ADD CONSTRAINT sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: f1_encrypted_records_by_wrapping_version; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX f1_encrypted_records_by_wrapping_version ON public.f1_encrypted_records USING btree (key_provider, wrapping_key_version) WHERE (state = 'active'::text);
 
 
 --
@@ -2753,6 +2858,7 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120023'),
 ('20260725120022'),
 ('20260723120021'),
 ('20260723120020'),

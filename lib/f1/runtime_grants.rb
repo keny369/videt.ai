@@ -78,7 +78,7 @@ module F1
     # not guarantee it, and the receipt/secret tables must never be PUBLIC).
     REVOKE_PUBLIC_TABLES = (TABLE_PRIVILEGES.keys + %w[
       identity_receipt_nonces identity_receipt_consumptions f1_context_keys
-      f1_encryption_key_versions
+      f1_encryption_key_versions f1_encrypted_records
     ]).freeze
 
     # Rails owns these outside our migrations; the runtime reads migration state.
@@ -112,7 +112,13 @@ module F1
       # ring MATERIAL is out of band and the ring METADATA table carries no runtime grant.
       # The register/lifecycle mutations are owner-only and deliberately absent here.
       "f1_encryption_active_version(text)",
-      "f1_encryption_describe_version(text, text)"
+      "f1_encryption_describe_version(text, text)",
+      # F-02 encrypted-record storage boundary. The runtime stores, fetches and destroys
+      # envelopes by reference through these functions; it cannot touch the owner-only
+      # table. Destroy is record-level (one reference) — not bulk key-version erasure.
+      "f1_encrypted_record_put(text, text, text, text, text, text, text, text, bytea, bytea)",
+      "f1_encrypted_record_get(uuid)",
+      "f1_encrypted_record_destroy(uuid)"
     ].freeze
 
     # Platform-control authority, deliberately NOT in f1_runtime.
@@ -160,7 +166,10 @@ module F1
       # the register mutation is owner-only — PUBLIC revoked and never granted anywhere.
       "f1_encryption_active_version(text)",
       "f1_encryption_describe_version(text, text)",
-      "f1_encryption_register_active_version(text, text, bytea, text)"
+      "f1_encryption_register_active_version(text, text, bytea, text)",
+      "f1_encrypted_record_put(text, text, text, text, text, text, text, text, bytea, bytea)",
+      "f1_encrypted_record_get(uuid)",
+      "f1_encrypted_record_destroy(uuid)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.
