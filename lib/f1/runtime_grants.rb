@@ -118,7 +118,11 @@ module F1
       # table. Destroy is record-level (one reference) — not bulk key-version erasure.
       "f1_encrypted_record_put(text, text, text, text, text, text, text, text, bytea, bytea)",
       "f1_encrypted_record_get(uuid)",
-      "f1_encrypted_record_destroy(uuid)"
+      "f1_encrypted_record_destroy(uuid)",
+      # F-02 rotation: rewrap re-wraps a record's DEK under the active version (guarded on
+      # the expected version). The key-version retire/register/destroy mutations are
+      # owner-only and absent here.
+      "f1_encrypted_record_rewrap(uuid, text, text, bytea)"
     ].freeze
 
     # Platform-control authority, deliberately NOT in f1_runtime.
@@ -169,7 +173,10 @@ module F1
       "f1_encryption_register_active_version(text, text, bytea, text)",
       "f1_encrypted_record_put(text, text, text, text, text, text, text, text, bytea, bytea)",
       "f1_encrypted_record_get(uuid)",
-      "f1_encrypted_record_destroy(uuid)"
+      "f1_encrypted_record_destroy(uuid)",
+      "f1_encrypted_record_rewrap(uuid, text, text, bytea)",
+      # F-02 owner-only key-version mutations: PUBLIC revoked, never granted to a runtime role.
+      "f1_encryption_retire_version(text, text)"
     ].freeze + PLATFORM_WORKER_FUNCTIONS
 
     # The ordered, idempotent, guarded statements. Run as the schema owner.

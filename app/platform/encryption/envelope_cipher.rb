@@ -46,6 +46,21 @@ module Platform
         )
       end
 
+      # Re-wrap the DEK under the active wrapping-key version WITHOUT decrypting or
+      # rewriting the payload (FOUNDATION-002 §Rotation: rewrap the DEK, not the ciphertext).
+      # Idempotent: an envelope already at the active version is returned unchanged. Only
+      # wrapping_key_version and wrapped_dek change; ciphertext/nonce/tag are preserved.
+      def rewrap(envelope:, aad:)
+        validate_envelope!(envelope, aad)
+        active = @provider.active_version
+        return envelope if envelope.wrapping_key_version == active
+
+        aad_bytes = aad.canonical_bytes
+        dek = @provider.unwrap(wrapped: envelope.wrapped_dek, version: envelope.wrapping_key_version, aad: aad_bytes)
+        wrapped = @provider.wrap(dek:, aad: aad_bytes)
+        envelope.with(wrapping_key_version: wrapped.version, wrapped_dek: wrapped.bytes)
+      end
+
       private
 
       def validate_envelope!(envelope, aad)

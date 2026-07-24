@@ -14,8 +14,17 @@ module Platform
     # the only path to its DEK and plaintext) is removed, while the content digest and the
     # row's audit survive. It is not bulk key-version erasure.
     class EncryptedRecordStore
-      Fetched = Data.define(:envelope, :state, :content_digest, :wrapping_key_version, :key_provider) do
+      Fetched = Data.define(
+        :envelope, :state, :content_digest, :key_provider, :wrapping_key_version,
+        :application, :record_type, :record_id, :purpose, :tenant, :aad_schema_version
+      ) do
         def destroyed? = state == "destroyed"
+
+        # Reconstruct the AAD binding from the stored non-secret identity, so a rewrap can
+        # unwrap/rewrap the DEK without the consumer.
+        def aad
+          Aad.new(application:, record_type:, record_id:, purpose:, tenant:, schema_version: aad_schema_version)
+        end
       end
 
       def initialize(pg: nil)
@@ -38,18 +47,17 @@ module Platform
       # Fetch by reference, or nil if unknown. A destroyed record returns state
       # "destroyed" with a nil envelope; the content digest survives.
       def fetch(reference)
-        row = connection.exec_params(
-          "SELECT envelope_hex, state, content_digest_hex, wrapping_key_version, key_provider " \
-          "FROM f1_encrypted_record_get($1)", [reference]
-        ).to_a.first
+        row = connection.exec_params("SELECT * FROM f1_encrypted_record_get($1)", [reference]).to_a.first
         return nil if row.nil?
 
         Fetched.new(
           envelope: unhex(row["envelope_hex"]),
           state: row["state"],
           content_digest: unhex(row["content_digest_hex"]),
+          key_provider: row["key_provider"],
           wrapping_key_version: row["wrapping_key_version"],
-          key_provider: row["key_provider"]
+          application: row["application"], record_type: row["record_type"], record_id: row["record_id"],
+          purpose: row["purpose"], tenant: row["tenant"], aad_schema_version: row["aad_schema_version"]
         )
       end
 
@@ -58,6 +66,27 @@ module Platform
       def destroy(reference)
         connection.exec_params("SELECT f1_encrypted_record_destroy($1) AS outcome", [reference])
                   .to_a.first.fetch("outcome").to_sym
+      end
+
+      # Rewrap a record's DEK under the active wrapping-key version, preserving the payload
+      # ciphertext (FOUNDATION-002 §Rotation). Idempotent and concurrency-safe: the update
+      # is guarded on the record still being at the expected version, so a concurrent or
+      # repeated rewrap is a no-op. Returns :rewrapped, :unchanged, :stale, :destroyed or
+      # :unknown.
+      def rewrap(reference, cipher:)
+        fetched = fetch(reference)
+        return :unknown if fetched.nil?
+        return :destroyed if fetched.destroyed?
+
+        envelope = Envelope.deserialize(fetched.envelope)
+        rewrapped = cipher.rewrap(envelope:, aad: fetched.aad)
+        return :unchanged if rewrapped.wrapping_key_version == envelope.wrapping_key_version
+
+        connection.exec_params(
+          "SELECT f1_encrypted_record_rewrap($1,$2,$3,$4) AS outcome",
+          [reference, envelope.wrapping_key_version, rewrapped.wrapping_key_version,
+           { value: rewrapped.serialize, format: 1 }]
+        ).to_a.first.fetch("outcome").to_sym
       end
 
       private
