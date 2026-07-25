@@ -142,6 +142,7 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       SQL
       expect(functions.map { |f| f["proname"] }).to contain_exactly(
         "f1_cancel_scheduled_action", "f1_claim_due_scheduled_actions", "f1_dispatch_scheduled_action",
+        "f1_fail_scheduled_action_dispatch",
         "f1_release_expired_scheduled_action_leases", "f1_release_scheduled_action_claim",
         "f1_settle_scheduled_action"
       )
@@ -208,8 +209,7 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
 
       worker = SecureRandom.uuid_v7
       dispatched = ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: owner, expected_generation: 1,
-                       worker_owner: worker)
+        store.dispatch(work_id: action.work_id, expected_generation: 1, worker_owner: worker)
       end
       expect(dispatched).not_to be_nil
       expect(ScheduledActionHarness.row(id).values_at("status", "claim_phase")).to eq(%w[dispatched worker])
@@ -229,7 +229,7 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       action = claim
       worker = SecureRandom.uuid_v7
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: owner, expected_generation: action.claim_generation,
+        store.dispatch(work_id: action.work_id, expected_generation: action.claim_generation,
                        worker_owner: worker)
         store.settle(action_id: id, owner: worker, generation: action.claim_generation,
                      status: "completed")

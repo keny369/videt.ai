@@ -11,9 +11,12 @@ module Platform
       :id, :action_kind, :action_schema_version, :organization_id, :project_id,
       :target_type, :target_id, :product_generation, :schedule_generation,
       :due_at, :claim_generation, :correlation_id, :causation_id,
-      :executing_service_identity_id, :identity_sha256
+      :executing_service_identity_id, :identity_sha256, :work_id
     ) do
+      # The fixed Redis queue and the catalogue work-type for this kind; the
+      # Dispatcher stamps `work_type` into the scalar envelope (:77).
       def queue = Platform::ScheduledActions::Catalogue.queue_for(action_kind)
+      def work_type = Platform::ScheduledActions::Catalogue.work_type_for(action_kind)
     end
   end
 end

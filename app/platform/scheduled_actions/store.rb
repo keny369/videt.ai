@@ -85,14 +85,24 @@ module Platform
         exec(sql, [owner, limit, lease_seconds]).to_a.map { |row| to_action(row) }
       end
 
-      # The scheduler-to-worker compare-and-swap handoff. Returns the Action, or
-      # nil when this caller does not own the exact claim generation — a duplicate
-      # delivery, a reclaimed lease or a terminal action, each of which exits
-      # without product work.
-      def dispatch(action_id:, expected_owner:, expected_generation:, worker_owner:, lease_seconds: 30)
-        sql = "SELECT * FROM f1_dispatch_scheduled_action($1::uuid,$2::uuid,$3,$4::uuid,$5)"
-        row = exec(sql, [action_id, expected_owner, expected_generation, worker_owner, lease_seconds]).to_a.first
+      # The scheduler-to-worker compare-and-swap handoff, resolved THROUGH the Work
+      # Dispatch Binding named by the envelope `work_id` (:243). Returns the Action,
+      # or nil when the binding is unknown, its claim generation does not match the
+      # envelope's, or the action is already owned by another worker / terminal /
+      # reclaimed — each of which exits without product work.
+      def dispatch(work_id:, expected_generation:, worker_owner:, lease_seconds: 30)
+        sql = "SELECT * FROM f1_dispatch_scheduled_action($1::uuid,$2,$3::uuid,$4)"
+        row = exec(sql, [work_id, expected_generation, worker_owner, lease_seconds]).to_a.first
         row && to_action(row)
+      end
+
+      # Record a failed Redis enqueue for a claim this scheduler owner still holds,
+      # before any worker transfer: increment the dispatch-attempt counter and either
+      # back off at 1/5/30/120/600s or, on the sixth failure, quarantine the record as
+      # `redis_dispatch_exhausted` (:313). Returns 'rescheduled' | 'quarantined' | 'noop'.
+      def fail_dispatch(action_id:, owner:, generation:)
+        sql = "SELECT f1_fail_scheduled_action_dispatch($1::uuid,$2::uuid,$3)"
+        exec(sql, [action_id, owner, generation]).values.dig(0, 0)
       end
 
       def settle(action_id:, owner:, generation:, status:, reason: nil)
@@ -155,7 +165,8 @@ module Platform
           due_at: to_time(row["due_at"]), claim_generation: row["claim_generation"].to_i,
           correlation_id: row["correlation_id"], causation_id: row["causation_id"],
           executing_service_identity_id: row["executing_service_identity_id"],
-          identity_sha256: row["identity_sha256"] && to_bytes(row["identity_sha256"])
+          identity_sha256: row["identity_sha256"] && to_bytes(row["identity_sha256"]),
+          work_id: row["work_id"]
         )
       end
 

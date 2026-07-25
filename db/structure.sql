@@ -123,7 +123,7 @@ $$;
 -- Name: f1_claim_due_scheduled_actions(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_claim_due_scheduled_actions(p_owner uuid, p_limit integer, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb)
+CREATE FUNCTION public.f1_claim_due_scheduled_actions(p_owner uuid, p_limit integer, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, work_id uuid)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
@@ -137,22 +137,39 @@ BEGIN
     WHERE a.status = 'pending'
       AND a.due_at <= v_now
       AND (a.not_before_at IS NULL OR a.not_before_at <= v_now)
+      AND (a.next_dispatch_at IS NULL OR a.next_dispatch_at <= v_now)
       AND s.status = 'active'
     ORDER BY a.due_at, a.id
     FOR UPDATE OF a SKIP LOCKED
     LIMIT greatest(p_limit, 0)
+  ),
+  claimed AS (
+    UPDATE scheduled_actions a
+    SET status = 'claimed', claim_owner = p_owner, claim_generation = a.claim_generation + 1,
+        claimed_at = v_now, lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+        claim_phase = 'scheduler', last_heartbeat_at = NULL, next_dispatch_at = NULL,
+        updated_at = v_now, state_version = a.state_version + 1
+    FROM due
+    WHERE a.id = due.id
+    RETURNING a.id, a.action_kind, a.action_schema_version, a.organization_id, a.project_id,
+              a.target_type, a.target_id, a.product_generation, a.schedule_generation,
+              a.due_at, a.claim_generation, a.correlation_id, a.causation_id,
+              a.executing_service_identity_id, a.payload_refs
+  ),
+  bound AS (
+    INSERT INTO work_dispatch_bindings
+      (id, created_at, organization_id, source_action_id, source_claim_generation,
+       action_kind, target_type, target_id, target_generation)
+    SELECT gen_random_uuid(), v_now, c.organization_id, c.id, c.claim_generation,
+           c.action_kind, 'scheduled_action', c.id, c.claim_generation
+    FROM claimed c
+    RETURNING id AS work_id, source_action_id
   )
-  UPDATE scheduled_actions a
-  SET status = 'claimed', claim_owner = p_owner, claim_generation = a.claim_generation + 1,
-      claimed_at = v_now, lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
-      claim_phase = 'scheduler', last_heartbeat_at = NULL, updated_at = v_now,
-      state_version = a.state_version + 1
-  FROM due
-  WHERE a.id = due.id
-  RETURNING a.id, a.action_kind, a.action_schema_version, a.organization_id, a.project_id,
-            a.target_type, a.target_id, a.product_generation, a.schedule_generation,
-            a.due_at, a.claim_generation, a.correlation_id, a.causation_id,
-            a.executing_service_identity_id, a.payload_refs;
+  SELECT c.id, c.action_kind, c.action_schema_version, c.organization_id, c.project_id,
+         c.target_type, c.target_id, c.product_generation, c.schedule_generation,
+         c.due_at, c.claim_generation, c.correlation_id, c.causation_id,
+         c.executing_service_identity_id, c.payload_refs, b.work_id
+  FROM claimed c JOIN bound b ON b.source_action_id = c.id;
 END;
 $$;
 
@@ -243,27 +260,39 @@ $$;
 
 
 --
--- Name: f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+-- Name: f1_dispatch_scheduled_action(uuid, bigint, uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_dispatch_scheduled_action(p_action_id uuid, p_expected_owner uuid, p_expected_generation bigint, p_worker_owner uuid, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, identity_sha256 bytea)
+CREATE FUNCTION public.f1_dispatch_scheduled_action(p_work_id uuid, p_expected_generation bigint, p_worker_owner uuid, p_lease_seconds integer) RETURNS TABLE(id uuid, action_kind text, action_schema_version text, organization_id uuid, project_id uuid, target_type text, target_id uuid, product_generation bigint, schedule_generation bigint, due_at timestamp with time zone, claim_generation bigint, correlation_id uuid, causation_id uuid, executing_service_identity_id uuid, payload_refs jsonb, identity_sha256 bytea)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 #variable_conflict use_column
-DECLARE v_now timestamptz(6) := transaction_timestamp();
+DECLARE
+  v_now timestamptz(6) := transaction_timestamp();
+  v_action_id uuid;
+  v_generation bigint;
 BEGIN
+  SELECT b.source_action_id, b.source_claim_generation
+    INTO v_action_id, v_generation
+    FROM work_dispatch_bindings b WHERE b.id = p_work_id;
+  IF v_action_id IS NULL OR v_generation <> p_expected_generation THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
   UPDATE scheduled_actions a
   SET status = 'dispatched',
       dispatched_at = coalesce(a.dispatched_at, v_now),
       claim_owner = p_worker_owner, claim_phase = 'worker',
       lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+      dispatch_attempt_count = 0, next_dispatch_at = NULL,
       updated_at = v_now, state_version = a.state_version + 1
-  WHERE a.id = p_action_id
+  WHERE a.id = v_action_id
+    AND a.claim_generation = v_generation
     AND a.status IN ('claimed','dispatched')
-    AND a.claim_generation = p_expected_generation
-    AND a.claim_owner IN (p_expected_owner, p_worker_owner)
+    AND (a.claim_phase = 'scheduler'
+         OR (a.claim_phase = 'worker' AND a.claim_owner = p_worker_owner))
   RETURNING a.id, a.action_kind, a.action_schema_version, a.organization_id, a.project_id,
             a.target_type, a.target_id, a.product_generation, a.schedule_generation,
             a.due_at, a.claim_generation, a.correlation_id, a.causation_id,
@@ -590,6 +619,53 @@ CREATE FUNCTION public.f1_evidence_append_only() RETURNS trigger
     AS $$
 BEGIN
   RAISE EXCEPTION 'evidence_is_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_fail_scheduled_action_dispatch(uuid, uuid, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_fail_scheduled_action_dispatch(p_action_id uuid, p_owner uuid, p_generation bigint) RETURNS text
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+  v_now timestamptz(6) := transaction_timestamp();
+  v_count bigint;
+  v_intervals integer[] := ARRAY[1, 5, 30, 120, 600];
+BEGIN
+  SELECT dispatch_attempt_count INTO v_count
+    FROM scheduled_actions
+    WHERE id = p_action_id AND claim_owner = p_owner AND claim_generation = p_generation
+      AND status = 'claimed' AND claim_phase = 'scheduler' AND dispatched_at IS NULL
+    FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN 'noop';
+  END IF;
+
+  v_count := v_count + 1;
+  IF v_count >= 6 THEN
+    UPDATE scheduled_actions
+    SET status = 'quarantined', quarantined_at = v_now, reason = 'redis_dispatch_exhausted',
+        dispatch_attempt_count = v_count,
+        claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+        claim_phase = NULL, last_heartbeat_at = NULL,
+        updated_at = v_now, state_version = state_version + 1
+    WHERE id = p_action_id;
+    RETURN 'quarantined';
+  END IF;
+
+  UPDATE scheduled_actions
+  SET status = 'pending', dispatch_attempt_count = v_count,
+      next_dispatch_at = v_now + make_interval(secs => v_intervals[v_count]),
+      reason = 'redis_dispatch_retry_scheduled',
+      claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
+      claim_phase = NULL, last_heartbeat_at = NULL,
+      updated_at = v_now, state_version = state_version + 1
+  WHERE id = p_action_id;
+  RETURN 'rescheduled';
 END;
 $$;
 
@@ -1001,6 +1077,20 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_work_dispatch_bindings_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_work_dispatch_bindings_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'work_dispatch_binding_is_immutable' USING ERRCODE = 'raise_exception';
 END;
 $$;
 
@@ -1916,6 +2006,8 @@ CREATE TABLE public.scheduled_actions (
     canceled_at timestamp(6) with time zone,
     quarantined_at timestamp(6) with time zone,
     reason text,
+    dispatch_attempt_count bigint DEFAULT 0 NOT NULL,
+    next_dispatch_at timestamp(6) with time zone,
     CONSTRAINT scheduled_action_canceled_has_time CHECK (((status = 'canceled'::text) = (canceled_at IS NOT NULL))),
     CONSTRAINT scheduled_action_claim_fields_match_status CHECK (((status = ANY (ARRAY['claimed'::text, 'dispatched'::text])) = ((claim_owner IS NOT NULL) AND (claimed_at IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (claim_phase IS NOT NULL) AND (claim_generation > 0)))),
     CONSTRAINT scheduled_action_completed_has_time CHECK (((status = 'completed'::text) = (completed_at IS NOT NULL))),
@@ -1926,6 +2018,7 @@ CREATE TABLE public.scheduled_actions (
     CONSTRAINT scheduled_actions_claim_generation_check CHECK ((claim_generation >= 0)),
     CONSTRAINT scheduled_actions_claim_phase_check CHECK ((claim_phase = ANY (ARRAY['scheduler'::text, 'worker'::text]))),
     CONSTRAINT scheduled_actions_collision_ordinal_check CHECK ((collision_ordinal >= 0)),
+    CONSTRAINT scheduled_actions_dispatch_attempt_count_check CHECK ((dispatch_attempt_count >= 0)),
     CONSTRAINT scheduled_actions_identity_preimage_check CHECK ((octet_length(identity_preimage) > 0)),
     CONSTRAINT scheduled_actions_identity_sha256_check CHECK ((octet_length(identity_sha256) = 32)),
     CONSTRAINT scheduled_actions_product_generation_check CHECK ((product_generation >= 0)),
@@ -2039,6 +2132,26 @@ CREATE TABLE public.sources (
 );
 
 ALTER TABLE ONLY public.sources FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: work_dispatch_bindings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.work_dispatch_bindings (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid,
+    source_action_id uuid NOT NULL,
+    source_claim_generation bigint NOT NULL,
+    action_kind text NOT NULL,
+    target_type text NOT NULL,
+    target_id uuid NOT NULL,
+    target_generation bigint,
+    CONSTRAINT work_dispatch_bindings_source_claim_generation_check CHECK ((source_claim_generation > 0)),
+    CONSTRAINT work_dispatch_bindings_target_generation_check CHECK (((target_generation IS NULL) OR (target_generation > 0))),
+    CONSTRAINT work_dispatch_bindings_target_type_check CHECK ((target_type = 'scheduled_action'::text))
+);
 
 
 --
@@ -2426,6 +2539,22 @@ ALTER TABLE ONLY public.sources
 
 
 --
+-- Name: work_dispatch_bindings work_dispatch_bindings_identity; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.work_dispatch_bindings
+    ADD CONSTRAINT work_dispatch_bindings_identity UNIQUE (source_action_id, source_claim_generation);
+
+
+--
+-- Name: work_dispatch_bindings work_dispatch_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.work_dispatch_bindings
+    ADD CONSTRAINT work_dispatch_bindings_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: evidence_content_hash_lookup; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2566,6 +2695,13 @@ CREATE UNIQUE INDEX sources_nonremoved_host_unique ON public.sources USING btree
 
 
 --
+-- Name: work_dispatch_bindings_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX work_dispatch_bindings_source ON public.work_dispatch_bindings USING btree (source_action_id, source_claim_generation);
+
+
+--
 -- Name: billing_entities billing_entities_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2612,6 +2748,13 @@ CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions
 --
 
 CREATE TRIGGER sources_lifecycle_guard BEFORE UPDATE ON public.sources FOR EACH ROW EXECUTE FUNCTION public.f1_sources_lifecycle_guard();
+
+
+--
+-- Name: work_dispatch_bindings work_dispatch_bindings_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER work_dispatch_bindings_no_update BEFORE DELETE OR UPDATE ON public.work_dispatch_bindings FOR EACH ROW EXECUTE FUNCTION public.f1_work_dispatch_bindings_immutable();
 
 
 --
@@ -3042,12 +3185,26 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 
 
 --
+-- Name: work_dispatch_bindings; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.work_dispatch_bindings ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: work_dispatch_bindings work_dispatch_bindings_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- PostgreSQL database dump complete
 --
 
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120027'),
 ('20260725120026'),
 ('20260725120025'),
 ('20260725120024'),

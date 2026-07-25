@@ -326,8 +326,8 @@ RSpec.describe "WF-001 expire invitation lifecycle (expire vs accept/decline/rev
       )
       action = scheduler.claim_due.first
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: action.id, expected_owner: scheduler.owner,
-                       expected_generation: action.claim_generation, worker_owner: worker.owner)
+        store.dispatch(work_id: action.work_id, expected_generation: action.claim_generation,
+                       worker_owner: worker.owner)
       end
       # The product effect commits; the process dies before recording completion.
       run_expire_handler(expire_command(inv, Platform::ScheduledActions::Identity.digest(action_identity(inv))))

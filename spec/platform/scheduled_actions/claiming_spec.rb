@@ -111,9 +111,11 @@ RSpec.describe Platform::ScheduledActions::Scheduler, type: :model do
   describe "the scheduler-to-worker compare-and-swap handoff" do
     let(:worker_owner) { SecureRandom.uuid_v7 }
 
-    def dispatch(id, generation, owner: scheduler.owner, worker: worker_owner)
+    # Dispatch is resolved THROUGH the Work Dispatch Binding named by the envelope
+    # `work_id` (:243); the envelope's claim generation must match the binding's.
+    def dispatch(work_id, generation, worker: worker_owner)
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: owner, expected_generation: generation, worker_owner: worker)
+        store.dispatch(work_id:, expected_generation: generation, worker_owner: worker)
       end
     end
 
@@ -121,7 +123,7 @@ RSpec.describe Platform::ScheduledActions::Scheduler, type: :model do
       id = create
       action = scheduler.claim_due.first
 
-      expect(dispatch(id, action.claim_generation)).not_to be_nil
+      expect(dispatch(action.work_id, action.claim_generation)).not_to be_nil
       transferred = row(id)
       expect(transferred["status"]).to eq("dispatched")
       expect(transferred["claim_owner"]).to eq(worker_owner)
@@ -132,27 +134,32 @@ RSpec.describe Platform::ScheduledActions::Scheduler, type: :model do
     it "resumes the same claim for a duplicate delivery to the same worker" do
       id = create
       action = scheduler.claim_due.first
-      first = dispatch(id, action.claim_generation)
+      first = dispatch(action.work_id, action.claim_generation)
       dispatched_at = row(id)["dispatched_at"]
-      second = dispatch(id, action.claim_generation)
+      second = dispatch(action.work_id, action.claim_generation)
 
       expect(second).not_to be_nil
       expect(second.claim_generation).to eq(first.claim_generation)
       expect(row(id)["dispatched_at"]).to eq(dispatched_at)
     end
 
-    it "refuses a stale generation, a foreign owner and a reclaimed action" do
+    it "refuses a mismatched generation, another worker, and a reclaimed action" do
       id = create
       action = scheduler.claim_due.first
 
-      expect(dispatch(id, action.claim_generation + 1)).to be_nil
-      expect(dispatch(id, action.claim_generation, owner: SecureRandom.uuid_v7)).to be_nil
+      # A binding generation that does not match the envelope's is not transferable.
+      expect(dispatch(action.work_id, action.claim_generation + 1)).to be_nil
+      # The legitimate first transfer succeeds; a different worker then cannot steal it.
+      expect(dispatch(action.work_id, action.claim_generation)).not_to be_nil
+      expect(dispatch(action.work_id, action.claim_generation, worker: SecureRandom.uuid_v7)).to be_nil
 
+      # After lease expiry, recovery and a re-claim at a new generation and NEW binding,
+      # the old binding's generation no longer matches the action's current generation.
       ScheduledActionHarness.elapse_lease!(id)
       scheduler.recover_expired_leases
       reclaimed = described_class.new.claim_due.first
       expect(reclaimed.claim_generation).to eq(2)
-      expect(dispatch(id, action.claim_generation)).to be_nil
+      expect(dispatch(action.work_id, action.claim_generation)).to be_nil
     end
   end
 
@@ -174,8 +181,8 @@ RSpec.describe Platform::ScheduledActions::Scheduler, type: :model do
       id = create
       action = scheduler.claim_due.first
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: scheduler.owner,
-                       expected_generation: action.claim_generation, worker_owner: SecureRandom.uuid_v7)
+        store.dispatch(work_id: action.work_id, expected_generation: action.claim_generation,
+                       worker_owner: SecureRandom.uuid_v7)
       end
       ScheduledActionHarness.elapse_lease!(id)
 
@@ -195,8 +202,8 @@ RSpec.describe Platform::ScheduledActions::Scheduler, type: :model do
       action = scheduler.claim_due.first
       worker = SecureRandom.uuid_v7
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: scheduler.owner,
-                       expected_generation: action.claim_generation, worker_owner: worker)
+        store.dispatch(work_id: action.work_id, expected_generation: action.claim_generation,
+                       worker_owner: worker)
         store.settle(action_id: id, owner: worker, generation: action.claim_generation, status: "completed")
       end
 

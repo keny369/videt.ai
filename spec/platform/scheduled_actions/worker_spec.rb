@@ -223,8 +223,7 @@ RSpec.describe Platform::ScheduledActions::Worker, type: :model do
       # Dispatch and run the handler, then lose the process before the settle
       # transaction — the product effect is committed, the action is not.
       ScheduledActionHarness.transport_store do |store|
-        store.dispatch(action_id: id, expected_owner: scheduler.owner,
-                       expected_generation: action.claim_generation,
+        store.dispatch(work_id: action.work_id, expected_generation: action.claim_generation,
                        worker_owner: worker.owner)
       end
       SpyHandler.calls << :committed_but_unrecorded

@@ -82,6 +82,7 @@ module F1
     REVOKE_PUBLIC_TABLES = (TABLE_PRIVILEGES.keys + %w[
       identity_receipt_nonces identity_receipt_consumptions f1_context_keys
       f1_encryption_key_versions f1_encrypted_records
+      work_dispatch_bindings
     ]).freeze
 
     # Rails owns these outside our migrations; the runtime reads migration state.
@@ -146,7 +147,11 @@ module F1
 
     PLATFORM_WORKER_FUNCTIONS = [
       "f1_claim_due_scheduled_actions(uuid, integer, integer)",
-      "f1_dispatch_scheduled_action(uuid, uuid, bigint, uuid, integer)",
+      # F-04: dispatch now resolves the Work Dispatch Binding by work_id (uuid) at the
+      # envelope's claim generation (bigint), transferring to the worker owner (uuid).
+      "f1_dispatch_scheduled_action(uuid, bigint, uuid, integer)",
+      # F-04: the infrastructure dispatch-retry / redis_dispatch_exhausted transition.
+      "f1_fail_scheduled_action_dispatch(uuid, uuid, bigint)",
       "f1_settle_scheduled_action(uuid, uuid, bigint, text, text)",
       "f1_release_scheduled_action_claim(uuid, uuid, bigint, text)",
       "f1_release_expired_scheduled_action_leases(integer)",

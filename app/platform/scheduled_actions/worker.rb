@@ -55,37 +55,51 @@ module Platform
         @owner = owner
       end
 
-      # Claim and execute one bounded due batch. Returns the ordered Outcomes.
+      # Claim and execute one bounded due batch (in-process path). Returns the
+      # ordered Outcomes. The claimed row carries its binding work_id and lineage.
       def run_due_batch(limit: Scheduler::BATCH_LIMIT)
         scheduler.claim_due(limit:).map { |action| execute(action) }
       end
 
-      # Execute one already-claimed action.
+      # Execute one already-claimed action: transfer the claim through its binding,
+      # then run under the action's own lineage.
       def execute(action)
-        dispatched = transfer(action)
+        dispatched = transfer(work_id: action.work_id, expected_generation: action.claim_generation)
         return outcome(action, :skipped, "claim_not_transferable") if dispatched.nil?
 
-        entry = @registry.resolve(action_kind: dispatched.action_kind,
-                                  action_schema_version: dispatched.action_schema_version)
-        return quarantine(dispatched, unmapped_reason(dispatched)) if entry.nil?
+        run_resolved(dispatched, correlation_id: action.correlation_id, causation_id: action.causation_id)
+      end
 
-        run_handler(dispatched, entry)
+      # Execute one transport delivery resolved ONLY by its Work Dispatch Binding
+      # (the Sidekiq path, :243). The envelope carries the lineage (:81-84); the
+      # binding resolves the action; a non-transferable binding is a no-op.
+      def execute_delivery(work_id:, expected_generation:, correlation_id:, causation_id:)
+        dispatched = transfer(work_id:, expected_generation:)
+        return delivery_skipped if dispatched.nil?
+
+        run_resolved(dispatched, correlation_id:, causation_id:)
       end
 
       private
 
-      def transfer(action)
+      def run_resolved(action, correlation_id:, causation_id:)
+        entry = @registry.resolve(action_kind: action.action_kind,
+                                  action_schema_version: action.action_schema_version)
+        return quarantine(action, unmapped_reason(action)) if entry.nil?
+
+        run_handler(action, entry, correlation_id:, causation_id:)
+      end
+
+      def transfer(work_id:, expected_generation:)
         TransportConnection.with do |pg|
           Store.new(pg).dispatch(
-            action_id: action.id, expected_owner: scheduler.owner,
-            expected_generation: action.claim_generation, worker_owner: owner,
-            lease_seconds: WORKER_LEASE_SECONDS
+            work_id:, expected_generation:, worker_owner: owner, lease_seconds: WORKER_LEASE_SECONDS
           )
         end
       end
 
-      def run_handler(action, entry)
-        result = invoke(action, entry)
+      def run_handler(action, entry, correlation_id:, causation_id:)
+        result = invoke(action, entry, correlation_id:, causation_id:)
         if result.failure? && QUARANTINE_REASONS.include?(result.reason_code)
           quarantine(action, result.reason_code, result:)
         else
@@ -98,15 +112,24 @@ module Platform
         release(action, "scheduled_action_execution_failed", error: e)
       end
 
-      def invoke(action, entry)
+      # The envelope's correlation is installed into the execution RequestContext
+      # directly (:81); causation reaches the command via the reloaded action, which
+      # is byte-identical to the envelope value — both are copied from the persisted
+      # work at claim time (:82). So every execution runs under the envelope's lineage.
+      def invoke(action, entry, correlation_id:, causation_id:)
         ctx = Platform::RequestContext.for_service(
           service_identity_id: action.executing_service_identity_id,
-          clock: @clock, ids: @ids, correlation_id: action.correlation_id
+          clock: @clock, ids: @ids, correlation_id: correlation_id
         )
         command = entry.command.from_scheduled_action(
           action:, command_id: ctx.generate_id, requested_at_utc: ctx.now_utc
         )
         entry.handler.new.call(command:, request_context: ctx)
+      end
+
+      def delivery_skipped
+        Outcome.new(action_id: nil, action_kind: nil, disposition: :skipped,
+                    reason: "claim_not_transferable", result: nil, error: nil)
       end
 
       def unmapped_reason(action)

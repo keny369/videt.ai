@@ -47,6 +47,24 @@ module Platform
           Store.new(pg).release_expired_leases(limit: [limit, BATCH_LIMIT].min)
         end
       end
+
+      # Record a failed Redis enqueue for a claim this scheduler owner still holds
+      # (:313); the Store applies the 1/5/30/120/600s schedule or the sixth-failure
+      # `redis_dispatch_exhausted` quarantine. Returns 'rescheduled'|'quarantined'|'noop'.
+      def fail_dispatch(action_id:, generation:)
+        TransportConnection.with do |pg|
+          Store.new(pg).fail_dispatch(action_id:, owner:, generation:)
+        end
+      end
+
+      # Quarantine a claim this scheduler owner still holds before it is enqueued — used when an
+      # action maps to no enqueueable work type (a nil catalogue work_type), so it is never
+      # emitted as an unparseable envelope that would churn forever (:245).
+      def quarantine(action_id:, generation:, reason:)
+        TransportConnection.with do |pg|
+          Store.new(pg).settle(action_id:, owner:, generation:, status: "quarantined", reason:)
+        end
+      end
     end
   end
 end
