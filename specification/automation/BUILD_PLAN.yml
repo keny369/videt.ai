@@ -81,27 +81,88 @@ blocks:
       - controller freeze report
       - proposed first S-05 pilot tranche
 
-  - id: S-05-PILOT
-    name: First S-05 Pilot Tranche
+  # Reconciled 2026-07-25 from the placeholder S-05-PILOT into the real first S-05
+  # tranche, derived from authoritative repository sources (not chat): the
+  # CONTROLLER_FREEZE_REPORT proposal, contracts/S-05.json (MTX-028/051/056/071),
+  # APPLICATION_LAYER.md § WF-003 (DEF-1 command vocabulary, ADR-024) and
+  # SCORE_EVIDENCE_MODEL.md § Ownership-Verification Evidence Contract. Owner
+  # approval to run the first pilot was given ("Run S-05-001"), clearing the
+  # human_gate_before; the human_gate_after (owner review before merge) stands.
+  - id: S-05-001
+    name: Ownership Verification — IssueVerificationChallenge (WF-003, first limb)
     type: product
-    status: awaiting_architecture_review
+    status: ready_for_review   # 2026-07-25: implemented, verified, independently reviewed; not merged
     depends_on:
       - CTRL-01
     authoritative_sources:
-      - TO_BE_DERIVED_FROM_REPOSITORY_SPECIFICATIONS
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#ownership-verification-evidence-contract
+      - specification/volume-i/OWNER_DECISION_REGISTER.md OD-001 (ratified, ADR-019)
+      - specification/volume-ii/SECURITY_PERFORMANCE.md PRULE-005, PRULE-020
+      - CONTROLLER_FREEZE_REPORT.md (proposed pilot)
     scope:
-      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+      - the verification_requests aggregate table (RLS, lifecycle guard, method CHECK, one-pending-per-Source)
+      - Workflows::Wf003::IssueVerificationChallenge command + handler + challenge grammar + ledger + store
+      - challenge token issuance protected behind F-02 (Platform::Encryption), never persisted in plaintext
+      - the 24-hour verification_request_expire scheduled through F-04 (ScheduledActions catalogue)
+      - SourceVerificationRequested event, restricted audit, idempotent replay returning the same token
+      - the source.verify Permission Baseline row and the S-05 ErrorCatalog reasons
+      - deployment substrate for F-02's first consumer (dev/test key ring + f1:db:ensure_encryption_key)
     out_of_scope:
-      - frozen foundation changes
+      - DNS/HTTP observation (Reserve/Complete), scoring/evaluation (CAP-013/S-09)
+      - Source lifecycle transition proposed->verified (later observation-completion limb)
+      - expiry/cancel/fail execution and cryptographic deletion (later limbs)
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - an authorized OrganizationAdmin or TechnicalImplementer issues a challenge for a proposed Source
+      - the Request + encrypted challenge reference + digest + scheduled 24h expiry persist atomically
+      - the plaintext token is returned only in the authorized response and appears in no column/log/event/audit
+      - exact replay while pending returns the same token; a second request for the Source is verification_in_progress
+      - an unsupported method is rejected before any token is issued (PRULE-020)
+      - the Source stays proposed and no SourceVerified event is emitted
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - repository_security
+    human_gate_before: false   # cleared by owner instruction "Run S-05-001" (first-pilot approval)
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - the verification_requests migration + structure.sql
+      - the Wf003 IssueVerificationChallenge slice + specs
+      - S-05-001 completion report + DECISIONS ledger entry
+
+  - id: S-05-002
+    name: Ownership Verification — next WF-003 limb (to be defined from authoritative sources)
+    type: product
+    status: not_started   # NOT begun; scope defined only from authoritative sources after S-05-001 review
+    depends_on:
+      - S-05-001
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
+    scope:
+      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES_AFTER_S-05-001_REVIEW
+    out_of_scope:
+      - frozen foundation contract changes
       - destructive migrations
       - production deployment
     acceptance_criteria:
-      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES
     required_verification:
-      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES
     human_gate_before: true
     human_gate_after: true
-    risk_level: medium
+    risk_level: high
     allowed_foundation_dependencies:
       - F-01
       - F-02

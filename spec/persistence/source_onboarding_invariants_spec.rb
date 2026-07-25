@@ -123,9 +123,11 @@ RSpec.describe "Source onboarding invariants", type: :model do
     end
   end
 
-  describe "no verification or scope subsystem in this tranche" do
-    it "has no verification, attempt, source-set or scope-change tables" do
-      %w[verification_requests verification_attempts source_set_versions source_set_memberships
+  describe "no observation or scope subsystem beyond challenge issuance" do
+    # S-05-001 (IssueVerificationChallenge) adds `verification_requests`; the
+    # observation, source-set and scope-change tables remain later slices.
+    it "has no attempt, source-set or scope-change tables" do
+      %w[verification_attempts source_set_versions source_set_memberships
          source_scope_change_requests].each do |table|
         expect(DbInspector.one("SELECT to_regclass('public.#{table}') AS t")["t"]).to be_nil
       end

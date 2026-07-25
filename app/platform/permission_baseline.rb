@@ -51,10 +51,18 @@ module Platform
       # ":140 `source.register` | allow | allow | deny | allow |" — the CAP-004
       # actors are Organization Administrator, Marketing Operator and Technical
       # Implementer. It is NOT a protected permission (:333 omits it). The later
-      # Source lifecycle permissions (verification, scope, activation/disable/
-      # removal — S-05/S-06) are deliberately absent until their slices consume
-      # them.
-      "source.register" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
+      # Source scope and activation/disable/removal permissions (S-06) remain
+      # deliberately absent until their slices consume them.
+      "source.register" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
+      # CAP-005 / WF-003 Ownership Verification. `source.verify` is the canonical
+      # verification permission (contracts/S-05.json permission_checks): Verification
+      # Request creation is allowed to an Organization Administrator or a Technical
+      # Implementer, and every other role denies. It is NOT a protected permission
+      # (:333 omits it), so the baseline allow is sufficient and no protected-
+      # allowlist gate applies. The same permission later governs pending-challenge
+      # retrieval and cancellation (QRY-021 / CancelVerificationRequest), which are
+      # not built in this limb.
+      "source.verify"   => %w[OrganizationAdmin TechnicalImplementer].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

@@ -325,8 +325,11 @@ RSpec.describe "WF-004 register source", type: :acceptance,
       expect(source(sid)["state"]).to eq("proposed")
     end
 
-    it "has no verification or scope tables and no SourceVerified/SourceActivated events" do
-      %w[verification_requests verification_attempts source_set_versions source_scope_change_requests].each do |t|
+    it "does not verify or activate the Source: it stays proposed with no verified/observation tables or events" do
+      # S-05-001 adds `verification_requests` (challenge issuance), but WF-004
+      # registration never touches it, and the observation/scope tables and the
+      # SourceVerified/SourceActivated events remain later slices.
+      %w[verification_attempts source_set_versions source_scope_change_requests].each do |t|
         expect(DbInspector.one("SELECT to_regclass('public.#{t}') AS t")["t"]).to be_nil
       end
       expect(DbInspector.count("event_registry")).to be >= 0

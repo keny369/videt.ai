@@ -181,7 +181,24 @@ module Platform
       "source_host_invalid"               => "F1-VALIDATION-400",
       "project_not_registerable"          => "F1-DOMAIN-409",
       "source_host_already_registered"    => "F1-DOMAIN-409",
-      "source_register_unauthorized"      => "F1-AUTH-403"
+      "source_register_unauthorized"      => "F1-AUTH-403",
+      # S-05 Ownership Verification, IssueVerificationChallenge limb (WF-003 / CAP-005,
+      # contracts/S-05.json MTX-028/MTX-071 error_contract). Class mapping: method-set
+      # and request-shape rejections -> F1-VALIDATION-400; state/uniqueness/redelivery
+      # conflicts -> F1-DOMAIN-409; permission -> F1-AUTH-403. `tenant_mismatch`,
+      # `stale_state_version` and `idempotency_conflict` are reused from above with
+      # identical semantics. `unsupported_method` (PRULE-020) and the envelope-schema
+      # gate are rejected before any token is issued.
+      "verification_request_schema_unsupported" => "F1-VALIDATION-400",
+      "unsupported_method"                => "F1-VALIDATION-400",
+      "verification_in_progress"          => "F1-DOMAIN-409",
+      "source_not_proposed"               => "F1-DOMAIN-409",
+      # A pending Request whose challenge material cannot be decrypted on an
+      # authorized redelivery: it changes no Request or Source state and permits
+      # authorized cancellation followed by a new Request (a domain-state outcome,
+      # not a transient dependency failure to retry).
+      "challenge_redelivery_unavailable"  => "F1-DOMAIN-409",
+      "source_verify_unauthorized"        => "F1-AUTH-403"
     }.freeze
 
     def failure(reason_code, support_reference:)
