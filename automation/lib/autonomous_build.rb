@@ -30,3 +30,6 @@ end
 require_relative "autonomous_build/state_machine"
 require_relative "autonomous_build/paths"
 require_relative "autonomous_build/build_state"
+require_relative "autonomous_build/schema"
+require_relative "autonomous_build/redaction"
+require_relative "autonomous_build/command_policy"
