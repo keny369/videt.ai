@@ -198,7 +198,13 @@ module Platform
       # authorized cancellation followed by a new Request (a domain-state outcome,
       # not a transient dependency failure to retry).
       "challenge_redelivery_unavailable"  => "F1-DOMAIN-409",
-      "source_verify_unauthorized"        => "F1-AUTH-403"
+      "source_verify_unauthorized"        => "F1-AUTH-403",
+      # S-05-002 ExpireVerificationRequest (WF-003 expiry limb). A timer arriving for
+      # a Request that is no longer pending is a harmless state conflict between the
+      # persisted action and its target (:252 state conflicts -> F1-DOMAIN-409);
+      # scheduled_action_target_mismatch / scheduled_action_not_due are reused from
+      # the WF-001/WF-013 expiry handlers above.
+      "verification_request_not_pending"  => "F1-DOMAIN-409"
     }.freeze
 
     def failure(reason_code, support_reference:)

@@ -1090,18 +1090,12 @@ CREATE FUNCTION public.f1_verification_requests_lifecycle_guard() RETURNS trigge
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 BEGIN
-  -- The tenant, Project and Source a Request belongs to are fixed for life.
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
      OR NEW.source_id IS DISTINCT FROM OLD.source_id THEN
     RAISE EXCEPTION 'verification_request_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- The issuance facts (method, canonical host, challenge digest, initiator,
-  -- issued/expiry instants, idempotency provenance and schema) are frozen at
-  -- creation. The challenge digest in particular MUST survive the later
-  -- cryptographic deletion of the ciphertext (SCORE_EVIDENCE_MODEL.md: "the
-  -- digest and access audit remain").
   IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
      OR NEW.request_initiator_account_id IS DISTINCT FROM OLD.request_initiator_account_id
      OR NEW.method IS DISTINCT FROM OLD.method
@@ -1114,16 +1108,15 @@ BEGIN
     RAISE EXCEPTION 'verification_request_issuance_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- Request lifecycle transitions are owned by the later S-05 limbs
-  -- (observation completion -> verified; the expiry job -> expired;
-  -- cancellation -> canceled; the integrity service -> failed) and the
-  -- cryptographic-deletion limb (which nulls the challenge material). None is
-  -- built. No path may change a Request's status in this baseline; each of
-  -- those slices will relax exactly its ratified edge.
   IF NEW.request_status IS DISTINCT FROM OLD.request_status THEN
+  -- S-05-002 relaxes exactly the pending -> expired edge; every other
+  -- transition remains unavailable until its slice lands.
+  IF NOT (OLD.request_status = 'pending' AND NEW.request_status = 'expired') THEN
     RAISE EXCEPTION 'verification_request_transition_unavailable % -> %', OLD.request_status, NEW.request_status
       USING ERRCODE = 'raise_exception';
   END IF;
+END IF;
+
 
   RETURN NEW;
 END;
@@ -3351,6 +3344,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260726120029'),
 ('20260725120028'),
 ('20260725120027'),
 ('20260725120026'),
