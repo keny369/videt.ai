@@ -252,7 +252,9 @@ module AutonomousBuild
       # backwards-compatible extension and does not escalate (ADR-027/ADR-029); every other frozen
       # change does. The classifier is content-aware and fails closed.
       frozen = FrozenContracts.escalating_frozen_changes(
-        @changed, diff_provider: ->(path) { @git.diff_path(base: @base, worktree: @worktree, path:) }
+        @changed,
+        diff_provider: ->(path) { @git.diff_path(base: @base, worktree: @worktree, path:) },
+        base_content_provider: ->(path) { @git.show(base: @base, path:) }
       )
       if frozen.any?
         raise Stop.new("human_decision_required",

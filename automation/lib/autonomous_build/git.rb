@@ -81,6 +81,13 @@ module AutonomousBuild
       run("git diff #{shellword(base)} -- #{shellword(path)}", chdir: worktree).output
     end
 
+    # The content of one path AT the base commit (nil if it did not exist there), so the additive-grant
+    # classifier can prove a re-added table key is genuinely new rather than a silent widening (§7.1).
+    def show(base:, path:)
+      result = run("git show #{shellword("#{base}:#{path}")}")
+      result.success? ? result.output : nil
+    end
+
     def worktrees = run("git worktree list --porcelain").output
 
     private

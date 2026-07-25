@@ -9,11 +9,14 @@ module AutonomousBuild
   # ONE ratified evolution rule (DECISIONS.md ADR-027/ADR-029): the runtime privilege manifest
   # `lib/f1/runtime_grants.rb` is frozen because it is security-critical, but its own charter requires
   # a new grant entry for EVERY new tenant table, so every product slice that adds a table must extend
-  # it. A PURELY ADDITIVE new-table grant (no existing grant changed, no line removed, no DELETE
-  # introduced, FORCE RLS untouched) is a backwards-compatible extension under the Foundation
-  # Consumption Rule and does NOT escalate; any other change to it — a new DELETE, a widened role, a
-  # modified or removed existing grant, or an unparseable change — still escalates, and every OTHER
-  # frozen path escalates unconditionally. The classifier fails closed.
+  # it. A change to it is a backwards-compatible extension that does NOT escalate ONLY when it proves,
+  # against the base version of the file, that it: (a) removes/modifies no existing line; (b) adds only
+  # comments/blank lines and `"table" => "<privs>"` entries; (c) grants each new table ONLY privileges
+  # in the least-privilege allowlist {SELECT, INSERT, UPDATE} — never DELETE, TRUNCATE, REFERENCES,
+  # TRIGGER, ALL, or any other privilege; and (d) adds only GENUINELY NEW table keys, never a duplicate
+  # that Ruby's last-value-wins semantics would use to silently widen an existing table's grant. Any
+  # other change to it, and every OTHER frozen path, escalates. The classifier FAILS CLOSED: without
+  # both the diff and the base content, or on anything it cannot prove safe, it escalates.
   module FrozenContracts
     module_function
 
@@ -33,6 +36,17 @@ module AutonomousBuild
       %r{\Alib/f1/runtime_grants\.rb\z}
     ].freeze
 
+    # The ONLY privileges a table grant may confer — an allowlist, not a denylist, so a broad or
+    # destructive privilege (DELETE, TRUNCATE, ALL, REFERENCES, TRIGGER, …) never passes as "additive".
+    SAFE_PRIVILEGES = %w[SELECT INSERT UPDATE].freeze
+
+    # Unified-diff metadata lines (headers/hunks), matched precisely so a real content line beginning
+    # with `+`/`-` after its diff prefix is never mistaken for a header.
+    DIFF_METADATA = /\A(\+\+\+ |--- |@@|diff |index |new file|deleted file|rename |similarity |Binary )/
+
+    GRANT_ENTRY = /\A"([^"]+)"\s*=>\s*"([A-Z][A-Z, ]*)",?\z/
+    GRANT_KEY = /\A"([^"]+)"\s*=>/
+
     def frozen_path?(path) = FROZEN.any? { |re| path.match?(re) }
     def additive_exception_path?(path) = ADDITIVE_EXCEPTION.any? { |re| path.match?(re) }
 
@@ -41,46 +55,61 @@ module AutonomousBuild
 
     def modifies_frozen?(changed_files) = frozen_changes(changed_files).any?
 
-    # The subset of frozen changes that MUST escalate. A frozen path with a ratified additive
-    # exception whose change is PROVEN purely additive (via `diff_provider.call(path) -> unified diff`)
-    # does not escalate; every other frozen change does. Fails closed: with no diff_provider, or a
-    # change that cannot be proven additive, the path escalates.
-    def escalating_frozen_changes(changed_files, diff_provider: nil)
+    # The subset of frozen changes that MUST escalate. A frozen path with a ratified additive exception
+    # whose change is PROVEN a safe additive extension (via the diff and the base content) does not
+    # escalate; every other frozen change does. Fails closed.
+    def escalating_frozen_changes(changed_files, diff_provider: nil, base_content_provider: nil)
       frozen_changes(changed_files).reject do |path|
-        additive_exception_path?(path) && diff_provider && additive_grant_change?(diff_provider.call(path))
+        additive_exception_path?(path) && diff_provider &&
+          additive_grant_change?(diff_provider.call(path), base_content: base_content_provider&.call(path))
       end
     end
 
-    def escalates?(changed_files, diff_provider: nil) = escalating_frozen_changes(changed_files, diff_provider:).any?
+    def escalates?(changed_files, diff_provider: nil, base_content_provider: nil)
+      escalating_frozen_changes(changed_files, diff_provider:, base_content_provider:).any?
+    end
 
-    # True only for a purely-additive change: a non-empty unified diff that REMOVES no line and whose
-    # every added line is a comment, a blank line, or a least-privilege table-grant entry with no
-    # DELETE. Any removal or modification of an existing line, any DELETE, or any added line that is
-    # not a recognizable grant/comment fails the test (→ escalate).
-    def additive_grant_change?(diff)
+    # True only for a proven-safe additive grant extension. See the module comment for the four
+    # conditions. `base_content` is the file at the base commit, used to prove genuine new-table-ness.
+    def additive_grant_change?(diff, base_content: nil)
       return false if diff.nil?
 
       added = []
       diff.to_s.each_line do |line|
-        next if line.start_with?("+++", "---", "diff ", "index ", "@@", "new file", "deleted file", "rename ")
+        next if line.match?(DIFF_METADATA)
         if line.start_with?("+")
-          added << line[1..].to_s
+          added << line[1..].to_s.strip
         elsif line.start_with?("-")
           return false # a removed or modified existing line is not purely additive
         end
       end
       return false if added.empty?
+      return false unless added.all? { |body| additive_grant_line?(body) }
 
-      added.all? { |body| additive_grant_line?(body.strip) }
+      # Every added grant must name a GENUINELY NEW table key. A duplicate key (last-value-wins) would
+      # silently override an existing table's privileges as a pure "addition". Proving newness needs the
+      # base file; without it, fail closed.
+      added_keys = added.filter_map { |b| b[GRANT_KEY, 1] }
+      return true if added_keys.empty? # comments/blank lines only — harmless
+      return false if base_content.nil?
+
+      existing = existing_grant_keys(base_content)
+      added_keys.none? { |k| existing.include?(k) }
     end
 
-    # A single added line that is safe in a purely-additive grant extension: a comment, a blank line,
-    # or a `"table" => "SELECT, INSERT, UPDATE"` entry that grants no DELETE.
+    # A single added line that is safe: a comment, a blank line, or a `"table" => "…"` entry that
+    # grants ONLY allowlisted privileges.
     def additive_grant_line?(body)
       return true if body.empty? || body.start_with?("#")
-      return false if body.match?(/\bDELETE\b/i)
 
-      body.match?(/\A"[^"]+"\s*=>\s*"[A-Z][A-Z, ]*",?\z/)
+      match = body.match(GRANT_ENTRY) or return false
+      match[2].split(",").map(&:strip).all? { |priv| SAFE_PRIVILEGES.include?(priv) }
+    end
+
+    # The table keys already present in the base file (any `"key" =>` entry), so a re-added key is
+    # detected as a modification rather than an addition.
+    def existing_grant_keys(base_content)
+      base_content.to_s.scan(/^\s*"([^"]+)"\s*=>/).flatten
     end
   end
 end
