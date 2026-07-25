@@ -240,14 +240,15 @@ module Workflows
         # log recording the failed redelivery, and permits authorized cancellation
         # followed by a new Request.
         def redelivery_unavailable(d, vid)
-          write_audit(d[:store], d[:ctx].generate_id, d[:org], d[:ctx], d[:command], vid, d[:actor],
+          audit_id = d[:ctx].generate_id
+          write_audit(d[:store], audit_id, d[:org], d[:ctx], d[:command], vid, d[:actor],
                       to_state: nil, outcome: "failure", reason_code: "challenge_redelivery_unavailable",
                       payload: { "outcome" => "failure", "internal_reason" => "challenge_redelivery_unavailable",
                                  "verification_request_id" => vid, "organization_id" => d[:org] }, now: d[:now])
           failure = Platform::ErrorCatalog.failure("challenge_redelivery_unavailable",
                                                    support_reference: d[:ctx].correlation_id)
           Platform::CommandResult.failure(result_id: d[:ctx].generate_id, command_type: d[:command].command_type,
-                                          failure:, audit_record_id: d[:ctx].generate_id,
+                                          failure:, audit_record_id: audit_id,
                                           correlation_id: d[:ctx].correlation_id)
         end
 

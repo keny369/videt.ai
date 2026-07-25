@@ -352,6 +352,29 @@ RSpec.describe "WF-003 issue verification challenge", type: :acceptance,
       expect(replay.reason_code).to eq("challenge_redelivery_unavailable")
       # The Request is unchanged and still pending.
       expect(vr(first.payload[:verification_request_id])["request_status"]).to eq("pending")
+      # The failed redelivery is access-logged, and the returned audit id resolves to it.
+      failure_log = DbInspector.one("SELECT * FROM audit_record_registry WHERE id = $1::uuid", [replay.audit_record_id])
+      expect(failure_log["reason_code"]).to eq("challenge_redelivery_unavailable")
+      expect(failure_log["outcome"]).to eq("failure")
+    end
+
+    it "access-logs a redelivery as a restricted WF-003 security audit that never contains the token" do
+      g, sid = genesis_with_source
+      first = issue(session_id: g[:session_id], organization_id: g[:organization_id],
+                    project_id: g[:project_id], source_id: sid, idempotency_key: "audit")
+      token = first.payload[:challenge_token]
+      vid = first.payload[:verification_request_id]
+      issue(session_id: g[:session_id], organization_id: g[:organization_id],
+            project_id: g[:project_id], source_id: sid, idempotency_key: "audit") # exact replay
+
+      logs = DbInspector.all(<<~SQL, [vid])
+        SELECT * FROM audit_record_registry WHERE entity_id = $1::uuid AND workflow_id = 'WF-003'
+          AND reason_code = 'challenge_redelivered'
+      SQL
+      expect(logs.size).to eq(1)
+      expect(logs.first["classification"]).to eq("restricted")
+      expect(logs.first["retention_class"]).to eq("security_audit")
+      expect(logs.first["payload"]).not_to include(token)
     end
   end
 
