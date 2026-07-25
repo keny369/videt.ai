@@ -30,20 +30,24 @@ module Platform
 
     POLL_INTERVAL_SECONDS = 1
 
-    # Run the singleton scheduler. Acquire the leader lease ONCE on a persistent transport
+    # Run the singleton scheduler. Acquire the leader lease ONCE on a dedicated, PINNED transport
     # connection and HOLD it for the whole run while looping passes, so a second scheduler process
     # returns :not_leader without dispatching (the enforceable single-scheduler control while G6 is
-    # deferred). `running` is checked before each pass (default: forever); `pace` runs between
-    # passes (default: sleep the poll interval); `on_pass` observes each pass result. Returns the
-    # last pass result, or :not_leader if another scheduler already leads.
+    # deferred). If that lease-holding connection is lost mid-run it FAILS CLOSED — it does not
+    # silently reconnect and keep dispatching lease-less; it returns :lease_lost, and the next
+    # scheduler start must re-acquire the lease before any dispatch. `running` is checked before
+    # each pass (default: forever); `pace` runs between passes (default: sleep the poll interval);
+    # `on_pass` observes each pass. Returns the last pass result, :not_leader, or :lease_lost.
     def run_scheduler(dispatcher: ScheduledActions::Dispatcher.new,
                       running: -> { true }, pace: -> { sleep(POLL_INTERVAL_SECONDS) }, on_pass: nil)
-      ScheduledActions::TransportConnection.with do |pg|
+      ScheduledActions::TransportConnection.pinned do |pg|
         return :not_leader unless ScheduledActions::SchedulerLease.acquire?(pg)
 
         begin
           last = nil
           while running.call
+            break if pg.finished? # lease-holding connection gone: stop, never dispatch lease-less
+
             recovered = dispatcher.recover_expired_leases
             dispatched = dispatcher.dispatch_due
             last = { recovered:, dispatched: dispatched.size }
@@ -51,8 +55,10 @@ module Platform
             pace.call
           end
           last
+        rescue ScheduledActions::TransportConnection::ConnectionLost
+          :lease_lost # the connection (and with it the lease) was lost mid-pass: fail closed
         ensure
-          ScheduledActions::SchedulerLease.release(pg)
+          ScheduledActions::SchedulerLease.release(pg) unless pg.finished?
         end
       end
     end

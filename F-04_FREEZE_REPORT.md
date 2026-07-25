@@ -74,8 +74,9 @@ Both are recorded here, in DECISIONS.md (ADR-025), and enforced by a mechanism �
   without dispatching. `scheduler_lease_spec` proves exclusivity, failover, that the run holds the
   lease across the loop, and that the front door refuses a second leader. **The committed
   operational configuration must not run more than one scheduler process while G6 is deferred.**
-  (The lease is deliberately held for the whole run, not per pass: a per-pass acquire/release would
-  only serialise concurrent passes, not prevent two schedulers interleaving across time.)
+  (The lease is deliberately held for the whole run on a dedicated PINNED connection, not per pass: a
+  per-pass acquire/release would only serialise concurrent passes; and a lost lease-holding connection
+  fails closed — `run_scheduler` returns `:lease_lost` rather than reconnecting and dispatching lease-less.)
 
 No S-05 domain behaviour, and no G5/G6 machinery beyond the single-scheduler control, was built.
 
@@ -97,9 +98,9 @@ No S-05 domain behaviour, and no G5/G6 machinery beyond the single-scheduler con
 
 ## Verification
 
-- **970 examples, 0 failures** (full suite, post-review). Zeitwerk clean; Packwerk no offenses;
-  Brakeman 0 warnings; bundler-audit no vulnerabilities; `structure.sql` re-dumps with no drift; both
-  databases build from empty.
+- **973 examples, 0 failures** (full suite, post-review + post-confirmation hardening). Zeitwerk clean;
+  Packwerk no offenses; Brakeman 0 warnings; bundler-audit no vulnerabilities; `structure.sql` re-dumps
+  with no drift; both databases build from empty.
 - New/changed transport specs: `dispatch_retry_spec`, `scheduler_lease_spec`, `dispatcher_spec`,
   `envelope_spec`, `execution_job_spec`, `claiming_spec`, `store_spec`, `worker_spec`,
   `f04_background_execution_acceptance_spec`, `background_execution_single_surface_spec`.
@@ -147,3 +148,26 @@ transaction-safe; the envelope is fail-closed.
   — this predates F-04 (`20260722120010`) and is operationally guarded by `f1:db:ensure_service_identities`.
 
 Post-review, the full suite is **970 examples, 0 failures**, all gates green.
+
+### Post-freeze owner confirmation and hardening (2026-07-25)
+
+A read-only owner confirmation of nine freeze details found the single-scheduler control did not
+fully deliver two of them: a mid-run loss of the lease-holding transport connection was **silently
+reconnected**, so dispatch could continue on a connection that held no lease (neither stopping/failing
+closed nor re-acquiring). Correctness (at-most-once) was unaffected, but the enforcement guarantee
+was not met. The owner authorised the bounded fixes; **F-04 was not otherwise re-opened**:
+
+- **Connection-lifecycle fail-closed (points 2/3).** `TransportConnection.pinned` runs the scheduler on
+  a dedicated connection that is never silently reconnected — a lost connection raises `ConnectionLost`;
+  `run_scheduler` fails closed (`:lease_lost`) and the next start must re-acquire the lease before any
+  dispatch. Proven by `scheduler_lease_spec` (pinned-raises + run-fails-closed).
+- **Real-Redis crash-before-ack proof (point 6).** The acceptance spec now proves that a committed
+  effect whose ack is lost, then redelivered by Sidekiq, applies the domain effect exactly once.
+- **Production TLS enforcement (point 7).** `config/initializers/sidekiq.rb` now refuses to start in
+  production unless `REDIS_URL` is `rediss://` (authenticated TLS); plaintext stays dev/test only.
+- **Directory rename (point 8).** `specification/automatation/` → `specification/automation/`.
+
+Confirmed as already satisfied: dedicated pinned lease session (now fully, after the fix); specialised
+binding targets addable without changing `work_id`/envelope meaning; atomic increment/schedule/quarantine
+under concurrent failure (`FOR UPDATE`); the three F-04 commits are cleanly attributable/reviewable
+despite the historically broad branch name. Post-fix suite: **973 examples, 0 failures**, all gates green.

@@ -12,11 +12,12 @@ require "sidekiq/api"
 # inline production execution pathway (property 9). Requires Redis (frozen baseline: Valkey/Redis 8).
 #
 # The guarantee proven: TRANSPORT DELIVERY IS AT-LEAST-ONCE; THE AUTHORISED DOMAIN EFFECT IS
-# AT-MOST-ONCE. The remaining boundaries of the ratified matrix are proven in real-PostgreSQL
-# sibling specs (all same transport, no sleeps): the exact 1/5/30/120/600 s dispatch schedule,
-# the sixth-failure `redis_dispatch_exhausted` quarantine and its high alert in
-# spec/platform/scheduled_actions/dispatch_retry_spec.rb; the crash-after-committed-effect
-# recovery in spec/platform/scheduled_actions/worker_spec.rb and wf001_expire_invitation_lifecycle.
+# AT-MOST-ONCE — including a crash after the committed effect but before the acknowledgement,
+# where Sidekiq redelivers the same envelope and the terminal action makes it a no-op. The exact
+# 1/5/30/120/600 s dispatch schedule and the sixth-failure `redis_dispatch_exhausted` quarantine +
+# high alert are proven deterministically (same real PostgreSQL transport, no sleeps) in
+# spec/platform/scheduled_actions/dispatch_retry_spec.rb; the mid-execution crash before settle
+# (effect committed, action not) is also proven in worker_spec.rb and wf001_expire_invitation_lifecycle.
 RSpec.describe "F-04 Background Execution — real PostgreSQL + Redis + Sidekiq acceptance", type: :model do
   self.use_transactional_tests = false
 
@@ -115,6 +116,31 @@ RSpec.describe "F-04 Background Execution — real PostgreSQL + Redis + Sidekiq 
 
     # Sidekiq is at-least-once: a redelivery of the exact same envelope must do no product work.
     Platform::ScheduledActions::ExecutionJob.new.perform(args)
+    expect(SPY.calls.size).to eq(1)
+    expect(row(id)["status"]).to eq("completed")
+  end
+
+  it "does not repeat the domain effect after a crash between the committed effect and the ack" do
+    id = create_due
+    applied = 0
+    SPY.reset! do |_, _|
+      applied += 1
+      ok_result(applied == 1 ? nil : "invitation_not_active") # idempotent: a replay reports already-done
+    end
+
+    Platform::ScheduledActions::Dispatcher.new.dispatch_due
+    args = queued("control").first
+
+    # The delivery commits the domain effect and settles the action to completed...
+    Platform::ScheduledActions::ExecutionJob.new.perform(args)
+    expect(applied).to eq(1)
+    expect(row(id)["status"]).to eq("completed")
+
+    # ...but the process crashed before acking to Redis, so Sidekiq (at-least-once) redelivers the
+    # SAME envelope. The binding-mediated CAS finds the action terminal → no product work, and the
+    # idempotent handler is never re-invoked: the domain effect is applied exactly once.
+    Platform::ScheduledActions::ExecutionJob.new.perform(args)
+    expect(applied).to eq(1)
     expect(SPY.calls.size).to eq(1)
     expect(row(id)["status"]).to eq("completed")
   end

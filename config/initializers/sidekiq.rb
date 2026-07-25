@@ -11,6 +11,15 @@ require "sidekiq"
 # identities, never from Sidekiq/Redis controls.
 redis_url = ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")
 
+# Production MUST use an authenticated TLS Redis/Valkey (rediss://); plaintext is restricted to
+# development and test. The envelope carries only opaque identifiers, but transport-level auth+TLS
+# is a ratified requirement — fail startup rather than run plaintext in production. (Never echo the
+# URL: it may carry credentials — report only the scheme.)
+if Rails.env.production? && !redis_url.start_with?("rediss://")
+  raise "F1 production requires an authenticated TLS Redis URL (rediss://); refusing to start on " \
+        "#{redis_url.split('://').first}:// transport"
+end
+
 Sidekiq.configure_client do |config|
   config.redis = { url: redis_url }
 end

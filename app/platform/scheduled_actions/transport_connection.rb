@@ -29,13 +29,43 @@ module Platform
 
       ROLE = "f1_platform_worker"
       THREAD_KEY = :f1_scheduled_action_transport_connection
+      PINNED_KEY = :f1_scheduled_action_transport_pinned
 
-      # Yield a live transport connection. One per thread: libpq connections are
-      # not thread-safe and the worker runs a bounded number of threads.
+      # Raised when a PINNED transport connection is lost, so the caller (the scheduler holding
+      # the singleton lease) fails closed instead of silently reconnecting lease-less.
+      class ConnectionLost < StandardError; end
+
+      # Yield a live transport connection. One per thread: libpq connections are not thread-safe
+      # and the worker runs a bounded number of threads. In pinned mode a lost connection is NOT
+      # silently reconnected — it raises ConnectionLost, so a scheduler that lost its lease-holding
+      # connection stops dispatching rather than continuing on a connection that holds no lease.
       def with
         conn = Thread.current[THREAD_KEY]
-        conn = Thread.current[THREAD_KEY] = connect if conn.nil? || conn.finished?
+        if conn.nil? || conn.finished?
+          raise ConnectionLost, "pinned transport connection lost" if Thread.current[PINNED_KEY]
+
+          conn = Thread.current[THREAD_KEY] = connect
+        end
         yield conn
+      end
+
+      # Run the block on a single, dedicated, PINNED transport connection that is never silently
+      # reconnected (a lost connection raises ConnectionLost). The scheduler uses this so the lease
+      # and every dispatch statement share one session, and losing it fails closed. Restores the
+      # prior thread connection state and closes the dedicated connection afterwards.
+      def pinned
+        previous_conn = Thread.current[THREAD_KEY]
+        previous_pinned = Thread.current[PINNED_KEY]
+        conn = connect
+        Thread.current[THREAD_KEY] = conn
+        Thread.current[PINNED_KEY] = true
+        begin
+          yield conn
+        ensure
+          Thread.current[PINNED_KEY] = previous_pinned
+          Thread.current[THREAD_KEY] = previous_conn
+          conn.close unless conn.finished?
+        end
       end
 
       def connect

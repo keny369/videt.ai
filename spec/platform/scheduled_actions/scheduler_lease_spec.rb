@@ -91,4 +91,26 @@ RSpec.describe Platform::ScheduledActions::SchedulerLease, type: :model do
       contender.close
     end
   end
+
+  # A pinned transport connection must NOT be silently reconnected — losing it raises so the
+  # scheduler can fail closed rather than dispatch on a connection that holds no lease.
+  it "raises ConnectionLost instead of silently reconnecting a lost pinned connection" do
+    Platform::ScheduledActions::TransportConnection.pinned do |pg|
+      pg.close # simulate connection loss
+      expect { Platform::ScheduledActions::TransportConnection.with { |c| c } }
+        .to raise_error(Platform::ScheduledActions::TransportConnection::ConnectionLost)
+    end
+  end
+
+  # run_scheduler must fail closed (never continue lease-less) when the lease-holding connection is
+  # lost mid-run; the next start must re-acquire the lease before dispatching.
+  it "fails closed with :lease_lost when the lease-holding connection is lost mid-run" do
+    losing = Object.new
+    def losing.recover_expired_leases
+      raise Platform::ScheduledActions::TransportConnection::ConnectionLost, "lost"
+    end
+    def losing.dispatch_due(*) = raise("must not dispatch after the lease connection is lost")
+
+    expect(Platform::BackgroundExecution.run_scheduler(dispatcher: losing, pace: -> {})).to eq(:lease_lost)
+  end
 end

@@ -87,10 +87,12 @@ deterministic clocks and injected failures (no sleeps).
   production must auto-recover from a sustained Redis outage.
 - **G6** full renewable leader-election lease with heartbeat/failover (:112) — correctness holds via
   `FOR UPDATE SKIP LOCKED` + the binding-mediated worker CAS (duplicate enqueue is a no-op, AC-2). Enforced
-  now by a long-lived singleton scheduler (`BackgroundExecution.run_scheduler` holds `SchedulerLease` for the
-  process lifetime, so a second scheduler cannot acquire it and does not dispatch). Trigger: before more than
-  one scheduler process is configured/deployed. **The committed operational config must forbid multiple
-  scheduler processes while G6 is deferred.**
+  now by a long-lived singleton scheduler: `BackgroundExecution.run_scheduler` holds `SchedulerLease` for the
+  process lifetime on a dedicated PINNED transport connection, so a second scheduler cannot acquire it and does
+  not dispatch; and a lost lease-holding connection FAILS CLOSED (`:lease_lost`, no silent reconnect), with the
+  next start required to re-acquire the lease before any dispatch. Trigger: before more than one scheduler
+  process is configured/deployed. **The committed operational config must forbid multiple scheduler processes
+  while G6 is deferred.**
 
 Notes carried from the independent architecture review (informational, not gaps): the binding is a plain
 `INSERT` — safe because each claim mints a fresh `claim_generation` (a specialised-target slice that re-mints
