@@ -93,6 +93,10 @@ module F1DbProvision
     active = connection.select_value("SELECT f1_encryption_active_version(#{connection.quote(provider)})")
     return false if active.to_s != ""
 
+    # No active version yet: bootstrap one from the configured ring. The dev/test ring
+    # has exactly one version; a production ring undergoing rotation should register
+    # its intended active version explicitly rather than rely on this bootstrap, which
+    # only runs when NO active version exists.
     version, key_b64 = versions.first
     fingerprint_hex = Digest::SHA256.hexdigest(Base64.strict_decode64(key_b64))
     reference = "F1_ENCRYPTION_KEY_RING:#{version}"

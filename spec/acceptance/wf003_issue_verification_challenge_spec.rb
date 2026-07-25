@@ -204,6 +204,26 @@ RSpec.describe "WF-003 issue verification challenge", type: :acceptance,
         .to raise_error(Platform::Encryption::Error)
     end
 
+    it "cannot reveal one Request's challenge under another Request's record binding" do
+      g = genesis
+      a_source = register_source(session_id: g[:session_id], organization_id: g[:organization_id],
+                                 project_id: g[:project_id], uri: "https://a.example")
+      b_source = register_source(session_id: g[:session_id], organization_id: g[:organization_id],
+                                 project_id: g[:project_id], uri: "https://b.example")
+      a = issue(session_id: g[:session_id], organization_id: g[:organization_id],
+                project_id: g[:project_id], source_id: a_source, idempotency_key: "a")
+      b = issue(session_id: g[:session_id], organization_id: g[:organization_id],
+                project_id: g[:project_id], source_id: b_source, idempotency_key: "b")
+      ref_a = vr(a.payload[:verification_request_id])["challenge_ciphertext_reference"]
+
+      # The AAD binds record_id (the Request id), so A's ciphertext under B's Request
+      # binding fails authentication — a ciphertext cannot be relocated between Requests.
+      wrong = Platform::Encryption::Aad.for(application: "verification", record_type: "verification_request",
+                                            record_id: b.payload[:verification_request_id],
+                                            purpose: "challenge_token", tenant: g[:organization_id])
+      expect { Platform::Encryption.reveal(ref_a, aad: wrong) }.to raise_error(Platform::Encryption::Error)
+    end
+
     it "keeps the plaintext token out of the event, audit and result payloads" do
       g, sid = genesis_with_source
       result = issue(session_id: g[:session_id], organization_id: g[:organization_id],
@@ -290,6 +310,23 @@ RSpec.describe "WF-003 issue verification challenge", type: :acceptance,
       expect(replay.payload[:challenge_token]).to eq(first.payload[:challenge_token])
       expect(vrs.size).to eq(1)
       expect(wf003_events("SourceVerificationRequested").size).to eq(1)
+    end
+
+    it "does not disclose the token to a different same-organization actor reusing the idempotency key" do
+      g, sid = genesis_with_source
+      first = issue(session_id: g[:session_id], organization_id: g[:organization_id],
+                    project_id: g[:project_id], source_id: sid, idempotency_key: "shared-key")
+      expect(first).to be_success
+
+      # A different actor in the SAME Organization, also holding source.verify. The
+      # idempotency key is bound to the original actor (its account is in the request
+      # hash), so this is a different request while one is pending — never an
+      # exact-replay token redisclosure.
+      other = TenantSeeder.seed_authorized_admin(organization_id: g[:organization_id],
+                                                 canonical_role: "TechnicalImplementer", with_policy: false)
+      attempt = issue(session_id: other[:session_id], organization_id: g[:organization_id],
+                      project_id: g[:project_id], source_id: sid, idempotency_key: "shared-key")
+      expect(attempt.reason_code).to eq("verification_in_progress")
     end
 
     it "refuses a different request for the same Source while one is pending as verification_in_progress" do

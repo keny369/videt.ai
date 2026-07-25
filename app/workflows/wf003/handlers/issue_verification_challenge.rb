@@ -98,6 +98,9 @@ module Workflows
 
           store.lock_source(command.source_id)
 
+          # Idempotency is scoped to the Source (one verification is opened per Source):
+          # the idempotency target is the Source the Request is opened for, keyed within
+          # this command_type, so a replayed key resolves to the same Source's Request.
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           existing = store.find_idempotency(org: d[:org], command_type: command.command_type,
                                             target_type: TARGET_TYPE, target_id: command.source_id, key_digest:)
@@ -177,24 +180,33 @@ module Workflows
                                           payload: public_payload.transform_keys(&:to_sym).merge(challenge_token: token))
         end
 
-        # An exact creation-command replay by the original actor. While the Request is
-        # pending the same token is re-decrypted and returned without changing the
-        # Request, expiry, counts, idempotent result or event set; a terminal Request
-        # returns identifiers and status but never challenge material. A decryption
-        # failure yields `challenge_redelivery_unavailable` and changes no state.
+        # An exact creation-command replay by the original actor (the actor id is in
+        # the request hash, so only the original actor's replay reaches here). While
+        # the Request is pending the same token is re-decrypted and returned without
+        # changing the Request, expiry, counts, idempotent result or event set; a
+        # terminal Request returns identifiers and status but never challenge material.
+        # Every replay reauthorizes (already done in `process`) and appends a restricted
+        # security access log without changing domain state (S-05.json audit_record);
+        # a decryption failure yields `challenge_redelivery_unavailable`.
         def replay(d, existing)
           store = d[:store]
           command = d[:command]
           org = d[:org]
           stored = store.load_command_result(existing["command_result_id"])
           payload = JSON.parse(stored["authorized_payload"]).transform_keys(&:to_sym)
+          vid = payload[:verification_request_id]
 
-          vr = store.load_verification_request(payload[:verification_request_id])
+          vr = store.load_verification_request(vid)
           if vr && vr["request_status"] == "pending"
             token = redeliver_token(vr, org)
-            return redelivery_unavailable(d) if token.nil?
+            return redelivery_unavailable(d, vid) if token.nil?
 
+            write_access_log(d, vid, "challenge_redelivered")
             payload = payload.merge(challenge_token: token)
+          else
+            # Terminal replay: identifiers and status only, never challenge material —
+            # still access-logged.
+            write_access_log(d, vid, "challenge_replay_terminal")
           end
 
           Platform::CommandResult.success(result_id: stored["id"], command_type: command.command_type,
@@ -212,11 +224,26 @@ module Workflows
           nil
         end
 
-        # Decryption failure on an authorized redelivery: a domain-state outcome that
-        # changes no Request or Source state and no ledger row (the replay path has
-        # written nothing), permitting authorized cancellation followed by a new
-        # Request.
-        def redelivery_unavailable(d)
+        # A restricted security access log for an authorized challenge redelivery
+        # (S-05.json audit_record: "Challenge retrieval and replay each append a
+        # restricted security access log"). It records that a disclosure occurred and
+        # its outcome — never the token — and changes no domain state.
+        def write_access_log(d, vid, access)
+          write_audit(d[:store], d[:ctx].generate_id, d[:org], d[:ctx], d[:command], vid, d[:actor],
+                      to_state: nil, outcome: "success", reason_code: access,
+                      payload: { "outcome" => "success", "access" => access,
+                                 "verification_request_id" => vid, "organization_id" => d[:org] }, now: d[:now])
+        end
+
+        # Decryption failure on an authorized redelivery: a domain-state-preserving
+        # outcome that changes no Request or Source state, appends a restricted access
+        # log recording the failed redelivery, and permits authorized cancellation
+        # followed by a new Request.
+        def redelivery_unavailable(d, vid)
+          write_audit(d[:store], d[:ctx].generate_id, d[:org], d[:ctx], d[:command], vid, d[:actor],
+                      to_state: nil, outcome: "failure", reason_code: "challenge_redelivery_unavailable",
+                      payload: { "outcome" => "failure", "internal_reason" => "challenge_redelivery_unavailable",
+                                 "verification_request_id" => vid, "organization_id" => d[:org] }, now: d[:now])
           failure = Platform::ErrorCatalog.failure("challenge_redelivery_unavailable",
                                                    support_reference: d[:ctx].correlation_id)
           Platform::CommandResult.failure(result_id: d[:ctx].generate_id, command_type: d[:command].command_type,
