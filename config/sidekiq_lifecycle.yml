@@ -1,0 +1,15 @@
+# F-04 Background Execution — the worker_lifecycle process config (BACKGROUND_PROCESSING.md
+# :62, :65). Committed operational config for the `lifecycle` queue so the worker actually runs
+# (FOUNDATION-004 property 10 / AC-1: "Sidekiq runs against the control/lifecycle queues via
+# committed operational config"). Run as its own process, separate from worker_control:
+#
+#   bundle exec sidekiq -C config/sidekiq_lifecycle.yml
+#
+# One process, one queue, fixed concurrency 2 — never weighted polling. Scaling changes
+# process counts, never queue ownership or per-process concurrency (an architecture change).
+# Admits: retention, key/object destruction, deletion manifests, backup tombstones,
+# restore-drill records (the `object_destroy`/`lifecycle_delete` work types).
+---
+:concurrency: 2
+:queues:
+  - lifecycle

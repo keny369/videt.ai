@@ -1,0 +1,24 @@
+# F-04 Background Execution — Sidekiq queue/concurrency config (BACKGROUND_PROCESSING.md
+# :53-65). Queue ownership and per-process concurrency are FIXED and never weighted-polled:
+# a process listens to exactly one queue except worker_control, which serves `control`
+# (concurrency 3) plus a `maintenance` capsule (concurrency 2). Scaling changes process
+# counts, never queue ownership or per-process concurrency.
+#
+# This file configures the worker_control process. worker_lifecycle runs separately from its
+# own committed config (config/sidekiq_lifecycle.yml): `bundle exec sidekiq -C config/sidekiq_lifecycle.yml`
+# (retention / key/object destruction — the `verification_material_destroy` work-type).
+#
+# The `scheduler` is a THIRD, separate LONG-LIVED singleton process (not a Sidekiq worker, :67):
+# `rake f1:scheduled_actions:run` acquires Platform::ScheduledActions::SchedulerLease ONCE and
+# holds it for the process lifetime while it loops. Until the full renewable leader-election lease
+# lands (G6, deferred), no committed config may run more than one scheduler; because the lease is
+# held for the whole run, a second scheduler process cannot acquire it and exits without dispatching.
+---
+:concurrency: 3
+:queues:
+  - control
+:capsules:
+  maintenance:
+    :concurrency: 2
+    :queues:
+      - maintenance
