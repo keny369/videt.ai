@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# F1 Autonomous Build Controller CLI (specification/automation/AUTONOMOUS_BUILD_CONTROLLER.md §4.7).
+# Repository-native orchestration: derives work from versioned files, runs bounded, verified,
+# branch-isolated tranches, and never merges to the protected branch. Run `bin/autonomous-build help`.
+$LOAD_PATH.unshift File.expand_path("../automation/lib", __dir__)
+require "autonomous_build"
+
+exit AutonomousBuild::CLI.new.run(ARGV)
