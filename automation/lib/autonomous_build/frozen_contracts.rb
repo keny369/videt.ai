@@ -91,9 +91,12 @@ module AutonomousBuild
       # base file; without it, fail closed.
       added_keys = added.filter_map { |b| b[GRANT_KEY, 1] }
       return true if added_keys.empty? # comments/blank lines only — harmless
-      return false if base_content.nil?
 
+      # Prove newness against the base file. Fail closed if the base is missing OR yields no existing
+      # keys at all (an empty or unparseable manifest would make every duplicate read as "new").
       existing = existing_grant_keys(base_content)
+      return false if existing.empty?
+
       added_keys.none? { |k| existing.include?(k) }
     end
 
@@ -107,7 +110,10 @@ module AutonomousBuild
     end
 
     # The table keys already present in the base file (any `"key" =>` entry), so a re-added key is
-    # detected as a modification rather than an addition.
+    # detected as a modification rather than an addition. This relies on `TABLE_PRIVILEGES` being the
+    # ONLY string-keyed hash in the manifest (verified today); if a second string-keyed hash is ever
+    # added to `runtime_grants.rb`, scope this to the `TABLE_PRIVILEGES` block. Grant and comment lines
+    # begin with `"` / `#`, so they never collide with the `+++ `/`--- ` diff-metadata prefixes above.
     def existing_grant_keys(base_content)
       base_content.to_s.scan(/^\s*"([^"]+)"\s*=>/).flatten
     end
