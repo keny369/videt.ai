@@ -83,7 +83,11 @@ module AutonomousBuild
       private
 
       def shellescape(str) = "'#{str.gsub("'", "'\\\\''")}'"
-      def which?(bin) = system("command -v #{bin} > /dev/null 2>&1")
+
+      # Executable-on-PATH check without spawning a shell (no command-injection surface).
+      def which?(bin)
+        ENV["PATH"].to_s.split(File::PATH_SEPARATOR).any? { |dir| File.executable?(File.join(dir, bin)) }
+      end
     end
 
     # The deterministic, non-model reviewer stub (§6: "Provide a deterministic local reviewer stub …

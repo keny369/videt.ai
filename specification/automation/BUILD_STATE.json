@@ -3,7 +3,7 @@
   "controller_version": "0.1.0-unfrozen",
   "current_block": "CTRL-01",
   "current_tranche": "controller-implementation",
-  "status": "in_progress",
+  "status": "ready_for_review",
   "attempt_number": 1,
   "base_commit": "6292c6b9d9fd8e1bf76bc19b56b7c0ad9401d0ac",
   "worktree_path": "",
