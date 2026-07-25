@@ -75,6 +75,12 @@ module AutonomousBuild
         .output.lines.map { |l| l[3..].to_s.strip.split(" -> ").last.to_s.strip }.reject(&:empty?)
     end
 
+    # The unified diff of one path in the worktree relative to `base` (working-tree changes included),
+    # used to classify a frozen-path change as a purely-additive extension vs a privilege change (§7.1).
+    def diff_path(base:, worktree:, path:)
+      run("git diff #{shellword(base)} -- #{shellword(path)}", chdir: worktree).output
+    end
+
     def worktrees = run("git worktree list --porcelain").output
 
     private
