@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require "digest"
 require_relative "../f1/runtime_grants"
+require_relative "../f1/dev_encryption_key_ring"
 
 # Reproducible database provisioning from the canonical checked-in assets.
 #
@@ -24,6 +26,12 @@ namespace :f1 do
       puts "[f1:db:ensure_context_key] #{applied ? 'inserted a random proof key' : 'proof key already present'}"
     end
 
+    desc "Ensure an active F-02 wrapping-key version matching F1_ENCRYPTION_KEY_RING exists (idempotent). Production supplies the key ring out of band."
+    task ensure_encryption_key: :environment do
+      applied = F1DbProvision.ensure_encryption_key(ActiveRecord::Base.connection)
+      puts "[f1:db:ensure_encryption_key] #{applied ? 'registered the active wrapping-key version from F1_ENCRYPTION_KEY_RING' : 'active version already present or no key ring configured'}"
+    end
+
     desc "Ensure the reserved platform Service Identity rows exist (idempotent)"
     task ensure_service_identities: :environment do
       conn = ActiveRecord::Base.connection
@@ -41,6 +49,7 @@ namespace :f1 do
     task provision: :environment do
       Rake::Task["f1:db:grants"].invoke
       Rake::Task["f1:db:ensure_context_key"].invoke
+      Rake::Task["f1:db:ensure_encryption_key"].invoke
       Rake::Task["f1:db:ensure_service_identities"].invoke
       Rake::Task["f1:db:verify_runtime"].invoke
     end
@@ -65,6 +74,42 @@ module F1DbProvision
       )
       SELECT count(*) FROM ins
     SQL
+  end
+
+  # Register an active F-02 wrapping-key version whose fingerprint matches the key
+  # material in F1_ENCRYPTION_KEY_RING (Platform::Encryption::DeploymentKeySource),
+  # iff no active version exists. The database stores only the non-secret fingerprint
+  # (SHA-256 of the key), never the key. Guarded so it is safe before the ring table
+  # exists, and a no-op when no key ring is configured (production before deploy
+  # configuration). The register function is owner-only SECURITY DEFINER, so this
+  # runs on the provisioning (schema-owner) connection, not the runtime role.
+  def ensure_encryption_key(connection)
+    return false if connection.select_value("SELECT to_regclass('public.f1_encryption_key_versions')::text").nil?
+
+    provider = F1::DevEncryptionKeyRing::PROVIDER
+    versions = parse_key_ring(ENV["F1_ENCRYPTION_KEY_RING"])[provider]
+    return false if versions.nil? || versions.empty?
+
+    active = connection.select_value("SELECT f1_encryption_active_version(#{connection.quote(provider)})")
+    return false if active.to_s != ""
+
+    version, key_b64 = versions.first
+    fingerprint_hex = Digest::SHA256.hexdigest(Base64.strict_decode64(key_b64))
+    reference = "F1_ENCRYPTION_KEY_RING:#{version}"
+    connection.execute(
+      "SELECT f1_encryption_register_active_version(" \
+      "#{connection.quote(provider)}, #{connection.quote(version)}, " \
+      "decode(#{connection.quote(fingerprint_hex)}, 'hex'), #{connection.quote(reference)})"
+    )
+    true
+  end
+
+  def parse_key_ring(raw)
+    return {} if raw.to_s.empty?
+
+    JSON.parse(raw)
+  rescue JSON::ParserError
+    {}
   end
 
   # Insert the reserved platform Service Identity rows iff absent, never
@@ -188,6 +233,7 @@ end
     conn = ActiveRecord::Base.connection
     F1::RuntimeGrants.apply_all(conn)
     F1DbProvision.ensure_context_key(conn)
+    F1DbProvision.ensure_encryption_key(conn)
     F1DbProvision.ensure_service_identities(conn)
   end
 end

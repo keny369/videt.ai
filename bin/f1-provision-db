@@ -45,8 +45,8 @@ psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q \
 echo "== [3/5] run migrations (owner) =="
 RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db db:migrate
 
-echo "== [4/5] apply runtime grants + proof key + reserved service identities (owner) =="
-RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:grants f1:db:ensure_context_key f1:db:ensure_service_identities
+echo "== [4/5] apply runtime grants + proof key + wrapping-key version + reserved service identities (owner) =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:grants f1:db:ensure_context_key f1:db:ensure_encryption_key f1:db:ensure_service_identities
 
 echo "== [5/5] verify as f1_web (runtime), RLS intact =="
 RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:verify_runtime

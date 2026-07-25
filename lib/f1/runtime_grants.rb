@@ -53,6 +53,16 @@ module F1
       # removal is a state transition to 'removed', never a row DELETE, so no
       # DELETE is granted.
       "sources"                           => "SELECT, INSERT, UPDATE",
+      # S-05 IssueVerificationChallenge inserts one pending Verification Request and
+      # later S-05 limbs transition it in place (observation completion -> verified,
+      # the expiry job -> expired, cancellation, and the cryptographic-deletion limb
+      # that nulls the challenge material), so it carries UPDATE; there is no row
+      # DELETE (deletion is cryptographic erasure of the F-02 envelope, an UPDATE).
+      # Additive new-table grant (backwards-compatible extension, Foundation
+      # Consumption Rule): no existing table's privileges change and FORCE RLS is
+      # preserved. The challenge plaintext is never in this table; only the F-02
+      # ciphertext reference, key reference and digest are.
+      "verification_requests"             => "SELECT, INSERT, UPDATE",
       # F-03 Evidence is append-only: SELECT/INSERT, never UPDATE or DELETE. A trigger
       # refuses UPDATE/DELETE from every role; the missing grant is defence in depth.
       "evidence"                          => "SELECT, INSERT",

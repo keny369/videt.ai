@@ -1082,6 +1082,55 @@ $$;
 
 
 --
+-- Name: f1_verification_requests_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_verification_requests_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- The tenant, Project and Source a Request belongs to are fixed for life.
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id THEN
+    RAISE EXCEPTION 'verification_request_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- The issuance facts (method, canonical host, challenge digest, initiator,
+  -- issued/expiry instants, idempotency provenance and schema) are frozen at
+  -- creation. The challenge digest in particular MUST survive the later
+  -- cryptographic deletion of the ciphertext (SCORE_EVIDENCE_MODEL.md: "the
+  -- digest and access audit remain").
+  IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+     OR NEW.request_initiator_account_id IS DISTINCT FROM OLD.request_initiator_account_id
+     OR NEW.method IS DISTINCT FROM OLD.method
+     OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
+     OR NEW.challenge_token_sha256 IS DISTINCT FROM OLD.challenge_token_sha256
+     OR NEW.idempotency_key_digest IS DISTINCT FROM OLD.idempotency_key_digest
+     OR NEW.initial_challenge_delivered_at_utc IS DISTINCT FROM OLD.initial_challenge_delivered_at_utc
+     OR NEW.issued_at_utc IS DISTINCT FROM OLD.issued_at_utc
+     OR NEW.expires_at_utc IS DISTINCT FROM OLD.expires_at_utc THEN
+    RAISE EXCEPTION 'verification_request_issuance_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- Request lifecycle transitions are owned by the later S-05 limbs
+  -- (observation completion -> verified; the expiry job -> expired;
+  -- cancellation -> canceled; the integrity service -> failed) and the
+  -- cryptographic-deletion limb (which nulls the challenge material). None is
+  -- built. No path may change a Request's status in this baseline; each of
+  -- those slices will relax exactly its ratified edge.
+  IF NEW.request_status IS DISTINCT FROM OLD.request_status THEN
+    RAISE EXCEPTION 'verification_request_transition_unavailable % -> %', OLD.request_status, NEW.request_status
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_work_dispatch_bindings_immutable(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2135,6 +2184,53 @@ ALTER TABLE ONLY public.sources FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: verification_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_requests (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    request_initiator_account_id uuid NOT NULL,
+    method text NOT NULL,
+    canonical_host text NOT NULL,
+    challenge_token_sha256 bytea NOT NULL,
+    challenge_ciphertext_reference uuid,
+    challenge_key_id text,
+    initial_challenge_delivered_at_utc timestamp(6) with time zone NOT NULL,
+    issued_at_utc timestamp(6) with time zone NOT NULL,
+    expires_at_utc timestamp(6) with time zone NOT NULL,
+    idempotency_key_digest bytea NOT NULL,
+    request_status text NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    on_demand_observation_count integer DEFAULT 0 NOT NULL,
+    on_demand_in_progress_attempt_id uuid,
+    last_on_demand_completed_at_utc timestamp(6) with time zone,
+    last_observed_at_utc timestamp(6) with time zone,
+    decision_reason_code text,
+    CONSTRAINT verification_requests_attempt_count_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT verification_requests_challenge_token_sha256_check CHECK ((octet_length(challenge_token_sha256) = 32)),
+    CONSTRAINT verification_requests_expires_at_utc_is_24h CHECK ((expires_at_utc = (issued_at_utc + '24:00:00'::interval))),
+    CONSTRAINT verification_requests_idempotency_key_digest_check CHECK ((octet_length(idempotency_key_digest) = 32)),
+    CONSTRAINT verification_requests_method_check CHECK ((method = ANY (ARRAY['dns_txt'::text, 'http_file'::text]))),
+    CONSTRAINT verification_requests_on_demand_observation_count_check CHECK (((on_demand_observation_count >= 0) AND (on_demand_observation_count <= 10))),
+    CONSTRAINT verification_requests_pending_has_challenge CHECK (((request_status <> 'pending'::text) OR ((challenge_ciphertext_reference IS NOT NULL) AND (challenge_key_id IS NOT NULL)))),
+    CONSTRAINT verification_requests_pending_reason_null CHECK (((request_status <> 'pending'::text) OR (decision_reason_code IS NULL))),
+    CONSTRAINT verification_requests_request_status_check CHECK ((request_status = ANY (ARRAY['pending'::text, 'verified'::text, 'expired'::text, 'canceled'::text, 'failed'::text]))),
+    CONSTRAINT verification_requests_schema_version_check CHECK ((schema_version = 'verification-request-v1'::text))
+);
+
+ALTER TABLE ONLY public.verification_requests FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: work_dispatch_bindings; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2539,6 +2635,22 @@ ALTER TABLE ONLY public.sources
 
 
 --
+-- Name: verification_requests verification_requests_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_requests
+    ADD CONSTRAINT verification_requests_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: verification_requests verification_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_requests
+    ADD CONSTRAINT verification_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: work_dispatch_bindings work_dispatch_bindings_identity; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2695,6 +2807,13 @@ CREATE UNIQUE INDEX sources_nonremoved_host_unique ON public.sources USING btree
 
 
 --
+-- Name: verification_requests_one_pending_per_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX verification_requests_one_pending_per_source ON public.verification_requests USING btree (organization_id, project_id, source_id) WHERE (request_status = 'pending'::text);
+
+
+--
 -- Name: work_dispatch_bindings_source; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2748,6 +2867,13 @@ CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions
 --
 
 CREATE TRIGGER sources_lifecycle_guard BEFORE UPDATE ON public.sources FOR EACH ROW EXECUTE FUNCTION public.f1_sources_lifecycle_guard();
+
+
+--
+-- Name: verification_requests verification_requests_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER verification_requests_lifecycle_guard BEFORE UPDATE ON public.verification_requests FOR EACH ROW EXECUTE FUNCTION public.f1_verification_requests_lifecycle_guard();
 
 
 --
@@ -2843,6 +2969,14 @@ ALTER TABLE ONLY public.scheduled_actions
 
 ALTER TABLE ONLY public.sources
     ADD CONSTRAINT sources_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: verification_requests verification_requests_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_requests
+    ADD CONSTRAINT verification_requests_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -3185,6 +3319,19 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 
 
 --
+-- Name: verification_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.verification_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: verification_requests verification_requests_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY verification_requests_context ON public.verification_requests USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: work_dispatch_bindings; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3204,6 +3351,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260725120028'),
 ('20260725120027'),
 ('20260725120026'),
 ('20260725120025'),
