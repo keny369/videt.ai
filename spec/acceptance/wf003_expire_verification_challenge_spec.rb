@@ -61,10 +61,8 @@ RSpec.describe "WF-003 expire verification challenge", type: :acceptance,
     ).payload
   end
 
-  # Genesis + a registered proposed Source + an issued pending Verification Request.
-  def issued_challenge(uri: "https://shop.acme.example")
-    g = bootstrap
-    sid = Workflows::Wf004::Handlers::RegisterSource.new.call(
+  def register_source(g, uri)
+    Workflows::Wf004::Handlers::RegisterSource.new.call(
       command: Workflows::Wf004::Commands::RegisterSource.new(
         command_id: SecureRandom.uuid_v7, idempotency_key: "rs-#{SecureRandom.hex(6)}", schema_version: "1.0",
         session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id],
@@ -72,14 +70,24 @@ RSpec.describe "WF-003 expire verification challenge", type: :acceptance,
         expected_state_version: 0, requested_at_utc: fixed_now
       ), request_context: act_ctx
     ).payload[:source_id]
-    issue = Workflows::Wf003::Handlers::IssueVerificationChallenge.new.call(
+  end
+
+  def issue(g, sid, key = "vc-#{SecureRandom.hex(6)}")
+    Workflows::Wf003::Handlers::IssueVerificationChallenge.new.call(
       command: Workflows::Wf003::Commands::IssueVerificationChallenge.new(
-        command_id: SecureRandom.uuid_v7, idempotency_key: "vc-#{SecureRandom.hex(6)}", schema_version: "1.0",
+        command_id: SecureRandom.uuid_v7, idempotency_key: key, schema_version: "1.0",
         session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id],
         source_id: sid, method: "dns_txt", expected_state_version: 0, requested_at_utc: act_now
       ), request_context: act_ctx
     )
-    { g:, source_id: sid, vid: issue.payload[:verification_request_id], token: issue.payload[:challenge_token] }
+  end
+
+  # Genesis + a registered proposed Source + an issued pending Verification Request.
+  def issued_challenge(uri: "https://shop.acme.example")
+    g = bootstrap
+    sid = register_source(g, uri)
+    r = issue(g, sid)
+    { g:, source_id: sid, vid: r.payload[:verification_request_id], token: r.payload[:challenge_token] }
   end
 
   # The command the worker builds from the due action, with overridable fields.
@@ -154,6 +162,22 @@ RSpec.describe "WF-003 expire verification challenge", type: :acceptance,
       expect(audit["actor_id"]).to be_nil
       expect(audit["to_state"]).to eq("expired")
     end
+
+    it "makes redelivery unavailable through the issuance path once expired" do
+      g = bootstrap
+      sid = register_source(g, "https://redeliver.example")
+      first = issue(g, sid, "redeliver-key")
+      vid = first.payload[:verification_request_id]
+      expect(first.payload[:challenge_token]).to be_a(String)
+
+      expire(vid, g[:organization_id])
+
+      # An exact re-issue by the original actor now finds the Request terminal (expired):
+      # identifiers and status only, never challenge material.
+      replay = issue(g, sid, "redeliver-key")
+      expect(replay.replayed).to be(true)
+      expect(replay.payload[:challenge_token]).to be_nil
+    end
   end
 
   describe "the timer changes nothing when it must not fire" do
@@ -180,6 +204,14 @@ RSpec.describe "WF-003 expire verification challenge", type: :acceptance,
     it "rejects a mismatched target_type before touching the database" do
       c = issued_challenge
       result = expire(c[:vid], c[:g][:organization_id], target_type: "role_assignment")
+      expect(result.reason_code).to eq("scheduled_action_target_mismatch")
+    end
+
+    it "refuses a target the service cannot see as scheduled_action_target_mismatch" do
+      c = issued_challenge
+      # A Request id that does not exist in the action's Organization context is
+      # invisible under RLS — a correctly created action can never do this.
+      result = expire(SecureRandom.uuid_v7, c[:g][:organization_id])
       expect(result.reason_code).to eq("scheduled_action_target_mismatch")
     end
 
