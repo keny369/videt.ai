@@ -31,7 +31,8 @@ module AutonomousBuild
 
     def initialize(git:, verifier_factory:, planner:, implementer:, reviewer:, repair:, lock:, paths:,
                    worktree_root:, build_state_path:, limits: {}, clock: -> { Time.now.utc }, run_id: nil,
-                   extra_secrets: nil)
+                   extra_secrets: nil, require_independent_review: false)
+      @require_independent_review = require_independent_review
       @git = git
       @verifier_factory = verifier_factory
       @planner = planner
@@ -164,6 +165,12 @@ module AutonomousBuild
 
     # Returns true when the review is accepted (proceed to report); false to loop back into repair.
     def do_review(_repairs)
+      # The owner's operational rule (ADR-026): an autonomous PRODUCT tranche requires a real
+      # independent reviewer; the same-process stub proves orchestration but must never gate real work.
+      if @require_independent_review && !@reviewer.independent?
+        raise Stop.new("blocked_external_dependency", stage: "review",
+                       reason: "autonomous product tranche requires a real independent reviewer, not the stub (ADR-026)")
+      end
       unless @reviewer.available?
         raise Stop.new("blocked_external_dependency", stage: "review", reason: "reviewer adapter unavailable")
       end

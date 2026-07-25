@@ -18,9 +18,14 @@ module AutonomousBuild
     end
 
     # The adapter contract. `invoke` MUST return a hash that passes Schema.validate for `schema_name`.
+    # `independent?` distinguishes a TRUE independent reviewer (a separate provider, or a separately
+    # invoked model with no shared conversational state) from the same-process stub. The controller
+    # refuses to run an autonomous PRODUCT tranche unless its reviewer is independent (the owner's
+    # operational rule, ADR-026): the stub proves orchestration but must never gate real product work.
     class Base
       def schema_name = raise(NotImplementedError)
       def available? = true
+      def independent? = false
       def invoke(_invocation) = raise(NotImplementedError)
 
       def validate!(hash) = Schema.validate(schema_name, hash)
@@ -32,15 +37,17 @@ module AutonomousBuild
     class Fake < Base
       attr_reader :schema_name, :calls
 
-      def initialize(schema_name:, responses:, effect: nil, available: true)
+      def initialize(schema_name:, responses:, effect: nil, available: true, independent: false)
         @schema_name = schema_name
         @responses = Array(responses).dup
         @effect = effect
         @available = available
+        @independent = independent
         @calls = 0
       end
 
       def available? = @available
+      def independent? = @independent
 
       def invoke(invocation)
         @calls += 1
@@ -119,6 +126,43 @@ module AutonomousBuild
           "test_assessment" => "verifier is authoritative for tests", "recommended_action" => "ready_for_review"
         ))
       end
+    end
+
+    # A TRUE independent reviewer: a SEPARATELY invoked model session with a reviewer-only prompt and
+    # NO shared conversational state (mandate §6, option 2/3). Runs the reviewer CLI against the
+    # committed diff and validates the returned JSON. `independent?` is true, so the controller accepts
+    # it for autonomous product tranches (ADR-026). Requires the reviewer CLI on PATH.
+    class ClaudeCodeReviewer < Base
+      def initialize(runner: CommandRunner.new, cli: ENV.fetch("F1_CONTROLLER_REVIEWER_CLI", "claude"),
+                     model: ENV.fetch("F1_CONTROLLER_REVIEWER_MODEL", nil))
+        @runner = runner
+        @cli = cli
+        @model = model
+      end
+
+      def schema_name = "reviewer"
+      def independent? = true
+      def available? = which?(@cli)
+
+      def build_command(invocation)
+        parts = [@cli, "-p", shellescape(invocation.brief.to_s), "--output-format", "json"]
+        parts += ["--model", @model] if @model && !@model.empty?
+        parts.join(" ")
+      end
+
+      def invoke(invocation)
+        command = build_command(invocation)
+        CommandPolicy.assert_allowed!(command)
+        result = @runner.run(command, chdir: invocation.worktree, timeout: 3600)
+        raise(Error, "reviewer CLI exited #{result.exit_status}") unless result.success?
+
+        validate!(Schema.parse(result.output))
+      end
+
+      private
+
+      def shellescape(str) = "'#{str.gsub("'", "'\\\\''")}'"
+      def which?(bin) = ENV["PATH"].to_s.split(File::PATH_SEPARATOR).any? { |dir| File.executable?(File.join(dir, bin)) }
     end
   end
 end

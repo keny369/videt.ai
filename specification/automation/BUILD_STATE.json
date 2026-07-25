@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "controller_version": "0.1.0-unfrozen",
-  "current_block": "CTRL-01",
-  "current_tranche": "controller-implementation",
-  "status": "ready_for_review",
-  "attempt_number": 1,
+  "controller_version": "1.0.0",
+  "current_block": "S-05",
+  "current_tranche": "S-05-001",
+  "status": "planned",
+  "attempt_number": 0,
   "base_commit": "6292c6b9d9fd8e1bf76bc19b56b7c0ad9401d0ac",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
@@ -13,8 +13,8 @@
   "last_verified_commit": "6292c6b9d9fd8e1bf76bc19b56b7c0ad9401d0ac",
   "verification_run_id": "",
   "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04"],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01"],
   "failed_attempts": [],
   "updated_at": "2026-07-25T00:00:00Z",
-  "reconciliation_note": "Corrected 2026-07-25: F-01..F-04 are complete and frozen (the prior file wrongly showed F-04 unbuilt). CTRL-01 (this controller) is under implementation; its dependency F-04 is satisfied. This file is hand-maintained for the CTRL-01 block; once the controller is frozen it manages BUILD_STATE atomically for product tranches (S-05+). Conversational memory is NOT authoritative state - this file and the repository are."
+  "reconciliation_note": "2026-07-25: Controller v1 (CTRL-01) approved for operation (DECISIONS.md ADR-026). Next authorised block is S-05, first tranche S-05-001 IssueVerificationChallenge, which runs ONLY under the ADR-026 operational rule (a real independent reviewer, not the same-process stub). This file and the repository are authoritative, not conversational memory."
 }

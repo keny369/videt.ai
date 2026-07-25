@@ -1,7 +1,9 @@
 # Autonomous Build Controller (CTRL-01) — Completion Report
 
-Status: **ready_for_review** (2026-07-25). The controller tranche is implemented, self-proven and
-repository-verified; it is **not merged** and **no product tranche (S-05) has been run**. Built to
+Status: **APPROVED FOR OPERATION (v1.0.0)** — owner-approved 2026-07-25 (DECISIONS.md ADR-026), after
+reaching ready_for_review. Operational rule (enforced in the controller): autonomous product work
+requires a real independent reviewer, not the same-process stub. The controller is implemented,
+self-proven and repository-verified; it is **not merged** and **no product tranche (S-05) has been run**. Built to
 `specification/automation/AUTONOMOUS_BUILD_CONTROLLER.md` after reconciling that corpus against the
 repository (`specification/automation/RECONCILIATION.md`). Consumed F-01..F-04 only through their
 frozen contracts.

@@ -19,7 +19,7 @@ blocks:
   - id: CTRL-01
     name: Autonomous Build Controller
     type: internal_tooling
-    status: in_progress   # reconciled 2026-07-25: implementing to ready_for_review
+    status: completed   # 2026-07-25: v1 approved for operation (DECISIONS.md ADR-026)
     depends_on:
       - F-04
     authoritative_sources:

@@ -216,6 +216,24 @@ RSpec.describe "Autonomous controller — synthetic end-to-end proof", type: :mo
     expect(outcome.status).to eq("blocked_external_dependency")
   end
 
+  it "refuses an autonomous PRODUCT tranche reviewed only by the same-process stub (ADR-026)" do
+    c = AutonomousBuild::Controller.new(
+      git: AutonomousBuild::Git.new(repo_root: @repo), verifier_factory: no_bad_verifier_factory,
+      planner: planner_ok, implementer: implementer_writing("GOOD\n"), repair: repair_writing("GOOD\n"),
+      reviewer: AutonomousBuild::Adapters::LocalReviewer.new,
+      lock: AutonomousBuild::ControllerLock.new(File.join(@wt_root, ".lock")),
+      paths: AutonomousBuild::Paths.new(repo_root: @repo), worktree_root: @wt_root, build_state_path: @build_state,
+      run_id: "RUN-SYN", extra_secrets: [], require_independent_review: true
+    )
+    outcome = c.run_tranche(block_id: "SYN", tranche_id: "t", task: "x")
+    expect(outcome.status).to eq("blocked_external_dependency")
+  end
+
+  it "marks the stub as not independent and the real reviewer adapter as independent" do
+    expect(AutonomousBuild::Adapters::LocalReviewer.new.independent?).to be(false)
+    expect(AutonomousBuild::Adapters::ClaudeCodeReviewer.new.independent?).to be(true)
+  end
+
   it "redacts secrets from run records end to end" do
     outcome = controller(planner: planner_ok, implementer: implementer_writing("GOOD"), repair: repair_writing("GOOD"),
                          reviewer: AutonomousBuild::Adapters::LocalReviewer.new, verifier_factory: no_bad_verifier_factory)

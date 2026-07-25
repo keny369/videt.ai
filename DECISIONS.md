@@ -851,3 +851,22 @@ Executes ADR-024; reopens no behavioural contract and changes no foundation-laye
 
 Review Checkpoint:
 Re-engage G6 before configuring or deploying a second scheduler process; re-engage G5 before relying on automatic recovery from a sustained transport outage. Otherwise F-04 is frozen infrastructure: consume it, do not modify it except to fix a demonstrated defect, extend it backwards-compatibly, or improve performance without changing behaviour.
+
+## ADR-026: Autonomous Build Controller v1 Approved For Operation
+
+Status: Accepted
+Date: 2026-07-25
+Owner: Owner (approved for operation) / implementation agent (recorded)
+Reversibility: The controller is internal tooling; disabling or replacing it changes no product code. The operational reviewer rule below is a safety constraint, not a reversible convenience.
+
+Decision:
+Approve Autonomous Build Controller v1 (block CTRL-01) for operation. It is repository-native, state-driven, bounded, branch-isolated, verification-gated and escalation-safe; its synthetic end-to-end proof and eight safety proofs pass, and the whole repository is green (1037 examples; Zeitwerk/Packwerk/Brakeman/bundler-audit clean). Full detail: `CONTROLLER_FREEZE_REPORT.md`; reconciliation: `specification/automation/RECONCILIATION.md`. The controller is approved as implementation infrastructure; it is not merged to a protected branch and performs no automatic merge or production action.
+
+Operational rule (binding):
+**Autonomous PRODUCT work (S-05 onward) requires a real INDEPENDENT reviewer — a separate provider or a separately invoked model with no shared conversational state — NOT the deterministic same-process `LocalReviewer` stub.** The stub is sufficient to prove orchestration and to run the synthetic self-test, but must never gate real product work. This rule is now enforced in the controller itself: a run configured with `require_independent_review` refuses (`blocked_external_dependency`) unless its reviewer reports `independent? == true`. The real reviewer adapter (`Adapters::ClaudeCodeReviewer`) and the discriminant are in place; a cross-provider reviewer remains a sensible operational improvement but does not block this approval.
+
+Authority And Precedence:
+Executes the CTRL-01 mandate (`specification/automation/AUTONOMOUS_BUILD_CONTROLLER.md`); changes no product behaviour and no frozen foundation. Allocated the next unused number after ADR-025. The first authorised product pilot is `S-05-001 IssueVerificationChallenge` (`CONTROLLER_FREEZE_REPORT.md` §proposed); it runs only under the operational rule above.
+
+Review Checkpoint:
+Before trusting autonomous implementation across many tranches, replace the stub with a genuine cross-provider reviewer. Re-review the controller if a defect surfaces in operation.
