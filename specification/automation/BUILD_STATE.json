@@ -2,19 +2,32 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-05",
-  "current_tranche": "S-05-001",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "5483e4a74025d4dde7cea035a6c5a6aeaab0cb4d",
+  "current_tranche": "S-05-002",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "d35a4c9f415272d1268d07e087a0932a0110c023",
   "worktree_path": "",
-  "branch_name": "tranche/S-05/S-05-001",
-  "implementation_commit": "5ed6eecf6abf9fdc15f29cf4d24765d45912e63f",
-  "review_commit": "5ed6eecf6abf9fdc15f29cf4d24765d45912e63f",
-  "last_verified_commit": "5ed6eecf6abf9fdc15f29cf4d24765d45912e63f",
-  "verification_run_id": "RUN-S-05-001-20260725",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01"],
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "d35a4c9f415272d1268d07e087a0932a0110c023",
+  "verification_run_id": "",
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-002-SCOPE",
+      "block": "S-05-002",
+      "question": "Designate the next WF-003 limb (the scope of S-05-002) and clear its human_gate_before. The WF-003 command vocabulary is ratified (Issue/Reserve/Complete/Cancel/Expire/Fail) but NO authoritative source dictates the S-05 sub-limb build order; per 'do not manually select tranches', the owner designates it.",
+      "recommended_option": "ExpireVerificationRequest — closes the dangling verification_request_expire scheduled by S-05-001 (its ExpireVerificationRequest handler does not yet exist); small, no outbound/evidence, low risk.",
+      "options": [
+        "ExpireVerificationRequest (pending->expired; SourceVerificationExpired; schedule cryptographic deletion) — recommended",
+        "CancelVerificationRequest (pending->canceled by initiator/admin)",
+        "ReserveVerificationAttempt + CompleteVerificationAttempt (the observation limb: the core proposed->verified transition; consumes F-01 outbound + F-03 Evidence + the DNS/HTTP predicates; large, most product-semantic)"
+      ],
+      "related": "Also pending owner ratification (ADR-027): refine the controller FrozenContracts so an additive new-table grant is not a mandatory escalation — the observation limb would add a verification_attempts table and hit the same case."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001"],
   "failed_attempts": [],
-  "updated_at": "2026-07-25T00:00:00Z",
-  "reconciliation_note": "2026-07-25: S-05-001 IssueVerificationChallenge implemented on branch tranche/S-05/S-05-001 off base 5483e4a, verified (1075 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; DB permissions/RLS OK; no structure.sql drift) and independently reviewed twice (ADR-026): pass_with_observations, zero blocking; all review-driven repairs applied. Status ready_for_review; NOT merged and protected branch (main) untouched. S-05-001 is added to completed_blocks only on owner acceptance/merge. Full record: S-05-001_COMPLETION_REPORT.md and DECISIONS.md ADR-027. Do NOT begin S-05-002 (human-gated in BUILD_PLAN). This file and the repository are authoritative, not conversational memory."
+  "updated_at": "2026-07-26T00:00:00Z",
+  "reconciliation_note": "2026-07-26: S-05-001 IssueVerificationChallenge ACCEPTED (owner approval) and fast-forward merged into implementation/s01-registration-access at d35a4c9; added to completed_blocks. Governance satisfied: two independent reviews (ADR-026) pass_with_observations/0 blocking, suite 1076/0, all gates green, no structure.sql drift, ADR-027 + S-05-001_COMPLETION_REPORT.md. The next block per BUILD_PLAN is S-05-002, which is human_gate_before AND scope TO_BE_DEFINED; no authoritative source fixes the S-05 limb order, so advancing is a genuine human decision (HD-S05-002-SCOPE above). The controller run-next stops at this gate. main (protected) untouched. This file and the repository are authoritative, not conversational memory."
 }

@@ -91,7 +91,7 @@ blocks:
   - id: S-05-001
     name: Ownership Verification — IssueVerificationChallenge (WF-003, first limb)
     type: product
-    status: ready_for_review   # 2026-07-25: implemented, verified, independently reviewed; not merged
+    status: completed   # 2026-07-26: owner-accepted and merged into implementation/s01-registration-access (d35a4c9)
     depends_on:
       - CTRL-01
     authoritative_sources:

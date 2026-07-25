@@ -896,3 +896,25 @@ Consumes F-01..F-04 through their frozen façades only; changes no frozen founda
 
 Non-Blocking Owner Recommendation (controller refinement):
 The controller's `FrozenContracts` denylist (v1) escalates on ANY change to `lib/f1/runtime_grants.rb`, but EVERY future tenant-table slice (S-06, S-07, …) must add an additive least-privilege grant there — that file's own charter says "Update this module … when a table … changes." The v1 controller has no evolution-rule exception, so it would escalate on every new-table grant, contradicting the ratified Foundation Consumption Rule and the owner's "infrastructure proceeds" guidance. Recommendation: refine `FrozenContracts` to distinguish an additive new-table grant (no existing grant changed, no privilege widened, FORCE RLS preserved) — which proceeds under the Consumption Rule — from a privilege-boundary change (a new DELETE, a widened role, a weakened RLS predicate) — which still escalates. This is a controller-enforcement change (a security tripwire) and is left for owner ratification rather than made autonomously here.
+
+## ADR-028: S-05-001 Accepted And Merged; Next Tranche (S-05-002) Is A Human Decision
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-001 …") / implementation agent (recorded)
+Reversibility: The merge is a fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing is pushed and `main` is untouched, so it is revertible. The next-tranche question below is left open for the owner.
+
+Decision:
+Accept S-05-001 IssueVerificationChallenge. Its review artifacts, verification and independent review satisfy repository governance: two independent reviews (ADR-026, separately invoked models with no shared conversational state) returned pass_with_observations with zero blocking findings and all recommendations applied; whole-repo suite 1076 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; `verify_runtime` OK (RLS intact); no `structure.sql` drift; the only frozen-path touch (`lib/f1/runtime_grants.rb`) is the additive least-privilege grant classified under the Foundation Consumption Rule (ADR-027). Fast-forward merged into `implementation/s01-registration-access` at `d35a4c9`; `S-05-001` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-001 → completed; `S-05-001_COMPLETION_REPORT.md` marked accepted.
+
+Next Tranche — Genuine Human Decision (HD-S05-002-SCOPE):
+Per BUILD_STATE/BUILD_PLAN (authoritative), the next block is **S-05-002**, which is `human_gate_before: true` with scope `TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES`. The WF-003 command vocabulary is ratified (Issue / Reserve / Complete / Cancel / Expire / Fail; retrieval is QRY-021), but **no authoritative source dictates the S-05 sub-limb build order** — the freeze report only ever defined S-05-001. Choosing the next limb is therefore a product-sequencing decision, and the standing instruction is "do not skip, reorder or manually select tranches." The enforced controller (`bin/autonomous-build run-next`) stops at this human gate with `human_decision_required`. This is a genuine human decision, not a defect or a skip: the controller is following its own rules and the authoritative plan.
+
+Recommended Option:
+**S-05-002 = `ExpireVerificationRequest`.** S-05-001 schedules a `verification_request_expire` action whose handler (`ExpireVerificationRequest`, per the ratified catalogue) does not yet exist, so a real deployment would carry a dangling scheduled action. Building the expiry handler next closes that loop, is small (pending → expired, `SourceVerificationExpired`, schedule cryptographic deletion), consumes no outbound surface and produces no Evidence, and keeps the request lifecycle safe before the large observation limb. Alternatives: `CancelVerificationRequest` (also small), or the observation limb `ReserveVerificationAttempt` + `CompleteVerificationAttempt` (the core proposed → verified transition; the most product-semantic and largest — consumes F-01 outbound and F-03 Evidence and the DNS/HTTP predicates; likely warrants its own review checkpoint).
+
+Also For This Decision (carry-over from ADR-027):
+Ratify or decline the controller `FrozenContracts` refinement so an additive new-table grant is not a mandatory escalation. It recurs immediately: the observation limb adds a `verification_attempts` table (another additive `runtime_grants` entry).
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-027. No automatic merge to the protected branch and no production path. Stops at the human gate per the mandate.

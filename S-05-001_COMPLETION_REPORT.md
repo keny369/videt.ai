@@ -1,8 +1,10 @@
 # S-05-001 IssueVerificationChallenge — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-001` (off base `5483e4a`), **not merged**; the protected branch (`main`) is
-untouched. This is the first autonomous PRODUCT tranche run through the Autonomous Build Controller's
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-001` into the integration branch `implementation/s01-registration-access` at
+`d35a4c9`; added to `BUILD_STATE.completed_blocks`. The protected branch (`main`) remains untouched and
+nothing is pushed. It was implemented, verified and independently reviewed on that branch off base
+`5483e4a`. This is the first autonomous PRODUCT tranche run through the Autonomous Build Controller's
 discipline (CTRL-01 / ADR-026), and the first real consumer of F-02 (Platform::Encryption) and a new
 consumer of F-04 (ScheduledActions). It consumes F-01..F-04 only through their frozen façades.
 
