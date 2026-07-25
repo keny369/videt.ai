@@ -1,0 +1,192 @@
+schema_version: 1
+status: reconciled
+authoritative_note: >
+  Reconciled against the repository (2026-07-25). Every TO_BE_DISCOVERED placeholder was
+  resolved to a canonical repository command, or consolidated onto a real command where no
+  dedicated tool exists (noted per-check). match_paths were corrected from the generic
+  packages/** layout to this repository's actual layout (app/platform, app/contexts,
+  app/workflows, db/**, config/**). The controller resolves this manifest and runs commands
+  from the repository root; a check with command `null` is treated as "covered elsewhere" and
+  is not independently run. Reconciliation detail: specification/automation/RECONCILIATION.md.
+
+policies:
+  require_all_mandatory_checks: true
+  fail_on_missing_required_check: true
+  capture_stdout: true
+  capture_stderr: true
+  redact_secrets: true
+  prohibit_test_weakening: true
+  prohibit_silent_skips: true
+  require_verified_commit_match: true
+
+limits:
+  planner_attempts_per_tranche: 2
+  implementation_attempts_per_tranche: 3
+  repair_cycles_per_tranche: 3
+  independent_review_cycles: 2
+  repeated_identical_verification_failure: 2
+  max_agent_invocations_per_tranche: 10
+  max_changed_files_before_escalation: 40
+  max_diff_lines_before_forced_split: 3000
+  max_wall_clock_seconds_per_run: 14400
+  max_model_spend_usd_per_tranche: null
+
+check_sets:
+  always_required:
+    - id: repository_cleanliness
+      type: deterministic
+      command: git status --porcelain
+      expect_empty_stdout: true          # clean working tree = no output
+      mandatory: true
+      timeout_seconds: 60
+
+    - id: complete_test_suite
+      type: deterministic
+      command: bundle exec rspec
+      mandatory: true
+      timeout_seconds: 7200
+
+    - id: brakeman
+      type: deterministic
+      command: bundle exec brakeman -q --no-pager -z    # -z: nonzero exit on any warning
+      mandatory: true
+      timeout_seconds: 1800
+
+    - id: packwerk
+      type: deterministic
+      command: bin/packwerk check
+      mandatory: true
+      timeout_seconds: 1800
+
+    - id: bundler_audit
+      type: deterministic
+      command: bundle exec bundle-audit check --update
+      mandatory: true
+      timeout_seconds: 1800
+
+    - id: zeitwerk
+      type: deterministic
+      command: bin/rails zeitwerk:check
+      mandatory: true
+      timeout_seconds: 1800
+
+  database_changes:
+    match_paths:
+      - db/**
+      - app/models/**
+      - app/contexts/**/infrastructure/**
+      - lib/f1/runtime_grants.rb
+    checks:
+      # No strong_migrations gem exists; migration safety here is "the schema builds from empty
+      # and structure.sql shows no drift" — verified by the DB provision route + a dump/diff.
+      - id: migration_safety_no_drift
+        type: deterministic
+        command: bin/f1db db:schema:dump && git diff --exit-code db/structure.sql
+        mandatory: true
+        timeout_seconds: 600
+      # Runtime role usable + RLS intact + grants correct (covers database_permissions,
+      # row_level_security and tenant_isolation at the database boundary in one canonical task).
+      - id: runtime_role_and_rls
+        type: deterministic
+        command: bin/f1db f1:db:verify_runtime
+        mandatory: true
+        timeout_seconds: 600
+      # database_constraints has no dedicated tool; it is exercised by the complete_test_suite
+      # (the store/guard specs assert every CHECK and trigger). Recorded, not separately run.
+      - id: database_constraints
+        type: covered_by
+        command: null
+        covered_by: complete_test_suite
+        mandatory: false
+
+  security_sensitive:
+    match_paths:
+      - app/controllers/**
+      - app/contexts/**/application/**
+      - config/initializers/**
+      - app/platform/**
+    checks:
+      # No dedicated authorization/tenant "fitness" command exists; these are covered by the
+      # architecture single-surface fitness specs plus the CommandAuthorizer/RLS specs in the
+      # complete suite, and by verify_runtime at the DB boundary.
+      - id: architecture_fitness
+        type: deterministic
+        command: bundle exec rspec spec/architecture
+        mandatory: true
+        timeout_seconds: 600
+      - id: authorization_and_tenant_isolation
+        type: covered_by
+        command: null
+        covered_by: complete_test_suite
+        mandatory: false
+
+  background_execution:
+    match_paths:
+      - app/platform/scheduled_actions/**
+      - app/platform/background_execution.rb
+      - config/sidekiq.yml
+      - config/sidekiq_lifecycle.yml
+      - config/initializers/sidekiq.rb
+    checks:
+      - id: redis_sidekiq_acceptance
+        type: deterministic
+        command: bundle exec rspec spec/acceptance/f04_background_execution_acceptance_spec.rb
+        mandatory: true
+        timeout_seconds: 3600
+      - id: concurrency_and_idempotency
+        type: deterministic
+        command: bundle exec rspec spec/platform/scheduled_actions
+        mandatory: true
+        timeout_seconds: 3600
+      - id: stale_lease_recovery
+        type: deterministic
+        command: bundle exec rspec spec/platform/scheduled_actions/claiming_spec.rb
+        mandatory: true
+        timeout_seconds: 1800
+
+  controller_code:
+    match_paths:
+      - automation/**
+      - bin/autonomous-build
+      - specification/automation/**
+    checks:
+      - id: controller_unit
+        type: deterministic
+        command: bundle exec rspec spec/automation/unit
+        mandatory: true
+        timeout_seconds: 1800
+      - id: controller_integration
+        type: deterministic
+        command: bundle exec rspec spec/automation/integration
+        mandatory: true
+        timeout_seconds: 3600
+      - id: controller_policy
+        type: deterministic
+        command: bundle exec rspec spec/automation/policy
+        mandatory: true
+        timeout_seconds: 1800
+      - id: controller_crash_recovery
+        type: deterministic
+        command: bundle exec rspec spec/automation/crash_recovery
+        mandatory: true
+        timeout_seconds: 1800
+      - id: controller_locking
+        type: deterministic
+        command: bundle exec rspec spec/automation/locking
+        mandatory: true
+        timeout_seconds: 1800
+      - id: controller_end_to_end_synthetic
+        type: deterministic
+        command: bundle exec rspec spec/automation/end_to_end
+        mandatory: true
+        timeout_seconds: 3600
+
+release_gate:
+  required_check_sets:
+    - always_required
+  require_no_blocking_review_findings: true
+  require_decision_ledger_updated: true
+  require_clean_worktree: true
+  require_run_record_complete: true
+  require_protected_branch_untouched: true
+  merge_authorised: false

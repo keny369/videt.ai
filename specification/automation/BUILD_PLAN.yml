@@ -1,0 +1,111 @@
+schema_version: 1
+plan_status: draft
+authoritative_note: >
+  This plan is intentionally conservative. Replace or extend blocks only from
+  authoritative specifications, dependency maps, freeze reports, and approved
+  architecture review. Do not infer missing product scope from chat history.
+
+protected_foundations:
+  - id: F-01
+    status: frozen
+  - id: F-02
+    status: frozen
+  - id: F-03
+    status: frozen
+  - id: F-04
+    status: frozen   # reconciled 2026-07-25: frozen (DECISIONS.md ADR-025, F-04_FREEZE_REPORT.md)
+
+blocks:
+  - id: CTRL-01
+    name: Autonomous Build Controller
+    type: internal_tooling
+    status: in_progress   # reconciled 2026-07-25: implementing to ready_for_review
+    depends_on:
+      - F-04
+    authoritative_sources:
+      - specification/automation/AUTONOMOUS_BUILD_CONTROLLER.md
+      - specification/automation/AUTONOMY_POLICY.md
+      - specification/automation/HUMAN_ESCALATION_POLICY.md
+      - specification/automation/VERIFICATION_MANIFEST.yml
+      - Decision Ledger
+      - F-01 through F-04 freeze records
+    scope:
+      - controller state machine
+      - provider adapters
+      - worktree lifecycle
+      - structured agent outputs
+      - deterministic verification
+      - independent review flow
+      - bounded repair loop
+      - human escalation and resume
+      - synthetic end-to-end proof
+    out_of_scope:
+      - real S-05 product implementation
+      - automatic merge to protected branch
+      - production deployment
+      - production credentials or customer data
+    acceptance_criteria:
+      - all controller state transitions are explicit and validated
+      - every agent invocation is bounded and schema-constrained
+      - protected branch remains untouched during synthetic proof
+      - malformed model output is rejected
+      - prohibited commands are blocked
+      - duplicate controller runs are locked out
+      - interrupted runs resume safely
+      - retry exhaustion stops cleanly
+      - unavailable reviewer yields controlled blocked state
+      - secrets are redacted from logs
+      - synthetic tranche reaches ready_for_review
+    required_verification:
+      - controller_unit
+      - controller_integration
+      - controller_policy
+      - controller_crash_recovery
+      - controller_locking
+      - controller_end_to_end_synthetic
+      - repository_security
+      - repository_architecture
+    human_gate_before: false
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - controller implementation
+      - schemas
+      - run records
+      - synthetic proof
+      - controller freeze report
+      - proposed first S-05 pilot tranche
+
+  - id: S-05-PILOT
+    name: First S-05 Pilot Tranche
+    type: product
+    status: awaiting_architecture_review
+    depends_on:
+      - CTRL-01
+    authoritative_sources:
+      - TO_BE_DERIVED_FROM_REPOSITORY_SPECIFICATIONS
+    scope:
+      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+    out_of_scope:
+      - frozen foundation changes
+      - destructive migrations
+      - production deployment
+    acceptance_criteria:
+      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+    required_verification:
+      - TO_BE_DEFINED_AFTER_CONTROLLER_REVIEW
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: medium
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - proposed_only_until_owner_approval

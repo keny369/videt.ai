@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "controller_version": "0.1.0-unfrozen",
+  "current_block": "CTRL-01",
+  "current_tranche": "controller-implementation",
+  "status": "in_progress",
+  "attempt_number": 1,
+  "base_commit": "6292c6b9d9fd8e1bf76bc19b56b7c0ad9401d0ac",
+  "worktree_path": "",
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "6292c6b9d9fd8e1bf76bc19b56b7c0ad9401d0ac",
+  "verification_run_id": "",
+  "open_decisions": [],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04"],
+  "failed_attempts": [],
+  "updated_at": "2026-07-25T00:00:00Z",
+  "reconciliation_note": "Corrected 2026-07-25: F-01..F-04 are complete and frozen (the prior file wrongly showed F-04 unbuilt). CTRL-01 (this controller) is under implementation; its dependency F-04 is satisfied. This file is hand-maintained for the CTRL-01 block; once the controller is frozen it manages BUILD_STATE atomically for product tranches (S-05+). Conversational memory is NOT authoritative state - this file and the repository are."
+}
