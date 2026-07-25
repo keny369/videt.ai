@@ -3,7 +3,7 @@
   "controller_version": "1.0.0",
   "current_block": "S-05",
   "current_tranche": "S-05-002",
-  "status": "human_decision_required",
+  "status": "planned",
   "attempt_number": 0,
   "base_commit": "d35a4c9f415272d1268d07e087a0932a0110c023",
   "worktree_path": "",
@@ -12,22 +12,9 @@
   "review_commit": null,
   "last_verified_commit": "d35a4c9f415272d1268d07e087a0932a0110c023",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S05-002-SCOPE",
-      "block": "S-05-002",
-      "question": "Designate the next WF-003 limb (the scope of S-05-002) and clear its human_gate_before. The WF-003 command vocabulary is ratified (Issue/Reserve/Complete/Cancel/Expire/Fail) but NO authoritative source dictates the S-05 sub-limb build order; per 'do not manually select tranches', the owner designates it.",
-      "recommended_option": "ExpireVerificationRequest — closes the dangling verification_request_expire scheduled by S-05-001 (its ExpireVerificationRequest handler does not yet exist); small, no outbound/evidence, low risk.",
-      "options": [
-        "ExpireVerificationRequest (pending->expired; SourceVerificationExpired; schedule cryptographic deletion) — recommended",
-        "CancelVerificationRequest (pending->canceled by initiator/admin)",
-        "ReserveVerificationAttempt + CompleteVerificationAttempt (the observation limb: the core proposed->verified transition; consumes F-01 outbound + F-03 Evidence + the DNS/HTTP predicates; large, most product-semantic)"
-      ],
-      "related": "Also pending owner ratification (ADR-027): refine the controller FrozenContracts so an additive new-table grant is not a mandatory escalation — the observation limb would add a verification_attempts table and hit the same case."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-001 IssueVerificationChallenge ACCEPTED (owner approval) and fast-forward merged into implementation/s01-registration-access at d35a4c9; added to completed_blocks. Governance satisfied: two independent reviews (ADR-026) pass_with_observations/0 blocking, suite 1076/0, all gates green, no structure.sql drift, ADR-027 + S-05-001_COMPLETION_REPORT.md. The next block per BUILD_PLAN is S-05-002, which is human_gate_before AND scope TO_BE_DEFINED; no authoritative source fixes the S-05 limb order, so advancing is a genuine human decision (HD-S05-002-SCOPE above). The controller run-next stops at this gate. main (protected) untouched. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: HD-S05-002-SCOPE resolved by the owner (DECISIONS.md ADR-029): S-05-002 is ExpireVerificationRequest and its human_gate_before is cleared; the controller FrozenContracts refinement is ratified (additive new-table grants proceed, privilege-boundary changes still escalate). S-05-002 is authorised to run to ready_for_review under the controller. The tranche after S-05-002 (S-05-003) must NOT be begun (owner instruction). This file and the repository are authoritative, not conversational memory."
 }

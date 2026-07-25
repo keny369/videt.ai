@@ -918,3 +918,19 @@ Ratify or decline the controller `FrozenContracts` refinement so an additive new
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-027. No automatic merge to the protected branch and no production path. Stops at the human gate per the mandate.
+
+## ADR-029: S-05-002 Designated (ExpireVerificationRequest); FrozenContracts Refinement Ratified
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (designated the tranche and ratified the refinement) / implementation agent (recorded)
+Reversibility: The designation queues a tranche that stops at ready_for_review (revertible). The FrozenContracts refinement is a controller-enforcement change landed with its own tests and independent review.
+
+Decision 1 — Next tranche designated:
+Resolving HD-S05-002-SCOPE (ADR-028), the owner designates **S-05-002 = `Workflows::Wf003::ExpireVerificationRequest`** and clears its `human_gate_before`. Scope (contracts/S-05.json MTX-028/005/051; SCORE_EVIDENCE_MODEL § Attempts, Expiry, And Evidence): the service-executed handler for the due `verification_request_expire` ScheduledAction that S-05-001 schedules transitions a still-pending Request `pending -> expired` with reason `challenge_expired` at `expires_at_utc`, emits `SourceVerificationExpired` exactly once, makes challenge redelivery unavailable and destroys the challenge material (F-02 erase; the digest and access audit survive), and relaxes the `verification_requests` lifecycle guard for exactly the `pending -> expired` edge. It leaves the Source `proposed`, runs no observation, and closes the dangling `verification_request_expire` action left by S-05-001. Runs to `ready_for_review` under the controller; the tranche after S-05-002 must NOT be begun.
+
+Decision 2 — FrozenContracts refinement ratified (from ADR-027):
+The controller `FrozenContracts` denylist is refined so a **purely additive new-table grant** to `lib/f1/runtime_grants.rb` (no existing grant changed, no line removed, no `DELETE` privilege introduced, FORCE RLS preserved) is a backwards-compatible extension under the Foundation Consumption Rule and does **not** escalate, while any **privilege-boundary change** (a new `DELETE`, a widened role, a modified/removed existing grant, or a change to any other frozen surface — the F-01..F-04 façades and their single-surface fitness specs) still escalates as a mandatory human decision. Implemented as a content-aware, fail-closed classifier (any non-additive or non-parseable change escalates) with its own `spec/automation` tests and an independent review, committed as controller housekeeping (the controller is internal tooling; precedent: the CTRL housekeeping commit).
+
+Authority And Precedence:
+Executes the owner's designation and ratification. Allocated the next unused number after ADR-028. No automatic merge to the protected branch, no production path; the product tranche stops at ready_for_review.

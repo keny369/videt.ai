@@ -141,17 +141,66 @@ blocks:
       - the Wf003 IssueVerificationChallenge slice + specs
       - S-05-001 completion report + DECISIONS ledger entry
 
+  # Designated by the owner (2026-07-26, DECISIONS.md ADR-029) as the next WF-003
+  # limb; human_gate_before cleared by that designation. Scope derived from
+  # contracts/S-05.json (MTX-028/MTX-005/MTX-051) and SCORE_EVIDENCE_MODEL.md
+  # § Attempts, Expiry, And Evidence.
   - id: S-05-002
-    name: Ownership Verification — next WF-003 limb (to be defined from authoritative sources)
+    name: Ownership Verification — ExpireVerificationRequest (WF-003 expiry limb)
     type: product
-    status: not_started   # NOT begun; scope defined only from authoritative sources after S-05-001 review
+    status: planned   # owner-authorised; run to ready_for_review under the controller
     depends_on:
       - S-05-001
     authoritative_sources:
       - specification/volume-ii/contracts/S-05.json
       - specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#ownership-verification-evidence-contract
     scope:
-      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES_AFTER_S-05-001_REVIEW
+      - Workflows::Wf003::ExpireVerificationRequest — the service-executed handler for the
+        due verification_request_expire ScheduledAction that S-05-001 schedules
+      - pending -> expired with reason challenge_expired at expires_at_utc; SourceVerificationExpired event
+      - challenge redelivery made unavailable immediately and the challenge material destroyed (F-02 erase)
+      - relax the verification_requests lifecycle guard for exactly the pending -> expired edge
+      - closes the dangling verification_request_expire action left by S-05-001
+    out_of_scope:
+      - DNS/HTTP observation (Reserve/Complete), Source proposed->verified transition, scoring
+      - cancellation and integrity-failure limbs (Cancel/Fail)
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - a due verification_request_expire action transitions a still-pending Request to expired/challenge_expired
+      - SourceVerificationExpired is emitted exactly once; the Source remains proposed
+      - the challenge ciphertext is erased and redelivery is unavailable after expiry; the digest and audit survive
+      - expiry is executed only by the named lifecycle service; a non-pending Request is a no-op/idempotent
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - background_execution
+    human_gate_before: false   # cleared by owner designation (ADR-029)
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - the ExpireVerificationRequest slice + specs
+      - S-05-002 completion report + DECISIONS ledger entry
+
+  - id: S-05-003
+    name: Ownership Verification — next WF-003 limb after expiry (to be designated)
+    type: product
+    status: not_started   # NOT to be begun after S-05-002 (owner instruction); scope from authoritative sources + owner designation
+    depends_on:
+      - S-05-002
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
+    scope:
+      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES_AND_OWNER_DESIGNATION
     out_of_scope:
       - frozen foundation contract changes
       - destructive migrations
