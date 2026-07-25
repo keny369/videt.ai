@@ -60,10 +60,17 @@ module AutonomousBuild
       run("git rev-parse HEAD", chdir: worktree).output.strip
     end
 
-    # Files changed in the worktree relative to `base` (committed diff), for verification path
-    # selection and for cross-checking an implementer's claimed files against actual Git state (§13).
+    # Files changed in the worktree relative to `base` (committed diff), for cross-checking an
+    # implementer's claimed files against actual committed Git state (§13).
     def changed_files(worktree:, base:)
       run("git diff --name-only #{shellword(base)} HEAD", chdir: worktree).output.split("\n").map(&:strip).reject(&:empty?)
+    end
+
+    # Uncommitted working-tree changes (modified + staged + untracked). The frozen-contract check and
+    # verification path selection run BEFORE the tranche is committed, so they must see these.
+    def working_changes(worktree:)
+      run("git status --porcelain --untracked-files=all", chdir: worktree)
+        .output.lines.map { |l| l[3..].to_s.strip.split(" -> ").last.to_s.strip }.reject(&:empty?)
     end
 
     def worktrees = run("git worktree list --porcelain").output
