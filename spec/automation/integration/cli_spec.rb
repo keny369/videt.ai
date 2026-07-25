@@ -13,6 +13,10 @@ RSpec.describe AutonomousBuild::CLI do
       FileUtils.mkdir_p(File.join(@root, "specification", "automation"))
       File.write(File.join(@root, "specification/automation/BUILD_STATE.json"), JSON.pretty_generate(build_state))
       File.write(File.join(@root, "specification/automation/BUILD_PLAN.yml"), build_plan)
+      run = AutonomousBuild::CommandRunner.new
+      run.run("git init -q -b work", chdir: @root)
+      run.run("git config user.email a@b.c && git config user.name t", chdir: @root)
+      run.run("git add -A && git commit -q -m seed", chdir: @root)
       example.run
     end
   end

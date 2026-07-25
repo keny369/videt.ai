@@ -17,8 +17,10 @@ module AutonomousBuild
     def current_branch = capture("git rev-parse --abbrev-ref HEAD")
     def rev_parse(ref) = capture("git rev-parse #{shellword(ref)}")
 
-    # True when the working tree has no uncommitted changes.
-    def clean?(chdir: @repo_root) = run("git status --porcelain", chdir:).output.strip.empty?
+    # True when the working tree has no uncommitted changes to TRACKED files. Untracked files are
+    # ignored: parallel tracks (branding/, investor/, …) and the new files a tranche is about to
+    # create are expected, and must not read as a dirty base.
+    def clean?(chdir: @repo_root) = run("git status --porcelain --untracked-files=no", chdir:).output.strip.empty?
 
     def protected_branch?(branch) = PROTECTED_BRANCHES.include?(branch.to_s)
 

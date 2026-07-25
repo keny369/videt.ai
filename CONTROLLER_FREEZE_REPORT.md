@@ -150,7 +150,7 @@ Presented for owner approval only; the controller has not run it.
   encrypted challenge + scheduled expiry persist; the WF-003 command vocabulary
   (`IssueVerificationChallenge`, per APPLICATION_LAYER / ADR-024 DEF-1) is honored; full suite + DB/RLS +
   architecture fitness green.
-- **What the controller would do**: isolate a worktree, generate the brief from `contracts/S-05.json` +
+- **What the controller would do**: isolate a worktree, generate the brief from `specification/volume-ii/contracts/S-05.json` +
   `APPLICATION_LAYER` + `SCORE_EVIDENCE_MODEL.md`, implement only this limb, verify (full suite + DB
   permissions/RLS + background-execution checks), independently review the committed diff, and stop at
   `ready_for_review`. **What it would not do**: touch F-01..F-04, run an outbound observation, evaluate

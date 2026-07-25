@@ -202,6 +202,12 @@ module AutonomousBuild
     end
 
     def do_report
+      # Postflight invariant: never declare ready_for_review unless verified, reviewed, committed and
+      # the worktree is clean (owner-requested enforced guarantee).
+      pf = Preflight.postflight(verification: @verification, review: @review,
+                                implementation_commit: @implementation_commit, git: @git, worktree: @worktree)
+      raise Stop.new("controller_error", reason: "postflight failed: #{pf.summary}") unless pf.ok?
+
       report = Schema.validate("completion", {
         "schema_version" => 1, "role" => "controller", "run_id" => @run_id, "block_id" => @block_id,
         "tranche_id" => @tranche_id, "status" => "ready_for_review", "generated_at" => @clock.call.iso8601,

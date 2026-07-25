@@ -11,7 +11,7 @@ module AutonomousBuild
       "human_decision_required" => 10, "blocked_external_dependency" => 11,
       "verification_failed" => 1, "retry_limit_reached" => 1, "policy_violation" => 1, "controller_error" => 1
     }.freeze
-    COMMANDS = %w[status plan run-next selftest verify review resume abort help].freeze
+    COMMANDS = %w[status plan preflight run-next selftest verify review resume abort help].freeze
 
     def initialize(paths: Paths.new, out: $stdout, err: $stderr, worktree_root: nil)
       @paths = paths
@@ -43,7 +43,8 @@ module AutonomousBuild
         bin/autonomous-build <command>
           status      Show the current build state and the next authorised block.
           plan        Show the next authorised block from BUILD_PLAN (and any human gate).
-          run-next    Run the next authorised tranche (refuses a human-gated or unavailable block).
+          preflight   Check the repository is clean, committed and consistent before a tranche.
+          run-next    Run the next authorised tranche (preflight-gated; refuses a human-gated block).
           selftest    Run the synthetic end-to-end proof tranche (deterministic; no product change).
           verify      Run the always-required verification checks against the current repository.
           review      Note the reviewer configuration and availability.
@@ -77,7 +78,20 @@ module AutonomousBuild
       0
     end
 
+    def cmd_preflight(_args)
+      result = Preflight.check(git: Git.new(repo_root: @paths.repo_root), build_state:, plan:)
+      @out.puts(result.ok? ? "preflight OK" : "preflight FAILED:")
+      result.failures.each { |f| @out.puts("  - #{f}") }
+      result.ok? ? 0 : 1
+    end
+
     def cmd_run_next(_args)
+      pf = Preflight.check(git: Git.new(repo_root: @paths.repo_root), build_state:, plan:)
+      unless pf.ok?
+        @out.puts("[preflight blocked] #{pf.summary}")
+        return 1
+      end
+
       nb = plan.next_block(completed_blocks: build_state.completed_blocks)
       return (@out.puts("Nothing to run.") || 0) unless nb
 
