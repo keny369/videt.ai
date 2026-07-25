@@ -148,7 +148,7 @@ blocks:
   - id: S-05-002
     name: Ownership Verification — ExpireVerificationRequest (WF-003 expiry limb)
     type: product
-    status: planned   # owner-authorised; run to ready_for_review under the controller
+    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed; not merged
     depends_on:
       - S-05-001
     authoritative_sources:

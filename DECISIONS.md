@@ -934,3 +934,30 @@ The controller `FrozenContracts` denylist is refined so a **purely additive new-
 
 Authority And Precedence:
 Executes the owner's designation and ratification. Allocated the next unused number after ADR-028. No automatic merge to the protected branch, no production path; the product tranche stops at ready_for_review.
+
+## ADR-030: S-05-002 ExpireVerificationRequest — Completion (ready_for_review)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (designated the tranche, ADR-029) / implementation agent (recorded)
+Reversibility: Committed on branch `tranche/S-05/S-05-002` (off `58383dd`), verified and independently reviewed, NOT merged; `main` untouched, nothing pushed. Fully reversible until owner acceptance.
+
+Decision:
+Implement the WF-003 expiry limb `Workflows::Wf003::ExpireVerificationRequest` (SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence; contracts/S-05.json MTX-028/005/051). The service-only handler for the due `verification_request_expire` ScheduledAction that S-05-001 schedules transitions a still-pending Request `pending -> expired` with reason `challenge_expired`, cryptographically destroys the challenge material (F-02 erase, atomic with the transition), emits `SourceVerificationExpired` exactly once, and leaves the Source `proposed`. Service-attributed (null human actor); the immutable challenge digest and the audit survive. It closes the dangling `verification_request_expire` action left by S-05-001. Migration relaxes the `verification_requests` lifecycle guard for exactly the `pending -> expired` edge; the registry maps the kind to the handler (fail-closed). Suite 1103 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK; no structure.sql drift.
+
+Independent Review (ADR-026):
+A separately invoked model with no shared conversational state reviewed the committed diff: **pass_with_observations, zero blocking findings**. It confirmed atomic challenge destruction (capture-before-null, same transaction, no destroyed-but-not-expired or expired-but-not-destroyed state, no double-erase), the minimal-and-correct guard relaxation (only pending->expired; every other transition still refused; identity/issuance still frozen), the due/target guards and "equality at expires_at is due", idempotent replay, state-version-guarded concurrency, service attribution, and frozen-façade compliance. Review-driven repairs applied (test-only, no product change): an end-to-end assertion that redelivery is unavailable through the issuance path after expiry (terminal replay returns no token), and a not-found-target test.
+
+Decision Ledger:
+| Decision | Authority | Reason |
+| --- | --- | --- |
+| Relax the lifecycle guard for exactly `pending -> expired` | Autonomous (the plan's edge) | The expiry limb's one ratified transition; every other edge stays refused. |
+| Service-attributed `VerificationExpiryStore` (RoleExpiryStore shape, WF-003) | Autonomous (established pattern) | Expiry is the lifecycle service's act, null human actor (exactly_one_actor_or_service). |
+| `verification_request_not_pending` -> F1-DOMAIN-409 | Autonomous (data addition) | A timer for an already-terminal Request is a harmless state conflict (mirrors role_assignment_not_active). |
+| Inline F-02 erase (immediate) rather than a scheduled 60s deletion job | Assumption (behaviourally stronger; plan-authorized) | See the FLAGGED divergence below. |
+
+FLAGGED Volume I divergence (owner reconciliation, not silently changed):
+The canonical `SCORE_EVIDENCE_MODEL.md` (§ Verification Request) and `contracts/S-05.json` MTX-028 `background_job` describe the terminal transaction as SCHEDULING cryptographic deletion (a `ChallengeCryptographicDeletionJob` / the reserved `verification_material_destroy` action kind, `catalogue.rb`), with "destroyed within 60 seconds." This tranche destroys the material INLINE in the terminal transaction (0s, atomic) — a strict strengthening that meets every observable guarantee (immediate redelivery unavailability, digest + audit survive) and is authorized by the BUILD_PLAN S-05-002 scope. Consequences: (a) `verification_material_destroy` is now an orphaned catalogue kind (nothing schedules it, no handler), and (b) the Volume I prose still says the deletion is a scheduled 60s job. Per the constitution ("one canonical source of truth; update earlier documents if architecture changes"), this should be reconciled — update the model/contract prose and/or retire the reserved kind. Recorded as a flagged Volume I item for owner reconciliation (the S-04 `organization_inactive` precedent: a later slice surfaces a Volume I divergence rather than rewriting frozen Volume I).
+
+Authority And Precedence:
+Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-029. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, the tranche after S-05-002 is NOT begun.
