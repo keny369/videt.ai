@@ -819,3 +819,35 @@ No acceptance criterion changes and no diagram changes. `scripts/build_volume_ii
 
 Review Checkpoint:
 Revalidate when OD-034 or OD-035 is approved, because each lifts a named limb and each requires its own impact mapping at that point. Reassess no later than 2026-08-27.
+
+## ADR-025: F-04 Background Execution Freeze — Work Dispatch Binding, Dispatch Retry, Envelope Lineage, and the G5/G6 Deferrals
+
+Status: Accepted
+Date: 2026-07-25
+Owner: Owner (ratified scope + amendments) / implementation agent (recorded)
+Reversibility: Difficult once S-05 and later slices depend on the frozen transport contract (the 8-field envelope, `work_id` = binding identity, the dispatch-retry semantics). The two deferrals (G5, G6) are additive and reversible.
+
+Decision:
+Freeze F-04 Background Execution as the last foundation before S-05, executing FOUNDATION-004 (ADR-024). Pre-freeze review (`F-04_COMPLETION_MATRIX.md`) found the interim skeleton implemented only the happy path; the reliability substrate the Jul-22 create migration (`20260722120007` :29-34) explicitly deferred to "the Redis/Sidekiq transport" slice was unbuilt. This decision builds and freezes that substrate and records two bounded deferrals with enforceable triggers. It changes no ratified product behaviour and invents no S-05 domain behaviour. Full completion/freeze detail: `F-04_FREEZE_REPORT.md`; frozen semantics: `F-04_TRANSPORT_DESIGN.md`.
+
+Ratified scope decisions:
+
+1. **G4 Work Dispatch Binding pulled INTO the freeze (not deferred).** FOUNDATION-004 property P1 is mandatory; absence from the enumerated acceptance criteria does not make it optional. A durable, insert-only, immutable `work_dispatch_bindings` row is minted in the claim transaction; its UUID **is** the envelope `work_id`; the worker resolves the authorised target THROUGH the binding (a keyed lookup, no constantisation or method dispatch), never from an envelope string. Freezing `work_id` as a scheduled-action locator and later re-meaning it as a binding identity would not be backwards-compatible (a UUID staying a UUID does not make the semantic change safe once consumers, logs, replay and idempotency depend on it). Generic `scheduled_action_dispatch` binds the action as both source and target; specialised targets are a later backwards-compatible extension (no S-05 Verification Request aggregate is invented here).
+2. **Envelope conformed to the ratified eight fields** (BACKGROUND_PROCESSING.md :71-83); the interim six-field shape (`action_id`/`claim_owner`) is retired. Identifiers only, fail-closed parse.
+3. **G7 correlation/causation carried PHYSICALLY in the envelope** (:81-82 lists both as envelope fields — the literal requirement, implemented rather than a DB-reload substitute). An acceptance test proves both reach the executing handler through the real Sidekiq path.
+4. **G1/G2 infrastructure dispatch retry.** Failure to enqueue an already-persisted identity backs off at exactly 1/5/30/120/600 s; the sixth failure quarantines the transport record with `redis_dispatch_exhausted` and raises a redacted high alert (:313). `dispatched` is set at the worker claim CAS on the happy path (:119 blesses transfer before/after ack); only the enqueue-FAILURE path is added. Enqueue stays transaction-safe (rollback → no enqueue).
+
+Deferred, with enforceable triggers (also in `F-04_FREEZE_REPORT.md` and enforced by a mechanism):
+
+- **G5** queue-health gate + automatic recovery of `redis_dispatch_exhausted` records + `transport_recovery_generation` (:315). **Trigger:** mandatory before production is expected to auto-recover from a sustained Redis/Valkey outage. Not required for at-most-once or retry-exactness.
+- **G6** full renewable leader-election lease (`scheduler_leases`, 15-second term + heartbeat) (:67, :112). **Trigger:** mandatory before more than one scheduler process may be configured or deployed. **Enforced now** by a LONG-LIVED singleton scheduler: `Platform::BackgroundExecution.run_scheduler` acquires `ScheduledActions::SchedulerLease` (a two-int session advisory lock) once and holds it for the process lifetime while it loops, so a second scheduler process cannot acquire it and exits without dispatching; `scheduler_lease_spec` proves exclusivity, failover, held-across-loop and front-door refusal. No committed operational configuration may run more than one scheduler process while G6 is deferred.
+
+Foundation Evolution defect-fixes made in passing (no behaviour or contract change): the rewritten claim function preserves the executor-active `JOIN service_identities ... AND status='active'`; and the F-02 encryption fitness spec's internal-class regex was tightened from bare `Envelope` to the qualified `Encryption::Envelope` so it no longer false-positives on the unrelated `ScheduledActions::Envelope`.
+
+Verification: 970 examples, 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; `structure.sql` re-dumps with no drift; both databases build from empty. Independent adversarial architectural and security reviews returned no correctness or security must-fix; three review-driven improvements were applied and are recorded in `F-04_FREEZE_REPORT.md`: (1) the single-scheduler control was strengthened to a process-lifetime held lease (so the "committed config runs at most one scheduler" requirement holds at the mechanism level, not just per pass); (2) `Envelope.parse` validates UUID format so a malformed id fails closed cleanly; (3) the Dispatcher fails closed on a nil catalogue work_type rather than emitting an unparseable envelope.
+
+Authority And Precedence:
+Executes ADR-024; reopens no behavioural contract and changes no foundation-layer (000-020) content, so PM-REQ-009 is not engaged. Allocated the next unused number after ADR-024. After this freeze the owner expects a broader architectural review before S-05 (and before any autonomous-build-controller design or implementation).
+
+Review Checkpoint:
+Re-engage G6 before configuring or deploying a second scheduler process; re-engage G5 before relying on automatic recovery from a sustained transport outage. Otherwise F-04 is frozen infrastructure: consume it, do not modify it except to fix a demonstrated defect, extend it backwards-compatibly, or improve performance without changing behaviour.

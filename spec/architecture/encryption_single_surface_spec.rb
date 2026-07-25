@@ -18,10 +18,14 @@ RSpec.describe "Encryption single-surface fitness", type: :model do
   end
 
   # The internal classes a consumer must NOT reach. Aad, Error and Protected are public.
+  # `Envelope` is fenced by its QUALIFIED name: the bare short name also names the unrelated
+  # F-04 transport class (Platform::ScheduledActions::Envelope), and any real external reach
+  # for the F-02 envelope would be qualified anyway — so this stays precise without weakening
+  # the boundary (F-04 defect-fix, 2026-07-25).
   def internal_classes
     %w[
       EnvelopeCipher Aes256Gcm KeyProvider PlatformKeyProvider
-      DatabaseMetadataStore DeploymentKeySource EncryptedRecordStore Envelope
+      DatabaseMetadataStore DeploymentKeySource EncryptedRecordStore Encryption::Envelope
     ].to_h { |name| [name, /\b#{name}\b/] }
   end
 
