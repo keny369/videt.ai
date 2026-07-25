@@ -28,4 +28,11 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf013::Handlers::ExpireRoleAssignment,
     command: Workflows::Wf013::Commands::ExpireRoleAssignment
   )
+  registry.register(
+    action_kind: "verification_request_expire",
+    action_schema_version: "1.0",
+    operation: "ExpireVerificationRequest",
+    handler: Workflows::Wf003::Handlers::ExpireVerificationRequest,
+    command: Workflows::Wf003::Commands::ExpireVerificationRequest
+  )
 end

@@ -138,13 +138,26 @@ RSpec.describe "Verification request invariants", type: :model do
   end
 
   describe "the verification_requests lifecycle guard" do
-    it "refuses every status transition while the observation/expiry limbs are unavailable" do
+    it "allows exactly the pending -> expired edge (S-05-002) and refuses every other transition" do
       id = insert_vr
-      %w[verified expired canceled failed].each do |status|
+      # The observation, cancellation and integrity-failure edges remain unavailable.
+      %w[verified canceled failed].each do |status|
         expect { conn.exec_params("UPDATE verification_requests SET request_status = $2 WHERE id = $1::uuid", [id, status]) }
           .to raise_error(PG::RaiseException, /verification_request_transition_unavailable/)
       end
-      expect(DbInspector.one("SELECT request_status FROM verification_requests WHERE id = $1::uuid", [id])["request_status"]).to eq("pending")
+      # pending -> expired, nulling the challenge material, is the one relaxed edge.
+      expect do
+        conn.exec_params(<<~SQL, [id])
+          UPDATE verification_requests
+          SET request_status = 'expired', decision_reason_code = 'challenge_expired',
+              challenge_ciphertext_reference = NULL, challenge_key_id = NULL
+          WHERE id = $1::uuid
+        SQL
+      end.not_to raise_error
+      expect(DbInspector.one("SELECT request_status FROM verification_requests WHERE id = $1::uuid", [id])["request_status"]).to eq("expired")
+      # expired is terminal: no further transition.
+      expect { conn.exec_params("UPDATE verification_requests SET request_status = 'verified' WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /verification_request_transition_unavailable/)
     end
 
     it "keeps the tenant/Project/Source identity and the issuance facts immutable" do
