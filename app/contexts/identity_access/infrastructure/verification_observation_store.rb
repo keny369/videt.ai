@@ -12,9 +12,12 @@ module IdentityAccess
     # null. Running a reserved observation and recording its outcome is the verification
     # lifecycle service's act, not a human's (contracts/S-05.json MTX-051: the transition
     # is a consequence of a matched predicate, not of an actor's permission). This is the
-    # VerificationExpiryStore shape specialized to the attempt-completion writes; the
-    # service ledger writers are duplicated (not yet extracted — the ActorLedgerWriters
-    # precedent extracts at the third copy, and this is the second service store).
+    # VerificationExpiryStore shape specialized to the attempt-completion writes. The
+    # service-attributed five-writer set is duplicated here rather than shared: this is
+    # now the THIRD structural copy (RoleExpiryStore, VerificationExpiryStore, and this),
+    # so extracting a `ServiceLedgerWriters` module — mirroring `ActorLedgerWriters` — is
+    # a warranted follow-up; it is deferred here because it would edit the already-merged
+    # expiry stores and is not required to complete this tranche.
     class VerificationObservationStore
       def initialize(pg_connection)
         @pg = pg_connection
