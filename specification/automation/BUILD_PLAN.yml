@@ -190,7 +190,10 @@ blocks:
       - the ExpireVerificationRequest slice + specs
       - S-05-002 completion report + DECISIONS ledger entry
 
-  # PROPOSED SPLIT (2026-07-26, DECISIONS.md ADR-032) — pending owner approval.
+  # OWNER-ACCEPTED SPLIT (2026-07-26, DECISIONS.md ADR-032 approved by ADR-033). The Observation
+  # limb is decomposed into the authoritative sequence S-05-003..S-05-007 below. S-05-003 is
+  # authorised to run next; S-05-004..007 remain human_gate_before until authorised in turn.
+  # Original proposal rationale:
   # The owner designated S-05-003 as "Observation (Reserve + Complete)". Pre-implementation
   # scoping against contracts/S-05.json (MTX-028/051), SCORE_EVIDENCE_MODEL.md § Attempts,
   # Expiry, And Evidence, and schemas/POSTGRESQL_SCHEMA.md :288 shows the Observation limb is
@@ -204,7 +207,7 @@ blocks:
   - id: S-05-003
     name: Ownership Verification — outbound observation engine (WF-003, F-01 consumer)
     type: product
-    status: proposed
+    status: planned   # 2026-07-26: split accepted (ADR-033); authorised as the next tranche
     depends_on:
       - S-05-002
     authoritative_sources:
@@ -229,7 +232,7 @@ blocks:
       - complete_test_suite
       - architecture_fitness
       - repository_security
-    human_gate_before: true
+    human_gate_before: false   # cleared by owner (ADR-033); authorised to run next
     human_gate_after: true
     risk_level: high
     allowed_foundation_dependencies:
@@ -241,7 +244,7 @@ blocks:
   - id: S-05-004
     name: Ownership Verification — verification_attempts + ReserveVerificationAttempt
     type: product
-    status: proposed
+    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
     depends_on:
       - S-05-003
     authoritative_sources:
@@ -280,7 +283,7 @@ blocks:
   - id: S-05-005
     name: Ownership Verification — CompleteVerificationAttempt (observation recording, F-03)
     type: product
-    status: proposed
+    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
     depends_on:
       - S-05-004
     authoritative_sources:
@@ -320,7 +323,7 @@ blocks:
   - id: S-05-006
     name: Ownership Verification — matched success commit + source-scope-interim-v1
     type: product
-    status: proposed
+    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
     depends_on:
       - S-05-005
     authoritative_sources:
@@ -363,7 +366,7 @@ blocks:
   - id: S-05-007
     name: Ownership Verification — automated observation slot schedule
     type: product
-    status: proposed
+    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
     depends_on:
       - S-05-006
     authoritative_sources:

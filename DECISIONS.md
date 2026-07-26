@@ -1012,3 +1012,18 @@ Approve the five-sub-tranche split and authorise **S-05-003 (the observation eng
 
 Authority And Precedence:
 No frozen contract touched; no product code written. Allocated the next unused number after ADR-031. The controller is stopped at human_decision_required per the owner's explicit escape-hatch instruction; the tranche after the (approved) next one is not begun.
+
+## ADR-033: S-05-003 Observation Split Accepted; S-05-003 Authorised
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve ADR-032 … Accept the five-sub-tranche decomposition") / implementation agent (recorded)
+Reversibility: Plan/state change plus a product tranche that stops at ready_for_review; revertible.
+
+Decision:
+Approve ADR-032. The Observation limb decomposes into the authoritative sequence S-05-003..S-05-007 (BUILD_PLAN updated: the split blocks are no longer "proposed"; S-05-003 is `planned` with `human_gate_before: false`; S-05-004..007 are `not_started` with `human_gate_before: true` until authorised in turn). Authorise **S-05-003 — the pure F-01 outbound observation engine** as the next tranche and run it to `ready_for_review` under the controller (enforced preflight/postflight, deterministic verification, independent review, records, commits). Do not begin S-05-004.
+
+The flagged architectural dependency (source-scope-interim-v1 / Source Scope, S-06) is carried forward; it blocks S-05-006 only and will be decided before that sub-tranche.
+
+Authority And Precedence:
+Resolves HD-S05-003-SPLIT. Allocated the next unused number after ADR-032. No frozen contract changed; no automatic merge; no production path.
