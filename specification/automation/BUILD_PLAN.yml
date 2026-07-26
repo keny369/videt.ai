@@ -283,7 +283,7 @@ blocks:
   - id: S-05-005
     name: Ownership Verification — CompleteVerificationAttempt (observation recording, F-03)
     type: product
-    status: planned   # 2026-07-26: authorised by the owner as the next tranche (ADR-039); running under the controller
+    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-040); not merged
     depends_on:
       - S-05-004
     authoritative_sources:

@@ -1168,3 +1168,32 @@ Out of scope (later sub-tranches, unchanged): the matched success commit + Sourc
 
 Authority And Precedence:
 Executes the owner's authorisation and the controller mandate. Allocated the next unused number after ADR-038. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-005`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Per owner instruction, S-05-006 is NOT to be begun.
+
+## ADR-040: S-05-005 CompleteVerificationAttempt — Completion (ready_for_review)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (authorised S-05-005, ADR-039) / implementation agent (recorded)
+Reversibility: Committed on branch `tranche/S-05/S-05-005` (off `e96cb3d`), verified and independently reviewed, NOT merged; `main` untouched, nothing pushed. Fully reversible until owner acceptance.
+
+Decision:
+Implement the WF-003 observation-recording limb `Workflows::Wf003::CompleteVerificationAttempt` (SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence and § Evidence Contract; contracts/S-05.json MTX-028/051/056). The service-executed handler runs a reserved attempt's observation through the S-05-003 engine and records the outcome: the provider call is OUTSIDE every transaction (read-and-reveal transaction → engine → completion transaction; only the recorded outcome is committed); it persists exactly one restricted `verification_observation` Evidence (F-03, the first real F-03 producer) with its redacted payload behind an F-02 reference — never the plaintext token or raw content — through the frozen `Platform::Evidence.produce` surface, idempotent on `(organization_id, producer_id, attempt_id)`; it appends exactly one `SourceVerificationObserved` referencing that Evidence, transitions the attempt `reserved → completed`, and updates the Request `last_observed_at_utc` / on-demand marker / `last_on_demand_completed_at_utc` with `request_status` held `pending`. A matched observation is RECORDED only — the Source is left `proposed` and the Request `pending` (the matched success commit is S-05-006). Completion is idempotent by the reserved attempt identity (a persisted completion replays; a persistence failure leaves the attempt reserved for a retry that consumes no second count). The migration relaxes exactly the `reserved → completed` guard edge (mirroring S-05-002); no new table, column, index or grant. Suite 1158 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no structure.sql drift; architecture fitness green (incl. the F-03 evidence single-surface fence).
+
+Independent Review (ADR-026):
+Five adversarial lenses by separately-invoked models with no shared conversational state (contract-correctness, security/no-secret-at-rest, F-03/F-02 integration, concurrency/idempotency, architecture/frozen-contract): **PASS_NO_BLOCKING — zero blocking findings, zero confirmed-blocking after the verify pass.** Confirmed the provider-call-outside-every-transaction structure, the single restricted Evidence + single observed event per observation, the atomic version-guarded record with LostRace rollback (Evidence, F-02 ciphertext and ledger together), the token confined to the reveal/provider phases and absent from every persisted column, the Evidence Record shape against the canonical F-03 acceptance test, the single-surface producer usage and transaction-sharing atomicity, the transaction-local proved context across the two transactions, service attribution, and frozen-façade compliance. One review-driven repair applied (comment accuracy only, no behaviour change): corrected the service-store duplication note (this is the third structural copy; a ServiceLedgerWriters extraction is a deferred follow-up).
+
+Decision Ledger:
+| Decision | Authority | Reason |
+| --- | --- | --- |
+| Provider call outside the transaction via a two-transaction handler (read+reveal → engine → commit) | Autonomous (contract) | transaction_boundary: "the provider call itself is outside every transaction." The org proved-context is transaction-local (set_config(...,true)), so the second UnitOfWork re-enters cleanly. |
+| One restricted verification_observation Evidence via `Platform::Evidence.produce` (default store) | Foundation Consumption Rule | The default store shares the UnitOfWork's ActiveRecord::Base.connection, so the Evidence commits atomically; referencing the internal EvidenceStore would break the single-surface fitness. |
+| Idempotent by the reserved attempt identity (idempotency_key = verification_attempt_id) | Autonomous (contract) | "Observation completion is idempotent by reserved slot/attempt identity"; the locked re-read + the Evidence unique key + the version-guarded UPDATEs make a retry replay or re-run under the same attempt with no second count. |
+| Service-attributed, no permission check | Autonomous (MTX-051) | "the transition is a consequence of a matched predicate, not of an actor's permission"; authority was established at reservation. |
+| Relax exactly `reserved → completed` | Autonomous (the plan's edge) | The one recording transition; running/quarantined stay refused (mirrors S-05-002). |
+| SourceVerificationObserved event_profile = `attempt` | Autonomous (fixed CHECK set) | The event_registry profile set has no "observation" literal; `attempt` denotes an observation attempt. |
+| VerificationObservationStore duplicates the service writers | Autonomous (established pattern) | Third structural copy; the ServiceLedgerWriters extraction is recorded as a deferred follow-up (it would edit merged stores). |
+
+Non-blocking findings recorded (not actioned per the owner's "confirmed blocking only" instruction; carried for owner consideration or a later limb): started/completed instants coincide because a command carries a single clock `now`; the deny path writes no idempotency record (diverging from ExpireVerificationRequest); a Request going terminal between the provider call and the commit records no Evidence and leaves the attempt reserved (a later cleanup); the at-rest token-absence assertion could also pin command_results, and a true concurrent two-racer completion test could join the sequential idempotency coverage.
+
+Authority And Precedence:
+Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-039. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-006 is NOT begun.
