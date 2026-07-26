@@ -141,7 +141,10 @@ RSpec.describe "WF-003 complete verification attempt", type: :acceptance,
 
   # ------------------------------------------------------------------------
 
-  describe "records a matched observation without verifying the Source (that is S-05-006)" do
+  # A matched observation now also VERIFIES (S-05-006); this spec keeps the recording
+  # assertions and the atomic success commit is proved in detail in
+  # spec/acceptance/wf003_source_verification_success_spec.rb.
+  describe "records a matched observation (and, since S-05-006, verifies the Source)" do
     it "completes the attempt, produces one restricted Evidence and one SourceVerificationObserved" do
       s = reserved_attempt
       result = complete(org: s[:org], vid: s[:vid], aid: s[:aid], outbound: matched(s[:token]))
@@ -149,7 +152,7 @@ RSpec.describe "WF-003 complete verification attempt", type: :acceptance,
       expect(result).to be_success
       expect(result.payload[:match_decision]).to eq("matched")
       expect(result.payload[:attempt_state]).to eq("completed")
-      expect(result.payload[:request_status]).to eq("pending")
+      expect(result.payload[:request_status]).to eq("verified")
 
       a = va(s[:aid])
       expect(a["state"]).to eq("completed")
@@ -175,13 +178,13 @@ RSpec.describe "WF-003 complete verification attempt", type: :acceptance,
       expect(body["actor_id"]).to be_nil
     end
 
-    it "leaves the Source proposed, the Request pending, and emits no SourceVerified" do
+    it "verifies the Request and Source on a match and emits SourceVerified (S-05-006)" do
       s = reserved_attempt
       complete(org: s[:org], vid: s[:vid], aid: s[:aid], outbound: matched(s[:token]))
 
-      expect(vr(s[:vid])["request_status"]).to eq("pending")
-      expect(DbInspector.one("SELECT state FROM sources WHERE id = $1::uuid", [s[:source_id]])["state"]).to eq("proposed")
-      expect(DbInspector.all("SELECT id FROM event_registry WHERE event_type = 'SourceVerified'")).to be_empty
+      expect(vr(s[:vid])["request_status"]).to eq("verified")
+      expect(DbInspector.one("SELECT state FROM sources WHERE id = $1::uuid", [s[:source_id]])["state"]).to eq("verified")
+      expect(DbInspector.all("SELECT id FROM event_registry WHERE event_type = 'SourceVerified'").size).to eq(1)
     end
 
     it "clears the in-progress marker and records the last-observed / last-on-demand-completed instants without a second count" do

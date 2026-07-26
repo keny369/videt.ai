@@ -92,6 +92,66 @@ module IdentityAccess
         SQL
       end
 
+      # ---- S-05-006 matched success commit -------------------------------------
+
+      # The Source as the success commit needs it, for the proposed -> verified guard.
+      def read_source(source_id)
+        exec(<<~SQL, [source_id]).to_a.first
+          SELECT id, state, state_version, canonical_host FROM sources WHERE id = $1::uuid
+        SQL
+      end
+
+      # The matched terminal update of the Request: pending -> verified/matched with the
+      # challenge material erased (redelivery disablement), plus the same last-observed /
+      # on-demand marker update the recording path makes. Guarded on pending + the
+      # expected state version. Returns the row count.
+      def verify_request_on_match(id, expected_version, on_demand:, now:)
+        marker = on_demand ? "NULL" : "on_demand_in_progress_attempt_id"
+        last_on_demand = on_demand ? "$3::timestamptz" : "last_on_demand_completed_at_utc"
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE verification_requests
+          SET request_status = 'verified', decision_reason_code = 'matched',
+              challenge_ciphertext_reference = NULL, challenge_key_id = NULL,
+              last_observed_at_utc = $3::timestamptz,
+              on_demand_in_progress_attempt_id = #{marker},
+              last_on_demand_completed_at_utc = #{last_on_demand},
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND request_status = 'pending' AND state_version = $2
+        SQL
+      end
+
+      # Source proposed -> verified with its active scope policy pinned, guarded on
+      # proposed + the expected Source state version (so concurrent matched completions
+      # transition once and a stale version rejects with no side effect). Returns the
+      # row count.
+      def verify_source(source_id, expected_version, policy_id, now:)
+        exec(<<~SQL, [source_id, expected_version, policy_id, iso(now)]).cmd_tuples
+          UPDATE sources
+          SET state = 'verified', current_scope_policy_id = $3::uuid, verified_at = $4::timestamptz,
+              state_version = state_version + 1, updated_at = $4::timestamptz
+          WHERE id = $1::uuid AND state = 'proposed' AND state_version = $2
+        SQL
+      end
+
+      # Materialize one immutable Source Scope Policy version (the interim policy).
+      def insert_source_scope_policy(row)
+        params = [
+          row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+          row[:source_id], row[:policy_version], row[:scope], row[:canonical_host],
+          pg_text_array(row[:allowed_schemes]), pg_int_array(row[:allowed_ports]),
+          pg_text_array(row[:include_prefixes]), pg_text_array(row[:exclude_prefixes]),
+          row[:query_handling], bytea(row[:content_sha256])
+        ]
+        exec(<<~SQL, params)
+          INSERT INTO source_scope_policies
+            (id, created_at, correlation_id, schema_version, organization_id, project_id, source_id,
+             policy_version, scope, canonical_host, allowed_schemes, allowed_ports,
+             include_prefixes, exclude_prefixes, query_handling, content_sha256)
+          VALUES ($1,$2::timestamptz,$3::uuid,'source-scope-policy-v1',$4::uuid,$5::uuid,$6::uuid,
+                  $7,$8,$9,$10::text[],$11::integer[],$12::text[],$13::text[],$14,$15)
+        SQL
+      end
+
       def find_idempotency(org:, command_type:, target_type:, target_id:, key_digest:)
         sql = <<~SQL
           SELECT encode(request_sha256,'hex') AS request_hex, command_result_id
@@ -211,6 +271,14 @@ module IdentityAccess
       def exec(sql, params) = @pg.exec_params(sql, params)
       def bytea(bytes) = bytes && { value: bytes, format: 1 }
       def iso(time) = time&.getutc&.iso8601(6)
+
+      # PostgreSQL array literals. Text elements are double-quoted with backslash/quote
+      # escaped; integers are emitted bare. An empty array is `{}`.
+      def pg_text_array(arr)
+        "{#{Array(arr).map { |e| %("#{e.to_s.gsub('\\', '\\\\\\\\').gsub('"', '\\"')}") }.join(',')}}"
+      end
+
+      def pg_int_array(arr) = "{#{Array(arr).map(&:to_i).join(',')}}"
     end
   end
 end

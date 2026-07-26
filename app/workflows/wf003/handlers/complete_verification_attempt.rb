@@ -143,6 +143,7 @@ module Workflows
           ids = %i[execution audit event result idem].to_h { |k| [k, ctx.generate_id] }
           on_demand = attempt["origin"] == "on_demand"
           request_sha256 = request_hash(command, ctx)
+          matched = observation.match_decision == "matched"
 
           evidence_id = produce_evidence(command, ctx, org, now, attempt, request, observation)
 
@@ -150,21 +151,32 @@ module Workflows
             command.verification_attempt_id, attempt["state_version"].to_i,
             attempt_outcome(observation, now)
           ).to_i.zero?
-          raise LostRace if store.record_observation_on_request(
-            command.verification_request_id, request["state_version"].to_i, on_demand:, now:
-          ).to_i.zero?
+
+          # S-05-006: on a MATCHED observation, the same transaction verifies the Request
+          # and Source and materializes the interim scope policy — none without the others.
+          # A non-matching outcome records only (S-05-005): Source proposed, Request pending.
+          success = matched ? commit_success(store, command, ctx, org, now, request, on_demand:) : nil
+          unless matched
+            raise LostRace if store.record_observation_on_request(
+              command.verification_request_id, request["state_version"].to_i, on_demand:, now:
+            ).to_i.zero?
+          end
 
           payload = {
             "verification_request_id" => command.verification_request_id,
             "verification_attempt_id" => command.verification_attempt_id, "evidence_id" => evidence_id,
             "attempt_number" => attempt["attempt_number"].to_i, "attempt_state" => "completed",
-            "request_status" => "pending", "network_outcome" => observation.network_outcome,
+            "request_status" => matched ? "verified" : "pending",
+            "source_state" => matched ? "verified" : "proposed",
+            "source_scope_policy_id" => success&.fetch(:policy_id),
+            "network_outcome" => observation.network_outcome,
             "match_decision" => observation.match_decision, "reason_code" => observation.reason_code
           }
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
           write_audit(store, ids[:audit], org, ctx, command, command.verification_attempt_id,
                       to_state: "completed", outcome: "success", reason_code: observation.reason_code, payload:, now:)
           write_event(store, ids, org, ctx, command, now, request, attempt, observation, evidence_id, request_sha256, key_digest)
+          write_source_verified_event(store, ids, org, ctx, command, now, request, success) if matched
           write_result(store, ids, command, ctx, org, now, payload)
           write_idempotency(store, ids[:idem], org, command, key_digest, request_sha256, ids[:execution], ids[:result], now)
 
@@ -173,6 +185,87 @@ module Workflows
                                           payload: payload.transform_keys(&:to_sym))
         rescue LostRace
           raise Platform::InvariantViolation, "verification attempt completed concurrently"
+        end
+
+        # The atomic matched success commit (SCORE_EVIDENCE_MODEL.md :155; contracts/
+        # S-05.json MTX-028/051; WORKFLOW_SPECIFICATIONS.md § WF-003): materialize the
+        # interim scope policy, transition the Request pending -> verified/matched with
+        # the challenge erased, and transition the Source proposed -> verified with the
+        # policy pinned — all guarded on the expected state versions, so concurrent
+        # matched completions transition once and a stale version raises LostRace (the
+        # whole completion rolls back). Runs inside the completion transaction.
+        def commit_success(store, command, ctx, org, now, request, on_demand:)
+          source = store.read_source(request["source_id"])
+          raise LostRace unless source && source["state"] == "proposed"
+
+          policy_id = ctx.generate_id
+          materialize_interim_policy(store, ctx, org, now, request, source, policy_id)
+
+          raise LostRace if store.verify_request_on_match(
+            command.verification_request_id, request["state_version"].to_i, on_demand:, now:
+          ).to_i.zero?
+          # Redelivery disablement: the F-02 challenge material is destroyed, atomic with
+          # the transition (the ciphertext reference was nulled above); the digest survives.
+          reference = request["challenge_ciphertext_reference"]
+          Platform::Encryption.erase(reference) if reference
+
+          raise LostRace if store.verify_source(source["id"], source["state_version"].to_i, policy_id, now:).to_i.zero?
+
+          { policy_id:, source_version: source["state_version"].to_i + 1 }
+        end
+
+        # source-scope-interim-v1 (WORKFLOW_SPECIFICATIONS.md :412): HTTPS, its default
+        # port, the verified canonical host only, include prefix "/", no exclude prefix,
+        # retain_all. Modelled to the canonical Source Scope Policy schema so S-06 extends it.
+        INTERIM_POLICY_VERSION = "source-scope-interim-v1"
+        INTERIM_POLICY = { allowed_schemes: ["https"], allowed_ports: [443], include_prefixes: ["/"],
+                           exclude_prefixes: [], query_handling: "retain_all" }.freeze
+
+        def materialize_interim_policy(store, ctx, org, now, request, source, policy_id)
+          host = source["canonical_host"]
+          store.insert_source_scope_policy(
+            id: policy_id, now:, correlation_id: ctx.correlation_id, organization_id: org,
+            project_id: request["project_id"], source_id: source["id"],
+            policy_version: INTERIM_POLICY_VERSION, scope: "source", canonical_host: host,
+            allowed_schemes: INTERIM_POLICY[:allowed_schemes], allowed_ports: INTERIM_POLICY[:allowed_ports],
+            include_prefixes: INTERIM_POLICY[:include_prefixes], exclude_prefixes: INTERIM_POLICY[:exclude_prefixes],
+            query_handling: INTERIM_POLICY[:query_handling], content_sha256: interim_policy_digest(host)
+          )
+        end
+
+        def interim_policy_digest(host)
+          Platform::CanonicalJson.digest({
+            "canonical_host" => host, "scope" => "source", "policy_version" => INTERIM_POLICY_VERSION,
+            "allowed_schemes" => INTERIM_POLICY[:allowed_schemes], "allowed_ports" => INTERIM_POLICY[:allowed_ports],
+            "include_prefixes" => INTERIM_POLICY[:include_prefixes], "exclude_prefixes" => INTERIM_POLICY[:exclude_prefixes],
+            "query_handling" => INTERIM_POLICY[:query_handling]
+          })
+        end
+
+        # SourceVerified, on the Source aggregate, inside the success transaction.
+        def write_source_verified_event(store, ids, org, ctx, command, now, request, success)
+          event_id = ctx.generate_id
+          envelope = {
+            "account_id" => nil, "actor_id" => nil, "affected_entity_id" => request["source_id"],
+            "affected_entity_type" => "source", "aggregate_version" => success[:source_version],
+            "audit_record_id" => ids[:audit], "causation_id" => ctx.correlation_id, "command_id" => command.command_id,
+            "correlation_id" => ctx.correlation_id, "event_id" => event_id, "event_profile" => "state_transition",
+            "event_type" => "SourceVerified", "from_state" => "proposed", "occurred_at_utc" => now.iso8601(6),
+            "organization_id" => org, "outcome" => "success", "project_id" => request["project_id"],
+            "reason_code" => "matched", "schema_version" => "1.0", "service_identity_id" => ctx.service_identity_id,
+            "source_id" => request["source_id"], "source_scope_policy_id" => success[:policy_id],
+            "to_state" => "verified", "verification_request_id" => command.verification_request_id,
+            "workflow_id" => WORKFLOW_ID
+          }
+          bytes = Platform::CanonicalJson.encode(envelope)
+          store.insert_event(
+            id: event_id, created_at: iso(now), event_type: "SourceVerified", event_profile: "state_transition",
+            occurred_at: iso(now), organization_id: org, aggregate_type: "source", aggregate_id: request["source_id"],
+            aggregate_version: success[:source_version], partition_month: month(now),
+            correlation_id: ctx.correlation_id, causation_id: ctx.correlation_id,
+            command_id: command.command_id, audit_record_id: ids[:audit],
+            event_bytes: bytes, event_sha256: Digest::SHA256.digest(bytes)
+          )
         end
 
         # Exactly one restricted verification_observation Evidence (F-03), its redacted
