@@ -244,7 +244,7 @@ blocks:
   - id: S-05-004
     name: Ownership Verification — verification_attempts + ReserveVerificationAttempt
     type: product
-    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-037); not merged
+    status: completed   # 2026-07-26: owner-accepted and fast-forward merged into implementation/s01-registration-access (dd802a0); DECISIONS ADR-038
     depends_on:
       - S-05-003
     authoritative_sources:

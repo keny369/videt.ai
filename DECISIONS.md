@@ -1127,3 +1127,24 @@ Non-blocking findings recorded (not actioned per the owner's "confirmed blocking
 
 Authority And Precedence:
 Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-036. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-005 is NOT begun.
+
+## ADR-038: S-05-004 Accepted And Merged; Next Tranche (S-05-005) Is A Human Gate
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-004 if, and only if, repository governance is fully satisfied") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing pushed and `main` untouched, so it is revertible. The next-tranche authorisation is recorded separately (ADR-039).
+
+Decision:
+Accept S-05-004 (verification_attempts + ReserveVerificationAttempt, ADR-037). Repository governance is fully satisfied and was re-verified at the merge: whole-repo suite 1149 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no `db/structure.sql` drift; architecture fitness 31/0; independent review (ADR-026, five separately-invoked adversarial lenses with no shared conversational state) PASS_NO_BLOCKING with zero confirmed-blocking findings; the only frozen-path touch (`lib/f1/runtime_grants.rb`) is the additive least-privilege `verification_attempts` grant (no DELETE) under the FrozenContracts additive-new-table rule (ADR-029, ADR-037). Fast-forward merged into `implementation/s01-registration-access` at `dd802a0`; `S-05-004` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-004 → completed; `S-05-004_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-05/S-05-004` deleted per repository policy (S-05-001/002/003 precedent).
+
+Carried non-blocking (recorded in ADR-037, not gate failures): no direct two-racer concurrency test (the property is enforced by the advisory lock + state-version guard + the unique attempt index, the last proven in the invariants spec); a tighter rate-limit reject boundary; and a direct denial-not-recorded test. These are candidate follow-ups and do not block the merge.
+
+Next Tranche — Genuine Human Decision (HD-S05-005-AUTHORISE):
+Per BUILD_STATE/BUILD_PLAN, the next block is **S-05-005** (CompleteVerificationAttempt — observation recording + F-03 Evidence), which is `human_gate_before: true` and remains unauthorised under the owner-accepted Observation split (ADR-033: "S-05-004..007 remain human_gate_before until authorised in turn"). Its scope is fixed by the split, so this is an authorise-to-proceed gate, not a scope choice. The controller stops at `human_decision_required`; it does not self-authorise the next tranche.
+
+Recommended Option:
+**Authorise S-05-005 as specified.** It runs the S-05-003 observation engine for a reserved attempt (the provider call outside the transaction; only the recorded outcome committed), persists exactly one restricted `verification_observation` Evidence (F-03) + `SourceVerificationObserved`, updates the Request completion/last-observed fields and clears the in-progress marker, and leaves the Source `proposed` on any non-verifying outcome (the matched success commit is S-05-006). The flagged Source Scope / S-06 dependency affects S-05-006 only and need not be decided now.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-037. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.

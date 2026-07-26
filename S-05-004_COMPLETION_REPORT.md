@@ -1,10 +1,12 @@
 # S-05-004 verification_attempts + ReserveVerificationAttempt — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-004` (off base `891e295`, the owner-authorisation commit ADR-036), **not merged**;
-the protected branch (`main`) is untouched and nothing is pushed. Second sub-tranche of the
-owner-accepted Observation split (ADR-033); owner-authorised (ADR-036). Consumes F-01..F-04 only
-through their frozen façades.
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-004` into the integration branch `implementation/s01-registration-access` at
+`dd802a0`; added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-05-004 → completed, DECISIONS
+ADR-038). The protected branch (`main`) is untouched and nothing is pushed. It was implemented,
+verified and independently reviewed on that branch off base `891e295` (the owner-authorisation commit
+ADR-036). Second sub-tranche of the owner-accepted Observation split (ADR-033). Consumes F-01..F-04
+only through their frozen façades.
 
 ## What was built
 
