@@ -3,32 +3,18 @@
   "controller_version": "1.0.0",
   "current_block": "S-06",
   "current_tranche": "S-06-001",
-  "status": "human_decision_required",
+  "status": "ready_for_review",
   "attempt_number": 1,
   "base_commit": "0f6a625",
   "worktree_path": "",
   "branch_name": "tranche/S-06/S-06-001",
-  "implementation_commit": "3aaf017",
-  "review_commit": "3aaf017",
-  "last_verified_commit": "3aaf017",
+  "implementation_commit": "16f7a89",
+  "review_commit": "16f7a89",
+  "last_verified_commit": "16f7a89",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S06-001-SCOPE-SEPARATOR",
-      "block": "S-06",
-      "tranche": "S-06-001",
-      "question": "S-06-001 (the pure PRULE-021 Source Scope Predicate) is implemented, passes the full gate (rspec 1225/0, brakeman/packwerk/bundler-audit/zeitwerk clean) and is spec-conformant to PRULE-021 as written. Four of five independent adversarial lenses returned PASS; the security lens returned CHANGES_REQUIRED on one verified, LATENT finding: an exclusion bypass via separator-equivalent characters. With include '/' and exclude '/private', the predicate ALLOWS /private%2Fsecret, /private%5Csecret and /private\\secret (whereas /private/secret is correctly excluded), because %2F/%5C are correctly not decoded and a raw backslash is passed through, so the exclude segment-boundary test misses; some origins resolve these back to /private/secret. It is spec-conformant (boundary = literal '/'; %2F is reserved and preserved) and latent (the only materialized policy ships exclude_prefixes []; S-06-002/003 excludes and the S-07 crawler are not built). The fix requires either deviating from the ratified PRULE-021 rule (predicate hardening) or an S-07 crawl-behaviour ruling. How should the predicate treat %2F/%5C/raw backslash in exclude (and include) boundary matching?",
-      "recommended_option": "Option A — ratify a fail-closed hardening of the predicate (treat %2F/%5C/raw backslash as segment separators, or quarantine any path bearing them), applied as a small still-pure addition to S-06-001 with covering tests, and record the deviation from the literal PRULE-021 boundary rule as an ADR + PRULE-021 clarification. Closes the enforcement-kernel gap before excludes ship (S-06-003) or S-07 crawls.",
-      "options": [
-        "A: harden the predicate now (fail-closed) with owner ratification of the PRULE-021 clarification, then move S-06-001 to ready_for_review",
-        "B: accept S-06-001 as spec-conformant now (latent) and mandate the hardening as a required predecessor to S-06-003 and S-07",
-        "C: rule that S-07 must crawl canonical URLs verbatim (AllowEncodedSlashes off) and reject raw backslash; keep S-06-001 as-is; record the ruling + an S-07 test"
-      ],
-      "related": "See S-06-001_COMPLETION_REPORT.md § Open owner decision and DECISIONS ADR-050. Implementation reviewed at 3aaf017; no repair applied (would deviate from the ratified spec). No merge, no push; main untouched. S-06-002..005 remain human_gate_before."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007"],
   "failed_attempts": [],
-  "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-06-001 (Source Scope Predicate, PRULE-021, pure) implemented on tranche/S-06/S-06-001 (base 0f6a625, implementation commit 3aaf017). Full gate green: whole-repo suite 1225 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so migration_safety/runtime_role were not path-selected and no structure.sql drift is possible; pure PORO consuming no foundation. Independent review (ADR-026, five separately-invoked adversarial lenses: contract-correctness, determinism/purity, architecture/scope/frozen-contracts, test-quality/schema-safety, security/tenant-isolation) returned PASS on four; the security lens returned CHANGES_REQUIRED on ONE verified latent finding (separator-equivalent exclusion bypass, HD-S06-001-SCOPE-SEPARATOR). The current code is spec-conformant to PRULE-021 as written; the fix requires an owner/architecture ruling that deviates from the ratified rule or governs S-07 crawl behaviour, so per AUTONOMOUS_BUILD_CONTROLLER §7 (security + ambiguous product semantics) the controller does NOT silently harden and stops at human_decision_required. No confirmed-blocking repair applied. No merge, no push; main and the integration branch untouched; S-06-002..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
+  "updated_at": "2026-07-27T00:00:00Z",
+  "reconciliation_note": "2026-07-27: S-06-001 (Source Scope Predicate, PRULE-021, pure) is READY_FOR_REVIEW on tranche/S-06/S-06-001 (base 0f6a625, tip 16f7a89). The owner resolved HD-S06-001-SCOPE-SEPARATOR by selecting Option A (DECISIONS ADR-051): a narrow, additive, fail-closed EXCLUSION clarification treating %2F/%5C (case-insensitive) and a raw backslash as hierarchy-separator equivalents when testing exclude prefixes, with dot-segments then resolved. It is exclusion-only and does not decode reserved characters, alter the canonical URL, change include matching, or add persistence/events/jobs/networking/state; the frozen contract text was NOT rewritten (the ADR is the ratified clarification mechanism). Full gate green: whole-repo suite 1240 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so no structure.sql drift is possible. Independent review re-run (ADR-026, five separately-invoked adversarial lenses: security/tenant-isolation, contract-correctness, determinism/purity, architecture/scope, test-quality) returned PASS on ALL FIVE, and the security lens explicitly classified HD-S06-001-SCOPE-SEPARATOR as RESOLVED with zero confirmed-blocking findings. Recorded non-blocking residual: double-encoded %252F, overlong UTF-8 and the Unicode fraction-slash are outside the ratified named separator set and remain allowed (defense-in-depth follow-up, pinned by a characterization test). Next: owner acceptance-and-merge at human_gate_after. No merge, no push; main and the integration branch untouched; S-06-002..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
 }
