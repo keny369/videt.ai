@@ -68,10 +68,12 @@ RSpec.describe "WF-003 source verification success commit", type: :acceptance,
         expected_state_version: 0, requested_at_utc: act_now), request_context: act_ctx).payload[:verification_attempt_id]
   end
 
-  def complete(org:, vid:, aid:, outbound:)
+  def complete(org:, vid:, aid:, outbound:, at: act_now)
+    ctx = Platform::RequestContext.for_service(service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+                                               clock: Platform::Clock.fixed(at), ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
     Workflows::Wf003::Handlers::CompleteVerificationAttempt.new.call(
       command: Workflows::Wf003::Commands::CompleteVerificationAttempt.new(command_id: SecureRandom.uuid_v7, schema_version: "1.0", organization_id: org,
-        verification_request_id: vid, verification_attempt_id: aid, requested_at_utc: act_now), request_context: observer_ctx, outbound:)
+        verification_request_id: vid, verification_attempt_id: aid, requested_at_utc: at), request_context: ctx, outbound:)
   end
 
   def reserved_attempt(uri: "https://shop.acme.example")
@@ -173,6 +175,34 @@ RSpec.describe "WF-003 source verification success commit", type: :acceptance,
       expect(policies(s[:source_id]).size).to eq(1)
       expect(source_verified_events(s[:source_id]).size).to eq(1)
       expect(src(s[:source_id])["state_version"]).to eq(before_version) # no re-transition
+    end
+  end
+
+  describe "expiry wins at the boundary" do
+    it "records a matched observation completing at expires_at_utc but does NOT verify (equality: expiry wins)" do
+      s = reserved_attempt
+      expires = act_now + (24 * 3600) # issued at act_now; the challenge is valid for exactly 24 hours
+      result = complete(org: s[:org], vid: s[:vid], aid: s[:aid], outbound: matched(s[:token]), at: expires)
+
+      expect(result).to be_success
+      expect(result.payload[:match_decision]).to eq("matched")
+      expect(result.payload[:request_status]).to eq("pending")
+      expect(result.payload[:source_state]).to eq("proposed")
+      # The Source is not verified, the Request stays pending, and no policy/event appears.
+      expect(vr(s[:vid])["request_status"]).to eq("pending")
+      expect(src(s[:source_id])["state"]).to eq("proposed")
+      expect(policies(s[:source_id])).to be_empty
+      expect(source_verified_events(s[:source_id])).to be_empty
+      # The observation itself is still recorded as Evidence.
+      expect(DbInspector.all("SELECT id FROM evidence WHERE attempt_id = $1", [s[:aid]]).size).to eq(1)
+    end
+
+    it "verifies a matched observation completing strictly before expiry" do
+      s = reserved_attempt
+      before = act_now + (24 * 3600) - 1
+      result = complete(org: s[:org], vid: s[:vid], aid: s[:aid], outbound: matched(s[:token]), at: before)
+      expect(result.payload[:request_status]).to eq("verified")
+      expect(src(s[:source_id])["state"]).to eq("verified")
     end
   end
 

@@ -144,6 +144,12 @@ module Workflows
           on_demand = attempt["origin"] == "on_demand"
           request_sha256 = request_hash(command, ctx)
           matched = observation.match_decision == "matched"
+          # Expiry wins at the boundary (SCORE_EVIDENCE_MODEL.md § Attempts; contracts/
+          # S-05.json test_contracts: "an observation completing at or after expires_at_utc
+          # cannot verify; at exact equality expiry wins"). A matched observation whose
+          # completion commits AT OR AFTER expires_at_utc is recorded like any observation
+          # but does NOT verify — the Source stays proposed and a later expiry terminates it.
+          verifies = matched && now < to_time(request["expires_at_utc"])
 
           evidence_id = produce_evidence(command, ctx, org, now, attempt, request, observation)
 
@@ -152,11 +158,12 @@ module Workflows
             attempt_outcome(observation, now)
           ).to_i.zero?
 
-          # S-05-006: on a MATCHED observation, the same transaction verifies the Request
-          # and Source and materializes the interim scope policy — none without the others.
-          # A non-matching outcome records only (S-05-005): Source proposed, Request pending.
-          success = matched ? commit_success(store, command, ctx, org, now, request, on_demand:) : nil
-          unless matched
+          # S-05-006: a MATCH BEFORE EXPIRY commits, in one transaction, the Request and
+          # Source verification and the interim scope policy — none without the others.
+          # Every other outcome (non-match, or matched-at/after-expiry) records only
+          # (S-05-005): Source proposed, Request pending.
+          success = verifies ? commit_success(store, command, ctx, org, now, request, on_demand:) : nil
+          unless verifies
             raise LostRace if store.record_observation_on_request(
               command.verification_request_id, request["state_version"].to_i, on_demand:, now:
             ).to_i.zero?
@@ -166,8 +173,8 @@ module Workflows
             "verification_request_id" => command.verification_request_id,
             "verification_attempt_id" => command.verification_attempt_id, "evidence_id" => evidence_id,
             "attempt_number" => attempt["attempt_number"].to_i, "attempt_state" => "completed",
-            "request_status" => matched ? "verified" : "pending",
-            "source_state" => matched ? "verified" : "proposed",
+            "request_status" => verifies ? "verified" : "pending",
+            "source_state" => verifies ? "verified" : "proposed",
             "source_scope_policy_id" => success&.fetch(:policy_id),
             "network_outcome" => observation.network_outcome,
             "match_decision" => observation.match_decision, "reason_code" => observation.reason_code
@@ -176,7 +183,7 @@ module Workflows
           write_audit(store, ids[:audit], org, ctx, command, command.verification_attempt_id,
                       to_state: "completed", outcome: "success", reason_code: observation.reason_code, payload:, now:)
           write_event(store, ids, org, ctx, command, now, request, attempt, observation, evidence_id, request_sha256, key_digest)
-          write_source_verified_event(store, ids, org, ctx, command, now, request, success) if matched
+          write_source_verified_event(store, ids, org, ctx, command, now, request, success) if verifies
           write_result(store, ids, command, ctx, org, now, payload)
           write_idempotency(store, ids[:idem], org, command, key_digest, request_sha256, ids[:execution], ids[:result], now)
 
@@ -456,6 +463,7 @@ module Workflows
         def iso(time) = time&.getutc&.iso8601(6)
         def month(time) = Date.new(time.year, time.month, 1).iso8601
         def hex(bytes) = bytes.unpack1("H*")
+        def to_time(value) = value.respond_to?(:getutc) ? value.getutc : Time.parse(value).getutc
 
         class LostRace < StandardError; end
       end

@@ -108,6 +108,9 @@ module IdentityAccess
       def verify_request_on_match(id, expected_version, on_demand:, now:)
         marker = on_demand ? "NULL" : "on_demand_in_progress_attempt_id"
         last_on_demand = on_demand ? "$3::timestamptz" : "last_on_demand_completed_at_utc"
+        # Defence in depth for the expiry boundary (the handler already gates on it): the
+        # verify commits only strictly before expires_at_utc, so a verify at/after expiry
+        # matches no row and raises a lost race. Expiry wins at exact equality.
         exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
           UPDATE verification_requests
           SET request_status = 'verified', decision_reason_code = 'matched',
@@ -117,6 +120,7 @@ module IdentityAccess
               last_on_demand_completed_at_utc = #{last_on_demand},
               state_version = state_version + 1, updated_at = $3::timestamptz
           WHERE id = $1::uuid AND request_status = 'pending' AND state_version = $2
+            AND $3::timestamptz < expires_at_utc
         SQL
       end
 
