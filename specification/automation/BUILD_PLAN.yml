@@ -477,7 +477,7 @@ blocks:
   - id: S-06-002
     name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange
     type: product
-    status: authorised_blocked   # 2026-07-27: owner-authorised (ADR-053, HD-S06-002-AUTHORISE resolved); implementation blocked pending HD-S06-002-SCOPE-CLASSIFIER (the contraction-vs-expansion classifier predicate is under-specified — surfaced for owner ruling)
+    status: in_progress   # 2026-07-27: owner-authorised (ADR-053); classifier ruled Option B (ADR-054, HD-S06-002-SCOPE-CLASSIFIER resolved); implementing on tranche/S-06/S-06-002
     depends_on:
       - S-06-001
     authoritative_sources:

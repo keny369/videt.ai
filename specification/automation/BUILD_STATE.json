@@ -3,32 +3,18 @@
   "controller_version": "1.0.0",
   "current_block": "S-06",
   "current_tranche": "S-06-002",
-  "status": "human_decision_required",
-  "attempt_number": 0,
-  "base_commit": "729dbfd",
+  "status": "implementing",
+  "attempt_number": 1,
+  "base_commit": "6e8413a",
   "worktree_path": "",
-  "branch_name": "implementation/s01-registration-access",
+  "branch_name": "tranche/S-06/S-06-002",
   "implementation_commit": null,
   "review_commit": null,
-  "last_verified_commit": "729dbfd",
+  "last_verified_commit": "6e8413a",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S06-002-SCOPE-CLASSIFIER",
-      "block": "S-06",
-      "tranche": "S-06-002",
-      "question": "S-06-002 is authorised (HD-S06-002-AUTHORISE resolved). Per the owner's condition, the expansion-vs-contraction predicate was pinned from the authoritative repository. The CONCEPT is uniquely defined (contraction = non-broadening within the verified boundary, auto-activated by Admin/Marketing; expansion = same-host broadening, OrganizationAdmin dual control; new host is never an expansion; PRULE-021 is the admission predicate). But the classification PREDICATE is NOT pinned to an implementable level: (1) no classifier fixtures exist (MTX-029 tests assume a change is already labelled and test only routing/authority); (2) no algorithm is given for the broadening/subset test over include/exclude path-prefix sets; (3) it is unresolved whether a query_handling change (which does not change the PRULE-021 allow set but changes canonical-URL multiplicity) counts as broadening. Point 3 has two materially different valid readings with opposite dual-control outcomes, and misclassification is a scope-boundary security risk. How should the contraction-vs-expansion classifier be defined?",
-      "recommended_option": "Option A: ratify 'broadening = the PRULE-021 admitted (allow) set grows'; classify a proposed policy as a CONTRACTION iff its admitted URL set is a subset of the current active policy's admitted set (PRULE-021 as the oracle), else an EXPANSION (fail-closed: any non-strict-subset change is an expansion); rule query_handling broadening-NEUTRAL (a query-only change is a contraction). Host/scheme/port beyond the verified boundary is a boundary violation, not a classification.",
-      "options": [
-        "A (recommended): broadening = the PRULE-021 allow set grows; contraction iff proposed admitted-set is a subset of current (fail-closed to expansion otherwise); query_handling broadening-neutral",
-        "B: broadening includes query-handling widening (allowlist -> retain_all, which increases distinct crawl targets) as an expansion requiring dual control",
-        "C: a different classifier the owner specifies (e.g. a purely syntactic include/exclude comparison), or an owner-provided fixture set to pin the boundary"
-      ],
-      "related": "See DECISIONS ADR-053 and the owner report. Sources: WORKFLOW_SPECIFICATIONS.md #source-scope-change-contract (:410-421), APPLICATION_LAYER.md § WF-004 (:769-813), non-broadening validation (:318 / APPLICATION_LAYER :4044-4050), contracts/S-06.json MTX-029, PRULE-021/MTX-072 (S-06-001, merged). No S-06-002 code has begun; implementation waits on this ruling. Planning question 2 (atomic-contraction activation in S-06-002 vs a split) defaults to in-scope and will be assessed on implementation evidence after this ruling; a split, if needed, will be surfaced separately."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007", "S-06-001"],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: The owner resolved HD-S06-002-AUTHORISE and authorised S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, MTX-029 propose path), with the condition that the expansion-vs-contraction predicate be pinned from the authoritative repository and, if not uniquely defined, surfaced before implementation. The controller pinned it: the CONCEPT is uniquely determined (non-broadening = contraction, auto-activated by Admin/Marketing; broadening = expansion, OrganizationAdmin dual control; new host is never an expansion; PRULE-021 is the admission predicate; host/scheme/port fixed to the verified boundary) and will be implemented exactly. The classification PREDICATE is genuinely under-specified: no classifier fixtures, no subset algorithm over include/exclude prefix sets, and no ruling on query_handling's role in broadening (two materially different valid readings; a scope-boundary security risk). Per AUTONOMOUS_BUILD_CONTROLLER §7(8)/§3.8 and the owner's explicit 'surface rather than invent' condition, the controller STOPS before implementing the classifier and surfaces HD-S06-002-SCOPE-CLASSIFIER (DECISIONS ADR-053). No S-06-002 product code, schema or migration has been written. main untouched at e22deed; nothing pushed for this planning stop; S-06-003..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: The owner resolved HD-S06-002-SCOPE-CLASSIFIER by selecting Option B (DECISIONS ADR-054): the contraction-vs-expansion classifier is the semantic subset rule (PRULE-021 as the admission oracle; a proposal is a contraction iff its admitted URL set is a subset of the current active policy's; any non-strict-subset or mixed change is an expansion; fail-closed) PLUS an explicit query-handling exception (any query-handling change that can increase distinct crawlable canonical-URL multiplicity is an expansion, e.g. allowlist -> retain_all; a change that preserves or reduces multiplicity may remain contraction-eligible). Host/scheme/port beyond the verified boundary are boundary violations, not expansions. Work on S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, including atomic contraction activation) proceeds on tranche/S-06/S-06-002 (base 6e8413a). main untouched at e22deed; nothing pushed; S-06-003..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
 }

@@ -1498,3 +1498,26 @@ The repository defines the CONCEPT (non-broadening) but does NOT pin the classif
 
 Authority And Precedence:
 Records the S-06-002 authorisation and the repository-first stop. Allocated the next unused number after ADR-052. No product change, no merge, no push, no production path; S-06-003..005 remain human_gate_before.
+
+## ADR-054: HD-S06-002-SCOPE-CLASSIFIER Resolved — Option B (Subset + Query-Multiplicity Exception)
+
+Status: Accepted (owner-ratified)
+Date: 2026-07-27
+Owner: Owner (decision HD-S06-002-SCOPE-CLASSIFIER: "OPTION B. Implement the classifier using Option A's semantic subset rule, with one explicit exception for query handling") / implementation agent (recorded)
+Reversibility: Governs the S-06-002 classifier; implemented on the isolated branch `tranche/S-06/S-06-002`; nothing merged or pushed; `main` untouched.
+
+Decision:
+The contraction-vs-expansion classifier for WF-004 scope changes is defined as (owner Option B):
+
+1. Base classification (semantic subset, PRULE-021 as the admission oracle): a proposal is a CONTRACTION only when its admitted URL set is a subset of the current active policy's admitted URL set under PRULE-021. Any change not demonstrably non-broadening is an EXPANSION; a mixed change that narrows one dimension while widening another is an EXPANSION; classification is FAIL-CLOSED — inability to prove subset means expansion.
+2. Query handling (the explicit exception): any query-handling change that can INCREASE the set of distinct crawlable canonical URLs (canonical-target multiplicity) is an EXPANSION requiring dual control, even though query parameters do not affect PRULE-021 admission. In particular `allowlist -> retain_all`, or any widening of the retained-key set, is an expansion. A query-handling change that demonstrably preserves or reduces canonical-target multiplicity may remain contraction-eligible. A query-only change is therefore NOT automatically a contraction.
+3. Boundary violations: a change to host, scheme or port outside the verified boundary is NOT an expansion — it is a boundary violation rejected through the authoritative failure path (`cross_host_expansion` / `unsupported_source_scheme` / boundary violation). A new host remains a new Source through WF-003.
+4. Implementation discipline: PRULE-021 is the admission oracle; an explicit canonical-target-multiplicity comparison governs query handling; committed fixtures pin both dimensions (admitted URL-set subset/superset; query narrowing/equality/widening); the classifier is deterministic, independently testable and fail-closed.
+
+Rationale (owner): the security boundary is not only which documents are admitted but how many distinct crawl targets can be generated; a widening from restrictive query handling to retain_all materially expands crawling activity, duplicate-content exposure, cost, attack surface and observation scope, so it must not be auto-activated by a single actor merely because PRULE-021 admission is unchanged.
+
+Scope:
+Governs S-06-002 (ProposeSourceScopeChange + atomic contraction activation) and is inherited by S-06-003 (DecideSourceScopeChange). Resolves HD-S06-002-SCOPE-CLASSIFIER. Implementation of S-06-002 proceeds, including atomic contraction activation; S-06-003..005 remain human_gate_before.
+
+Authority And Precedence:
+Executes the owner's Option-B ruling. Allocated the next unused number after ADR-053. No automatic merge, no push, no production path.
