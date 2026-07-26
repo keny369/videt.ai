@@ -1148,3 +1148,23 @@ Recommended Option:
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-037. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.
+
+## ADR-039: S-05-005 Authorised (CompleteVerificationAttempt — observation recording + F-03 Evidence); Human Gate Cleared
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Record owner authorisation for S-05-005 by clearing its human_gate_before exactly as specified in BUILD_PLAN and ADR-033. Then execute S-05-005 through the autonomous controller.") / implementation agent (recorded)
+Reversibility: Plan/state change plus a product tranche that stops at ready_for_review on an isolated branch; revertible until owner acceptance. `main` untouched.
+
+Decision:
+Resolving HD-S05-005-AUTHORISE (ADR-038), the owner authorises **S-05-005 — `Workflows::Wf003::CompleteVerificationAttempt`** exactly as specified in BUILD_PLAN and the owner-accepted Observation split (ADR-033), and clears its `human_gate_before`. No scope change. Scope (contracts/S-05.json MTX-028/051/056; SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence, § Ownership-Verification Evidence Contract):
+- run the S-05-003 observation engine (`Workflows::Wf003::VerificationObservation`) for a reserved attempt — the provider call OUTSIDE the transaction, only the recorded outcome committed;
+- persist exactly one restricted `verification_observation` Evidence (F-03) per started observation, whether matched, not matched or indeterminate, with no plaintext token and no raw DNS/HTTP content;
+- append exactly one `SourceVerificationObserved` referencing that Evidence; update the Request completion/last-observed fields; clear the in-progress marker; transition the attempt reserved → running → completed (or quarantined);
+- idempotent retry under the reserved slot/attempt identity (a completion-persistence failure retries the same attempt and consumes no second count);
+- a not_matched / indeterminate / dependency-failure outcome records the observation and leaves the Source `proposed`.
+
+Out of scope (later sub-tranches, unchanged): the matched success commit + Source `proposed → verified` + `source-scope-interim-v1` materialization (S-05-006, which carries the flagged Source Scope / S-06 architectural dependency), and the automated slot schedule (S-05-007). No frozen foundation contract change, no destructive migration, no production path.
+
+Authority And Precedence:
+Executes the owner's authorisation and the controller mandate. Allocated the next unused number after ADR-038. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-005`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Per owner instruction, S-05-006 is NOT to be begun.

@@ -3,30 +3,18 @@
   "controller_version": "1.0.0",
   "current_block": "S-05",
   "current_tranche": "S-05-005",
-  "status": "human_decision_required",
+  "status": "planned",
   "attempt_number": 0,
-  "base_commit": "dd802a09b68c24b038257e3e0b2ca5b85d847a88",
+  "base_commit": "84c1fcc",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
   "implementation_commit": null,
   "review_commit": null,
   "last_verified_commit": "dd802a09b68c24b038257e3e0b2ca5b85d847a88",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S05-005-AUTHORISE",
-      "block": "S-05-005",
-      "question": "Authorise S-05-005 (CompleteVerificationAttempt — observation recording + F-03 Evidence) to run and clear its human_gate_before. Its scope is fixed by the owner-accepted Observation split (ADR-033) and BUILD_PLAN; this is an authorise-to-proceed gate, not a scope choice.",
-      "recommended_option": "Authorise S-05-005 as specified — it is the next block in the authoritative dependency sequence S-05-003..S-05-007 (ADR-033); it runs the S-05-003 engine for a reserved attempt and records exactly one restricted verification_observation Evidence + SourceVerificationObserved, leaving the Source proposed on any non-verifying outcome.",
-      "options": [
-        "Authorise S-05-005 as specified in BUILD_PLAN (CompleteVerificationAttempt: run the engine outside the transaction, commit exactly one restricted verification_observation Evidence + SourceVerificationObserved + Request completion/last-observed update + marker clear; idempotent retry under the reserved attempt) — recommended",
-        "Defer or hold S-05-005 pending other owner-directed work"
-      ],
-      "related": "S-05-006 (the matched success commit + source-scope-interim-v1) carries the flagged Source Scope / S-06 architectural dependency and remains human_gate_before; it is NOT affected by authorising S-05-005 and is decided before S-05-006."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-004 (verification_attempts + ReserveVerificationAttempt) accepted by the owner and fast-forward merged into implementation/s01-registration-access at dd802a0; added to completed_blocks (BUILD_PLAN S-05-004 -> completed, DECISIONS ADR-038). Merge gate re-verified: whole-repo suite 1149 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no db/structure.sql drift; architecture fitness 31/0; independent review (ADR-026, five separately-invoked lenses) PASS_NO_BLOCKING. Protected branch (main) untouched; nothing pushed. Next authorised tranche is S-05-005 (CompleteVerificationAttempt), which is human_gate_before: true in BUILD_PLAN and is NOT yet authorised, so the controller stops at human_decision_required (HD-S05-005-AUTHORISE). Per governance, S-05-005 was NOT begun before authorisation. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-004 merged (completed_blocks; ADR-038). The owner authorised S-05-005 (CompleteVerificationAttempt — observation recording + F-03 Evidence) as specified in BUILD_PLAN and the Observation split ADR-033, clearing its human_gate_before (HD-S05-005-AUTHORISE resolved; DECISIONS ADR-039). S-05-005 is now the authorised next tranche and runs under the controller (isolated branch tranche/S-05/S-05-005 off 84c1fcc, enforced preflight/postflight, deterministic verification, independent review, records, commits) to ready_for_review; it is NOT merged until owner acceptance, and the protected branch (main) stays untouched. Per owner instruction, S-05-006 is NOT to be begun. This file and the repository are authoritative, not conversational memory."
 }
