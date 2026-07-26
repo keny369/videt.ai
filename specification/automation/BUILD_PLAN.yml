@@ -283,7 +283,7 @@ blocks:
   - id: S-05-005
     name: Ownership Verification — CompleteVerificationAttempt (observation recording, F-03)
     type: product
-    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-040); not merged
+    status: completed   # 2026-07-26: owner-accepted and fast-forward merged into implementation/s01-registration-access (feec2fd); DECISIONS ADR-041
     depends_on:
       - S-05-004
     authoritative_sources:

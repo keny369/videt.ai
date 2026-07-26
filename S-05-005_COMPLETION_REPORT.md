@@ -1,10 +1,12 @@
 # S-05-005 CompleteVerificationAttempt (observation recording) — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-005` (off base `e96cb3d`, the owner-authorisation commit ADR-039), **not merged**;
-the protected branch (`main`) is untouched and nothing is pushed. Third sub-tranche of the
-owner-accepted Observation split (ADR-033); owner-authorised (ADR-039). The first real F-03 Evidence
-producer. Consumes F-01..F-04 only through their frozen façades.
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-005` into the integration branch `implementation/s01-registration-access` at
+`feec2fd`; added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-05-005 → completed, DECISIONS
+ADR-041). The protected branch (`main`) is untouched and nothing is pushed. It was implemented,
+verified and independently reviewed on that branch off base `e96cb3d` (the owner-authorisation commit
+ADR-039). Third sub-tranche of the owner-accepted Observation split (ADR-033). The first real F-03
+Evidence producer. Consumes F-01..F-04 only through their frozen façades.
 
 ## What was built
 

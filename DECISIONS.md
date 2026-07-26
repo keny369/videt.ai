@@ -1197,3 +1197,29 @@ Non-blocking findings recorded (not actioned per the owner's "confirmed blocking
 
 Authority And Precedence:
 Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-039. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-006 is NOT begun.
+
+## ADR-041: S-05-005 Accepted And Merged; S-05-006 Is A Human Gate Carrying The Source-Scope Dependency
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-005 if, and only if, repository governance is fully satisfied") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing pushed and `main` untouched, so it is revertible. S-05-006 is NOT authorised (a decision package was prepared instead).
+
+Decision:
+Accept S-05-005 (CompleteVerificationAttempt — observation recording + F-03 Evidence, ADR-040). Repository governance is fully satisfied and was re-verified at the merge: whole-repo suite 1158 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no `db/structure.sql` drift; architecture fitness green (incl. the F-03 evidence single-surface fence); independent review (ADR-026, five separately-invoked adversarial lenses with no shared conversational state) PASS_NO_BLOCKING with zero confirmed-blocking findings; no frozen foundation contract changed (foundations consumed only through their façades, Evidence written only through `Platform::Evidence.produce`). Fast-forward merged into `implementation/s01-registration-access` at `feec2fd`; `S-05-005` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-005 → completed; `S-05-005_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-05/S-05-005` deleted per repository policy (S-05-001/002/003/004 precedent).
+
+Carried non-blocking (recorded in ADR-040, not gate failures): the started/completed instants coincide under the single-clock RequestContext; the completion deny path writes no idempotency record (diverging from ExpireVerificationRequest); a Request going terminal between the provider call and the commit records no Evidence; two test-coverage additions (command_results token-absence, a concurrent two-racer completion); and a warranted ServiceLedgerWriters extraction at the third service-store copy. These are candidate follow-ups and do not block the merge.
+
+Next Tranche — Genuine Human Decision (HD-S05-006-SCOPE-AND-DEPENDENCY):
+Per BUILD_STATE/BUILD_PLAN, the next block is **S-05-006** (matched success commit + source-scope-interim-v1), which is `human_gate_before: true` and remains unauthorised under the owner-accepted Observation split (ADR-033). It additionally carries the flagged architectural dependency first raised in ADR-032 and carried through ADR-033: the success commit must materialize `source-scope-interim-v1` via a `SourceScopePolicyRepository`, which is the S-06 Source Scope sub-system (`source_set_versions` / `source_set_memberships` / `source_scope_change_requests`). This is both a `human_gate_before` authorisation and a genuine product-sequencing/architectural decision, so the controller stops here; it does not self-authorise S-05-006 and does not resolve the dependency. Per the owner's instruction, S-05-006 was NOT begun; a decision package was prepared for the owner gate.
+
+Options (repository-recognised, from BUILD_PLAN S-05-006 open_question):
+- **A** — Build a minimal `source-scope-interim-v1` materialization inside S-05-006 (the smallest `SourceScopePolicyRepository` write the success commit needs), deferring the full S-06 Source Scope sub-system.
+- **B** — Sequence a minimal Source Scope foundation BEFORE S-05-006 (a new precursor tranche), so S-05-006 consumes a ready artifact; may need its own foundation-style sequencing.
+- **C** — Split S-05-006: land the atomic success commit WITHOUT scope materialization first, then add `source-scope-interim-v1` as a distinct authorised sub-tranche once the Source Scope shape is decided.
+
+Recommended Option:
+**Option A**, grounded in the repository's own precedent: the Observation limb was split precisely to keep each tranche the smallest self-contained unit (ADR-032/033), and F-03's `evaluation_id` was made nullable "the evaluations capability does not exist yet" — the same deferral discipline. A minimal, versioned `source-scope-interim-v1` materialization (exactly what the atomic success commit needs, no S-06 change-request/lifecycle machinery) keeps `SourceVerified` and the scope artifact inseparable in one transaction as the contract's "none may appear without the others" demands, without pulling the full S-06 Source Scope sub-system forward. Option B risks an F-01..F-04-style foundation wall ahead of a single consumer; Option C risks shipping a `SourceVerified` success commit whose contract-mandated scope materialization is temporarily absent (a "none-may-appear-without-the-others" violation in the interim). The reasoning and consequences are laid out in full in the owner decision package accompanying this ADR. The owner decides; the controller does not.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-040. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate and does not authorise S-05-006 or modify repository governance.

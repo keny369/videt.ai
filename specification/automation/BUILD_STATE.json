@@ -2,19 +2,32 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-05",
-  "current_tranche": "S-05-005",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "e96cb3d",
+  "current_tranche": "S-05-006",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "feec2fd2c57e3d2d2f3a7910aec8710c81671818",
   "worktree_path": "",
-  "branch_name": "tranche/S-05/S-05-005",
-  "implementation_commit": "f4ec07a",
-  "review_commit": "f4ec07a",
-  "last_verified_commit": "f4ec07a",
-  "verification_run_id": "RUN-S-05-005-20260726",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004"],
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "feec2fd2c57e3d2d2f3a7910aec8710c81671818",
+  "verification_run_id": "",
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-006-SCOPE-AND-DEPENDENCY",
+      "block": "S-05-006",
+      "question": "Authorise S-05-006 (matched success commit + source-scope-interim-v1) AND resolve the flagged architectural dependency (ADR-032/033 open_question): the success commit must materialize source-scope-interim-v1 via a SourceScopePolicyRepository, which is the S-06 Source Scope sub-system (source_set_versions / source_set_memberships / source_scope_change_requests). Decide whether the minimal materialization artifact is built inside S-05-006 or is an S-06 prerequisite that must precede it.",
+      "options": [
+        "A — Build a minimal source-scope-interim-v1 materialization artifact inside S-05-006 (the smallest SourceScopePolicyRepository write that the success commit needs), deferring the full S-06 Source Scope sub-system.",
+        "B — Sequence the minimal Source Scope foundation BEFORE S-05-006 (a new S-06-precursor tranche) so S-05-006 consumes a ready artifact; may need its own foundation-style sequencing.",
+        "C — Split S-05-006: land the atomic success commit WITHOUT scope materialization first, and add source-scope-interim-v1 as a distinct authorised sub-tranche once the Source Scope shape is decided."
+      ],
+      "recommended_option": "See DECISIONS.md ADR-041 and the owner decision package. The controller does not self-authorise S-05-006; it is a genuine product-sequencing + architectural decision the owner makes, and per governance the controller stops here.",
+      "related": "This is the flagged dependency carried since ADR-032 (proposal) and ADR-033 (split accepted). It blocks S-05-006 only. S-05-007 (automated slot schedule) is unaffected and remains human_gate_before after S-05-006."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-005 (Workflows::Wf003::CompleteVerificationAttempt, the WF-003 observation-recording limb and the first real F-03 Evidence producer; owner-authorised ADR-039) implemented on branch tranche/S-05/S-05-005 off base e96cb3d, verified (1158 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK, RLS intact; no db/structure.sql drift; architecture fitness green incl. the F-03 evidence single-surface fence) and independently reviewed (ADR-026, five separately-invoked adversarial lenses with no shared conversational state): PASS_NO_BLOCKING, zero blocking / zero confirmed-blocking; one review-driven comment-accuracy repair applied. Status ready_for_review; NOT merged, protected branch (main) untouched, nothing pushed. S-05-005 is added to completed_blocks only on owner acceptance/merge. Full record: S-05-005_COMPLETION_REPORT.md and DECISIONS.md ADR-040 (incl. the recorded non-blocking findings). Per owner instruction, S-05-006 (matched success commit + source-scope-interim-v1, next in the sequence, human_gate_before, carrying the flagged Source Scope / S-06 dependency) was NOT begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-005 (CompleteVerificationAttempt — observation recording + F-03 Evidence) accepted by the owner and fast-forward merged into implementation/s01-registration-access at feec2fd; added to completed_blocks (BUILD_PLAN S-05-005 -> completed, DECISIONS ADR-041). Merge gate re-verified: whole-repo suite 1158 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no db/structure.sql drift; architecture fitness green (incl. the F-03 evidence single-surface fence); independent review (ADR-026, five separately-invoked lenses) PASS_NO_BLOCKING. Protected branch (main) untouched; nothing pushed. Next authorised tranche is S-05-006 (matched success commit + source-scope-interim-v1), which is human_gate_before: true and is NOT authorised; it additionally carries the flagged Source Scope / S-06 architectural dependency (HD-S05-006-SCOPE-AND-DEPENDENCY). Per owner instruction, S-05-006 was NOT begun; a decision package was prepared for the owner gate instead. This file and the repository are authoritative, not conversational memory."
 }
