@@ -144,6 +144,25 @@ RSpec.describe "Verification attempt invariants", type: :model do
         .to raise_error(PG::UniqueViolation, /verification_attempts_request_attempt_unique/)
     end
 
+    # S-05-007: the automated schedule reserves at most one attempt per due slot; this
+    # partial unique index is the database backstop for the handler's
+    # find-then-reserve idempotency, so a redelivered slot job can never double-count.
+    it "rejects a second automated attempt for the same (Request, slot offset)" do
+      insert_va(origin: "automated", offset_minutes: 0, attempt_number: 1)
+      expect { insert_va(origin: "automated", offset_minutes: 0, attempt_number: 2) }
+        .to raise_error(PG::UniqueViolation, /verification_attempts_one_automated_per_slot/)
+    end
+
+    it "allows automated attempts at different slot offsets within a Request" do
+      insert_va(origin: "automated", offset_minutes: 0, attempt_number: 1)
+      expect { insert_va(origin: "automated", offset_minutes: 5, attempt_number: 2) }.not_to raise_error
+    end
+
+    it "does not constrain on-demand attempts (NULL slot offset excluded from the index)" do
+      insert_va(origin: "on_demand", offset_minutes: nil, attempt_number: 1)
+      expect { insert_va(origin: "on_demand", offset_minutes: nil, attempt_number: 2) }.not_to raise_error
+    end
+
     it "refuses an attempt whose (organization, request) is not a Verification Request" do
       expect { insert_va(verification_request_id: SecureRandom.uuid_v7) }
         .to raise_error(PG::ForeignKeyViolation, /verification_attempts_request_fk/)

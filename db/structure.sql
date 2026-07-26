@@ -2974,6 +2974,13 @@ CREATE UNIQUE INDEX sources_nonremoved_host_unique ON public.sources USING btree
 
 
 --
+-- Name: verification_attempts_one_automated_per_slot; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX verification_attempts_one_automated_per_slot ON public.verification_attempts USING btree (verification_request_id, automated_slot_offset_minutes) WHERE (origin = 'automated'::text);
+
+
+--
 -- Name: verification_requests_one_pending_per_source; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3582,6 +3589,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260726120033'),
 ('20260726120032'),
 ('20260726120031'),
 ('20260726120030'),
