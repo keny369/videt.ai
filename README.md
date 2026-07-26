@@ -8,10 +8,11 @@ This repository is documentation-first. Software implementation follows architec
 
 1. [CLAUDE.md](CLAUDE.md)
 2. [governance/PROJECT_CONSTITUTION.md](governance/PROJECT_CONSTITUTION.md)
-3. [governance/QUALITY_STANDARD.md](governance/QUALITY_STANDARD.md)
-4. [specification/INDEX.md](specification/INDEX.md)
-5. [ROADMAP.md](ROADMAP.md)
-6. [PROJECT_STATE.md](PROJECT_STATE.md)
+3. [governance/CUSTOMER_VALUE_CONSTITUTION.md](governance/CUSTOMER_VALUE_CONSTITUTION.md)
+4. [governance/QUALITY_STANDARD.md](governance/QUALITY_STANDARD.md)
+5. [specification/INDEX.md](specification/INDEX.md)
+6. [ROADMAP.md](ROADMAP.md)
+7. [PROJECT_STATE.md](PROJECT_STATE.md)
 
 ## Canonical Document Flow
 
@@ -24,7 +25,7 @@ This repository is documentation-first. Software implementation follows architec
 
 - `specification/`: Product Architecture Manual volumes and indexes.
 - `research/`: supporting market and technical research inputs.
-- `governance/`: constitution, workflow and quality standards.
+- `governance/`: project constitution, customer value constitution (product-value prioritisation authority), workflow and quality standards.
 - `templates/`: reusable templates for ADRs and specifications.
 - `roadmap/`: planning artifacts and sequencing details.
 - `diagrams/`: architecture and workflow diagrams.

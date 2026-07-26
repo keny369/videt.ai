@@ -114,6 +114,7 @@ Foundation Version: 1.0
 
 - [../CLAUDE.md](../CLAUDE.md)
 - [../governance/PROJECT_CONSTITUTION.md](../governance/PROJECT_CONSTITUTION.md)
+- [../governance/CUSTOMER_VALUE_CONSTITUTION.md](../governance/CUSTOMER_VALUE_CONSTITUTION.md)
 - [../governance/QUALITY_STANDARD.md](../governance/QUALITY_STANDARD.md)
 - [../governance/WORKFLOW.md](../governance/WORKFLOW.md)
 - [../DECISIONS.md](../DECISIONS.md)

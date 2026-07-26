@@ -4,6 +4,12 @@
 
 Deliver a complete Product Architecture Manual before implementation with constitutional dependency sequencing.
 
+Pre-launch scope selection through the S-09 launch boundary is prioritised against
+[governance/CUSTOMER_VALUE_CONSTITUTION.md](governance/CUSTOMER_VALUE_CONSTITUTION.md),
+the product-value-prioritisation authority. It guides what customer value is built
+and in what order; it does not override frozen technical, security, workflow or
+governance contracts, nor authorise implementation.
+
 ## Baseline Date
 
 2026-07-15

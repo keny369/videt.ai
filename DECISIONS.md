@@ -1371,3 +1371,22 @@ Next — Genuine Human Decision (HD-S05-COMPLETE-NEXT-BLOCK):
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-046. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate and does not authorise or begin any subsequent block.
+
+## ADR-048: Establish The Customer Value Constitution (Product-Direction Authority)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner / Founder (directed the establishment of a canonical Customer Value Constitution) / implementation agent (recorded)
+Reversibility: Documentation-only. Adds one governance document and index/cross-reference lines; changes no code, schema, migration, contract, state model or gate. Fully revertible by removing the document and its references. Committed on the non-protected integration branch `implementation/s01-registration-access`; `main` untouched.
+
+Decision:
+Establish [governance/CUSTOMER_VALUE_CONSTITUTION.md](governance/CUSTOMER_VALUE_CONSTITUTION.md) as the canonical product-value-prioritisation and launch-scope authority for the pre-S-09 window. It is placed in `governance/` alongside `PROJECT_CONSTITUTION.md` (the README-defined home for constitution, workflow and quality standards, and first in the canonical read order). It is referenced from `README.md` (Start Here + Repository Structure) and `specification/INDEX.md` (Dependencies). It preserves the Videt north star, the OBSERVE/ASSESS/COMPARE/INTERVENE/LEARN customer-value loop, the Reality/Perception/Gap/Intelligence graph model, the intended experiences and outcomes, the seven Mandatory Product-Value Tests, the Necessary-Enabling-Work justification rule, the Mandatory Tranche Value Statement, the Launch Discipline favour/defer lists, and the Commercial Truth Standard.
+
+Authority Classification:
+Product-prioritisation authority only. The document explicitly does NOT override frozen specifications, ADRs, `BUILD_STATE.json`, `BUILD_PLAN.yml`, `AUTONOMOUS_BUILD_CONTROLLER.md`, `AUTONOMY_POLICY.md`, security/privacy contracts, state models, workflow specifications, or accepted tranche contracts. It cannot authorise a tranche, clear a human gate, define a state transition, relax a control, or mark work complete. Where it and any authoritative contract conflict, the contract prevails and the constitution is revised to remain product-direction guidance.
+
+Contradiction Review:
+No contradiction with `specification/005 PRODUCT_PRINCIPLES.md` (which it operationalises) was found. One terminology alignment was applied: the constitution uses the canonical `Issue` term for customer-facing deficiencies and records that the legacy synonym `Finding` is prohibited (PRODUCT_PRINCIPLES Principle 5), reserving "evidence"/"observation" for collected material. No genuine product/specification conflict remains open for owner consideration.
+
+Authority And Precedence:
+Executes the owner's Part 2 direction. Allocated the next unused number after ADR-047. Documentation governance only; introduces no implementation authority and no production path.
