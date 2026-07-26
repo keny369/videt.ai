@@ -1286,3 +1286,25 @@ Per BUILD_STATE/BUILD_PLAN, the next block is **S-05-007** (automated observatio
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-043. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.
+
+## ADR-045: S-05-007 Authorised (automated observation slot schedule); Human Gate Cleared
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Owner decision: APPROVED. Authorise S-05-007 exactly as defined in BUILD_PLAN. Record this owner decision in the authoritative repository records and clear S-05-007's human_gate_before. Execute S-05-007 as a single coherent tranche. Before implementation begins, assess whether the repository-defined scope remains one coherent, reviewable tranche.") / implementation agent (recorded)
+Reversibility: Plan/state change plus a product tranche that stops at ready_for_review on an isolated branch; revertible until owner acceptance. `main` untouched.
+
+Decision:
+Resolving HD-S05-007-AUTHORISE (ADR-044), the owner authorises **S-05-007 — the automated observation slot schedule** exactly as specified in BUILD_PLAN, and clears its `human_gate_before`. No scope change. This is the FINAL Observation sub-tranche of the owner-accepted Observation split (ADR-033); on acceptance it completes the WF-003 Ownership Verification limb (S-05-001..007). Scope (contracts/S-05.json MTX-028 `background_job`/`retry_policy`/`concurrency`, MTX-051, MTX-056; SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence :151–160; WORKFLOW_SPECIFICATIONS.md § WF-003):
+
+- the automated slots at due offsets 0, 5, 15, 30, 60, 120, 240, 480, 960 and 1,380 minutes after issuance, each starting only in its half-open window from its due time to the next offset (the final window ending at expiry);
+- an `AutomatedObservationSlotJob` per due slot that reserves and completes an automated attempt (attempt origin `automated`, slot offset set) via the S-05-004 reservation + S-05-005/006 completion engine, executed through F-04 background execution;
+- `observation_slot_skipped` recorded exactly once for an unstarted slot when its window closes, never run late; at an exact-boundary the earlier slot is skipped and the later slot is eligible; a terminal Request state cancels all remaining slots without skipped events. `observation_slot_skipped` is a scheduler record, not a domain event and not fabricated Evidence.
+
+Out of scope (BUILD_PLAN): frozen foundation contract changes, destructive migrations, production deployment; on-demand acceptance (S-05-004), scoring/evaluation and Source activation (S-06 lifecycle).
+
+Coherence Assessment (owner-directed precondition):
+Per the owner's instruction, before implementation begins the controller assesses whether the repository-defined S-05-007 scope remains one coherent, reviewable tranche. If — and only if — it cannot reasonably remain a single coherent tranche while preserving repository standards for reviewability, the controller stops before implementation, makes no behavioural changes, and presents a decomposition proposal with clear tranche boundaries and rationale for owner approval. Otherwise it proceeds under the autonomous controller. The assessment and its outcome are recorded in the S-05-007 completion record.
+
+Authority And Precedence:
+Executes the owner's authorisation and the controller mandate. Allocated the next unused number after ADR-044. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-007`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path; repair only confirmed blocking findings. Scope is strictly the repository-defined S-05-007 responsibilities. Per owner instruction, no subsequent tranche is to be begun.
