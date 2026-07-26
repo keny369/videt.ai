@@ -1417,3 +1417,24 @@ S-06 advances ASSESS and the Reality Graph — governance and control of the ver
 
 Authority And Precedence:
 Executes the owner's S-06 authorisation. Allocated the next unused number after ADR-048. No automatic merge to the protected branch and no production path; the controller stops at human_gate_after (owner acceptance) once S-06-001 reaches ready_for_review.
+
+## ADR-050: S-06-001 Source Scope Predicate Implemented and Reviewed; Held at human_decision_required on a Latent Exclusion-Separator Finding
+
+Status: Accepted (record); the governed product decision HD-S06-001-SCOPE-SEPARATOR is OPEN for the owner
+Date: 2026-07-26
+Owner: implementation agent (recorded); the open product ruling is the owner's
+Reversibility: The tranche is on the isolated branch `tranche/S-06/S-06-001` (base `0f6a625`, implementation commit `3aaf017`); nothing merged, nothing pushed, `main` and the integration branch untouched. Fully revertible by deleting the branch.
+
+Decision:
+S-06-001 — the pure PRULE-021 Source Scope Predicate (`Workflows::Wf004::SourceScopePredicate`) — is implemented per contracts/S-06.json MTX-072 and SECURITY_PERFORMANCE.md § PRULE-021, as the analogue of the S-05-003 pure engine: a pure PORO that normalizes a candidate URL and decides admission against the active Source Scope Policy intersection, with no persistence, no outbound call, no event and no Source/Request transition. Full gate green: whole-repo suite 1225 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change (pure predicate, no schema, no drift possible). 34 deterministic examples cover every MTX-072 test contract.
+
+Independent Review (ADR-026):
+Five separately-invoked adversarial lenses with no shared state. Contract-correctness, determinism/purity, architecture/scope/frozen-contracts and test-quality/schema-safety all returned PASS (verified by runnable Ruby, incl. RFC 3986 §5.2.4, the `%2F` non-decode, non-tautology mutants, and Zeitwerk/Packwerk). The security/tenant-isolation lens found NO host-level false-allow but returned CHANGES_REQUIRED on one verified, LATENT finding recorded as the open decision below.
+
+Open Product Decision — HD-S06-001-SCOPE-SEPARATOR:
+With include `/` and exclude `/private`, the predicate ALLOWS `/private%2Fsecret`, `/private%5Csecret` and `/private\secret` (whereas `/private/secret` is correctly `path_excluded`), because `%2F`/`%5C` are correctly not decoded and a raw backslash is passed through, so the exclude segment-boundary test misses; some origins resolve these back to the excluded `/private/secret`. This is spec-conformant to PRULE-021 as written (boundary = a literal `/` in the normalized path; `%2F` is reserved and preserved) and LATENT (the only materialized policy — the S-05-006 interim — ships `exclude_prefixes: []`; the S-06-002/003 commands that set excludes and the S-07 crawler are not built). The remedy requires either deviating from the ratified PRULE-021 boundary rule (a fail-closed predicate hardening) or an S-07 crawl-behaviour ruling — a product-semantics choice with more than one valid reading. Per AUTONOMOUS_BUILD_CONTROLLER §7 (security consideration + ambiguous product semantics → human escalation) and §3.8 (no silent scope expansion / no silent reinterpretation of ratified governance), the controller does NOT harden unilaterally and stops for the owner. Options and recommendation (Option A: fail-closed predicate hardening with owner ratification of a PRULE-021 clarification) are in S-06-001_COMPLETION_REPORT.md § Open owner decision and BUILD_STATE open_decisions.
+
+No confirmed-blocking repair was applied (the sole CHANGES_REQUIRED finding is spec-conformant and its resolution is an owner ruling). Non-blocking observations are recorded in the completion report, not actioned.
+
+Authority And Precedence:
+Records the implementation and review outcome; escalates the governed product ruling to the owner. Allocated the next unused number after ADR-049. No automatic merge, no push, no production path; S-06-002..005 remain human_gate_before.
