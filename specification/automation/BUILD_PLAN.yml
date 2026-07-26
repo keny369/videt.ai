@@ -323,7 +323,7 @@ blocks:
   - id: S-05-006
     name: Ownership Verification — matched success commit + source-scope-interim-v1
     type: product
-    status: planned   # 2026-07-26: authorised by the owner as the next tranche (ADR-042); running under the controller
+    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-043); not merged
     depends_on:
       - S-05-005
     authoritative_sources:

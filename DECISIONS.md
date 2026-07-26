@@ -1241,3 +1241,30 @@ Grounding (from the ADRs and BUILD_PLAN): the contract makes scope materializati
 
 Authority And Precedence:
 Executes the owner's authorisation and Option-A selection and the controller mandate. Allocated the next unused number after ADR-041. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-006`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Scope is strictly the repository-defined S-05-006 responsibilities. Per owner instruction, S-05-007 is NOT to be begun.
+
+## ADR-043: S-05-006 Matched Success Commit + source-scope-interim-v1 — Completion (ready_for_review)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (authorised S-05-006 + Option A, ADR-042) / implementation agent (recorded)
+Reversibility: Committed on branch `tranche/S-05/S-05-006` (off `af25168`), verified and independently reviewed, NOT merged; `main` untouched. Fully reversible until owner acceptance.
+
+Decision:
+Implement the WF-003 matched-verification success commit, extending `Workflows::Wf003::CompleteVerificationAttempt` (SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence; contracts/S-05.json MTX-028/051/056; WORKFLOW_SPECIFICATIONS.md § WF-003; owner Option A, ADR-042). On a matched observation committing BEFORE expiry, the completion transaction commits the atomic multi-root success — materialize `source-scope-interim-v1`, Request `pending → verified`/`matched` with the F-02 challenge erased (digest survives), Source `proposed → verified` with the interim policy pinned, and `SourceVerified` — none without the others, guarded on the expected Request and Source state versions (a lost race rolls the whole completion back). A matched observation committing at/after `expires_at_utc` records but does NOT verify (expiry wins at equality); a non-match records only (S-05-005). The minimal, canonical-shaped `source_scope_policies` table (S-06.json MTX-029) is immutable (T-IMM) and modelled so S-06 EXTENDS it; the two guard edges relaxed are exactly `sources proposed → verified` and `verification_requests pending → verified`. Suite 1173 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no structure.sql drift; architecture fitness 31/0.
+
+Independent Review (ADR-026):
+Five adversarial lenses by separately-invoked models with no shared conversational state. The first pass returned **BLOCK — two confirmed-blocking findings (the same defect)**: the matched success commit did not enforce the `expires_at_utc` boundary, so a matched observation committing at/after expiry could wrongly verify (contract: "an observation completing at or after expires_at_utc cannot verify; at exact equality expiry wins"). **Repair applied (confirmed-blocking only, S-05-006 3/n):** verification now gates on `now < expires_at_utc` (strict), with a defence-in-depth guard in `verify_request_on_match` and two boundary specs. A focused independent re-review of the repair delta confirmed **RESOLVED, no new blocking issue**; the tranche now carries **zero confirmed-blocking findings**.
+
+Decision Ledger:
+| Decision | Authority | Reason |
+| --- | --- | --- |
+| Minimal, canonical-shaped `source_scope_policies` (Option A) | Owner-ratified (ADR-042) | The smallest artifact the success commit needs, modelled to S-06.json MTX-029 so S-06 extends it; no S-06 change-request/source-set machinery. |
+| Relax exactly `sources proposed → verified` and `verification_requests pending → verified` | Autonomous (the plan's edges) | The S-05-006 ratified transitions; every other Source/Request edge stays refused. |
+| Verify only when `now < expires_at_utc` (strict) | Autonomous (contract; confirmed-blocking repair) | "At exact equality expiry wins"; app gate + DB backstop; a matched-but-expired observation records only. |
+| `source_scope_policies` immutable (T-IMM: trigger + SELECT/INSERT grant) | Autonomous (canonical) | "Each version is immutable; a new version is inserted rather than updated" (S-06.json MTX-029). |
+| SourceVerified on the Source aggregate, service-attributed | Autonomous (established pattern) | The observation is the lifecycle service's act; authority was established at reservation (MTX-051). |
+
+Non-blocking findings recorded (not actioned per the owner's "confirmed blocking only" instruction; candidate follow-ups): the SourceVerified event envelope omits `idempotency_identity_hash`/`input_hash` (a minor consistency gap vs SourceVerificationObserved); the F-02 erase runs between the two guarded UPDATEs (transactional, safe); only the exact-equality expiry boundary is tested (strictly-after is a-fortiori); a true concurrent two-racer verification test could join the sequential exactly-once coverage; and the app-clock expiry boundary is a deliberate, documented platform choice. The carried S-05-005 items (ServiceLedgerWriters extraction, deny-path idempotency) also remain.
+
+Authority And Precedence:
+Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-042. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-007 is NOT begun.
