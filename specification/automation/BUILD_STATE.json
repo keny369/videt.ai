@@ -2,19 +2,31 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-05",
-  "current_tranche": "S-05-006",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "af25168",
+  "current_tranche": "S-05-007",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "578a6cf763204b98718976951a8a9040fa2a715a",
   "worktree_path": "",
-  "branch_name": "tranche/S-05/S-05-006",
-  "implementation_commit": "772db96",
-  "review_commit": "772db96",
-  "last_verified_commit": "772db96",
-  "verification_run_id": "RUN-S-05-006-20260726",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005"],
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "578a6cf763204b98718976951a8a9040fa2a715a",
+  "verification_run_id": "",
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-007-AUTHORISE",
+      "block": "S-05-007",
+      "question": "Authorise S-05-007 (automated observation slot schedule) to run and clear its human_gate_before. It is the FINAL Observation sub-tranche of the owner-accepted split (ADR-033); its scope is fixed by BUILD_PLAN. This is an authorise-to-proceed gate.",
+      "recommended_option": "See the S-05-007 owner briefing accompanying ADR-044. The controller does not self-authorise; the owner decides.",
+      "options": [
+        "Authorise S-05-007 as specified in BUILD_PLAN (the 10 automated slots at 0/5/15/30/60/120/240/480/960/1380 min in half-open windows; AutomatedObservationSlotJob reserving+completing an automated attempt via F-04; observation_slot_skipped recorded once and never late; terminal-state cancellation)",
+        "Defer or hold S-05-007 pending other owner-directed work"
+      ],
+      "related": "S-05-007 consumes the S-05-004 reservation and S-05-005/006 completion via the automated origin (attempt origin='automated', slot offset set) and F-04 background execution. On acceptance it completes the WF-003 Ownership Verification limb (S-05-001..007)."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-006 (matched success commit + source-scope-interim-v1; owner-authorised ADR-042 with Option A) implemented on branch tranche/S-05/S-05-006 off base af25168, extending CompleteVerificationAttempt with the atomic multi-root success (Request verified/matched, challenge erased, SourceVerified, Source proposed->verified with the interim scope policy pinned) and the minimal canonical-shaped source_scope_policies table; expiry wins at the boundary. Verified (1173 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK, RLS intact; no db/structure.sql drift; architecture fitness 31/0). Independently reviewed (ADR-026, five separately-invoked adversarial lenses): first pass BLOCK on one confirmed-blocking defect (missing expires_at_utc gate on verify); repaired (confirmed-blocking only, 3/n: strict now<expires gate + DB backstop + boundary specs) and a focused independent re-review of the repair confirmed RESOLVED with zero confirmed-blocking. Status ready_for_review; NOT merged, protected branch (main) untouched, nothing pushed. S-05-006 is added to completed_blocks only on owner acceptance/merge. Full record: S-05-006_COMPLETION_REPORT.md and DECISIONS.md ADR-043 (incl. the recorded non-blocking findings). Per owner instruction, S-05-007 (automated observation slot schedule, the final Observation sub-tranche, human_gate_before) was NOT begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-006 (matched success commit + source-scope-interim-v1) accepted by the owner and fast-forward merged into implementation/s01-registration-access at 578a6cf; added to completed_blocks (BUILD_PLAN S-05-006 -> completed, DECISIONS ADR-044). Merge gate re-verified: whole-repo suite 1173 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no db/structure.sql drift; architecture fitness 31/0; independent review (ADR-026, five separately-invoked lenses) found one confirmed-blocking defect (expires_at_utc gate) which was repaired and a focused re-review confirmed RESOLVED with zero confirmed-blocking. Protected branch (main) untouched; nothing pushed. Next authorised tranche is S-05-007 (automated observation slot schedule, the FINAL Observation sub-tranche), which is human_gate_before: true and is NOT authorised (HD-S05-007-AUTHORISE). Per owner instruction, S-05-007 was NOT begun; an owner briefing was prepared instead. This file and the repository are authoritative, not conversational memory."
 }

@@ -1268,3 +1268,21 @@ Non-blocking findings recorded (not actioned per the owner's "confirmed blocking
 
 Authority And Precedence:
 Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-042. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-007 is NOT begun.
+
+## ADR-044: S-05-006 Accepted And Merged; S-05-007 Is A Human Gate (the final Observation sub-tranche)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-006 if, and only if, repository governance is fully satisfied") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing pushed and `main` untouched, so it is revertible. S-05-007 is NOT authorised (a briefing was prepared instead).
+
+Decision:
+Accept S-05-006 (matched success commit + source-scope-interim-v1, ADR-043). Repository governance is fully satisfied and was re-verified at the merge: whole-repo suite 1173 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no `db/structure.sql` drift; architecture fitness 31/0; independent review (ADR-026, five separately-invoked adversarial lenses) found one confirmed-blocking defect (the missing `expires_at_utc` verify gate), which was repaired and confirmed RESOLVED by a focused independent re-review, leaving zero confirmed-blocking findings; no frozen foundation contract changed. Fast-forward merged into `implementation/s01-registration-access` at `578a6cf`; `S-05-006` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-006 → completed; `S-05-006_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-05/S-05-006` deleted per repository policy (S-05-001..005 precedent).
+
+Carried non-blocking (recorded in ADR-043, not gate failures): the SourceVerified event envelope consistency fields; the deny-path idempotency alignment (S-05-005); the ServiceLedgerWriters extraction (third service-store copy, S-05-005); and a couple of additional concurrency/coverage tests. These are candidate follow-ups and do not block the merge.
+
+Next Tranche — Genuine Human Decision (HD-S05-007-AUTHORISE):
+Per BUILD_STATE/BUILD_PLAN, the next block is **S-05-007** (automated observation slot schedule), the FINAL Observation sub-tranche of the owner-accepted split (ADR-033). It is `human_gate_before: true` and remains unauthorised; its scope is fixed by BUILD_PLAN, so this is an authorise-to-proceed gate. The controller stops here and does not self-authorise. Per the owner's instruction, S-05-007 was NOT begun; an owner briefing (scope, dependencies, size, risks, decomposition recommendation) was prepared instead.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-043. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.

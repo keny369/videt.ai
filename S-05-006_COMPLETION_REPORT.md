@@ -1,9 +1,11 @@
 # S-05-006 matched success commit + source-scope-interim-v1 — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-006` (off base `af25168`, the owner-authorisation commit ADR-042), **not merged**;
-the protected branch (`main`) is untouched and nothing is pushed. Fourth sub-tranche of the
-owner-accepted Observation split (ADR-033); owner-authorised with Option A (ADR-042). Consumes
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-006` into the integration branch `implementation/s01-registration-access` at
+`578a6cf`; added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-05-006 → completed, DECISIONS
+ADR-044). The protected branch (`main`) is untouched and nothing is pushed. It was implemented,
+verified and independently reviewed on that branch off base `af25168` (the owner-authorisation commit
+ADR-042, Option A). Fourth sub-tranche of the owner-accepted Observation split (ADR-033). Consumes
 F-01..F-04 only through their frozen façades.
 
 ## What was built

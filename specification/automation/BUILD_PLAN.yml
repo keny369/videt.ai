@@ -323,7 +323,7 @@ blocks:
   - id: S-05-006
     name: Ownership Verification — matched success commit + source-scope-interim-v1
     type: product
-    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-043); not merged
+    status: completed   # 2026-07-26: owner-accepted and fast-forward merged into implementation/s01-registration-access (578a6cf); DECISIONS ADR-044
     depends_on:
       - S-05-005
     authoritative_sources:
