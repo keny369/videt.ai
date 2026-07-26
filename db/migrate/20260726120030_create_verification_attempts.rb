@@ -34,14 +34,6 @@
 # transition until each later slice relaxes exactly its ratified edge — the same
 # discipline the `verification_requests` and `sources` guards use.
 class CreateVerificationAttempts < ActiveRecord::Migration[8.1]
-  NETWORK_OUTCOMES = %w[response timeout resolver_failure connection_failure tls_failure].freeze
-  MATCH_DECISIONS = %w[matched not_matched indeterminate].freeze
-  REASON_CODES = %w[
-    matched dns_nxdomain dns_value_mismatch dns_timeout dns_temporary_failure
-    http_status_mismatch http_content_mismatch http_body_too_large http_redirect_rejected
-    http_timeout http_rate_limited http_server_error tls_validation_failed connection_failure
-  ].freeze
-
   def up
     create_verification_attempts
     create_lifecycle_guard

@@ -18,13 +18,16 @@ module Workflows
       # The order of outcomes: the envelope-schema rejection (from input alone), the
       # authentication reasons, then — under the per-Request advisory lock — the
       # tenant checks (`tenant_mismatch`), the capability (`source_verify_unauthorized`),
-      # `stale_state_version`, the exact idempotent replay, and finally the acceptance
-      # or one of the three on-demand denials: `verification_request_not_pending` (a
-      # terminal Request), `on_demand_limit_reached` (count = 10),
-      # `on_demand_observation_in_progress` (marker set), `on_demand_rate_limited`
-      # (within 5 minutes of the last completion; equality at the boundary is allowed).
-      # A denied command writes NO attempt and never increments `attempt_count`
-      # (contracts/S-05.json idempotency: "a rejected ... request never increments it").
+      # the exact idempotent replay (checked BEFORE the version so a legitimate retry is
+      # never mis-flagged stale, since a successful reserve advances the state version),
+      # `stale_state_version`, and finally the acceptance or one of the on-demand
+      # denials: `verification_request_not_pending` (a terminal Request),
+      # `on_demand_limit_reached` (count = 10), `on_demand_observation_in_progress`
+      # (marker set), `on_demand_rate_limited` (within 5 minutes of the last completion;
+      # equality at the boundary is allowed), and `idempotency_conflict` (the same key
+      # reused with different canonical content). A denied command writes NO attempt and
+      # never increments `attempt_count` (contracts/S-05.json idempotency: "a rejected
+      # ... request never increments it").
       #
       # This limb only RESERVES. It never runs DNS/HTTP, produces Evidence, emits
       # `SourceVerificationObserved`, completes or quarantines the attempt, or
