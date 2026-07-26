@@ -369,7 +369,7 @@ blocks:
   - id: S-05-007
     name: Ownership Verification — automated observation slot schedule
     type: product
-    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed (ADR-046); not merged
+    status: completed   # 2026-07-26: owner-accepted and fast-forward merged into implementation/s01-registration-access (1eadc45); DECISIONS ADR-047 — completes WF-003 (S-05-001..007)
     depends_on:
       - S-05-006
     authoritative_sources:

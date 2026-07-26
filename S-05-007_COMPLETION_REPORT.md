@@ -1,11 +1,13 @@
 # S-05-007 automated observation slot schedule — Completion Report
 
-Status: **READY FOR REVIEW** (human_gate_after) — implemented, verified and independently
-reviewed on branch `tranche/S-05/S-05-007` off base `af62719` (the owner-authorisation commit
-ADR-045). NOT merged; the protected branch (`main`) is untouched and nothing is pushed. The FIFTH
-and FINAL sub-tranche of the owner-accepted Observation split (ADR-033); on acceptance it completes
-the WF-003 Ownership Verification limb (S-05-001..007). Consumes F-01..F-04 only through their frozen
-façades.
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-007` into the integration branch `implementation/s01-registration-access` at
+`1eadc45`; added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-05-007 → completed, DECISIONS
+ADR-047). The protected branch (`main`) is untouched and nothing is pushed. It was implemented,
+verified and independently reviewed on that branch off base `af62719` (the owner-authorisation commit
+ADR-045). The FIFTH and FINAL sub-tranche of the owner-accepted Observation split (ADR-033); its
+acceptance **completes the WF-003 Ownership Verification limb (S-05-001..007) end to end**. Consumes
+F-01..F-04 only through their frozen façades.
 
 ## Coherence assessment (owner-directed precondition)
 

@@ -2,19 +2,31 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-05",
-  "current_tranche": "S-05-007",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "af62719",
+  "current_tranche": "",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "1eadc45",
   "worktree_path": "",
-  "branch_name": "tranche/S-05/S-05-007",
-  "implementation_commit": "66b1df8",
-  "review_commit": "66b1df8",
-  "last_verified_commit": "66b1df8",
-  "verification_run_id": "RUN-S-05-007-20260726",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006"],
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "1eadc45",
+  "verification_run_id": "",
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-COMPLETE-NEXT-BLOCK",
+      "block": "S-05",
+      "question": "WF-003 Ownership Verification (S-05-001..007) is complete and merged into implementation/s01-registration-access. BUILD_PLAN contains no further authorised block. Define and authorise the next block to build (the next S-05/registration-access capability or the next domain, e.g. S-06), or hold pending other owner-directed work. The controller does not self-author new product scope.",
+      "recommended_option": "Owner defines the next block from the authoritative specifications/roadmap and authorises it in BUILD_PLAN; the controller then plans the smallest reviewable tranche under the mandate.",
+      "options": [
+        "Define and authorise the next block in BUILD_PLAN (from the authoritative roadmap)",
+        "Hold pending other owner-directed work"
+      ],
+      "related": "S-05-001..007 (the full WF-003 Ownership Verification limb) are in completed_blocks. Protected foundations F-01..F-04 and CTRL-01 remain frozen/complete. No product scope beyond the ratified S-05 sequence has been implemented."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-007 (automated observation slot schedule; owner-authorised ADR-045) implemented on branch tranche/S-05/S-05-007 off base af62719 as one coherent tranche (the owner-directed coherence precondition was assessed and PROCEED — it is the designated final unit of the ADR-032/033 smallest-unit split, reuses the CompleteVerificationAttempt/VerificationObservation engine, modifies no frozen foundation, and is 924 insertions/13 files, within the 40-file/3000-line limits). IssueVerificationChallenge schedules the ten verification_observation_slot ScheduledActions at offsets 0/5/15/30/60/120/240/480/960/1380 min in the issuing transaction; AutomatedObservationSlots defines the half-open windows (final window ends at expiry); ObserveAutomatedSlot reserves+completes one automated attempt in window (via the unchanged engine), records observation_slot_skipped once when the window has closed, voids remaining slots on a terminal Request without a skipped event (harmless-terminal-execution, not a proactive F-04 cancel), and is idempotent under redelivery; verification_attempts_one_automated_per_slot is the DB backstop. Verified (1191 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK, RLS intact; no db/structure.sql drift; architecture fitness 31/0; F-04 background-execution acceptance green). Independently reviewed (ADR-026, five separately-invoked adversarial lenses: contract, concurrency/idempotency, security/tenancy, schema/migration, architecture/scope): ALL PASS with ZERO confirmed-blocking findings, so no repair was required. Status ready_for_review; NOT merged, protected branch (main) untouched, nothing pushed. S-05-007 is added to completed_blocks only on owner acceptance/merge; acceptance completes the WF-003 Ownership Verification limb (S-05-001..007). Full record: S-05-007_COMPLETION_REPORT.md and DECISIONS.md ADR-046 (incl. the recorded non-blocking findings). Per owner instruction, no subsequent tranche was begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-007 (automated observation slot schedule, the FINAL Observation sub-tranche) accepted by the owner and fast-forward merged into implementation/s01-registration-access at 1eadc45; added to completed_blocks (BUILD_PLAN S-05-007 -> completed, DECISIONS ADR-047). Merge gate re-verified on the merged state: whole-repo suite 1191 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK as f1_web (RLS intact, 15 checks); no db/structure.sql drift; architecture fitness 31/0; F-04 background-execution acceptance green; independent review (ADR-026, five separately-invoked adversarial lenses: contract, concurrency/idempotency, security/tenancy, schema/migration, architecture/scope) ALL PASS with zero confirmed-blocking findings (no repair required); no frozen foundation contract changed (F-01..F-04 consumed through their frozen facades only). The merged tranche branch tranche/S-05/S-05-007 was deleted per repository policy (S-05-001..006 precedent). Protected branch (main) untouched; nothing pushed. WF-003 Ownership Verification is now COMPLETE end to end (S-05-001 issuance through S-05-007 automated slot schedule). BUILD_PLAN now contains NO further authorised block: the controller stops at a human gate (HD-S05-COMPLETE-NEXT-BLOCK) for the owner to define/authorise the next block; per owner instruction, no subsequent tranche was begun. This file and the repository are authoritative, not conversational memory."
 }

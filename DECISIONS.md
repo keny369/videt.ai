@@ -1340,3 +1340,34 @@ Non-blocking findings recorded (not actioned per the "confirmed blocking only" i
 
 Authority And Precedence:
 Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-045. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, no subsequent tranche is begun.
+
+## ADR-047: S-05-007 Accepted And Merged; WF-003 Ownership Verification (S-05-001..007) Complete
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-007 if, and only if, repository governance remains fully satisfied") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing pushed and `main` untouched, so it is revertible. No further tranche is authorised (the planned S-05 sequence is complete).
+
+Decision:
+Accept S-05-007 (automated observation slot schedule, ADR-046). Repository governance is fully satisfied and was re-verified at the merge: whole-repo suite 1191 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK as `f1_web` (RLS intact, 15 checks); no `db/structure.sql` drift; architecture fitness 31/0; F-04 background-execution acceptance green; independent review (ADR-026, five separately-invoked adversarial lenses — contract-correctness, concurrency/atomicity/idempotency, security/tenant-isolation, schema/migration-safety, architecture/scope/frozen-contracts) returned ALL PASS with zero confirmed-blocking findings, so no repair was required; no frozen foundation contract changed (F-01..F-04 consumed only through their frozen façades, the started path delegating to the unchanged CompleteVerificationAttempt engine). Fast-forward merged into `implementation/s01-registration-access` at `1eadc45`; `S-05-007` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-007 → completed; `S-05-007_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-05/S-05-007` deleted per repository policy (S-05-001..006 precedent).
+
+WF-003 Ownership Verification — COMPLETE (S-05-001 through S-05-007):
+With S-05-007 merged, the full WF-003 Ownership Verification limb is complete end to end. The seven ratified sub-tranches, all in `completed_blocks`:
+
+- **S-05-001 IssueVerificationChallenge** — one pending Verification Request per proposed Source, a ≥128-bit challenge token encrypted behind F-02 (never persisted in plaintext), immutable issuance provenance, `SourceVerificationRequested`, and the 24-hour expiry timer.
+- **S-05-002 ExpireVerificationRequest** — the timed `pending → expired` transition (`challenge_expired`), cryptographic deletion of the challenge material, `SourceVerificationExpired`, Source left proposed.
+- **S-05-003 VerificationObservation** — the F-01 DNS/HTTP observation engine (10-second provider timeouts; the 4,096/4,097-byte HTTP boundary; DNS/HTTP match, status and reason mapping; `observed_value_sha256` over raw bytes; no plaintext retained).
+- **S-05-004 ReserveVerificationAttempt** — the on-demand reservation (≤10 on-demand, 5-minute rate limit, in-progress marker), atomic attempt-slot assignment before any provider call.
+- **S-05-005 CompleteVerificationAttempt** — the observation-recording limb: exactly one restricted `verification_observation` Evidence (F-03) per started observation, `SourceVerificationObserved`, attempt `reserved → completed`, idempotent by the reserved attempt identity.
+- **S-05-006 matched success commit + source-scope-interim-v1** — on a match before expiry, the atomic multi-root success (Request `verified`/`matched`, challenge erased, `SourceVerified`, `Source.proposed → verified` with the interim scope policy pinned and materialized) — none may appear without the others; expiry wins at the boundary.
+- **S-05-007 automated observation slot schedule** — the ten automated slots (0/5/15/30/60/120/240/480/960/1,380 min) in half-open windows, `AutomatedObservationSlot` reserving+completing an automated attempt per due slot via F-04, `observation_slot_skipped` recorded once and never late, and a terminal Request voiding its remaining slots without a skipped event.
+
+End to end: an authorized Organization actor issues a challenge for a proposed Source; the platform observes ownership automatically on the ten-slot schedule (and on up to ten authorized on-demand attempts) via DNS TXT or HTTP file, recording exactly one restricted Evidence per started observation; the first match before expiry atomically verifies the Request and the Source and pins the interim Source Scope Policy; otherwise the Request expires at 24 hours or is cancelled/failed by its authorized service — with no challenge plaintext or raw observation ever retained at rest, and full tenant isolation and service attribution throughout.
+
+Carried non-blocking (recorded in ADR-046, not gate failures): no lower-bound "not-due" guard in `ObserveAutomatedSlot` (PostgreSQL transaction time is the sole due-time authority; the `slot_offset` validation is the target-integrity check; an early run under clock skew is unreachable via the normal path and benign); the VOID path writes no service-ledger record (audit-trail asymmetry vs SKIP/DENY, not a correctness defect); a started slot writes no observe-command ledger (deliberate — resume-by-attempt is the idempotency mechanism); the reserve-then-terminalize orphan (pre-existing reserve/complete characteristic). The carried earlier-sub-tranche items (ServiceLedgerWriters extraction, deny-path idempotency alignment, SourceVerified envelope fields) also remain. These are candidate follow-ups and do not block the merge.
+
+Next — Genuine Human Decision (HD-S05-COMPLETE-NEXT-BLOCK):
+`BUILD_PLAN` now contains no further authorised block. WF-003 (the full S-05 Ownership Verification sequence) is complete; the controller stops at a human gate for the owner to define and authorise the next block (the next registration-access/S-05 capability or the next domain) from the authoritative specifications. The controller does not self-author new product scope. Per the owner's instruction, no subsequent tranche was begun.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-046. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate and does not authorise or begin any subsequent block.
