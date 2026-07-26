@@ -1,8 +1,9 @@
 # S-05-002 ExpireVerificationRequest — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-002` (off base `58383dd`), **not merged**; the protected branch (`main`) is
-untouched and nothing is pushed. Owner-designated as the next tranche (DECISIONS.md ADR-029). Consumes
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-002` into `implementation/s01-registration-access` at `92eb065`; added to
+`BUILD_STATE.completed_blocks`. The protected branch (`main`) is untouched and nothing is pushed. It
+was implemented, verified and independently reviewed on that branch off base `58383dd`. Owner-designated as the next tranche (DECISIONS.md ADR-029). Consumes
 F-01..F-04 only through their frozen façades.
 
 ## What was built

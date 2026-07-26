@@ -961,3 +961,18 @@ The canonical `SCORE_EVIDENCE_MODEL.md` (§ Verification Request) and `contracts
 
 Authority And Precedence:
 Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-029. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, the tranche after S-05-002 is NOT begun.
+
+## ADR-031: S-05-002 Accepted And Merged
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge S-05-002 …") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch; nothing pushed, `main` untouched; revertible.
+
+Decision:
+Accept S-05-002 ExpireVerificationRequest. Repository gates satisfied: independent review (ADR-026) pass_with_observations with zero blocking findings; suite 1103 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK; no structure.sql drift; no frozen contract changed. Fast-forward merged into `implementation/s01-registration-access` at `92eb065`; `S-05-002` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-002 → completed; completion report marked accepted.
+
+Outstanding (carried, non-blocking): the ADR-030 flagged Volume I reconciliation (inline F-02 erase vs the canonical scheduled 60s `verification_material_destroy` deletion prose; orphaned reserved kind) remains for owner reconciliation; it is a documentation/prose divergence, not a gate failure, so it does not block the merge.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-030. No automatic merge to the protected branch; no production path.
