@@ -1,32 +1,20 @@
 {
   "schema_version": 1,
   "controller_version": "1.0.0",
-  "current_block": "S-05",
-  "current_tranche": "",
-  "status": "human_decision_required",
-  "attempt_number": 0,
-  "base_commit": "1eadc45",
+  "current_block": "S-06",
+  "current_tranche": "S-06-001",
+  "status": "implementing",
+  "attempt_number": 1,
+  "base_commit": "0f6a625",
   "worktree_path": "",
-  "branch_name": "implementation/s01-registration-access",
+  "branch_name": "tranche/S-06/S-06-001",
   "implementation_commit": null,
   "review_commit": null,
-  "last_verified_commit": "1eadc45",
+  "last_verified_commit": "0f6a625",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S05-COMPLETE-NEXT-BLOCK",
-      "block": "S-05",
-      "question": "WF-003 Ownership Verification (S-05-001..007) is complete and merged into implementation/s01-registration-access. BUILD_PLAN contains no further authorised block. Define and authorise the next block to build (the next S-05/registration-access capability or the next domain, e.g. S-06), or hold pending other owner-directed work. The controller does not self-author new product scope.",
-      "recommended_option": "Owner defines the next block from the authoritative specifications/roadmap and authorises it in BUILD_PLAN; the controller then plans the smallest reviewable tranche under the mandate.",
-      "options": [
-        "Define and authorise the next block in BUILD_PLAN (from the authoritative roadmap)",
-        "Hold pending other owner-directed work"
-      ],
-      "related": "S-05-001..007 (the full WF-003 Ownership Verification limb) are in completed_blocks. Protected foundations F-01..F-04 and CTRL-01 remain frozen/complete. No product scope beyond the ratified S-05 sequence has been implemented."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-007 (automated observation slot schedule, the FINAL Observation sub-tranche) accepted by the owner and fast-forward merged into implementation/s01-registration-access at 1eadc45; added to completed_blocks (BUILD_PLAN S-05-007 -> completed, DECISIONS ADR-047). Merge gate re-verified on the merged state: whole-repo suite 1191 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK as f1_web (RLS intact, 15 checks); no db/structure.sql drift; architecture fitness 31/0; F-04 background-execution acceptance green; independent review (ADR-026, five separately-invoked adversarial lenses: contract, concurrency/idempotency, security/tenancy, schema/migration, architecture/scope) ALL PASS with zero confirmed-blocking findings (no repair required); no frozen foundation contract changed (F-01..F-04 consumed through their frozen facades only). The merged tranche branch tranche/S-05/S-05-007 was deleted per repository policy (S-05-001..006 precedent). Protected branch (main) untouched; nothing pushed. WF-003 Ownership Verification is now COMPLETE end to end (S-05-001 issuance through S-05-007 automated slot schedule). BUILD_PLAN now contains NO further authorised block: the controller stops at a human gate (HD-S05-COMPLETE-NEXT-BLOCK) for the owner to define/authorise the next block; per owner instruction, no subsequent tranche was begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: The owner resolved HD-S05-COMPLETE-NEXT-BLOCK and authorised S-06 — Source Discovery and Scope (WF-004) — as the next repository-defined block after the completed S-05 Ownership Verification capability (DECISIONS ADR-049). Authorisation is limited to S-06 and does NOT pre-authorise S-07/S-08/S-09. BUILD_PLAN was extended with the five dependency-ordered S-06 sub-tranches (S-06-001 Source Scope Predicate [PRULE-021, pure]; S-06-002 source_scope_change_requests + ProposeSourceScopeChange; S-06-003 Decide + Cancel; S-06-004 Expire + expiry job; S-06-005 Source lifecycle [PRULE-006]); each within reviewability limits and derived solely from contracts/S-06.json, SECURITY_PERFORMANCE.md § PRULE-021, WORKFLOW_SPECIFICATIONS.md § WF-004 and APPLICATION_LAYER.md. S-06 EXTENDS the S-05-006 interim source_scope_policies (source-scope-policy-v1); it does not migrate or replace it. Only S-06-001 is authorised (human_gate_before cleared by ADR-049); S-06-002..005 remain human_gate_before. Current work: S-06-001 on tranche branch tranche/S-06/S-06-001, base 0f6a625; the pure predicate carries no schema, no persistence and no crawl behaviour (it is applied later by S-07). This file and the repository are authoritative, not conversational memory."
 }

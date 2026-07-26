@@ -401,3 +401,217 @@ blocks:
       - F-04
     expected_outputs:
       - the automated slot schedule + specs
+
+  # ==========================================================================
+  # S-06 SOURCE DISCOVERY AND SCOPE (owner-authorised block, DECISIONS ADR-049)
+  # --------------------------------------------------------------------------
+  # The owner authorised S-06 — Source Discovery and Scope (WF-004) — as the next
+  # repository-defined block after the completed S-05 Ownership Verification
+  # capability (HD-S05-COMPLETE-NEXT-BLOCK resolved). Authorisation is limited to
+  # S-06 and does NOT pre-authorise S-07/S-08/S-09.
+  #
+  # Authoritative scope: contracts/S-06.json (MTX-029 WF-004, MTX-006 CAP-006,
+  # MTX-057 PRULE-006 Source lifecycle, MTX-072 PRULE-021 scope predicate);
+  # WORKFLOW_SPECIFICATIONS.md § WF-004 Manage Source Scope + Source Scope Change
+  # Contract; SECURITY_PERFORMANCE.md § PRULE-021; APPLICATION_LAYER.md § WF-004 /
+  # PRULE-006. S-06 EXTENDS the S-05-006 interim `source_scope_policies`
+  # (`source-scope-policy-v1`); it does not migrate or replace it.
+  #
+  # Pre-implementation scoping shows S-06 is too large for one reviewable tranche
+  # (the S-05 precedent, ADR-032/033). It is decomposed into the five dependency-
+  # ordered sub-tranches below (analogous to the S-05 split: a pure engine first,
+  # then the stateful limbs). Only S-06-001 is authorised to run; S-06-002..005
+  # remain human_gate_before until authorised in turn after the prior is accepted
+  # and merged. No sub-tranche exceeds the reviewability limits (≤40 files,
+  # ≤3,000 diff lines). "Discovery" is scope DEFINITION and control, not crawler
+  # URL discovery: WF-004 performs no outbound retrieval (that is CAP-007/WF-005,
+  # S-07). Nothing here pulls forward crawl, parsing, inspection or AI machinery.
+
+  - id: S-06-001
+    name: Source Discovery and Scope — Source Scope Predicate (PRULE-021, pure)
+    type: product
+    status: in_progress   # 2026-07-26: owner-authorised (ADR-049); human_gate_before cleared
+    depends_on:
+      - S-05-006
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-072 (AC-PRULE-021)
+      - specification/volume-ii/SECURITY_PERFORMANCE.md#prule-021-source-scope-predicate
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # ascii-host-v1 host contract (WF-004)
+      - specification/volume-ii/DECISIONS.md ADR-049 (owner authorisation of S-06)
+    scope:
+      - a pure PORO scope predicate (`Workflows::Wf004::SourceScopePredicate`) given a candidate
+        canonical URL and the active Source Scope Policy intersection -> allowed or a denial reason
+      - URL normalization exactly per PRULE-021 — host lowercase ascii-host-v1 (no implementation-side
+        IDNA/punycode; a non-ASCII host is out of scope), trailing dot removed; default port removed;
+        path dot-segments and unreserved percent-encoding normalized; fragment dropped; userinfo rejected;
+        query pairs retained-and-sorted by decoded key then value preserving duplicates
+      - the predicate — allowed only when it matches EVERY active policy intersection, at least one
+        include prefix, no exclude prefix (exclusion wins over inclusion), and the query rule; path prefix
+        matches exactly or at a '/' segment boundary ('/shop' matches '/shop/item', not '/shopping')
+      - a deterministic snake_case denial-reason vocabulary consistent with repository conventions
+    out_of_scope:
+      - persistence, the source_scope_change_requests table, any command/handler, events, migration
+        (S-06-002..005); Source lifecycle transitions (S-06-005)
+      - the running-Crawl restriction and any S-07 crawl/scheduler behaviour; the predicate is DEFINED
+        here and APPLIED by S-07 (contracts/S-06.json MTX-072 rollout)
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - normalization order and each rule match PRULE-021 exactly, asserted by fixtures
+      - a URL must pass every active policy intersection; passing one policy and failing another is rejected
+      - exclusion wins over inclusion; the '/' segment-boundary prefix rule holds ('/shop' vs '/shopping')
+      - a subdomain, alternate apex/www host, non-HTTPS scheme and nondefault port are each out of scope
+      - the predicate is pure — the same URL under the same policy version always yields the same decision
+      - full suite + architecture fitness green; no structure.sql drift (no schema change)
+    required_verification:
+      - complete_test_suite
+      - architecture_fitness
+      - repository_security
+    human_gate_before: false   # cleared by owner authorisation of S-06 (ADR-049)
+    human_gate_after: true
+    risk_level: medium
+    allowed_foundation_dependencies: []   # a pure PORO; consumes no foundation
+    expected_outputs:
+      - the SourceScopePredicate engine + exhaustive fixtures
+      - S-06-001 completion report + DECISIONS ledger entry
+
+  - id: S-06-002
+    name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange
+    type: product
+    status: pending
+    depends_on:
+      - S-06-001
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-029 propose path
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
+      - schemas/POSTGRESQL_SCHEMA.md
+    scope:
+      - the `source_scope_change_requests` aggregate table (canonical schema; RLS; immutable terminal;
+        state CHECK pending/approved/rejected/canceled/expired)
+      - ProposeSourceScopeChange — normalization + content hash, expansion-vs-contraction classification,
+        24h due_at, idempotency, SourceScopeChangeRequested; a contraction by an authorised actor
+        activates a new immutable policy version atomically in its creation transaction
+    out_of_scope:
+      - DecideSourceScopeChange / Cancel / Expire (S-06-003/004); Source lifecycle (S-06-005); any crawl
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - a proposal persists an immutable pending request (expansion) or atomically activates a contraction
+      - a cross-host request is denied and cannot be approved as a policy expansion
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - repository_security
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-02
+      - F-04
+    expected_outputs:
+      - the source_scope_change_requests migration + Propose slice + specs
+
+  - id: S-06-003
+    name: Source Discovery and Scope — DecideSourceScopeChange + CancelSourceScopeChange
+    type: product
+    status: pending
+    depends_on:
+      - S-06-002
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-029 decide path
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
+    scope:
+      - DecideSourceScopeChange (approve/reject) with dual-control (an OrganizationAdmin approver who is a
+        different Account from a non-admin requester), guarded on the expected request state version AND
+        the expected active-policy version; approval inserts exactly one new immutable policy version
+      - CancelSourceScopeChange from pending only; SourceScopeChangeApproved/Rejected/Canceled
+    out_of_scope:
+      - the 24h expiry (S-06-004); Source lifecycle (S-06-005); any crawl
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - dual control holds; a stale request or policy version rejects with no side effect
+      - approval activates exactly one policy version; rejection/cancellation activate none
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - repository_security
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-04
+    expected_outputs:
+      - the Decide + Cancel slice + specs
+
+  - id: S-06-004
+    name: Source Discovery and Scope — ExpireSourceScopeChange + SourceScopeChangeExpiryJob
+    type: product
+    status: pending
+    depends_on:
+      - S-06-003
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-029 expiry path
+      - specification/volume-ii/BACKGROUND_PROCESSING.md
+    scope:
+      - the 24h SourceScopeChangeExpiryJob scheduled through F-04; ExpireSourceScopeChange emits
+        SourceScopeChangeExpired once at due_at_utc and changes no policy or Source state
+      - expiry wins over approval, rejection and cancellation at exact due_at_utc equality
+    out_of_scope:
+      - Source lifecycle (S-06-005); any crawl
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - the before/at/after due_at_utc race — at exact equality expiry wins and emits once
+      - full suite + background-execution + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - background_execution
+      - migration_safety_no_drift
+      - architecture_fitness
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-04
+    expected_outputs:
+      - the ExpireSourceScopeChange slice + expiry job + specs
+
+  - id: S-06-005
+    name: Source Discovery and Scope — Source lifecycle (PRULE-006 Activate/Disable/Reactivate/Remove)
+    type: product
+    status: pending
+    depends_on:
+      - S-06-004
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-057 (PRULE-006) + MTX-029 lifecycle
+      - specification/volume-ii/APPLICATION_LAYER.md#prule-006-source-lifecycle-transitions
+    scope:
+      - ActivateSource/DisableSource/ReactivateSource/RemoveSource; the sources lifecycle guard relaxed for
+        exactly verified->active, active->disabled, disabled->active, disabled->removed, each pinning the
+        policy version; SourceActivated/Disabled/Removed; unlisted and stale transitions denied AND audited
+      - the affected-run decision record for disable/remove (degenerate/empty pre-S-07: no Crawls exist; the
+        running-Crawl restriction is applied by S-07 at its checkpoint — no crawl machinery is built here)
+    out_of_scope:
+      - any S-07 crawl/scheduler/checkpoint behaviour; scoring/evaluation
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - each allowed transition succeeds exactly once; every unlisted/stale transition is denied and audited
+      - a TechnicalImplementer cannot mutate lifecycle; removal only from disabled
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - repository_security
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-03
+      - F-04
+    expected_outputs:
+      - the Source lifecycle slice + specs; S-06 completion summary

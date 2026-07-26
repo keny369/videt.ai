@@ -1390,3 +1390,30 @@ No contradiction with `specification/005 PRODUCT_PRINCIPLES.md` (which it operat
 
 Authority And Precedence:
 Executes the owner's Part 2 direction. Allocated the next unused number after ADR-047. Documentation governance only; introduces no implementation authority and no production path.
+
+## ADR-049: S-06 Source Discovery and Scope Authorised; Decomposed; S-06-001 (Scope Predicate) Runs Next
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (authorised: "Authorise S-06 — Source Discovery and Scope, WF-004, as the next repository-defined block ... This authorisation is limited to S-06. It does not pre-authorise S-07, S-08, S-09 or any subsequent block.") / implementation agent (recorded)
+Reversibility: Planning-only at this commit — extends BUILD_PLAN with the S-06 decomposition, resolves the BUILD_STATE open decision, and records this entry; changes no product code, schema, migration or gate. Committed on the isolated tranche branch `tranche/S-06/S-06-001` from integration tip `0f6a625`; `main` and the integration branch are untouched; nothing pushed.
+
+Decision:
+Resolve HD-S05-COMPLETE-NEXT-BLOCK by authorising S-06 — Source Discovery and Scope (WF-004) — as the next repository-defined block after the completed S-05 Ownership Verification capability. Extend BUILD_PLAN with the five dependency-ordered S-06 sub-tranches, derived solely from authoritative repository sources (contracts/S-06.json MTX-029/006/057/072; SECURITY_PERFORMANCE.md § PRULE-021; WORKFLOW_SPECIFICATIONS.md § WF-004 + the ascii-host-v1 host contract; APPLICATION_LAYER.md § WF-004/PRULE-006), not from chat, diagram or tranche numbering:
+
+- S-06-001 Source Scope Predicate (PRULE-021 / MTX-072) — a pure PORO: canonical-URL normalization + the scope predicate; no persistence, no migration, no events, no crawl. The analogue of the S-05-003 pure observation engine.
+- S-06-002 source_scope_change_requests + ProposeSourceScopeChange (MTX-029 propose).
+- S-06-003 DecideSourceScopeChange + CancelSourceScopeChange (MTX-029 decide; dual control).
+- S-06-004 ExpireSourceScopeChange + SourceScopeChangeExpiryJob (MTX-029 expiry via F-04).
+- S-06-005 Source lifecycle Activate/Disable/Reactivate/Remove (PRULE-006 / MTX-057).
+
+S-06 EXTENDS the S-05-006 interim source_scope_policies (source-scope-policy-v1); it does not migrate or replace it. No sub-tranche exceeds the reviewability limits (≤40 files, ≤3,000 diff lines).
+
+Scope Boundary:
+Only S-06-001 is authorised to run (human_gate_before cleared by this owner authorisation). S-06-002..005 remain human_gate_before until authorised in turn after the prior is accepted and merged. This authorisation does NOT pre-authorise S-07, S-08 or S-09. "Discovery" is scope definition and control, not crawler URL discovery — WF-004 performs no outbound retrieval. Nothing in S-06 pulls forward crawl (S-07), parsing (S-08), inspection (S-09) or AI machinery.
+
+Customer Value (per governance/CUSTOMER_VALUE_CONSTITUTION.md):
+S-06 advances ASSESS and the Reality Graph — governance and control of the verified digital estate. Customer-value outcome: "After S-06, the customer can define and control exactly which parts of a verified property Videt may observe, which they could not reliably do before." S-06-001 itself is Necessary Enabling Work: the deterministic scope-decision kernel on which every scope change and every future crawl admission depends; it exposes no command surface of its own and is not independently customer-visible.
+
+Authority And Precedence:
+Executes the owner's S-06 authorisation. Allocated the next unused number after ADR-048. No automatic merge to the protected branch and no production path; the controller stops at human_gate_after (owner acceptance) once S-06-001 reaches ready_for_review.
