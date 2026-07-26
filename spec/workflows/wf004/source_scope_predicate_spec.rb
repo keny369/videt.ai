@@ -246,6 +246,29 @@ RSpec.describe Workflows::Wf004::SourceScopePredicate, type: :model do
       expect(evaluate("https://shop.acme.example/private?x=a%2Fb", [excl]).reason_code).to eq("path_excluded")
       expect(evaluate("https://shop.acme.example/public?x=a%2Fb#f", [excl]).allowed?).to be(true)
     end
+
+    it "denies an encoded separator sitting exactly at the prefix boundary" do
+      %w[/private%2F /private%5C].each do |path|
+        expect(evaluate("https://shop.acme.example#{path}", [excl]).reason_code).to eq("path_excluded"), path
+      end
+      expect(evaluate('https://shop.acme.example/private\\', [excl]).reason_code).to eq("path_excluded")
+    end
+
+    it "is thread-safe: concurrent evaluations of the same input agree (mandated)" do
+      url = "https://shop.acme.example/private%2Fsecret"
+      results = Array.new(50).map { Thread.new { evaluate(url, [excl]).reason_code } }.map(&:value)
+      expect(results.uniq).to eq(["path_excluded"])
+    end
+
+    it "characterizes the ratified separator set: a DOUBLE-encoded slash is out of ADR-051 scope and not denied" do
+      # ADR-051 names exactly %2F, %5C and raw backslash. A double-encoded %252F is NOT a
+      # single-pass separator (the %25 stays reserved), so it is allowed and preserved
+      # verbatim in the canonical URL. Pinned so this boundary stays intentional; any future
+      # extension is a separate owner decision (HD-S06-001 "at minimum" wording).
+      d = evaluate("https://shop.acme.example/private%252Fsecret", [excl])
+      expect(d).to have_attributes(allowed?: true,
+                                   canonical_url: "https://shop.acme.example/private%252Fsecret")
+    end
   end
 
   describe "TYP-SEC host, scheme and port scope" do
