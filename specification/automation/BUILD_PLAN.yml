@@ -207,7 +207,7 @@ blocks:
   - id: S-05-003
     name: Ownership Verification — outbound observation engine (WF-003, F-01 consumer)
     type: product
-    status: planned   # 2026-07-26: split accepted (ADR-033); authorised as the next tranche
+    status: ready_for_review   # 2026-07-26: implemented, verified, independently reviewed; not merged
     depends_on:
       - S-05-002
     authoritative_sources:

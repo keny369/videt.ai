@@ -1027,3 +1027,27 @@ The flagged architectural dependency (source-scope-interim-v1 / Source Scope, S-
 
 Authority And Precedence:
 Resolves HD-S05-003-SPLIT. Allocated the next unused number after ADR-032. No frozen contract changed; no automatic merge; no production path.
+
+## ADR-034: S-05-003 Observation Engine — Completion (ready_for_review)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (authorised S-05-003, ADR-033) / implementation agent (recorded)
+Reversibility: Committed on branch `tranche/S-05/S-05-003` (off `05c2011`), verified and independently reviewed, NOT merged; `main` untouched. Fully reversible.
+
+Decision:
+Implement the first Observation sub-tranche — `Workflows::Wf003::VerificationObservation`, the pure outbound observation engine (SCORE_EVIDENCE_MODEL.md § DNS TXT / HTTP File Method; contracts/S-05.json MTX-028). Given (method, canonical_host, token) it performs one guarded observation through the frozen F-01 façade and applies the ratified predicate, returning the network outcome, nullable status, received byte count, observed_value_sha256, match decision and one of the 14 reason codes. DNS: `_f1-verify.<host>`, exact ASCII match, per-record segment concatenation, case/whitespace failures, the LF-joined-UTF-8-record-values hash (null on absent), resolver reasons. HTTP: `/.well-known/f1-verification.txt`, 200 + ≤4KiB + ≤1 trailing-LF equality, the 4096/4097 boundary + raw-bytes hashing, no redirects, the full status/transport mapping. It performs no persistence, produces no Evidence and transitions nothing (later sub-tranches). Restricted-safe: no plaintext token or raw content in the output. Suite 1123 examples / 0 failures; architecture fitness 31/0 (consumes ONLY F-01; no second egress); Brakeman/Packwerk/Zeitwerk clean; no structure.sql change (pure engine).
+
+Independent Review (ADR-026):
+A separately invoked model with no shared conversational state reviewed the committed diff and byte-level-reproduced the hashing and boundary rules: **pass_with_observations, zero blocking findings**. It confirmed DNS byte-exactness + hash, HTTP hash-before-trim, the 4096/4097 boundary, the status/transport mapping, the match-decision invariant (matched / definite-non-match=not_matched / dependency-failure=indeterminate), restricted-safety and frozen-façade compliance. Review-driven repairs applied (no behavior change): corrected the SSRF-rejection comment (that path is reachable and correctly indeterminate) and added tests for the non-redirect rejected path, the :resolver_failure reason_code, and hash-before-trim on the trailing-LF path.
+
+Decision Ledger:
+| Decision | Authority | Reason |
+| --- | --- | --- |
+| Engine consumes F-01 via injected `outbound:` (default Platform::Outbound) | Autonomous | Deterministic tests with no live network; still the single frozen egress surface. |
+| Match decision = matched / not_matched / indeterminate by reason class | Autonomous (contract) | Definite non-matches are not_matched; dependency failures are indeterminate (stay pending). |
+| DNS hash over raw resolver octets (`.b`), LF byte between records | Assumption | Byte-identical to UTF-8 for realistic ASCII TXT content; robust for arbitrary DNS character-strings. |
+| `dns_response_code` left null (F-01 surfaces no rcode) | Assumption | The reason code (e.g. dns_nxdomain) carries the semantic; the field is nullable. |
+
+Authority And Precedence:
+Consumes only the frozen F-01 façade; no frozen contract changed. Allocated the next unused number after ADR-033. Stops at ready_for_review; no automatic merge, no production path. Per owner instruction, S-05-004 is NOT begun.
