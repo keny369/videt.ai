@@ -323,7 +323,7 @@ blocks:
   - id: S-05-006
     name: Ownership Verification — matched success commit + source-scope-interim-v1
     type: product
-    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
+    status: planned   # 2026-07-26: authorised by the owner as the next tranche (ADR-042); running under the controller
     depends_on:
       - S-05-005
     authoritative_sources:
@@ -345,7 +345,7 @@ blocks:
       - migration_safety_no_drift
       - runtime_role_and_rls
       - architecture_fitness
-    human_gate_before: true
+    human_gate_before: false   # cleared by owner (ADR-042); authorised to run next
     human_gate_after: true
     risk_level: high
     allowed_foundation_dependencies:
@@ -353,15 +353,18 @@ blocks:
       - F-02
       - F-03
       - F-04
-    open_questions:
+    resolved_questions:
       - >
-        ARCHITECTURAL DEPENDENCY (owner): source-scope-interim-v1 materialization needs a Source Scope
-        Policy artifact (SourceScopePolicyRepository), which is the Source Scope sub-system (S-06
-        territory: source_set_versions/source_set_memberships/source_scope_change_requests). Decide
-        whether the minimal materialization artifact is built here for the success commit, or is an S-06
-        prerequisite that must precede S-05-006. This may require its own foundation-style sequencing.
+        ARCHITECTURAL DEPENDENCY (RESOLVED by owner, 2026-07-26, ADR-042 — Option A): the
+        source-scope-interim-v1 materialization is built minimally WITHIN S-05-006 via a
+        SourceScopePolicyRepository, modelled to the canonical Source Scope Policy schema
+        (schemas/POSTGRESQL_SCHEMA.md) so the S-06 Source Scope sub-system
+        (source_set_versions/source_set_memberships/source_scope_change_requests) EXTENDS it rather than
+        replacing or migrating it. No expansion into the full S-06 sub-system; only the fixed interim
+        policy (WORKFLOW_SPECIFICATIONS.md: HTTPS, default port, verified canonical host, include '/',
+        no exclude, retain_all) is materialized in the success transaction.
     expected_outputs:
-      - the matched success-commit slice + scope-policy materialization + specs
+      - the matched success-commit slice + minimal source-scope-interim-v1 materialization + specs
 
   - id: S-05-007
     name: Ownership Verification — automated observation slot schedule

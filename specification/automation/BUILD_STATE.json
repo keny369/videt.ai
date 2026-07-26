@@ -3,31 +3,18 @@
   "controller_version": "1.0.0",
   "current_block": "S-05",
   "current_tranche": "S-05-006",
-  "status": "human_decision_required",
+  "status": "planned",
   "attempt_number": 0,
-  "base_commit": "feec2fd2c57e3d2d2f3a7910aec8710c81671818",
+  "base_commit": "e2d3d36",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
   "implementation_commit": null,
   "review_commit": null,
   "last_verified_commit": "feec2fd2c57e3d2d2f3a7910aec8710c81671818",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S05-006-SCOPE-AND-DEPENDENCY",
-      "block": "S-05-006",
-      "question": "Authorise S-05-006 (matched success commit + source-scope-interim-v1) AND resolve the flagged architectural dependency (ADR-032/033 open_question): the success commit must materialize source-scope-interim-v1 via a SourceScopePolicyRepository, which is the S-06 Source Scope sub-system (source_set_versions / source_set_memberships / source_scope_change_requests). Decide whether the minimal materialization artifact is built inside S-05-006 or is an S-06 prerequisite that must precede it.",
-      "options": [
-        "A — Build a minimal source-scope-interim-v1 materialization artifact inside S-05-006 (the smallest SourceScopePolicyRepository write that the success commit needs), deferring the full S-06 Source Scope sub-system.",
-        "B — Sequence the minimal Source Scope foundation BEFORE S-05-006 (a new S-06-precursor tranche) so S-05-006 consumes a ready artifact; may need its own foundation-style sequencing.",
-        "C — Split S-05-006: land the atomic success commit WITHOUT scope materialization first, and add source-scope-interim-v1 as a distinct authorised sub-tranche once the Source Scope shape is decided."
-      ],
-      "recommended_option": "See DECISIONS.md ADR-041 and the owner decision package. The controller does not self-authorise S-05-006; it is a genuine product-sequencing + architectural decision the owner makes, and per governance the controller stops here.",
-      "related": "This is the flagged dependency carried since ADR-032 (proposal) and ADR-033 (split accepted). It blocks S-05-006 only. S-05-007 (automated slot schedule) is unaffected and remains human_gate_before after S-05-006."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-005 (CompleteVerificationAttempt — observation recording + F-03 Evidence) accepted by the owner and fast-forward merged into implementation/s01-registration-access at feec2fd; added to completed_blocks (BUILD_PLAN S-05-005 -> completed, DECISIONS ADR-041). Merge gate re-verified: whole-repo suite 1158 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no db/structure.sql drift; architecture fitness green (incl. the F-03 evidence single-surface fence); independent review (ADR-026, five separately-invoked lenses) PASS_NO_BLOCKING. Protected branch (main) untouched; nothing pushed. Next authorised tranche is S-05-006 (matched success commit + source-scope-interim-v1), which is human_gate_before: true and is NOT authorised; it additionally carries the flagged Source Scope / S-06 architectural dependency (HD-S05-006-SCOPE-AND-DEPENDENCY). Per owner instruction, S-05-006 was NOT begun; a decision package was prepared for the owner gate instead. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-005 merged (completed_blocks; ADR-041). The owner authorised S-05-006 (matched success commit + source-scope-interim-v1) as specified in BUILD_PLAN and the Observation split ADR-033, and resolved the flagged architectural dependency (HD-S05-006-SCOPE-AND-DEPENDENCY) by selecting Option A: build the minimal source-scope-interim-v1 materialization within S-05-006, modelled to the canonical Source Scope Policy schema so S-06 extends rather than migrates it (DECISIONS ADR-042). human_gate_before cleared. S-05-006 is now the authorised next tranche and runs under the controller (isolated branch tranche/S-05/S-05-006 off e2d3d36, enforced preflight/postflight, deterministic verification, independent review, records, commits) to ready_for_review; it is NOT merged until owner acceptance, and the protected branch (main) stays untouched. Scope is strictly the repository-defined S-05-006 responsibilities; no expansion into the full S-06 Source Scope sub-system. Per owner instruction, S-05-007 is NOT to be begun. This file and the repository are authoritative, not conversational memory."
 }

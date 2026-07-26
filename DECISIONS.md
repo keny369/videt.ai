@@ -1223,3 +1223,21 @@ Recommended Option:
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-040. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate and does not authorise S-05-006 or modify repository governance.
+
+## ADR-042: S-05-006 Authorised (matched success commit + source-scope-interim-v1); Option A; Human Gate Cleared
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Owner decision: APPROVED. Select Option A. Authorise S-05-006 exactly as defined in BUILD_PLAN and ADR-033.") / implementation agent (recorded)
+Reversibility: Plan/state change plus a product tranche that stops at ready_for_review on an isolated branch; revertible until owner acceptance. `main` untouched.
+
+Decision 1 — Next tranche authorised:
+Resolving HD-S05-006-SCOPE-AND-DEPENDENCY (ADR-041), the owner authorises **S-05-006 — the matched success commit + source-scope-interim-v1 materialization** exactly as specified in BUILD_PLAN and the owner-accepted Observation split (ADR-033), and clears its `human_gate_before`. Scope (contracts/S-05.json MTX-028/051/056; SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence; WORKFLOW_SPECIFICATIONS.md § WF-003): on a **matched** observation, the atomic multi-root commit inside the CompleteVerificationAttempt completion transaction — Request `verified`/`matched`, immediate challenge-redelivery disablement (F-02 erase), `SourceVerified`, `Source.proposed → verified` (the `sources` guard relaxed for exactly that edge, state-version guarded) — together with the materialization of `source-scope-interim-v1`. None may appear without the others (proven by fixture); the transition fires exactly once (state-version guarded); a non-matched outcome is unchanged from S-05-005 (records the observation, leaves the Source proposed).
+
+Decision 2 — Architectural dependency resolved (Option A, from ADR-041):
+The `source-scope-interim-v1` materialization is built **minimally within S-05-006** via a `SourceScopePolicyRepository` — the smallest write the success commit needs — **modelled to the canonical Source Scope Policy schema** (schemas/POSTGRESQL_SCHEMA.md) so the S-06 Source Scope sub-system (`source_set_versions` / `source_set_memberships` / `source_scope_change_requests`) EXTENDS it rather than replacing or migrating it. Only the fixed interim policy is materialized (WORKFLOW_SPECIFICATIONS.md :412: HTTPS, default port, verified canonical host only, include prefix `/`, no exclude prefix, `retain_all`). No expansion into the full S-06 sub-system; the change-request/source-set machinery remains S-06 scope.
+
+Grounding (from the ADRs and BUILD_PLAN): the contract makes scope materialization inseparable from `SourceVerified` (contracts/S-05.json :44/:112 — "none may appear without the others"), which rules out splitting it out (the ADR-041 Option C); the interim policy is fixed and fully specified, so a full Source Scope foundation ahead of one consumer (Option B) contradicts the ratified smallest-tranche split discipline (ADR-032/033); F-03's nullable `evaluation_id` deferral is the precedent for materializing the minimal artifact now while the full sub-system lands later, provided the minimal table follows the canonical schema.
+
+Authority And Precedence:
+Executes the owner's authorisation and Option-A selection and the controller mandate. Allocated the next unused number after ADR-041. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-006`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Scope is strictly the repository-defined S-05-006 responsibilities. Per owner instruction, S-05-007 is NOT to be begun.
