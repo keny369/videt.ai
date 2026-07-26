@@ -1100,3 +1100,30 @@ Additive grant note (ratified precedent): S-05-004 adds a new tenant table, so i
 
 Authority And Precedence:
 Executes the owner's authorisation and the controller mandate. Allocated the next unused number after ADR-035. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-004`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Per owner instruction, S-05-005 is NOT to be begun.
+
+## ADR-037: S-05-004 verification_attempts + ReserveVerificationAttempt — Completion (ready_for_review)
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (authorised S-05-004, ADR-036) / implementation agent (recorded)
+Reversibility: Committed on branch `tranche/S-05/S-05-004` (off `891e295`), verified and independently reviewed, NOT merged; `main` untouched, nothing pushed. Fully reversible until owner acceptance.
+
+Decision:
+Implement the WF-003 on-demand reservation limb — the `verification_attempts` child table of the `verification_requests` aggregate and `Workflows::Wf003::ReserveVerificationAttempt` (schemas/POSTGRESQL_SCHEMA.md :288; SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence; contracts/S-05.json MTX-028). An authorized actor (`source.verify`) reserves the next attempt slot on a pending Request: serialized on the Request under the expiry service's advisory-lock key, it atomically inserts one `reserved` on_demand attempt (`attempt_number = attempt_count + 1`), increments the total and on-demand counts and stores `on_demand_in_progress_attempt_id`, with the count/marker `UPDATE` guarded on `request_status = 'pending' AND state_version = <read>` (a lost race rolls the whole reservation back). The four denials hold at their exact boundaries and write nothing (so `attempt_count` never moves): `verification_request_not_pending`, `on_demand_limit_reached` (count = 10), `on_demand_observation_in_progress` (marker set), `on_demand_rate_limited` (`now < last + 5 min`; equality allowed). Idempotency is checked before the state-version check so an exact replay returns the same reserved attempt despite the advanced version. The table has forced RLS, composite FKs to `verification_requests`/`sources`, `unique (verification_request_id, attempt_number)`, the `reserved_has_no_outcome` and `slot_offset_matches_origin` CHECKs, and a lifecycle guard that freezes the reservation and withholds every state transition until the completion limb. No provider call, no Evidence, no domain event, no Request or Source transition (all later limbs). Suite 1149 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; verify_runtime OK (RLS intact); no structure.sql drift; architecture fitness 31/0.
+
+Independent Review (ADR-026):
+Five adversarial lenses by separately-invoked models with no shared conversational state (contract-correctness, security/tenant-isolation, migration/schema, test-adequacy, architecture/frozen-contract): **PASS_NO_BLOCKING — zero blocking findings, zero confirmed-blocking after the verify pass.** Confirmed the reservation atomicity, the four boundary denials, `attempt_count`-unchanged-on-rejection, the state-version guard, the idempotency-before-version ordering, the migration against the canonical schema (no drift), the RLS/FK/CHECK/guard invariants, least-privilege grant (no DELETE), and frozen-façade compliance. Review-driven repairs applied (comment/dead-code accuracy only, no behaviour change; the prior tranches' "comment accuracy" precedent): corrected the outcome-order docstring and removed three unused migration constants.
+
+Decision Ledger:
+| Decision | Authority | Reason |
+| --- | --- | --- |
+| `verification_attempts` grant SELECT/INSERT/UPDATE (no DELETE) | Foundation Consumption Rule (additive new-table, ADR-029) | The reserve inserts and later limbs transition the attempt in place; deletion never happens (quarantine/terminal are state transitions). Non-escalating. |
+| `attempt_number = attempt_count + 1` under the per-Request lock | Autonomous (contract) | The serialized reservation makes the number dense and unique; `unique (verification_request_id, attempt_number)` backstops it. |
+| Reserve-specific `deny` override keyed on the Request | Autonomous (established pattern) | The shared VerificationLedger `deny` builds its payload from `command.source_id`; the reserve command's target is the Request (no source_id member), so the override records the Request and threads the Source through the authorization decision only. |
+| Idempotency checked before the state-version check | Autonomous (correctness) | A successful reserve advances the Request version; an exact replay must return the same attempt, not `stale_state_version`. |
+| S-04 forward-guard specs no longer assert `verification_attempts` absent | Autonomous (internal consistency; constitution "update earlier documents") | The table now legitimately exists; the source-set/scope tables remain asserted absent. |
+
+Non-blocking findings recorded (not actioned per the owner's "confirmed blocking only" instruction; carried for owner consideration or a later limb): (medium) no direct two-racer concurrency test — the property is enforced by the advisory lock + state-version guard + the unique index (the last proven in the invariants spec); (low) the rate-limit reject boundary could be pinned tighter than 4 min; (observation) no direct test that a denied reserve writes no idempotency record; (observation) `idempotency_conflict` is ordered after the on-demand denials, matching IssueVerificationChallenge; (considered/dismissed) the WORK-CLAIM tag on `verification_attempts` refers to `work_dispatch_bindings` referencing it (POSTGRESQL_SCHEMA.md :226), not claim columns on the attempt table, so the :288 column list is implemented exactly.
+
+Authority And Precedence:
+Consumes F-01..F-04 through their frozen façades only; no frozen contract changed. Allocated the next unused number after ADR-036. Stops at ready_for_review per the mandate; no automatic merge, no production path. Per owner instruction, S-05-005 is NOT begun.
