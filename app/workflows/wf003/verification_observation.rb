@@ -135,8 +135,10 @@ module Workflows
       end
 
       # Transport-level F-01 outcomes (SCORE_EVIDENCE network outcomes). A rejected safety
-      # refusal other than a redirect cannot occur for a validated HTTPS :443 host; it is mapped
-      # defensively to an indeterminate connection failure.
+      # refusal other than a redirect (e.g. the host resolves to a private/prohibited address and
+      # F-01's SSRF classifier rejects it — a real, reachable case for a customer-supplied host)
+      # is a dependency-side failure: mapped to an indeterminate connection failure so the request
+      # stays pending until a later attempt or expiry, never verifying and never disabling anything.
       def http_transport_failure(outcome)
         case outcome.kind
         when :timeout then { reason: "http_timeout", match: "indeterminate", network: "timeout" }

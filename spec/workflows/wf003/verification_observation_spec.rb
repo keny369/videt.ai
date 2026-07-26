@@ -122,8 +122,10 @@ RSpec.describe Workflows::Wf003::VerificationObservation, type: :model do
       expect(r.received_byte_count).to eq(expected.bytesize)
     end
 
-    it "matches a 200 body with exactly one trailing line feed removed" do
-      expect(observe_http(resp(status: 200, body: "#{expected}\n")).reason_code).to eq("matched")
+    it "matches a 200 body with exactly one trailing line feed removed, hashing the RAW (untrimmed) bytes" do
+      r = observe_http(resp(status: 200, body: "#{expected}\n"))
+      expect(r.reason_code).to eq("matched")
+      expect(r.observed_value_sha256).to eq(Digest::SHA256.digest("#{expected}\n".b))
     end
 
     it "fails a 200 body with two trailing line feeds as content mismatch" do
@@ -167,6 +169,7 @@ RSpec.describe Workflows::Wf003::VerificationObservation, type: :model do
       expect(observe_http(transport(kind: :tls_failure)).reason_code).to eq("tls_validation_failed")
       expect(observe_http(transport(kind: :tls_failure)).network_outcome).to eq("tls_failure")
       expect(observe_http(transport(kind: :connection_failure)).reason_code).to eq("connection_failure")
+      expect(observe_http(transport(kind: :resolver_failure)).reason_code).to eq("connection_failure")
       expect(observe_http(transport(kind: :resolver_failure)).network_outcome).to eq("resolver_failure")
       %i[timeout tls_failure connection_failure resolver_failure].each do |k|
         expect(observe_http(transport(kind: k)).match_decision).to eq("indeterminate")
@@ -177,6 +180,13 @@ RSpec.describe Workflows::Wf003::VerificationObservation, type: :model do
       r = observe_http(transport(kind: :rejected, reason: :redirect_rejected, rejected: true))
       expect(r.reason_code).to eq("http_redirect_rejected")
       expect(r.match_decision).to eq("not_matched")
+    end
+
+    it "maps a non-redirect SSRF rejection (e.g. a prohibited address) to an indeterminate connection failure" do
+      r = observe_http(transport(kind: :rejected, reason: :destination_address_prohibited, rejected: true))
+      expect(r.reason_code).to eq("connection_failure")
+      expect(r.match_decision).to eq("indeterminate")
+      expect(r.network_outcome).to eq("connection_failure")
     end
   end
 
