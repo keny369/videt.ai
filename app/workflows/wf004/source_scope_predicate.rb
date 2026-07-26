@@ -37,6 +37,14 @@ module Workflows
       # ASCII control characters and space are never part of a canonical URL.
       CONTROL_OR_SPACE = /[\u0000-\u0020\u007f]/
       SCHEME = %r{\A([A-Za-z][A-Za-z0-9+.\-]*)://}
+      # Path representations an origin may interpret as a hierarchy separator. Ratified
+      # fail-closed EXCLUSION hardening (owner decision HD-S06-001-SCOPE-SEPARATOR;
+      # DECISIONS ADR-051): a percent-encoded forward slash (`%2F`, case-insensitive), a
+      # percent-encoded backslash (`%5C`, case-insensitive) and a raw backslash are treated
+      # as segment boundaries WHEN TESTING EXCLUDE prefixes, so an excluded subtree cannot be
+      # reached by encoding the separator. Exclusion-only: it does not decode these
+      # characters, alter the canonical URL, or change include matching.
+      SEPARATOR_EQUIVALENT = /%2F|%5C|\\/i
 
       # The value-object view of ONE active Source Scope Policy version the predicate
       # reads — exactly the `source-scope-policy-v1` fields it needs (contracts/S-06.json
@@ -92,10 +100,28 @@ module Workflows
         return "host_out_of_scope" unless parsed[:host] == policy.canonical_host.to_s.downcase
         return "scheme_out_of_scope" unless downcased(policy.allowed_schemes).include?(parsed[:scheme])
         return "port_out_of_scope" unless policy.allowed_ports.map(&:to_i).include?(parsed[:port])
-        return "path_excluded" if policy.exclude_prefixes.any? { |prefix| prefix_match?(parsed[:path], prefix) }
+        return "path_excluded" if excluded?(parsed[:path], policy)
         return "path_not_included" unless policy.include_prefixes.any? { |prefix| prefix_match?(parsed[:path], prefix) }
 
         nil
+      end
+
+      # Fail-closed exclusion (owner decision HD-S06-001-SCOPE-SEPARATOR / ADR-051). A path
+      # is excluded when an exclude prefix matches the normalized path OR the separator-probe
+      # path, in which `%2F`, `%5C` and a raw `\` become `/` and dot-segments are then removed
+      # (so a subtree reached by encoding the separator, with or without traversal, is denied).
+      # The probe only ever ADDS denials — it never removes one — and it changes nothing the
+      # caller sees: the canonical URL and include matching still use the normalized path.
+      def excluded?(path, policy)
+        probe = exclusion_probe(path)
+        policy.exclude_prefixes.any? do |prefix|
+          prefix_match?(path, prefix) || prefix_match?(probe, prefix)
+        end
+      end
+
+      def exclusion_probe(path)
+        collapsed = remove_dot_segments(path.gsub(SEPARATOR_EQUIVALENT, "/"))
+        collapsed.empty? ? "/" : collapsed
       end
 
       # A prefix matches the normalized path exactly or at a `/` segment boundary:

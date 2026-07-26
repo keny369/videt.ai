@@ -1438,3 +1438,25 @@ No confirmed-blocking repair was applied (the sole CHANGES_REQUIRED finding is s
 
 Authority And Precedence:
 Records the implementation and review outcome; escalates the governed product ruling to the owner. Allocated the next unused number after ADR-049. No automatic merge, no push, no production path; S-06-002..005 remain human_gate_before.
+
+## ADR-051: PRULE-021 Exclusion Clarification — Fail-Closed Separator-Equivalence (Owner Option A)
+
+Status: Accepted (owner-ratified)
+Date: 2026-07-27
+Owner: Owner (decision HD-S06-001-SCOPE-SEPARATOR: "Select Option A. Ratify fail-closed separator hardening ... The predicate must treat path representations capable of being interpreted as hierarchy separators as exclusion-boundary separators for the purpose of scope denial, including at minimum: literal '/'; percent-encoded forward slash %2F; percent-encoded backslash %5C; raw backslash '\\'.") / implementation agent (recorded)
+Reversibility: Implemented on the isolated branch `tranche/S-06/S-06-001`; nothing merged, nothing pushed, `main` and the integration branch untouched. Revertible by deleting the branch.
+
+Decision:
+A narrow, additive normative clarification of PRULE-021 (contracts/S-06.json MTX-072) exclusion semantics: when testing an EXCLUDE prefix, the predicate treats `%2F` and `%5C` (each case-insensitive) and a raw backslash as hierarchy-separator equivalents of `/`, and denies the candidate when an exclude prefix would match once those are interpreted as boundaries (with dot-segments then resolved so a subtree reached by traversal through an encoded separator is also denied). The rule is fail-closed and deterministic: the separator probe only ADDS exclusion denials, never removes one.
+
+Scope and preservation of the existing rule:
+The clarification is EXCLUSION-ONLY and additive. It does NOT decode `%2F`/`%5C` or any other reserved character in the returned value, does NOT alter the canonical URL, does NOT change include matching or query/fragment canonicalisation, and introduces no persistence, event, job, network or state. The existing PRULE-021 rule (boundary = a literal `/` in the normalized path; unreserved-only percent-decoding; `%2F` preserved) is preserved verbatim for the canonical form and for inclusion; the clarification constrains only the exclusion decision. Denied-by-example (exclude `/private`): `/private`, `/private/`, `/private/secret`, `/private%2Fsecret`, `/private%2fsecret`, `/private%5Csecret`, `/private%5csecret`, `/private\secret`, and traversal-in `/public%2F..%2F..%2Fprivate%2Fsecret`. Not-denied-solely: `/privateer`, `/privately`, `/private%20area`, and traversal-out `/private%2F..%2Fpublic`.
+
+Specification mechanism (owner-directed):
+Recorded as a normative clarification ADR that constrains implementation while preserving the existing rule — the mechanism the owner authorised. The repository does NOT require the frozen contract text to be amended before implementation: the established practice (e.g., ADR-042 governing the S-05-006 interim materialization) is that ADRs govern implementation without rewriting frozen Volume II contract prose, and this clarification is additive and leaves the MTX-072 test_contracts valid. The frozen contract text was NOT edited. If a future consumer needs the contract prose itself amended, that is a separate minimal contract-change package. A candidate follow-up (owner-noted, non-blocking) is to update the MTX-072 "IDNA ASCII" wording to "already-ASCII (IDNA resolved upstream)".
+
+Implementation and verification:
+Implemented as the smallest pure change in `Workflows::Wf004::SourceScopePredicate` (a `SEPARATOR_EQUIVALENT` constant + an `excluded?`/`exclusion_probe` pair reusing the existing `remove_dot_segments`). 12 added deterministic examples cover both hex cases of `%2F`/`%5C`, raw backslash, exact/descendant exclusion, non-matching lexical prefixes, traversal in/out, no general reserved decoding, unchanged canonical URL, frozen-input non-mutation, determinism, nested prefixes, include-interaction and query/fragment non-interference. See S-06-001_COMPLETION_REPORT.md.
+
+Authority And Precedence:
+Executes the owner's Option-A ruling. Allocated the next unused number after ADR-050; supersedes the open decision HD-S06-001-SCOPE-SEPARATOR (now RESOLVED). No automatic merge, no push, no production path.

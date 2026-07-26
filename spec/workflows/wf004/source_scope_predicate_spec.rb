@@ -157,6 +157,97 @@ RSpec.describe Workflows::Wf004::SourceScopePredicate, type: :model do
     end
   end
 
+  # Owner decision HD-S06-001-SCOPE-SEPARATOR / DECISIONS ADR-051: fail-closed exclusion
+  # hardening — %2F, %5C (case-insensitive) and a raw backslash are treated as segment
+  # boundaries when testing EXCLUDE prefixes, so an excluded subtree cannot be reached by
+  # encoding the separator. Exclusion-only; the canonical URL and include matching are
+  # unchanged, and unrelated reserved characters are never decoded.
+  describe "ADR-051 fail-closed exclusion separator hardening" do
+    def excl(prefix = "/private", **overrides)
+      interim(include_prefixes: ["/"], exclude_prefixes: [prefix], **overrides)
+    end
+
+    it "denies the exact excluded path and its descendants" do
+      %w[/private /private/ /private/secret].each do |path|
+        d = evaluate("https://shop.acme.example#{path}", [excl])
+        expect(d).to have_attributes(allowed?: false, reason_code: "path_excluded"), path
+      end
+    end
+
+    it "denies an encoded forward slash in either hex case" do
+      %w[/private%2Fsecret /private%2fsecret].each do |path|
+        expect(evaluate("https://shop.acme.example#{path}", [excl]).reason_code).to eq("path_excluded"), path
+      end
+    end
+
+    it "denies an encoded backslash in either hex case" do
+      %w[/private%5Csecret /private%5csecret].each do |path|
+        expect(evaluate("https://shop.acme.example#{path}", [excl]).reason_code).to eq("path_excluded"), path
+      end
+    end
+
+    it "denies a raw backslash separator" do
+      expect(evaluate('https://shop.acme.example/private\secret', [excl]).reason_code).to eq("path_excluded")
+    end
+
+    it "denies mixed and repeated separator representations, including traversal into the excluded subtree" do
+      %w[
+        /private%2F%5Csecret
+        /private%5C%2Fsecret
+        /public%2F..%2F..%2Fprivate%2Fsecret
+      ].each do |path|
+        expect(evaluate("https://shop.acme.example#{path}", [excl]).reason_code).to eq("path_excluded"), path
+      end
+    end
+
+    it "does NOT deny non-matching lexical prefixes solely because of the exclusion" do
+      %w[/privateer /privately /private%20area].each do |path|
+        expect(evaluate("https://shop.acme.example#{path}", [excl]).allowed?).to be(true), path
+      end
+    end
+
+    it "does NOT deny a separator-encoded path that traverses OUT of the excluded subtree" do
+      expect(evaluate("https://shop.acme.example/private%2F..%2Fpublic", [excl]).allowed?).to be(true)
+    end
+
+    it "does not decode unrelated reserved characters and leaves the canonical URL unchanged" do
+      allowed = evaluate("https://shop.acme.example/a%2Fb%3Bc", [interim])
+      expect(allowed).to have_attributes(allowed?: true,
+                                         canonical_url: "https://shop.acme.example/a%2Fb%3Bc")
+    end
+
+    it "applies at a nested exclusion prefix" do
+      policy = excl("/a/private")
+      expect(evaluate("https://shop.acme.example/a/private%2Fx", [policy]).reason_code).to eq("path_excluded")
+      expect(evaluate("https://shop.acme.example/a/public", [policy]).allowed?).to be(true)
+    end
+
+    it "excludes even when the include prefix would otherwise admit (exclusion wins across the encoded boundary)" do
+      policy = interim(include_prefixes: ["/private"], exclude_prefixes: ["/private/admin"])
+      expect(evaluate("https://shop.acme.example/private/reports", [policy]).allowed?).to be(true)
+      expect(evaluate("https://shop.acme.example/private/admin%2Fkeys", [policy]).reason_code).to eq("path_excluded")
+    end
+
+    it "is deterministic and does not mutate frozen caller input" do
+      url = "https://shop.acme.example/private%2Fsecret".freeze
+      prefixes = ["/private"].freeze
+      policy = interim(include_prefixes: ["/"].freeze, exclude_prefixes: prefixes)
+      a = described_class.evaluate(url:, policies: [policy])
+      b = described_class.evaluate(url:, policies: [policy])
+      expect(a).to eq(b)
+      expect(a.reason_code).to eq("path_excluded")
+      expect(url).to eq("https://shop.acme.example/private%2Fsecret")
+      expect(prefixes).to eq(["/private"])
+    end
+
+    it "does not let an encoded separator interfere via query or fragment" do
+      # the query/fragment are not the path; an excluded path stays excluded and a query
+      # bearing %2F does not create a spurious exclusion on an allowed path
+      expect(evaluate("https://shop.acme.example/private?x=a%2Fb", [excl]).reason_code).to eq("path_excluded")
+      expect(evaluate("https://shop.acme.example/public?x=a%2Fb#f", [excl]).allowed?).to be(true)
+    end
+  end
+
   describe "TYP-SEC host, scheme and port scope" do
     it "a subdomain is out of scope unless separately present" do
       expect(evaluate("https://www.shop.acme.example/").reason_code).to eq("host_out_of_scope")
