@@ -114,6 +114,10 @@ RSpec.describe "WF-003 issue verification challenge", type: :acceptance,
   def expiry_actions(target) = DbInspector.all(<<~SQL, [target])
     SELECT * FROM scheduled_actions WHERE action_kind = 'verification_request_expire' AND target_id = $1::uuid
   SQL
+  def slot_actions(target) = DbInspector.all(<<~SQL, [target])
+    SELECT * FROM scheduled_actions WHERE action_kind = 'verification_observation_slot' AND target_id = $1::uuid
+    ORDER BY due_at
+  SQL
 
   # ------------------------------------------------------------------------
 
@@ -273,6 +277,22 @@ RSpec.describe "WF-003 issue verification challenge", type: :acceptance,
       expect(actions.size).to eq(1)
       expect(actions.first["organization_id"]).to eq(g[:organization_id])
       expect(Time.parse(actions.first["due_at"])).to eq(act_now + (24 * 3600))
+    end
+  end
+
+  describe "schedules the ten automated observation slots through F-04 (S-05-007)" do
+    it "creates one verification_observation_slot action per offset, each due at issued_at + offset" do
+      g, sid = genesis_with_source
+      result = issue(session_id: g[:session_id], organization_id: g[:organization_id],
+                     project_id: g[:project_id], source_id: sid)
+      actions = slot_actions(result.payload[:verification_request_id])
+      offsets = [0, 5, 15, 30, 60, 120, 240, 480, 960, 1380]
+      expect(actions.size).to eq(offsets.size)
+      expect(actions.map { |a| a["organization_id"] }.uniq).to eq([g[:organization_id]])
+      expect(actions.map { |a| Time.parse(a["due_at"]) }).to eq(offsets.map { |m| act_now + (m * 60) })
+      # The Request and its full schedule share one transaction — the schedule tiles the
+      # 24-hour lifetime and its final slot precedes the expiry action.
+      expect(Time.parse(actions.last["due_at"])).to be < (act_now + (24 * 3600))
     end
   end
 

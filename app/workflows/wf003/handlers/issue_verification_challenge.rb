@@ -158,6 +158,15 @@ module Workflows
             command_id: command.command_id
           )
 
+          # The ten automated observation slot timers (S-05-007), scheduled on the same
+          # transaction through F-04 so the Request and its whole schedule commit or roll
+          # back together (SCORE_EVIDENCE_MODEL.md :151).
+          AutomatedObservationSlotSchedule.schedule(
+            pg: d[:pg], organization_id: org, project_id: command.project_id,
+            verification_request_id: ids[:verification], issued_at:, now:, correlation_id: ctx.correlation_id,
+            command_id: command.command_id
+          )
+
           public_payload = {
             "verification_request_id" => ids[:verification], "source_id" => command.source_id,
             "project_id" => command.project_id, "organization_id" => org, "method" => command.method,
