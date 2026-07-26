@@ -43,6 +43,73 @@ module IdentityAccess
         SQL
       end
 
+      # ---- S-05-007 AutomatedObservationSlot (the automated reservation) -----------
+
+      # The Request as an automated slot needs it, in the executing service's proved
+      # Organization context. Carries the guard inputs — status, state version and the
+      # current attempt count — plus `issued_at_utc` (the schedule anchor: a slot's
+      # offset is `due_at - issued_at`, and its window closes at `issued_at +
+      # next_offset`). A not-found Request is invisible under RLS and treated as a target
+      # mismatch by the handler.
+      def read_request_for_slot(id)
+        exec(<<~SQL, [id]).to_a.first
+          SELECT id, organization_id, project_id, source_id, request_status, state_version,
+                 attempt_count, issued_at_utc, expires_at_utc
+          FROM verification_requests WHERE id = $1::uuid
+        SQL
+      end
+
+      # The automated attempt already reserved for this Request's slot, if any, so a
+      # redelivered or retried slot job resumes it instead of reserving a second one
+      # (the `one_automated_per_slot` partial unique index is the database backstop).
+      # Returns the attempt id and state, or nil.
+      def find_automated_attempt(verification_request_id, slot_offset_minutes)
+        exec(<<~SQL, [verification_request_id, slot_offset_minutes]).to_a.first
+          SELECT id, state, attempt_number
+          FROM verification_attempts
+          WHERE verification_request_id = $1::uuid AND origin = 'automated'
+            AND automated_slot_offset_minutes = $2
+        SQL
+      end
+
+      # Insert one `reserved` automated Verification Attempt for a due slot: origin
+      # `automated` with its slot offset (the `slot_offset_matches_origin` CHECK requires
+      # the pairing), no outcome (the `reserved_has_no_outcome` CHECK). `attempt_number`
+      # is attempt_count + 1, assigned under the per-Request lock.
+      def insert_automated_attempt(row)
+        params = [
+          row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+          row[:verification_request_id], row[:source_id], row[:attempt_number], row[:automated_slot_offset_minutes]
+        ]
+        exec(<<~SQL, params)
+          INSERT INTO verification_attempts
+            (id, state_version, lock_version, created_at, updated_at, correlation_id, schema_version,
+             organization_id, project_id, verification_request_id, source_id, attempt_number, origin,
+             automated_slot_offset_minutes, reserved_at_utc, state)
+          VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,$3::uuid,'verification-attempt-v1',
+                  $4::uuid,$5::uuid,$6::uuid,$7::uuid,$8,'automated',
+                  $9,$2::timestamptz,'reserved')
+        SQL
+      end
+
+      # Atomically reserve an automated slot on the Request: increment ONLY the total
+      # attempt count and the state version, guarded on the expected state version and a
+      # still-pending Request. Unlike the on-demand reservation this touches no on-demand
+      # counter and no in-progress marker (SCORE_EVIDENCE_MODEL.md :152-153: the
+      # on-demand count, marker and rate clock are the on-demand path's; `attempt_count`
+      # increments when an automated OR on-demand observation starts). The request_status
+      # is unchanged, so the lifecycle guard permits it. Returns the affected row count;
+      # zero is a lost race or a Request no longer pending at this version.
+      def reserve_automated_on_request(id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE verification_requests
+          SET attempt_count = attempt_count + 1,
+              state_version = state_version + 1,
+              updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND request_status = 'pending' AND state_version = $2
+        SQL
+      end
+
       # The reserved attempt (or an already-completed one, for an idempotent rebuild):
       # its lineage plus the recorded outcome columns.
       def read_attempt(id)

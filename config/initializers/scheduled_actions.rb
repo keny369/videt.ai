@@ -35,4 +35,11 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf003::Handlers::ExpireVerificationRequest,
     command: Workflows::Wf003::Commands::ExpireVerificationRequest
   )
+  registry.register(
+    action_kind: "verification_observation_slot",
+    action_schema_version: "1.0",
+    operation: "ObserveAutomatedSlot",
+    handler: Workflows::Wf003::Handlers::ObserveAutomatedSlot,
+    command: Workflows::Wf003::Commands::ObserveAutomatedSlot
+  )
 end
