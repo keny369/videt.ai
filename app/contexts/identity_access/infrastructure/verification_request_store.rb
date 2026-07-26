@@ -92,6 +92,68 @@ module IdentityAccess
         SQL
       end
 
+      # ---- S-05-004 ReserveVerificationAttempt (the on-demand reservation) ---------
+
+      # Serialize on-demand ReserveVerificationAttempt commands contending for the same
+      # Request, so the accepted command's atomic count/marker update is never racy and
+      # concurrent commands cannot reserve the same slot (contracts/S-05.json MTX-028
+      # concurrency). Same advisory-lock key the expiry service uses on the Request.
+      def lock_verification_request(id)
+        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["verification-request:#{id}"])
+      end
+
+      # The Request as the reservation needs it, in the actor's proved Organization
+      # context: a not-found Request (another Organization's, or nonexistent) is
+      # invisible under RLS and is treated as a tenant boundary failure by the handler.
+      # Carries the guard inputs — status, the counts, the in-progress marker and the
+      # last on-demand completion — plus the lineage the attempt row inherits.
+      def read_verification_request_for_reserve(id)
+        exec(<<~SQL, [id]).to_a.first
+          SELECT id, organization_id, project_id, source_id, request_status, state_version,
+                 attempt_count, on_demand_observation_count, on_demand_in_progress_attempt_id,
+                 last_on_demand_completed_at_utc, expires_at_utc
+          FROM verification_requests WHERE id = $1::uuid
+        SQL
+      end
+
+      # Insert one `reserved` Verification Attempt with its immutable reservation
+      # lineage and no outcome (the `reserved_has_no_outcome` CHECK). `attempt_number`
+      # is assigned by the handler as attempt_count + 1 under the per-Request lock.
+      def insert_verification_attempt(row)
+        params = [
+          row[:id], iso(row[:now]), row[:correlation_id], row[:schema_version], row[:organization_id],
+          row[:project_id], row[:verification_request_id], row[:source_id], row[:attempt_number], row[:origin]
+        ]
+        exec(<<~SQL, params)
+          INSERT INTO verification_attempts
+            (id, state_version, lock_version, created_at, updated_at, correlation_id, schema_version,
+             organization_id, project_id, verification_request_id, source_id, attempt_number, origin,
+             automated_slot_offset_minutes, reserved_at_utc, state)
+          VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4,
+                  $5::uuid,$6::uuid,$7::uuid,$8::uuid,$9,$10,
+                  NULL,$2::timestamptz,'reserved')
+        SQL
+      end
+
+      # Atomically reserve the slot on the Request: increment the total and on-demand
+      # attempt counts and store the in-progress marker, guarded on the expected state
+      # version and a still-pending Request (SCORE_EVIDENCE_MODEL.md § Attempts). The
+      # request_status is unchanged, so the verification_requests lifecycle guard —
+      # which freezes only the tenant identity, the issuance facts and the status —
+      # permits it. Returns the affected row count; zero is a lost race or a Request
+      # that is no longer pending at this version.
+      def reserve_on_request(id, expected_version, marker_id, now)
+        exec(<<~SQL, [id, expected_version, marker_id, iso(now)]).cmd_tuples
+          UPDATE verification_requests
+          SET attempt_count = attempt_count + 1,
+              on_demand_observation_count = on_demand_observation_count + 1,
+              on_demand_in_progress_attempt_id = $3::uuid,
+              state_version = state_version + 1,
+              updated_at = $4::timestamptz
+          WHERE id = $1::uuid AND request_status = 'pending' AND state_version = $2
+        SQL
+      end
+
       # WF-003 audit writer — the ActorLedgerWriters row shape with `workflow_id`
       # stamped 'WF-003' instead of the shared writer's WF-013 default.
       def insert_audit(row)
