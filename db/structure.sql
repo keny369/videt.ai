@@ -1090,8 +1090,6 @@ CREATE FUNCTION public.f1_verification_attempts_lifecycle_guard() RETURNS trigge
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 BEGIN
-  -- The tenant, Project, parent Request and Source an attempt belongs to are
-  -- fixed for life.
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
      OR NEW.verification_request_id IS DISTINCT FROM OLD.verification_request_id
@@ -1099,8 +1097,6 @@ BEGIN
     RAISE EXCEPTION 'verification_attempt_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- The reservation facts (schema, attempt number, origin, slot offset and the
-  -- instant it was reserved) are frozen at creation.
   IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
      OR NEW.attempt_number IS DISTINCT FROM OLD.attempt_number
      OR NEW.origin IS DISTINCT FROM OLD.origin
@@ -1109,14 +1105,14 @@ BEGIN
     RAISE EXCEPTION 'verification_attempt_reservation_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- Attempt lifecycle transitions (reserved -> running -> completed, or
-  -- quarantined) are owned by the later observation-completion limb (S-05-005).
-  -- None is built. No path may change an attempt's state in this baseline; that
-  -- slice will relax exactly its ratified edges.
   IF NEW.state IS DISTINCT FROM OLD.state THEN
+  -- S-05-005 relaxes exactly the reserved -> completed edge (observation
+  -- recording); every other transition remains unavailable until its slice lands.
+  IF NOT (OLD.state = 'reserved' AND NEW.state = 'completed') THEN
     RAISE EXCEPTION 'verification_attempt_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
+END IF;
 
   RETURN NEW;
 END;
@@ -3493,6 +3489,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260726120031'),
 ('20260726120030'),
 ('20260726120029'),
 ('20260725120028'),

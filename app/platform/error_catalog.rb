@@ -213,7 +213,15 @@ module Platform
       # is reused from above (on-demand requires the expected Request state version).
       "on_demand_limit_reached"           => "F1-DOMAIN-409",
       "on_demand_observation_in_progress" => "F1-DOMAIN-409",
-      "on_demand_rate_limited"            => "F1-DOMAIN-409"
+      "on_demand_rate_limited"            => "F1-DOMAIN-409",
+      # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
+      # whose attempt/Request do not name each other (a wiring error) and a completion for
+      # an attempt that is no longer reserved are harmless state conflicts between the
+      # service-built command and its target (:252 state conflicts -> F1-DOMAIN-409);
+      # verification_request_not_pending / challenge_redelivery_unavailable are reused from
+      # the issuance/expiry limbs above.
+      "verification_attempt_target_mismatch" => "F1-DOMAIN-409",
+      "verification_attempt_not_reserved"    => "F1-DOMAIN-409"
     }.freeze
 
     def failure(reason_code, support_reference:)

@@ -156,12 +156,20 @@ RSpec.describe "Verification attempt invariants", type: :model do
   end
 
   describe "the verification_attempts lifecycle guard" do
-    it "withholds every state transition until the completion limb lands" do
+    it "allows exactly the reserved -> completed edge (S-05-005) and withholds the others" do
       id = insert_va
-      %w[running completed quarantined].each do |state|
+      # running and quarantined remain unavailable until their slices land.
+      %w[running quarantined].each do |state|
         expect { conn.exec_params("UPDATE verification_attempts SET state = $2 WHERE id = $1::uuid", [id, state]) }
           .to raise_error(PG::RaiseException, /verification_attempt_transition_unavailable/)
       end
+      # reserved -> completed (observation recording) is the one relaxed edge.
+      expect { conn.exec_params("UPDATE verification_attempts SET state = 'completed' WHERE id = $1::uuid", [id]) }
+        .not_to raise_error
+      expect(DbInspector.one("SELECT state FROM verification_attempts WHERE id = $1::uuid", [id])["state"]).to eq("completed")
+      # completed is terminal here: no further transition.
+      expect { conn.exec_params("UPDATE verification_attempts SET state = 'quarantined' WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /verification_attempt_transition_unavailable/)
     end
 
     it "keeps the tenant/Project/Request/Source identity and the reservation facts immutable" do
