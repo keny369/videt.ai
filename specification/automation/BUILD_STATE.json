@@ -2,19 +2,31 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-05",
-  "current_tranche": "S-05-003",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "05c2011",
+  "current_tranche": "S-05-004",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "d1712e6f0ddca176a9afb3cbf56c79cbad8dac4f",
   "worktree_path": "",
-  "branch_name": "tranche/S-05/S-05-003",
-  "implementation_commit": "3cc0060",
-  "review_commit": "3cc0060",
-  "last_verified_commit": "3cc0060",
-  "verification_run_id": "RUN-S-05-003-20260726",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002"],
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "d1712e6f0ddca176a9afb3cbf56c79cbad8dac4f",
+  "verification_run_id": "",
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-004-AUTHORISE",
+      "block": "S-05-004",
+      "question": "Authorise S-05-004 (verification_attempts + ReserveVerificationAttempt) to run and clear its human_gate_before. Its scope is already fixed by the owner-accepted Observation split (ADR-033) and BUILD_PLAN, so this gate is an authorise-to-proceed decision, not a scope choice; per 'do not manually select tranches', the controller stops here for the owner.",
+      "recommended_option": "Authorise S-05-004 as specified — it is the next block in the authoritative dependency sequence S-05-003..S-05-007 (ADR-033); it introduces the verification_attempts WORK-CLAIM table and the atomic ReserveVerificationAttempt, and unblocks S-05-005/006.",
+      "options": [
+        "Authorise S-05-004 as specified in BUILD_PLAN (verification_attempts table + ReserveVerificationAttempt; the on-demand limit(10) / rate(5min) / concurrency guards) — recommended",
+        "Defer or hold S-05-004 pending other owner-directed work"
+      ],
+      "related": "S-05-004 adds a new tenant table, so it will add an additive least-privilege grant to lib/f1/runtime_grants.rb — already ratified as non-escalating under the FrozenContracts additive-new-table rule (ADR-029). The flagged source-scope-interim-v1 / Source Scope (S-06) architectural dependency affects S-05-006 only and need not be decided now."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-003 (the pure F-01 outbound observation engine, first sub-tranche of the owner-accepted Observation split ADR-033) implemented on branch tranche/S-05/S-05-003 off base 05c2011, verified (1123 examples/0 failures; architecture fitness 31/0 incl. the outbound single-surface fence; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; no structure.sql change) and independently reviewed (ADR-026): pass_with_observations, zero blocking; review-driven repairs applied. Status ready_for_review; NOT merged, main untouched. S-05-003 is added to completed_blocks only on owner acceptance. Full record: S-05-003_COMPLETION_REPORT.md and DECISIONS.md ADR-034. Per owner instruction, S-05-004 (verification_attempts + Reserve, next in the sequence, human_gate_before) was NOT begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-003 outbound observation engine (Workflows::Wf003::VerificationObservation; owner-authorised via ADR-033) accepted by the owner and fast-forward merged into implementation/s01-registration-access at d1712e6; added to completed_blocks (BUILD_PLAN S-05-003 -> completed, DECISIONS ADR-035). Repository gates re-verified at merge: whole-repo suite 1124 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0 (the F-01 single-surface fence); no db/structure.sql change (pure engine, no migration); and a fresh independent review (ADR-026 — four separately-invoked lenses with no shared conversational state: contract-correctness, restricted-safety/security, test-adequacy, architecture/frozen-contract) returned PASS_NO_BLOCKING (0 blocking raised, 0 confirmed-blocking; 15 non-blocking findings). Protected branch (main) untouched; nothing pushed. Next authorised tranche is S-05-004 (verification_attempts + ReserveVerificationAttempt), which is human_gate_before: true in BUILD_PLAN and is NOT yet authorised, so the controller stops at human_decision_required (HD-S05-004-AUTHORISE). Per governance, S-05-004 was NOT begun. This file and the repository are authoritative, not conversational memory."
 }

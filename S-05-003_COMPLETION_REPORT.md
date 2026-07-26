@@ -1,8 +1,11 @@
 # S-05-003 Observation Engine — Completion Report
 
-Status: **ready_for_review** — implemented, verified and independently reviewed on branch
-`tranche/S-05/S-05-003` (off base `05c2011`), **not merged**; the protected branch (`main`) is
-untouched and nothing is pushed. First sub-tranche of the owner-accepted Observation split (ADR-033).
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-26) — fast-forward merged from
+`tranche/S-05/S-05-003` into the integration branch `implementation/s01-registration-access` at
+`d1712e6`; added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-05-003 → completed, DECISIONS
+ADR-035). The protected branch (`main`) is untouched and nothing is pushed. It was implemented,
+verified and independently reviewed on that branch off base `05c2011`. First sub-tranche of the
+owner-accepted Observation split (ADR-033).
 
 ## What was built
 
@@ -52,10 +55,20 @@ automated slot schedule.
 hashing and boundary rules and confirmed the match-decision invariant, restricted-safety and
 frozen-façade compliance. Three actionable notes applied (comment + tests, no behavior change).
 
+## Acceptance verification (re-run at merge, not taken on this report's word)
+
+- Whole-repo suite **1124 examples / 0 failures**; Zeitwerk/Packwerk/Brakeman/bundler-audit clean;
+  architecture fitness **31/0** (F-01 single-surface fence); no `db/structure.sql` change.
+- Fresh **independent review** of the committed diff (ADR-026) by four separately-invoked lenses with
+  no shared conversational state — contract-correctness, restricted-safety/security, test-adequacy,
+  architecture/frozen-contract — returned **PASS_NO_BLOCKING**: 0 blocking raised, 0 confirmed-blocking
+  after an adversarial verify pass, 15 non-blocking findings (9 observations, 5 false-positives, 1 low).
+  Nothing required repair (only confirmed blocking findings are repaired).
+
 ## What happens next
 
-- **Owner review gate (human_gate_after):** review `tranche/S-05/S-05-003` and, if accepted, merge it
-  and add `S-05-003` to `completed_blocks`.
-- **S-05-004 was NOT begun** (owner instruction). It is next in the authoritative sequence
-  (verification_attempts + ReserveVerificationAttempt) and remains `human_gate_before`.
-- Nothing is pushed; no tag moved; no production path exercised.
+- **S-05-004 is NOT begun.** It is next in the authoritative sequence (verification_attempts +
+  ReserveVerificationAttempt) and is `human_gate_before: true` — unauthorised under ADR-033. The
+  controller stops at `human_decision_required` (HD-S05-004-AUTHORISE) for owner authorisation.
+- The merged tranche branch `tranche/S-05/S-05-003` is deleted per repository policy.
+- Nothing is pushed; no tag moved; no production path exercised; `main` untouched.

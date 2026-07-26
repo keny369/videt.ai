@@ -1051,3 +1051,32 @@ Decision Ledger:
 
 Authority And Precedence:
 Consumes only the frozen F-01 façade; no frozen contract changed. Allocated the next unused number after ADR-033. Stops at ready_for_review; no automatic merge, no production path. Per owner instruction, S-05-004 is NOT begun.
+
+## ADR-035: S-05-003 Accepted And Merged; Next Tranche (S-05-004) Is A Human Gate
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Approve and merge the current tranche if, and only if, all repository governance requirements are satisfied") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access`; nothing pushed and `main` untouched, so it is revertible. The next-tranche authorisation below is left open for the owner.
+
+Decision:
+Accept S-05-003 — the pure outbound observation engine `Workflows::Wf003::VerificationObservation` (ADR-034). Repository governance is fully satisfied and was re-verified at the merge, not taken on the completion report's word:
+- Verification (re-run at the tranche tip d1712e6): whole-repo suite 1124 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0 (the F-01 single-surface fence — the engine consumes only the frozen `Platform::Outbound` façade); no `db/structure.sql` change (a pure engine with no migration, so `migration_safety_no_drift` is not a required check for this tranche). A `db:schema:dump` drift observed during checking was a stale local development database missing the already-merged S-05-001/002 migrations, not a tranche defect; the working tree was restored.
+- Independent review (ADR-026): the recorded review (ADR-034) was pass_with_observations with zero blocking findings; in addition, a fresh independent re-review of the committed diff by four separately-invoked lenses with no shared conversational state (contract-correctness, restricted-safety/security, test-adequacy, architecture/frozen-contract) returned **PASS_NO_BLOCKING** — 0 blocking findings raised, 0 confirmed-blocking after an adversarial verify pass, 15 non-blocking findings (9 observations, 5 false-positives, 1 low). Nothing required repair (governance repairs confirmed blocking findings only).
+- Scope: the diff is 6 files / 517 lines (the engine + its spec + record files); it touches no frozen-foundation path (`app/platform/**`, `lib/f1/runtime_grants.rb`, `db/**` all untouched), so no frozen-contract escalation applies.
+
+Fast-forward merged into `implementation/s01-registration-access` at `d1712e6`; `S-05-003` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-05-003 → completed; `S-05-003_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-05/S-05-003` deleted per repository policy (S-05-001/002 precedent).
+
+Non-blocking findings recorded for later limbs (do not block this merge; no confirmed defect):
+- A 3xx response surfaced by F-01 as a plain response without a Location header maps to `http_status_mismatch` rather than `http_redirect_rejected` — both are `not_matched` with identical request-lifecycle effect; a defensible edge interpretation.
+- A DNS `:destination_host_invalid` refusal maps to `dns_temporary_failure`/indeterminate; `canonical_host` is validated at Request creation, so this is effectively unreachable, and keeping it pending never verifies and never disables.
+- Field-level test-coverage gap (low): `network_outcome` is asserted for only some reason codes (three currently-correct predicates lack an assertion on that field). No hidden defect; a candidate test-only addition for a future limb.
+
+Next Tranche — Genuine Human Decision (HD-S05-004-AUTHORISE):
+Per BUILD_STATE/BUILD_PLAN (authoritative), the next block is **S-05-004** (verification_attempts + ReserveVerificationAttempt), which is `human_gate_before: true` and remains unauthorised under the owner-accepted Observation split (ADR-033: "S-05-004..007 remain human_gate_before until authorised in turn"). Its scope is already fixed by the split and BUILD_PLAN, so this is an authorise-to-proceed gate, not a scope choice. The enforced controller stops here with `human_decision_required`; per "do not manually choose, skip, reorder or combine tranches", the controller does not self-authorise the next tranche. This is a genuine human gate, not a defect or a skip.
+
+Recommended Option:
+**Authorise S-05-004 as specified.** It is the next block in the authoritative dependency sequence S-05-003..S-05-007, introduces the `verification_attempts` WORK-CLAIM table and the atomic `ReserveVerificationAttempt` (with the on-demand limit(10) / rate(5min) / concurrency guards), and unblocks S-05-005/006. It adds an additive least-privilege grant to `lib/f1/runtime_grants.rb`, already ratified as non-escalating under the FrozenContracts additive-new-table rule (ADR-029). The flagged source-scope-interim-v1 / Source Scope (S-06) architectural dependency affects S-05-006 only and need not be decided now.
+
+Authority And Precedence:
+Executes the owner's conditional accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-034. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.
