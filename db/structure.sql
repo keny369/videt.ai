@@ -1082,6 +1082,48 @@ $$;
 
 
 --
+-- Name: f1_verification_attempts_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_verification_attempts_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- The tenant, Project, parent Request and Source an attempt belongs to are
+  -- fixed for life.
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.verification_request_id IS DISTINCT FROM OLD.verification_request_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id THEN
+    RAISE EXCEPTION 'verification_attempt_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- The reservation facts (schema, attempt number, origin, slot offset and the
+  -- instant it was reserved) are frozen at creation.
+  IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+     OR NEW.attempt_number IS DISTINCT FROM OLD.attempt_number
+     OR NEW.origin IS DISTINCT FROM OLD.origin
+     OR NEW.automated_slot_offset_minutes IS DISTINCT FROM OLD.automated_slot_offset_minutes
+     OR NEW.reserved_at_utc IS DISTINCT FROM OLD.reserved_at_utc THEN
+    RAISE EXCEPTION 'verification_attempt_reservation_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- Attempt lifecycle transitions (reserved -> running -> completed, or
+  -- quarantined) are owned by the later observation-completion limb (S-05-005).
+  -- None is built. No path may change an attempt's state in this baseline; that
+  -- slice will relax exactly its ratified edges.
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'verification_attempt_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_verification_requests_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2177,6 +2219,53 @@ ALTER TABLE ONLY public.sources FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: verification_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_attempts (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    verification_request_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    attempt_number integer NOT NULL,
+    origin text NOT NULL,
+    automated_slot_offset_minutes integer,
+    reserved_at_utc timestamp(6) with time zone NOT NULL,
+    started_at_utc timestamp(6) with time zone,
+    completed_at_utc timestamp(6) with time zone,
+    deadline_at_utc timestamp(6) with time zone,
+    network_outcome text,
+    http_status integer,
+    dns_response_code text,
+    received_byte_count integer,
+    observed_value_sha256 bytea,
+    match_decision text,
+    reason_code text,
+    state text NOT NULL,
+    CONSTRAINT verification_attempts_attempt_number_check CHECK ((attempt_number > 0)),
+    CONSTRAINT verification_attempts_match_decision_check CHECK (((match_decision IS NULL) OR (match_decision = ANY (ARRAY['matched'::text, 'not_matched'::text, 'indeterminate'::text])))),
+    CONSTRAINT verification_attempts_network_outcome_check CHECK (((network_outcome IS NULL) OR (network_outcome = ANY (ARRAY['response'::text, 'timeout'::text, 'resolver_failure'::text, 'connection_failure'::text, 'tls_failure'::text])))),
+    CONSTRAINT verification_attempts_observed_value_sha256_check CHECK (((observed_value_sha256 IS NULL) OR (octet_length(observed_value_sha256) = 32))),
+    CONSTRAINT verification_attempts_origin_check CHECK ((origin = ANY (ARRAY['automated'::text, 'on_demand'::text]))),
+    CONSTRAINT verification_attempts_reason_code_check CHECK (((reason_code IS NULL) OR (reason_code = ANY (ARRAY['matched'::text, 'dns_nxdomain'::text, 'dns_value_mismatch'::text, 'dns_timeout'::text, 'dns_temporary_failure'::text, 'http_status_mismatch'::text, 'http_content_mismatch'::text, 'http_body_too_large'::text, 'http_redirect_rejected'::text, 'http_timeout'::text, 'http_rate_limited'::text, 'http_server_error'::text, 'tls_validation_failed'::text, 'connection_failure'::text])))),
+    CONSTRAINT verification_attempts_received_byte_count_check CHECK (((received_byte_count IS NULL) OR (received_byte_count >= 0))),
+    CONSTRAINT verification_attempts_reserved_has_no_outcome CHECK (((state <> 'reserved'::text) OR ((started_at_utc IS NULL) AND (completed_at_utc IS NULL) AND (deadline_at_utc IS NULL) AND (network_outcome IS NULL) AND (http_status IS NULL) AND (dns_response_code IS NULL) AND (received_byte_count IS NULL) AND (observed_value_sha256 IS NULL) AND (match_decision IS NULL) AND (reason_code IS NULL)))),
+    CONSTRAINT verification_attempts_schema_version_check CHECK ((schema_version = 'verification-attempt-v1'::text)),
+    CONSTRAINT verification_attempts_slot_offset_matches_origin CHECK ((((origin = 'automated'::text) AND (automated_slot_offset_minutes IS NOT NULL)) OR ((origin = 'on_demand'::text) AND (automated_slot_offset_minutes IS NULL)))),
+    CONSTRAINT verification_attempts_state_check CHECK ((state = ANY (ARRAY['reserved'::text, 'running'::text, 'completed'::text, 'quarantined'::text])))
+);
+
+ALTER TABLE ONLY public.verification_attempts FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: verification_requests; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2628,6 +2717,30 @@ ALTER TABLE ONLY public.sources
 
 
 --
+-- Name: verification_attempts verification_attempts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_attempts
+    ADD CONSTRAINT verification_attempts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: verification_attempts verification_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_attempts
+    ADD CONSTRAINT verification_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: verification_attempts verification_attempts_request_attempt_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_attempts
+    ADD CONSTRAINT verification_attempts_request_attempt_unique UNIQUE (verification_request_id, attempt_number);
+
+
+--
 -- Name: verification_requests verification_requests_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2863,6 +2976,13 @@ CREATE TRIGGER sources_lifecycle_guard BEFORE UPDATE ON public.sources FOR EACH 
 
 
 --
+-- Name: verification_attempts verification_attempts_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER verification_attempts_lifecycle_guard BEFORE UPDATE ON public.verification_attempts FOR EACH ROW EXECUTE FUNCTION public.f1_verification_attempts_lifecycle_guard();
+
+
+--
 -- Name: verification_requests verification_requests_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2962,6 +3082,22 @@ ALTER TABLE ONLY public.scheduled_actions
 
 ALTER TABLE ONLY public.sources
     ADD CONSTRAINT sources_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: verification_attempts verification_attempts_request_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_attempts
+    ADD CONSTRAINT verification_attempts_request_fk FOREIGN KEY (organization_id, verification_request_id) REFERENCES public.verification_requests(organization_id, id);
+
+
+--
+-- Name: verification_attempts verification_attempts_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_attempts
+    ADD CONSTRAINT verification_attempts_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -3312,6 +3448,19 @@ CREATE POLICY sources_context ON public.sources USING ((organization_id = public
 
 
 --
+-- Name: verification_attempts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.verification_attempts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: verification_attempts verification_attempts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY verification_attempts_context ON public.verification_attempts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: verification_requests; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3344,6 +3493,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260726120030'),
 ('20260726120029'),
 ('20260725120028'),
 ('20260725120027'),

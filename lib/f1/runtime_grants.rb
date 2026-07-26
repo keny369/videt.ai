@@ -63,6 +63,15 @@ module F1
       # preserved. The challenge plaintext is never in this table; only the F-02
       # ciphertext reference, key reference and digest are.
       "verification_requests"             => "SELECT, INSERT, UPDATE",
+      # S-05-004 ReserveVerificationAttempt inserts one `reserved` attempt and later
+      # S-05 limbs transition it in place (reserved -> running -> completed, or
+      # quarantined), so it carries SELECT/INSERT/UPDATE; there is no row DELETE (an
+      # attempt is never physically removed — quarantine and terminal are state
+      # transitions). Additive new-table grant (backwards-compatible extension,
+      # Foundation Consumption Rule / ADR-029): no existing table's privileges change
+      # and FORCE RLS is preserved. The row carries only the restricted observation
+      # digest and enum/status fields — never the plaintext token or raw content.
+      "verification_attempts"             => "SELECT, INSERT, UPDATE",
       # F-03 Evidence is append-only: SELECT/INSERT, never UPDATE or DELETE. A trigger
       # refuses UPDATE/DELETE from every role; the missing grant is defence in depth.
       "evidence"                          => "SELECT, INSERT",

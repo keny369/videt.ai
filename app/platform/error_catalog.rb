@@ -204,7 +204,16 @@ module Platform
       # persisted action and its target (:252 state conflicts -> F1-DOMAIN-409);
       # scheduled_action_target_mismatch / scheduled_action_not_due are reused from
       # the WF-001/WF-013 expiry handlers above.
-      "verification_request_not_pending"  => "F1-DOMAIN-409"
+      "verification_request_not_pending"  => "F1-DOMAIN-409",
+      # S-05-004 ReserveVerificationAttempt (WF-003 on-demand observation reservation,
+      # contracts/S-05.json MTX-028 error_contract). The three on-demand denials are
+      # state conflicts on the Verification Request (a full count, an observation
+      # already in progress, or a request within the 5-minute cool-down): none verifies
+      # or disables the Source and none increments attempt_count. `stale_state_version`
+      # is reused from above (on-demand requires the expected Request state version).
+      "on_demand_limit_reached"           => "F1-DOMAIN-409",
+      "on_demand_observation_in_progress" => "F1-DOMAIN-409",
+      "on_demand_rate_limited"            => "F1-DOMAIN-409"
     }.freeze
 
     def failure(reason_code, support_reference:)
