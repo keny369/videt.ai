@@ -138,25 +138,32 @@ RSpec.describe "Verification request invariants", type: :model do
   end
 
   describe "the verification_requests lifecycle guard" do
-    it "allows exactly the pending -> expired edge (S-05-002) and refuses every other transition" do
-      id = insert_vr
-      # The observation, cancellation and integrity-failure edges remain unavailable.
-      %w[verified canceled failed].each do |status|
-        expect { conn.exec_params("UPDATE verification_requests SET request_status = $2 WHERE id = $1::uuid", [id, status]) }
+    it "allows the pending -> expired (S-05-002) and pending -> verified (S-05-006) edges and refuses every other" do
+      # Cancellation and integrity-failure edges remain unavailable.
+      base = insert_vr
+      %w[canceled failed].each do |status|
+        expect { conn.exec_params("UPDATE verification_requests SET request_status = $2 WHERE id = $1::uuid", [base, status]) }
           .to raise_error(PG::RaiseException, /verification_request_transition_unavailable/)
       end
-      # pending -> expired, nulling the challenge material, is the one relaxed edge.
+
+      # pending -> expired, nulling the challenge material (S-05-002).
+      exp = insert_vr(source_id: insert_source(host: "e.example"))
       expect do
-        conn.exec_params(<<~SQL, [id])
+        conn.exec_params(<<~SQL, [exp])
           UPDATE verification_requests
           SET request_status = 'expired', decision_reason_code = 'challenge_expired',
               challenge_ciphertext_reference = NULL, challenge_key_id = NULL
           WHERE id = $1::uuid
         SQL
       end.not_to raise_error
-      expect(DbInspector.one("SELECT request_status FROM verification_requests WHERE id = $1::uuid", [id])["request_status"]).to eq("expired")
-      # expired is terminal: no further transition.
-      expect { conn.exec_params("UPDATE verification_requests SET request_status = 'verified' WHERE id = $1::uuid", [id]) }
+      # pending -> verified (matched success, S-05-006).
+      ver = insert_vr(source_id: insert_source(host: "v.example"))
+      expect do
+        conn.exec_params("UPDATE verification_requests SET request_status = 'verified', decision_reason_code = 'matched' WHERE id = $1::uuid", [ver])
+      end.not_to raise_error
+      expect(DbInspector.one("SELECT request_status FROM verification_requests WHERE id = $1::uuid", [ver])["request_status"]).to eq("verified")
+      # verified is terminal: no further transition.
+      expect { conn.exec_params("UPDATE verification_requests SET request_status = 'expired' WHERE id = $1::uuid", [ver]) }
         .to raise_error(PG::RaiseException, /verification_request_transition_unavailable/)
     end
 

@@ -311,13 +311,15 @@ RSpec.describe "WF-004 register source", type: :acceptance,
   end
 
   describe "registerable Project state and no verify/activate in this tranche" do
-    it "leaves the registered Source proposed and refuses any state transition at the database" do
+    it "leaves the registered Source proposed and refuses the S-06 lifecycle transitions at the database" do
       g = genesis
       sid = register(session_id: g[:session_id], organization_id: g[:organization_id],
                      project_id: g[:project_id]).payload[:source_id]
       expect(source(sid)["state"]).to eq("proposed")
 
-      %w[verified active disabled removed].each do |state|
+      # WF-004 registration never transitions the Source; proposed -> verified is the
+      # S-05-006 edge, and the S-06 verified -> active/disabled/removed edges stay refused.
+      %w[active disabled removed].each do |state|
         expect do
           DbInspector.connection.exec_params("UPDATE sources SET state = $2 WHERE id = $1::uuid", [sid, state])
         end.to raise_error(PG::RaiseException, /source_lifecycle_transition_unavailable/)

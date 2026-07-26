@@ -70,9 +70,11 @@ RSpec.describe "Source onboarding invariants", type: :model do
   end
 
   describe "the sources lifecycle guard" do
-    it "refuses every state transition while verification/scope are unavailable" do
+    it "refuses the S-06 verified->active/disabled/removed transitions (proposed->verified is S-05-006)" do
       id = insert_source
-      %w[verified active disabled removed].each do |state|
+      # proposed -> verified is the S-05-006 relaxed edge; the S-06 lifecycle edges from
+      # a fresh proposed Source remain unavailable.
+      %w[active disabled removed].each do |state|
         expect { conn.exec_params("UPDATE sources SET state = $2 WHERE id = $1::uuid", [id, state]) }
           .to raise_error(PG::RaiseException, /source_lifecycle_transition_unavailable/)
       end

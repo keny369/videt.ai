@@ -75,6 +75,13 @@ module F1
       # F-03 Evidence is append-only: SELECT/INSERT, never UPDATE or DELETE. A trigger
       # refuses UPDATE/DELETE from every role; the missing grant is defence in depth.
       "evidence"                          => "SELECT, INSERT",
+      # S-05-006 materializes the immutable source-scope-interim-v1 policy in the matched
+      # success commit and reads it thereafter: SELECT/INSERT, never UPDATE or DELETE (a
+      # T-IMM version table — a correction is a new version; an immutability trigger
+      # refuses UPDATE/DELETE and the missing grant is defence in depth). Additive
+      # new-table grant (backwards-compatible extension, ADR-029); no existing grant
+      # changes and FORCE RLS is preserved.
+      "source_scope_policies"             => "SELECT, INSERT",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",

@@ -1035,6 +1035,20 @@ $$;
 
 
 --
+-- Name: f1_source_scope_policies_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_source_scope_policies_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'source_scope_policy_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_sources_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1043,16 +1057,11 @@ CREATE FUNCTION public.f1_sources_lifecycle_guard() RETURNS trigger
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 BEGIN
-  -- 011 DOMAIN_MODEL.md :119 "Source MUST belong to exactly one Project":
-  -- the tenant/Project identity is fixed for life.
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id THEN
     RAISE EXCEPTION 'source_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- ":402 immutable registration provenance". The submitted/canonical URIs,
-  -- canonical host, registration and normalization versions, and the seven
-  -- provenance fields are frozen at registration.
   IF NEW.submitted_root_uri IS DISTINCT FROM OLD.submitted_root_uri
      OR NEW.canonical_root_uri IS DISTINCT FROM OLD.canonical_root_uri
      OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
@@ -1067,14 +1076,14 @@ BEGIN
     RAISE EXCEPTION 'source_registration_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- Source lifecycle transitions are owned by S-05 (proposed -> verified) and
-  -- S-06 (verified -> active; active -> disabled; disabled -> active/removed),
-  -- neither built. No path may change a Source's state in this baseline; each
-  -- of those slices will relax exactly its ratified edge.
   IF NEW.state IS DISTINCT FROM OLD.state THEN
+  -- S-05-006 relaxes exactly the proposed -> verified edge (matched success
+  -- commit); the S-06 verified -> active/disabled/removed edges remain refused.
+  IF NOT (OLD.state = 'proposed' AND NEW.state = 'verified') THEN
     RAISE EXCEPTION 'source_lifecycle_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
+END IF;
 
   RETURN NEW;
 END;
@@ -1147,14 +1156,13 @@ BEGIN
   END IF;
 
   IF NEW.request_status IS DISTINCT FROM OLD.request_status THEN
-  -- S-05-002 relaxes exactly the pending -> expired edge; every other
-  -- transition remains unavailable until its slice lands.
-  IF NOT (OLD.request_status = 'pending' AND NEW.request_status = 'expired') THEN
+  -- S-05-002 relaxed pending -> expired; S-05-006 adds pending -> verified
+  -- (matched success). Every other transition remains unavailable.
+  IF NOT (OLD.request_status = 'pending' AND NEW.request_status IN ('expired','verified')) THEN
     RAISE EXCEPTION 'verification_request_transition_unavailable % -> %', OLD.request_status, NEW.request_status
       USING ERRCODE = 'raise_exception';
   END IF;
 END IF;
-
 
   RETURN NEW;
 END;
@@ -2173,6 +2181,39 @@ CREATE TABLE public.sessions (
 
 
 --
+-- Name: source_scope_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_scope_policies (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid,
+    policy_version text NOT NULL,
+    scope text NOT NULL,
+    canonical_host text NOT NULL,
+    allowed_schemes text[] NOT NULL,
+    allowed_ports integer[] NOT NULL,
+    include_prefixes text[] NOT NULL,
+    exclude_prefixes text[] DEFAULT '{}'::text[] NOT NULL,
+    query_handling text NOT NULL,
+    content_sha256 bytea NOT NULL,
+    CONSTRAINT source_scope_policies_allowed_ports_check CHECK ((cardinality(allowed_ports) >= 1)),
+    CONSTRAINT source_scope_policies_allowed_schemes_check CHECK ((cardinality(allowed_schemes) >= 1)),
+    CONSTRAINT source_scope_policies_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT source_scope_policies_include_prefixes_check CHECK ((cardinality(include_prefixes) >= 1)),
+    CONSTRAINT source_scope_policies_schema_version_check CHECK ((schema_version = 'source-scope-policy-v1'::text)),
+    CONSTRAINT source_scope_policies_scope_check CHECK ((scope = ANY (ARRAY['organization'::text, 'project'::text, 'source'::text]))),
+    CONSTRAINT source_scope_policies_scope_source_agreement CHECK ((((scope = 'source'::text) AND (source_id IS NOT NULL)) OR ((scope <> 'source'::text) AND (source_id IS NULL))))
+);
+
+ALTER TABLE ONLY public.source_scope_policies FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: sources; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2697,6 +2738,30 @@ ALTER TABLE ONLY public.sessions
 
 
 --
+-- Name: source_scope_policies source_scope_policies_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_policies
+    ADD CONSTRAINT source_scope_policies_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: source_scope_policies source_scope_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_policies
+    ADD CONSTRAINT source_scope_policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source_scope_policies source_scope_policies_source_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_policies
+    ADD CONSTRAINT source_scope_policies_source_version_unique UNIQUE (organization_id, project_id, source_id, policy_version);
+
+
+--
 -- Name: sources sources_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2965,6 +3030,13 @@ CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions
 
 
 --
+-- Name: source_scope_policies source_scope_policies_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER source_scope_policies_immutable BEFORE DELETE OR UPDATE ON public.source_scope_policies FOR EACH ROW EXECUTE FUNCTION public.f1_source_scope_policies_immutable();
+
+
+--
 -- Name: sources sources_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3070,6 +3142,14 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 ALTER TABLE ONLY public.scheduled_actions
     ADD CONSTRAINT scheduled_actions_executing_service_identity_fkey FOREIGN KEY (executing_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: source_scope_policies source_scope_policies_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_policies
+    ADD CONSTRAINT source_scope_policies_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -3431,6 +3511,19 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 
 
 --
+-- Name: source_scope_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.source_scope_policies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: source_scope_policies source_scope_policies_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY source_scope_policies_context ON public.source_scope_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: sources; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3489,6 +3582,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260726120032'),
 ('20260726120031'),
 ('20260726120030'),
 ('20260726120029'),
