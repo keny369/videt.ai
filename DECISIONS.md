@@ -1476,3 +1476,25 @@ S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, contracts/S-0
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-051. No automatic merge to the protected branch and no production path; the controller stops at the S-06-002 human gate and does not authorise or begin any subsequent tranche.
+
+## ADR-053: S-06-002 Authorised; Scope Change Classifier Predicate Surfaced For Owner Ruling (Repository-First Stop)
+
+Status: Accepted (record); the governed product decision HD-S06-002-SCOPE-CLASSIFIER is OPEN for the owner
+Date: 2026-07-27
+Owner: Owner (resolved HD-S06-002-AUTHORISE: "I authorize work to begin on S-06-002" with the condition "Pin [the expansion vs contraction predicate] directly from the authoritative repository. If the repository uniquely defines it, implement exactly that. If not, stop and surface a narrowly scoped owner decision before implementation") / implementation agent (recorded)
+Reversibility: Planning/governance only — no product code, schema, migration or gate changed; committed on the integration branch, `main` untouched, not pushed. Revertible by reverting this commit.
+
+Decision:
+Resolve HD-S06-002-AUTHORISE: S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, MTX-029 propose path) is authorised (human_gate_before cleared). Per the owner's condition, the controller pinned the expansion-vs-contraction predicate from the authoritative repository (WORKFLOW_SPECIFICATIONS.md § Source Scope Change Contract :410-421; APPLICATION_LAYER.md § WF-004 :769-813; the Policy-Artifact "non-broadening validation" :318 / APPLICATION_LAYER :4044-4050; contracts/S-06.json MTX-029; PRULE-021 / MTX-072 the admission predicate).
+
+Uniquely determined by the repository (to be implemented exactly, no ruling needed):
+- Contraction = a proposed policy that is NON-BROADENING relative to the current active policy, within the already-verified Source boundary; auto-activatable atomically by an OrganizationAdmin or MarketingOperator without dual control ("narrowing scope cannot leak a boundary").
+- Expansion = a same-host BROADENING; a non-admin's expansion remains pending for a DIFFERENT OrganizationAdmin; an OrganizationAdmin may self-approve atomically; a TechnicalImplementer may propose but never approve/activate.
+- A new host is never an expansion (a new Source via WF-003); non-HTTPS is `unsupported_source_scheme`; host/scheme/port are fixed to the verified boundary (a proposal beyond it is a boundary violation).
+- Admission itself is the ratified PRULE-021 predicate (S-06-001, merged); query never denies admission.
+
+Genuinely unresolved (why the controller stops before implementing the classifier):
+The repository defines the CONCEPT (non-broadening) but does NOT pin the classification PREDICATE to an implementable level. Specifically: (1) it provides NO classifier fixtures — the MTX-029 test_contracts assume a change is already labelled "contraction"/"expansion" and test only the routing/authority; (2) it gives NO algorithm for the broadening/subset test over include/exclude path-prefix sets (with the `/`-boundary matching and exclusion-wins); and (3) it does NOT resolve whether a `query_handling` change (which does not change the PRULE-021 allow set — query never denies — but changes canonical-URL multiplicity) counts as broadening. Point (3) has two materially different valid readings with opposite dual-control outcomes, and misclassification is a scope-boundary security risk (a non-admin auto-activating a widening). Per AUTONOMOUS_BUILD_CONTROLLER §7(8) (product semantics with more than one materially different valid interpretation) and §3.8 (no silent scope expansion / no invented behaviour), and the owner's explicit "surface rather than invent" condition, HD-S06-002-SCOPE-CLASSIFIER is surfaced for an owner ruling before the classifier is implemented. Recommended: (a) ratify "broadening = the PRULE-021 admitted (allow) set grows," making the classifier a semantic subset test with PRULE-021 as its oracle and any non-strict-subset change an expansion (fail-closed); (b) rule `query_handling` broadening-NEUTRAL (it does not change the allow set) so a query-only change is a contraction. Full options in BUILD_STATE open_decisions and the owner report.
+
+Authority And Precedence:
+Records the S-06-002 authorisation and the repository-first stop. Allocated the next unused number after ADR-052. No product change, no merge, no push, no production path; S-06-003..005 remain human_gate_before.
