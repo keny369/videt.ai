@@ -1,8 +1,10 @@
 # S-06-001 Source Scope Predicate (PRULE-021, pure) — Completion Report
 
-Status: **READY FOR REVIEW.** Implemented, verified, hardened per the owner's Option-A ruling, and
-re-reviewed on the isolated branch `tranche/S-06/S-06-001` (base `0f6a625` = the integration tip
-`origin/implementation/s01-registration-access`; tip `16f7a89`). The protected branch (`main`) and the
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-27) — fast-forward merged from
+`tranche/S-06/S-06-001` into the integration branch `implementation/s01-registration-access` at `f0b3933`
+(base `0f6a625`; no merge commit, no history rewrite); added to `BUILD_STATE.completed_blocks` (BUILD_PLAN
+S-06-001 → completed, DECISIONS ADR-052). The protected branch (`main`) is untouched. It was implemented,
+verified, hardened per the owner's Option-A ruling, and re-reviewed on that branch (tip `16f7a89`). The protected branch (`main`) and the
 integration branch are untouched; **nothing is pushed**; no tag moved. The first sub-tranche of the
 owner-authorised S-06 block (ADR-049). It is a **pure PORO** consuming **no** foundation (F-01..F-04) and
 no S-05 code.

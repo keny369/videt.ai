@@ -430,7 +430,7 @@ blocks:
   - id: S-06-001
     name: Source Discovery and Scope — Source Scope Predicate (PRULE-021, pure)
     type: product
-    status: ready_for_review   # 2026-07-26 authorised (ADR-049); 2026-07-27 hardened per owner Option A (ADR-051), all 5 review lenses PASS, finding RESOLVED
+    status: completed   # 2026-07-27: owner-accepted and fast-forward merged into implementation/s01-registration-access (f0b3933); DECISIONS ADR-052. Authorised ADR-049; hardened per owner Option A (ADR-051); all 5 review lenses PASS; HD-S06-001-SCOPE-SEPARATOR RESOLVED
     depends_on:
       - S-05-006
     authoritative_sources:

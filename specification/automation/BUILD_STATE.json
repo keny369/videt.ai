@@ -2,19 +2,32 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-06",
-  "current_tranche": "S-06-001",
-  "status": "ready_for_review",
-  "attempt_number": 1,
-  "base_commit": "0f6a625",
+  "current_tranche": "",
+  "status": "human_decision_required",
+  "attempt_number": 0,
+  "base_commit": "f0b3933",
   "worktree_path": "",
-  "branch_name": "tranche/S-06/S-06-001",
-  "implementation_commit": "16f7a89",
-  "review_commit": "16f7a89",
-  "last_verified_commit": "16f7a89",
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": null,
+  "review_commit": null,
+  "last_verified_commit": "f0b3933",
   "verification_run_id": "",
-  "open_decisions": [],
-  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007"],
+  "open_decisions": [
+    {
+      "decision_id": "HD-S06-002-AUTHORISE",
+      "block": "S-06",
+      "tranche": "S-06-002",
+      "question": "S-06-001 (the pure PRULE-021 Source Scope Predicate, with the ADR-051 fail-closed exclusion hardening) is accepted and merged into implementation/s01-registration-access. The next S-06 sub-tranche, S-06-002 (source_scope_change_requests + ProposeSourceScopeChange), remains human_gate_before. Authorise S-06-002 (from contracts/S-06.json MTX-029 propose path), or hold. The controller does not begin a human_gate_before tranche without owner authorisation.",
+      "recommended_option": "Owner reviews the S-06-002 briefing and authorises it in BUILD_PLAN; the controller then plans the smallest reviewable tranche under the mandate.",
+      "options": [
+        "Authorise S-06-002 in BUILD_PLAN (clear its human_gate_before)",
+        "Hold pending other owner-directed work"
+      ],
+      "related": "S-06-001 is in completed_blocks (DECISIONS ADR-052, owner acceptance-and-merge). S-06-003..005 remain human_gate_before behind S-06-002. No S-06-002/S-07 work has begun."
+    }
+  ],
+  "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007", "S-06-001"],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: S-06-001 (Source Scope Predicate, PRULE-021, pure) is READY_FOR_REVIEW on tranche/S-06/S-06-001 (base 0f6a625, tip 16f7a89). The owner resolved HD-S06-001-SCOPE-SEPARATOR by selecting Option A (DECISIONS ADR-051): a narrow, additive, fail-closed EXCLUSION clarification treating %2F/%5C (case-insensitive) and a raw backslash as hierarchy-separator equivalents when testing exclude prefixes, with dot-segments then resolved. It is exclusion-only and does not decode reserved characters, alter the canonical URL, change include matching, or add persistence/events/jobs/networking/state; the frozen contract text was NOT rewritten (the ADR is the ratified clarification mechanism). Full gate green: whole-repo suite 1240 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so no structure.sql drift is possible. Independent review re-run (ADR-026, five separately-invoked adversarial lenses: security/tenant-isolation, contract-correctness, determinism/purity, architecture/scope, test-quality) returned PASS on ALL FIVE, and the security lens explicitly classified HD-S06-001-SCOPE-SEPARATOR as RESOLVED with zero confirmed-blocking findings. Recorded non-blocking residual: double-encoded %252F, overlong UTF-8 and the Unicode fraction-slash are outside the ratified named separator set and remain allowed (defense-in-depth follow-up, pinned by a characterization test). Next: owner acceptance-and-merge at human_gate_after. No merge, no push; main and the integration branch untouched; S-06-002..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: S-06-001 (Source Scope Predicate, PRULE-021, pure; ADR-051 fail-closed exclusion hardening) ACCEPTED by the owner and fast-forward merged into implementation/s01-registration-access at f0b3933 (base 0f6a625; no merge commit, no history rewrite); added to completed_blocks (BUILD_PLAN S-06-001 -> completed, DECISIONS ADR-052). Merge gate re-verified on the merged state: whole-repo suite 1240 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so no structure.sql drift is possible; pure PORO consuming no foundation. Independent review (ADR-026, five separately-invoked adversarial lenses) returned PASS on all five with the security lens classifying HD-S06-001-SCOPE-SEPARATOR as RESOLVED and zero confirmed-blocking findings. The merged tranche branch tranche/S-06/S-06-001 is deleted per repository policy (S-05 precedent). Protected branch (main) untouched at e22deed. BUILD_PLAN's next S-06 sub-tranche S-06-002 (source_scope_change_requests + ProposeSourceScopeChange) remains human_gate_before: the controller stops at HD-S06-002-AUTHORISE for the owner to authorise it (a briefing is provided); per owner instruction, no S-06-002 tranche was begun. This file and the repository are authoritative, not conversational memory."
 }

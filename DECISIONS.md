@@ -1460,3 +1460,19 @@ Implemented as the smallest pure change in `Workflows::Wf004::SourceScopePredica
 
 Authority And Precedence:
 Executes the owner's Option-A ruling. Allocated the next unused number after ADR-050; supersedes the open decision HD-S06-001-SCOPE-SEPARATOR (now RESOLVED). No automatic merge, no push, no production path.
+
+## ADR-052: S-06-001 Accepted And Merged; S-06-002 Is A Human Gate
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (approved: "Approve S-06-001 for acceptance and merge, subject to final repository-governance re-verification at the merge gate") / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access` (`0f6a625 -> f0b3933`); `main` untouched; the update is pushed to origin per the owner's explicit instruction. Revertible by branch reset (no history rewritten). No further tranche is authorised.
+
+Decision:
+Accept S-06-001 (the pure PRULE-021 Source Scope Predicate with the ADR-051 fail-closed exclusion hardening). Repository governance was re-verified at the merge gate: BUILD_STATE reported `ready_for_review` with zero open decisions; HD-S06-001-SCOPE-SEPARATOR resolved (ADR-051); ADR-049/050/051 present and internally consistent; independent review (ADR-026, five separately-invoked adversarial lenses — security/tenant-isolation, contract-correctness, determinism/purity, architecture/scope, test-quality) complete with ALL FIVE PASS, the security lens classifying the finding RESOLVED, and zero confirmed-blocking findings; whole-repo suite 1240 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so no structure.sql drift is possible; the tracked tree clean; and the branch diff contained only the S-06-001 predicate, its spec and records (no unauthorised S-06-002 or S-07 work). Fast-forward merged into `implementation/s01-registration-access` at `f0b3933`; `S-06-001` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-06-001 -> completed; `S-06-001_COMPLETION_REPORT.md` marked accepted; the merged tranche branch `tranche/S-06/S-06-001` deleted per repository policy (S-05 precedent). The integration branch was pushed to origin as a safe fast-forward; `main` untouched.
+
+Next — Human Gate (HD-S06-002-AUTHORISE):
+S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, contracts/S-06.json MTX-029 propose path) remains `human_gate_before`. The controller stops for the owner to authorise it; per the owner's instruction it was NOT begun, and an S-06-002 briefing is provided. S-06-003..005 remain human_gate_before behind it.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-051. No automatic merge to the protected branch and no production path; the controller stops at the S-06-002 human gate and does not authorise or begin any subsequent tranche.
