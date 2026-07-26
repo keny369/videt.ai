@@ -3,18 +3,31 @@
   "controller_version": "1.0.0",
   "current_block": "S-05",
   "current_tranche": "S-05-003",
-  "status": "planned",
+  "status": "human_decision_required",
   "attempt_number": 0,
-  "base_commit": "92eb0657dda1f7e656806f617f8898d27ac152e9",
+  "base_commit": "387aa3022ab493ef1aada8a7a8596e353bf89cd6",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
   "implementation_commit": null,
   "review_commit": null,
   "last_verified_commit": "92eb0657dda1f7e656806f617f8898d27ac152e9",
   "verification_run_id": "",
-  "open_decisions": [],
+  "open_decisions": [
+    {
+      "decision_id": "HD-S05-003-SPLIT",
+      "block": "S-05-003",
+      "question": "The owner-designated Observation limb (Reserve + Complete) is too large for one coherent tranche (scoping in DECISIONS.md ADR-032). Approve the proposed five-sub-tranche split (BUILD_PLAN S-05-003..S-05-007) and authorise the first sub-tranche. Per the owner's instruction, the controller stopped before implementation.",
+      "recommended_option": "Approve the split; authorise S-05-003 (the pure F-01 observation engine) as the next tranche; decide the source-scope-interim-v1 / S-06 dependency before S-05-006.",
+      "options": [
+        "Approve the 5-way split as proposed and authorise S-05-003 (observation engine) next — recommended",
+        "Adjust the split granularity/ordering, then authorise the first sub-tranche",
+        "Resolve the source-scope-interim-v1 / S-06 sequencing dependency first (it blocks S-05-006)"
+      ],
+      "blocks": "S-05-006 additionally requires deciding whether source-scope-interim-v1 (SourceScopePolicyRepository, S-06 Source Scope) is built minimally in S-05-006 or is an S-06 prerequisite."
+    }
+  ],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002"],
   "failed_attempts": [],
   "updated_at": "2026-07-26T00:00:00Z",
-  "reconciliation_note": "2026-07-26: S-05-002 ExpireVerificationRequest accepted (owner) and fast-forward merged at 92eb065; added to completed_blocks (BUILD_PLAN S-05-002 completed, DECISIONS ADR-031). Next authorised tranche is S-05-003 (Observation: Reserve + Complete), owner-directed. Per the owner's instruction, if the Observation limb is too large for a single coherent tranche the controller stops before implementation and proposes a split. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-26: S-05-002 merged (completed_blocks). The owner directed S-05-003 = Observation (Reserve + Complete) with the standing instruction to stop and propose a split if it is too large. Pre-implementation scoping (ADR-032) confirms it is far too large (six full-tranche-scale concerns incl. the outbound observation engine, verification_attempts WORK-CLAIM table, F-03 Evidence completion, the atomic success commit, source-scope-interim-v1 materialization, and the 10-slot schedule). BUILD_PLAN now carries a PROPOSED five-sub-tranche split (S-05-003..S-05-007, all human_gate_before, status proposed). The controller is stopped at human_decision_required (HD-S05-003-SPLIT) awaiting owner approval of the split; NO product code was written. This file and the repository are authoritative, not conversational memory."
 }

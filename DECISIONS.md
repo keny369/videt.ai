@@ -976,3 +976,39 @@ Outstanding (carried, non-blocking): the ADR-030 flagged Volume I reconciliation
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-030. No automatic merge to the protected branch; no production path.
+
+## ADR-032: S-05-003 Observation Limb Is Too Large — Proposed Split (stop for owner approval)
+
+Status: Proposed (awaiting owner approval)
+Date: 2026-07-26
+Owner: Implementation agent (proposal) / Owner (approval required)
+Reversibility: No product code written. This is a BUILD_PLAN proposal only; nothing is implemented until the owner approves the split and authorises the first sub-tranche.
+
+Context:
+The owner designated S-05-003 = "Observation (Reserve + Complete)" and instructed: "If implementation reveals that the Observation limb is too large to remain a single coherent tranche, stop before implementation and propose a repository update that splits it into smaller authorised tranches." Pre-implementation scoping against contracts/S-05.json (MTX-028/051), SCORE_EVIDENCE_MODEL.md § Attempts/Expiry/Evidence and § DNS/HTTP methods, and schemas/POSTGRESQL_SCHEMA.md :288/:286 confirms it is too large.
+
+Why it is too large (each item is a full tranche's worth, comparable to F-01 or S-05-001/002):
+1. A complete SSRF-safe outbound OBSERVATION ENGINE consuming F-01: DNS TXT (_f1-verify.<host>, exact match, segment concatenation, case/whitespace rules, observed_value_sha256, resolver reasons) and HTTPS file (/.well-known/f1-verification.txt, 200 + <=4KiB + trailing-LF, the exact 4096/4097-byte boundary + hashing, no redirects, status mapping), with 14 reason codes.
+2. A NEW verification_attempts table (T-MUT/LINEAGE/WORK-CLAIM — tied into F-04's work-dispatch/claim machinery: `verification_observe` claims `verification_attempts`) plus ReserveVerificationAttempt (atomic id/count/marker, on-demand limit(10)/rate(5min)/concurrency).
+3. CompleteVerificationAttempt producing exactly one restricted verification_observation Evidence (F-03) + SourceVerificationObserved per started observation, with idempotent retry.
+4. The atomic multi-root SUCCESS commit — Request verified/matched + redelivery disablement + SourceVerified + Source.proposed->verified — "none may appear without the others".
+5. source-scope-interim-v1 materialization via a SourceScopePolicyRepository — the Source Scope sub-system (source_set_versions / source_set_memberships / source_scope_change_requests), which is S-06 territory.
+6. The 10-slot AUTOMATED SCHEDULE (0..1380 min half-open windows, AutomatedObservationSlotJob, observation_slot_skipped, terminal-state cancellation).
+
+Bundling all six into one tranche violates the controller's smallest-reviewable-tranche standard and would be unreviewable.
+
+Proposed split (five sub-tranches, dependency order; each derived from the authoritative sources, NOT invented; recorded in BUILD_PLAN as status: proposed, human_gate_before: true):
+- **S-05-003** Outbound observation engine (pure; F-01 only) — the DNS/HTTP predicates + hashing + reason vocabulary. No persistence.
+- **S-05-004** verification_attempts table + ReserveVerificationAttempt — reservation, counts, marker, on-demand guards.
+- **S-05-005** CompleteVerificationAttempt (observation recording) — run the engine; one verification_observation Evidence (F-03) + SourceVerificationObserved + Request completion; NON-verifying outcomes leave the Source proposed.
+- **S-05-006** Matched success commit + source-scope-interim-v1 — the atomic Request-verified + Source proposed->verified + scope-policy materialization. **Carries an architectural dependency (below).**
+- **S-05-007** Automated observation slot schedule — the 10 half-open slots + skip logic (F-04).
+
+Flagged architectural dependency (genuine human decision, blocks S-05-006):
+The success commit requires materializing source-scope-interim-v1 (SourceScopePolicyRepository) — the Source Scope Policy artifact, which is the S-06 Source Scope sub-system. The owner must decide whether the minimal materialization artifact is built inside S-05-006, or is an S-06 prerequisite that must precede it (a possible second foundation-style sequencing question, echoing the F-01..F-04 wall that preceded S-05). This can be deferred until S-05-006 is reached, but it should be decided before S-05-006.
+
+Recommendation:
+Approve the five-sub-tranche split and authorise **S-05-003 (the observation engine)** as the next tranche — it is the largest self-contained, pure, F-01-only unit and the natural first build (mirroring how F-01 preceded its consumers), and it unblocks S-05-004/005 without touching persistence. Decide the scope-policy dependency (item above) before S-05-006.
+
+Authority And Precedence:
+No frozen contract touched; no product code written. Allocated the next unused number after ADR-031. The controller is stopped at human_decision_required per the owner's explicit escape-hatch instruction; the tranche after the (approved) next one is not begun.

@@ -190,25 +190,82 @@ blocks:
       - the ExpireVerificationRequest slice + specs
       - S-05-002 completion report + DECISIONS ledger entry
 
+  # PROPOSED SPLIT (2026-07-26, DECISIONS.md ADR-032) — pending owner approval.
+  # The owner designated S-05-003 as "Observation (Reserve + Complete)". Pre-implementation
+  # scoping against contracts/S-05.json (MTX-028/051), SCORE_EVIDENCE_MODEL.md § Attempts,
+  # Expiry, And Evidence, and schemas/POSTGRESQL_SCHEMA.md :288 shows the Observation limb is
+  # far too large for one coherent, reviewable tranche: it spans a full SSRF-safe outbound
+  # observation engine (F-01), a new verification_attempts WORK-CLAIM table + reservation, the
+  # Evidence-producing completion (F-03), the atomic multi-root success commit, source-scope-
+  # interim-v1 materialization (the Source Scope sub-system, S-06 territory), and the 10-slot
+  # automated schedule. Per the owner's instruction, the controller stops before implementation
+  # and proposes this split into five smaller authorised tranches. Each is human_gate_before
+  # until the owner approves the split and authorises the first. Order = dependency order.
   - id: S-05-003
-    name: Ownership Verification — next WF-003 limb after expiry (to be designated)
+    name: Ownership Verification — outbound observation engine (WF-003, F-01 consumer)
     type: product
-    status: not_started   # NOT to be begun after S-05-002 (owner instruction); scope from authoritative sources + owner designation
+    status: proposed
     depends_on:
       - S-05-002
     authoritative_sources:
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#dns-txt-method
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#http-file-method
       - specification/volume-ii/contracts/S-05.json
-      - specification/volume-ii/APPLICATION_LAYER.md#wf-003-verify-property-ownership-or-control
     scope:
-      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES_AND_OWNER_DESIGNATION
+      - a pure observation engine (PORO/adapter) given (method, canonical_host, token) -> outcome
+      - DNS TXT via Platform::Outbound.fetch_dns_txt (_f1-verify.<host>; exact ASCII match; segment
+        concatenation; case/whitespace fail; observed_value_sha256; null hash on absent; resolver reasons)
+      - HTTPS file via Platform::Outbound.fetch (/.well-known/f1-verification.txt; 200 + <=4KiB + trailing-LF;
+        the 4096/4097 byte boundary + hashing; no redirects; status mapping)
+      - the 14 observation reason codes + network-outcome + match-decision vocabulary
     out_of_scope:
-      - frozen foundation contract changes
-      - destructive migrations
-      - production deployment
+      - persistence, attempt reservation, Evidence, any Source/Request transition (later sub-tranches)
+      - frozen foundation contract changes, destructive migrations, production deployment
     acceptance_criteria:
-      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES
+      - each DNS/HTTP predicate + hashing + boundary rule matches the contract exactly (fixtures)
+      - consumes only the frozen F-01 façade; no second egress path
+      - full suite + architecture fitness green
     required_verification:
-      - TO_BE_DEFINED_FROM_AUTHORITATIVE_SOURCES
+      - complete_test_suite
+      - architecture_fitness
+      - repository_security
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+    expected_outputs:
+      - the observation engine + fixtures
+      - S-05-003 completion report + DECISIONS entry
+
+  - id: S-05-004
+    name: Ownership Verification — verification_attempts + ReserveVerificationAttempt
+    type: product
+    status: proposed
+    depends_on:
+      - S-05-003
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#attempts-expiry-and-evidence
+      - schemas/POSTGRESQL_SCHEMA.md
+    scope:
+      - the verification_attempts table (reserved/running/completed/quarantined; automated/on_demand;
+        slot offset; outcome columns; unique (verification_request_id, attempt_number); RLS + guard)
+      - ReserveVerificationAttempt — atomic attempt id + count increments + in-progress marker,
+        serialized on the Request
+      - the on-demand guards on_demand_limit_reached(10) / on_demand_observation_in_progress / on_demand_rate_limited(5min)
+    out_of_scope:
+      - running the observation, Evidence, the success commit, the slot schedule
+      - frozen foundation contract changes, destructive migrations, production deployment
+    acceptance_criteria:
+      - a reserved attempt increments the counts and marker atomically; concurrent reserves cannot share a slot
+      - the three on-demand denials hold at their exact boundaries; attempt_count never increments on a rejection
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
     human_gate_before: true
     human_gate_after: true
     risk_level: high
@@ -218,4 +275,123 @@ blocks:
       - F-03
       - F-04
     expected_outputs:
-      - proposed_only_until_owner_approval
+      - the verification_attempts migration + Reserve slice + specs
+
+  - id: S-05-005
+    name: Ownership Verification — CompleteVerificationAttempt (observation recording, F-03)
+    type: product
+    status: proposed
+    depends_on:
+      - S-05-004
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#attempts-expiry-and-evidence
+    scope:
+      - CompleteVerificationAttempt — run the S-05-003 engine for a reserved attempt (provider call
+        outside the transaction; only the recorded outcome committed)
+      - exactly one restricted verification_observation Evidence (F-03) per started observation
+      - SourceVerificationObserved event; Request completion/last-observed update; marker cleared
+      - idempotent retry under the reserved attempt (no second count); NON-verifying outcomes leave the Source proposed
+    out_of_scope:
+      - the matched success commit + Source proposed->verified + scope materialization (S-05-006)
+      - the automated slot schedule (S-05-007)
+      - frozen foundation contract changes, destructive migrations, production deployment
+    acceptance_criteria:
+      - each started observation persists exactly one restricted verification_observation Evidence with no plaintext token/raw content
+      - a not_matched/indeterminate/dependency-failure outcome records the observation and leaves the Source proposed
+      - completion-persistence-failure retries the same reserved attempt and consumes no second count
+      - full suite + DB/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - the CompleteVerificationAttempt recording slice + specs
+
+  - id: S-05-006
+    name: Ownership Verification — matched success commit + source-scope-interim-v1
+    type: product
+    status: proposed
+    depends_on:
+      - S-05-005
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#attempts-expiry-and-evidence
+    scope:
+      - on a matched observation, the atomic multi-root commit (Request verified/matched, redelivery disablement, SourceVerified, Source.proposed to verified with the sources guard relaxed for that edge)
+      - materialization of source-scope-interim-v1 in the same transaction (SourceScopePolicyRepository)
+      - none-may-appear-without-the-others proven; the transition fires exactly once (state-version guarded)
+    out_of_scope:
+      - the automated slot schedule (S-05-007), scoring/evaluation, Source activation (S-06 lifecycle)
+      - frozen foundation contract changes, destructive migrations, production deployment
+    acceptance_criteria:
+      - all success work items commit together or not at all (a fixture proves none appears without the others)
+      - concurrent matched completions transition once; a stale Source state version rejects with no side effect
+      - full suite + DB/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    open_questions:
+      - >
+        ARCHITECTURAL DEPENDENCY (owner): source-scope-interim-v1 materialization needs a Source Scope
+        Policy artifact (SourceScopePolicyRepository), which is the Source Scope sub-system (S-06
+        territory: source_set_versions/source_set_memberships/source_scope_change_requests). Decide
+        whether the minimal materialization artifact is built here for the success commit, or is an S-06
+        prerequisite that must precede S-05-006. This may require its own foundation-style sequencing.
+    expected_outputs:
+      - the matched success-commit slice + scope-policy materialization + specs
+
+  - id: S-05-007
+    name: Ownership Verification — automated observation slot schedule
+    type: product
+    status: proposed
+    depends_on:
+      - S-05-006
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-05.json
+      - specification/volume-i/SCORE_EVIDENCE_MODEL.md#attempts-expiry-and-evidence
+    scope:
+      - the automated slots at 0,5,15,30,60,120,240,480,960,1380 minutes, each in its half-open window
+      - AutomatedObservationSlotJob per due slot (reserve + complete an automated attempt via F-04)
+      - observation_slot_skipped recorded once, never late; exact-boundary earlier-skipped/later-eligible;
+        terminal request state cancels remaining slots without skipped events
+    out_of_scope:
+      - frozen foundation contract changes, destructive migrations, production deployment
+    acceptance_criteria:
+      - each slot starts only in its half-open window; an unstarted slot is skipped once and never runs late
+      - a terminal Request cancels remaining slots without skipped events
+      - full suite + background-execution + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - background_execution
+      - migration_safety_no_drift
+      - architecture_fitness
+    human_gate_before: true
+    human_gate_after: true
+    risk_level: high
+    allowed_foundation_dependencies:
+      - F-01
+      - F-02
+      - F-03
+      - F-04
+    expected_outputs:
+      - the automated slot schedule + specs
