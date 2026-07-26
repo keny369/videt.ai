@@ -1080,3 +1080,23 @@ Recommended Option:
 
 Authority And Precedence:
 Executes the owner's conditional accept-and-merge instruction and the controller mandate. Allocated the next unused number after ADR-034. No automatic merge to the protected branch and no production path; the controller stops at the human gate per the mandate.
+
+## ADR-036: S-05-004 Authorised (verification_attempts + ReserveVerificationAttempt); Human Gate Cleared
+
+Status: Accepted
+Date: 2026-07-26
+Owner: Owner (approved: "Authorise S-05-004 as specified in BUILD_PLAN and ADR-033. Clear its human_gate_before ... Then execute S-05-004 through the autonomous controller.") / implementation agent (recorded)
+Reversibility: Plan/state change plus a product tranche that stops at ready_for_review on an isolated branch; revertible until owner acceptance. `main` untouched.
+
+Decision:
+Resolving HD-S05-004-AUTHORISE (ADR-035), the owner authorises **S-05-004 — `verification_attempts` table + `Workflows::Wf003::ReserveVerificationAttempt`** exactly as specified in BUILD_PLAN and the owner-accepted Observation split (ADR-033), and clears its `human_gate_before`. No scope change: the scope was already fixed by the split. Scope (contracts/S-05.json; SCORE_EVIDENCE_MODEL.md § Attempts, Expiry, And Evidence; schemas/POSTGRESQL_SCHEMA.md):
+- the `verification_attempts` table — attempt lifecycle (reserved/running/completed/quarantined), trigger (automated/on_demand), slot offset, outcome columns, `unique (verification_request_id, attempt_number)`, forced tenant RLS, and a lifecycle/immutability guard;
+- `ReserveVerificationAttempt` — the atomic reservation that allocates the next `attempt_number`, increments the Request's counts and sets the in-progress marker, serialized on the Request (concurrent reserves cannot share a slot);
+- the three on-demand denials at their exact boundaries — `on_demand_limit_reached` (10), `on_demand_observation_in_progress`, `on_demand_rate_limited` (5 min) — with `attempt_count` never incrementing on a rejection.
+
+Out of scope (later sub-tranches, unchanged): running the observation (S-05-003 engine is consumed later), Evidence (F-03), the matched success commit, the automated slot schedule. No frozen foundation contract change, no destructive migration, no production path.
+
+Additive grant note (ratified precedent): S-05-004 adds a new tenant table, so it adds an additive least-privilege grant to `lib/f1/runtime_grants.rb` — a backwards-compatible extension that does **not** escalate under the FrozenContracts additive-new-table rule (ADR-029).
+
+Authority And Precedence:
+Executes the owner's authorisation and the controller mandate. Allocated the next unused number after ADR-035. Runs to `ready_for_review` under the controller (isolated branch `tranche/S-05/S-05-004`, enforced preflight/postflight, deterministic verification, independent review, records, commits); no automatic merge, no production path. Per owner instruction, S-05-005 is NOT to be begun.

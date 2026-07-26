@@ -244,7 +244,7 @@ blocks:
   - id: S-05-004
     name: Ownership Verification — verification_attempts + ReserveVerificationAttempt
     type: product
-    status: not_started   # authoritative sequence (ADR-033); human_gate_before until authorised in turn
+    status: planned   # 2026-07-26: authorised by the owner as the next tranche (ADR-036); running under the controller
     depends_on:
       - S-05-003
     authoritative_sources:
@@ -269,7 +269,7 @@ blocks:
       - migration_safety_no_drift
       - runtime_role_and_rls
       - architecture_fitness
-    human_gate_before: true
+    human_gate_before: false   # cleared by owner (ADR-036); authorised to run next
     human_gate_after: true
     risk_level: high
     allowed_foundation_dependencies:
