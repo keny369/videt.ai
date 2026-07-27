@@ -1521,3 +1521,28 @@ Governs S-06-002 (ProposeSourceScopeChange + atomic contraction activation) and 
 
 Authority And Precedence:
 Executes the owner's Option-B ruling. Allocated the next unused number after ADR-053. No automatic merge, no push, no production path.
+
+## ADR-055: S-06-002 Decomposition Surfaced — Implementation Evidence Shows It Would Breach Reviewability
+
+Status: Accepted (record); the governed decomposition decision HD-S06-002-DECOMPOSITION is OPEN for the owner
+Date: 2026-07-27
+Owner: Owner (condition on the S-06-002 authorisation: "Only split it into S-06-003 if implementation evidence demonstrates the tranche would otherwise become unreasonably large or violate the repository's reviewability principles. If a split becomes necessary, stop and present the proposed decomposition before proceeding") / implementation agent (recorded)
+Reversibility: Planning/governance only — no product code, schema or migration written; committed on `tranche/S-06/S-06-002`; nothing merged or pushed; `main` untouched.
+
+Decision:
+After reading the authoritative contract and the analogous S-05 implementations (the required repository-first step), the controller has implementation evidence that S-06-002 as scoped (source_scope_change_requests table + ProposeSourceScopeChange + the Option-B classifier + atomic contraction activation) would bundle THREE concerns that S-05 deliberately kept as separate tranches and would reach ~2,500-3,000+ diff lines, at or over the configured `max_diff_lines_before_forced_split: 3000` (VERIFICATION_MANIFEST.yml):
+
+- a pure engine (the Option-B ScopeChangeClassification classifier) — the S-05-003 analogue, which S-05 always isolated for focused adversarial review;
+- a new aggregate table + a create command with 24h F-04 expiry + full ledger + idempotency (ProposeSourceScopeChange pending path) — the S-05-001 analogue (its handler 304 + store 202 + shared ledger 161 lines, plus migration, command and specs, was ~1,500-2,000 lines as one tranche);
+- an atomic multi-root activation commit (request + new immutable policy version + Source pointer, none-without-the-others) — the S-05-006 analogue, which S-05 isolated as its own tranche.
+
+Per the owner's condition, the controller STOPS before writing S-06-002 product code and surfaces HD-S06-002-DECOMPOSITION. Recommended (Option 1, the S-05 precedent — isolate the pure engine, one concern per tranche):
+- S-06-002 (revised): the pure Option-B ScopeChangeClassification classifier + committed fixtures (both dimensions). Pure; no persistence. (~S-05-003 scale.)
+- S-06-003: source_scope_change_requests table + ProposeSourceScopeChange creating a PENDING request (consumes the classifier; boundary rejection; 24h F-04 expiry; idempotency; SourceScopeChangeRequested; full ledger). A fail-closed interim in which every classified change is pending (precedented by S-05-005's record-only interim). (~S-05-001 scale.)
+- S-06-004: atomic contraction activation (fast-path on Propose) + DecideSourceScopeChange (approve/reject) + CancelSourceScopeChange — the shared policy-version-activation multi-root commit used by both. (~S-05-006 scale + Decide.)
+- S-06-005: ExpireSourceScopeChange + SourceScopeChangeExpiryJob (was S-06-004).
+- S-06-006: Source lifecycle Activate/Disable/Reactivate/Remove (was S-06-005).
+Alternatives noted for the owner: Option 2 (2-way: keep classifier + table + Propose-pending as S-06-002 [~2,000 lines], defer only the atomic contraction to an expanded S-06-003 with Decide/Cancel; keeps 5 sub-tranches); Option 3 (no split: implement full S-06-002 under the owner's default, accepting ~2,500-3,000 lines in one tranche).
+
+Authority And Precedence:
+Surfaces the decomposition per the owner's explicit split-and-stop condition. Allocated the next unused number after ADR-054. No product change, no merge, no push; S-06-003..005 (current numbering) remain human_gate_before.

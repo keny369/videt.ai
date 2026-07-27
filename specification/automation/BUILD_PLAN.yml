@@ -477,7 +477,7 @@ blocks:
   - id: S-06-002
     name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange
     type: product
-    status: in_progress   # 2026-07-27: owner-authorised (ADR-053); classifier ruled Option B (ADR-054, HD-S06-002-SCOPE-CLASSIFIER resolved); implementing on tranche/S-06/S-06-002
+    status: decomposition_pending   # 2026-07-27: authorised (ADR-053); classifier ruled Option B (ADR-054); implementation-evidence shows the tranche would breach reviewability (~2,500-3,000+ lines, 3 S-05-scale concerns) — decomposition surfaced (ADR-055, HD-S06-002-DECOMPOSITION) before any product code
     depends_on:
       - S-06-001
     authoritative_sources:

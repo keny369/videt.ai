@@ -3,7 +3,7 @@
   "controller_version": "1.0.0",
   "current_block": "S-06",
   "current_tranche": "S-06-002",
-  "status": "implementing",
+  "status": "human_decision_required",
   "attempt_number": 1,
   "base_commit": "6e8413a",
   "worktree_path": "",
@@ -12,9 +12,23 @@
   "review_commit": null,
   "last_verified_commit": "6e8413a",
   "verification_run_id": "",
-  "open_decisions": [],
+  "open_decisions": [
+    {
+      "decision_id": "HD-S06-002-DECOMPOSITION",
+      "block": "S-06",
+      "tranche": "S-06-002",
+      "question": "The classifier is ruled (Option B, ADR-054) and S-06-002 is authorised. Per the owner's condition to split only if implementation evidence shows the tranche would be unreasonably large or violate reviewability principles, the controller (after the required repository-first reading) has evidence that S-06-002 as scoped bundles THREE concerns S-05 kept as separate tranches — the pure classifier (S-05-003 analogue), the table + ProposeSourceScopeChange(pending) + 24h expiry + ledger (S-05-001 analogue, itself ~1,500-2,000 lines), and the atomic contraction multi-root commit (S-05-006 analogue) — reaching ~2,500-3,000+ diff lines, at/over the configured max_diff_lines_before_forced_split (3000). How should S-06-002 be decomposed?",
+      "recommended_option": "Option 1 (3-way, S-05 precedent): S-06-002 = the pure Option-B classifier + fixtures; S-06-003 = source_scope_change_requests table + ProposeSourceScopeChange(pending) + expiry + ledger; S-06-004 = atomic contraction activation + DecideSourceScopeChange + Cancel (shared policy-version-activation commit); S-06-005 = Expire + expiry job (was 004); S-06-006 = Source lifecycle (was 005).",
+      "options": [
+        "1 (recommended): 3-way split — isolate the pure classifier (002), table+Propose-pending (003), atomic-contraction+Decide+Cancel (004); renumber Expire->005, lifecycle->006 (S-06 grows to 6 sub-tranches)",
+        "2: 2-way split — S-06-002 = classifier + table + Propose-pending (~2,000 lines); defer only the atomic contraction to an expanded S-06-003 (with Decide/Cancel); keeps 5 sub-tranches",
+        "3: no split — implement the full S-06-002 (table + classifier + Propose + atomic contraction) as one tranche (~2,500-3,000 lines), per the owner's default"
+      ],
+      "related": "See DECISIONS ADR-055 and the owner report. Sources: WORKFLOW_SPECIFICATIONS.md #source-scope-change-contract, contracts/S-06.json MTX-029, ADR-054 (Option B classifier). No S-06-002 product code, schema or migration has been written. Whichever option is chosen, the atomic contraction remains contract-faithful (activated in the creation transaction on Propose); a deferral (Options 1/2) makes contractions temporarily pending — a fail-closed interim precedented by S-05-005 -> S-05-006."
+    }
+  ],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007", "S-06-001"],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: The owner resolved HD-S06-002-SCOPE-CLASSIFIER by selecting Option B (DECISIONS ADR-054): the contraction-vs-expansion classifier is the semantic subset rule (PRULE-021 as the admission oracle; a proposal is a contraction iff its admitted URL set is a subset of the current active policy's; any non-strict-subset or mixed change is an expansion; fail-closed) PLUS an explicit query-handling exception (any query-handling change that can increase distinct crawlable canonical-URL multiplicity is an expansion, e.g. allowlist -> retain_all; a change that preserves or reduces multiplicity may remain contraction-eligible). Host/scheme/port beyond the verified boundary are boundary violations, not expansions. Work on S-06-002 (source_scope_change_requests + ProposeSourceScopeChange, including atomic contraction activation) proceeds on tranche/S-06/S-06-002 (base 6e8413a). main untouched at e22deed; nothing pushed; S-06-003..005 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: S-06-002 is authorised and its classifier is ruled (Option B, ADR-054). Following the owner's repository-first condition, the controller read the authoritative contract and the analogous S-05 implementations and found implementation evidence that S-06-002 as scoped would bundle three concerns S-05 deliberately separated (pure classifier = S-05-003; table + Propose-pending + expiry + ledger = S-05-001, ~1,500-2,000 lines; atomic contraction multi-root commit = S-05-006) and reach ~2,500-3,000+ lines, at/over the configured max_diff_lines_before_forced_split (3000). Per the owner's explicit 'stop and present the proposed decomposition before proceeding' condition, the controller STOPS before writing any S-06-002 product code and surfaces HD-S06-002-DECOMPOSITION (DECISIONS ADR-055), recommending a 3-way split that isolates the pure classifier (S-05 precedent). No product code, schema or migration written. main untouched at e22deed; nothing pushed; later S-06 sub-tranches remain human_gate_before. This file and the repository are authoritative, not conversational memory."
 }
