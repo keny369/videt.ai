@@ -14,14 +14,19 @@ module Workflows
       # `source.scope.propose`, validates the request shape (20-2,000 char reason; a
       # well-formed proposal), reads the Source's current active Source Scope Policy and
       # checks the expected active-policy version, classifies the change through the S-06-002
-      # classifier (rejecting a boundary violation through the failure path), and — for a
-      # contraction OR an expansion alike, in this tranche — creates exactly one PENDING
-      # Source Scope Change Request with its 24-hour expiry timer (F-04), full ledger and a
-      # single SourceScopeChangeRequested event, idempotently.
+      # classifier (rejecting a boundary violation through the failure path), and then either
+      # activates atomically or opens a pending request.
       #
-      # This tranche neither activates nor decides: a contraction remains pending (the
-      # fail-closed interim; atomic contraction activation and Decide/Cancel are S-06-004,
-      # expiry execution is S-06-005). No provisional alternative activation path exists.
+      # S-06-004 fast-path (contract MTX-029 aggregate_boundary / transaction_boundary): a
+      # CONTRACTION proposed by any `policy.source_scope.manage` holder (OrganizationAdmin or
+      # MarketingOperator), or an EXPANSION proposed by an OrganizationAdmin, is created,
+      # self-approved and activated in this one transaction — the request row and the new
+      # immutable policy version commit together, emitting SourceScopeChangeRequested then
+      # SourceScopeChangeApproved, with no 24-hour expiry timer. Every other authorized
+      # proposal (a non-manage holder's contraction, a non-admin's expansion) creates exactly
+      # one PENDING request with its 24-hour expiry timer (F-04) and a single
+      # SourceScopeChangeRequested event, awaiting DecideSourceScopeChange. Idempotent either
+      # way. A boundary violation is refused; the host is never a proposal input.
       class ProposeSourceScopeChange
         include Wf004::SourceLedger
 
@@ -29,6 +34,7 @@ module Workflows
         TARGET_TYPE = "source_scope_change_request"
         ACTION = "source.scope.propose"
         CAPABILITY = "source.scope.propose"
+        MANAGE_CAPABILITY = "policy.source_scope.manage"
         WORKFLOW_ID = "WF-004"
         SCHEMA_VERSION = "source-scope-change-request-v1"
         EXPIRY_HOURS = 24
@@ -84,6 +90,18 @@ module Workflows
           return denied(d, "source_scope_reason_invalid") unless valid_reason?(command.request_reason)
           return denied(d, "source_scope_proposal_invalid") unless well_formed_proposal?(command)
 
+          # The idempotency check precedes the active-policy-version check: the fast-path moves
+          # the active version, so an exact replay of an auto-activating proposal (same key, same
+          # original expected version) must return the stored result rather than be rejected as
+          # stale. The per-Source advisory lock serializes concurrent proposals and lets us read
+          # the active policy under the lock (no stale pre-lock read).
+          store.lock_source(command.source_id)
+          key_digest = Digest::SHA256.digest(command.idempotency_key)
+          existing = store.find_idempotency(org: d[:org], command_type: command.command_type,
+                                            target_type: TARGET_TYPE, target_id: command.source_id, key_digest:)
+          return replay(d, existing) if existing && existing["request_hex"] == hex(d[:request_sha256])
+          return denied(d, "idempotency_conflict") if existing
+
           active = store.active_scope_policy(source["current_scope_policy_id"])
           return denied(d, "source_not_verified") if active.nil?
           return denied(d, "stale_active_policy_version") unless active["policy_version"] == command.expected_active_policy_version
@@ -94,15 +112,18 @@ module Workflows
             return deny(**denial_args(d), resource_id: command.source_id, outward:, internal: outward)
           end
 
-          store.lock_source(command.source_id)
+          # Fast-path eligibility (S-06-004): a contraction by any policy.source_scope.manage
+          # holder, or an expansion by an OrganizationAdmin, activates atomically; every other
+          # authorized proposal opens a pending request.
+          manage = auth.authorize(actor:, capability: MANAGE_CAPABILITY, now:)
+          admin = manage.allowed? && manage.granting.any? { |a| a["canonical_role"] == "OrganizationAdmin" }
+          auto = (classification.contraction? && manage.allowed?) || (classification.expansion? && admin)
 
-          key_digest = Digest::SHA256.digest(command.idempotency_key)
-          existing = store.find_idempotency(org: d[:org], command_type: command.command_type,
-                                            target_type: TARGET_TYPE, target_id: command.source_id, key_digest:)
-          return replay(d, existing) if existing && existing["request_hex"] == hex(d[:request_sha256])
-          return denied(d, "idempotency_conflict") if existing
+          return commit_fast_path(d.merge(manage:), source, active, key_digest) if auto
 
           commit(d, source, active, key_digest)
+        rescue Wf004::SourceScopePolicyActivation::LostRace
+          raise Platform::InvariantViolation, "source scope activated concurrently"
         end
 
         def commit(d, source, active, key_digest)
@@ -158,6 +179,87 @@ module Workflows
                         "expected_active_policy_version" => command.expected_active_policy_version,
                         "proposed_content_sha256" => hex(proposed_digest),
                         "requested_at_utc" => iso(requested_at), "due_at_utc" => iso(due_at) })
+          write_result_success(store, ids, command, ctx, org, actor, now, payload, ids[:request])
+          write_idempotency(store, ids[:idem], org, command, command.source_id, key_digest, request_sha256,
+                            ids[:execution], ids[:result], now)
+
+          Platform::CommandResult.success(result_id: ids[:result], command_type: command.command_type,
+                                          audit_record_id: ids[:audit], correlation_id: ctx.correlation_id,
+                                          payload: payload.transform_keys(&:to_sym))
+        end
+
+        # The atomic fast-path: create the request, activate one new immutable policy version
+        # and self-approve — all in this transaction — emitting SourceScopeChangeRequested (v0)
+        # then SourceScopeChangeApproved (v1). No 24-hour expiry timer: the request is terminal.
+        def commit_fast_path(d, source, active, key_digest)
+          command = d[:command]
+          ctx = d[:ctx]
+          store = d[:store]
+          org = d[:org]
+          now = d[:now]
+          actor = d[:actor]
+          request_sha256 = d[:request_sha256]
+
+          ids = %i[request execution audit requested approved result propose_decision manage_decision idem]
+                .to_h { |k| [k, ctx.generate_id] }
+          requested_at = now
+          proposed = normalized_proposed(source, command)
+          proposed_digest = content_digest(proposed)
+
+          write_execution(store, command, ctx, org, ids[:execution], ids[:request], actor, request_sha256,
+                          key_digest, now, ACTION)
+          write_authorization_decision(d[:auth_store], ids[:propose_decision], ctx, command, actor, d[:decision],
+                                       now, command.source_id, ACTION)
+          write_authorization_decision(d[:auth_store], ids[:manage_decision], ctx, command, actor, d[:manage],
+                                       now, command.source_id, MANAGE_CAPABILITY)
+          store.insert_source_scope_change_request(
+            id: ids[:request], now:, correlation_id: ctx.correlation_id, organization_id: org,
+            project_id: command.project_id, source_id: command.source_id, requester_account_id: actor.account_id,
+            expected_active_policy_version: command.expected_active_policy_version,
+            current_content_sha256: unhex_bytea(active["content_sha256"]),
+            proposed_canonical_host: proposed[:canonical_host], proposed_allowed_schemes: proposed[:allowed_schemes],
+            proposed_allowed_ports: proposed[:allowed_ports], proposed_include_prefixes: proposed[:include_prefixes],
+            proposed_exclude_prefixes: proposed[:exclude_prefixes], proposed_query_handling: proposed[:query_handling],
+            proposed_content_sha256: proposed_digest, request_reason: command.request_reason,
+            requested_at:, due_at: now + (EXPIRY_HOURS * 3600), idempotency_key_digest: key_digest
+          )
+
+          requested_payload = {
+            "source_scope_change_request_id" => ids[:request], "source_id" => command.source_id,
+            "project_id" => command.project_id, "organization_id" => org, "state" => "pending",
+            "expected_active_policy_version" => command.expected_active_policy_version,
+            "requested_at_utc" => iso(requested_at)
+          }
+          write_audit(store, ids[:audit], org, ctx, command, ids[:request], actor,
+                      to_state: "approved", outcome: "success", reason_code: nil, payload: requested_payload, now:)
+          write_event(store, ids.merge(event: ids[:requested]), org, ctx, command, actor, now, 0, ids[:request],
+                      request_sha256, key_digest, "SourceScopeChangeRequested", "created",
+                      { "source_id" => command.source_id, "source_scope_change_request_id" => ids[:request],
+                        "affected_entity_id" => ids[:request], "state" => "pending",
+                        "expected_active_policy_version" => command.expected_active_policy_version,
+                        "proposed_content_sha256" => hex(proposed_digest), "requested_at_utc" => iso(requested_at) })
+
+          activation = SourceScopePolicyActivation.activate(
+            store:, ctx:, org:, project_id: command.project_id, source_id: command.source_id,
+            proposed: proposed.merge(content_sha256: proposed_digest), current_policy_id: active["id"], now:
+          )
+          raise Wf004::SourceScopePolicyActivation::LostRace if store.transition_request(
+            ids[:request], 0, "approved", decision_actor_id: actor.account_id, decision_reason: nil,
+            activated_policy_version: activation[:policy_version], now:
+          ).to_i.zero?
+
+          payload = {
+            "source_scope_change_request_id" => ids[:request], "source_id" => command.source_id,
+            "project_id" => command.project_id, "organization_id" => org, "state" => "approved",
+            "activated_policy_version" => activation[:policy_version],
+            "expected_active_policy_version" => command.expected_active_policy_version,
+            "requested_at_utc" => iso(requested_at)
+          }
+          write_event(store, ids.merge(event: ids[:approved]), org, ctx, command, actor, now, 1, ids[:request],
+                      request_sha256, key_digest, "SourceScopeChangeApproved", "state_transition",
+                      { "source_id" => command.source_id, "affected_entity_id" => ids[:request],
+                        "from_state" => "pending", "to_state" => "approved",
+                        "activated_policy_version" => activation[:policy_version] })
           write_result_success(store, ids, command, ctx, org, actor, now, payload, ids[:request])
           write_idempotency(store, ids[:idem], org, command, command.source_id, key_digest, request_sha256,
                             ids[:execution], ids[:result], now)

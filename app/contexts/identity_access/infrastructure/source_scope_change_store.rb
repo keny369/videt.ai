@@ -116,6 +116,69 @@ module IdentityAccess
         SQL
       end
 
+      # ---- S-06-004 decision + activation reads/writes ----
+
+      def read_request(id)
+        exec(<<~SQL, [id]).to_a.first
+          SELECT id, organization_id, project_id, source_id, requester_account_id, state, state_version,
+                 expected_active_policy_version, proposed_canonical_host, proposed_allowed_schemes,
+                 proposed_allowed_ports, proposed_include_prefixes, proposed_exclude_prefixes,
+                 proposed_query_handling, proposed_content_sha256
+          FROM source_scope_change_requests WHERE id = $1::uuid
+        SQL
+      end
+
+      # The count of existing Source Scope Policy versions for a Source — the ordinal a new
+      # activated version takes (`source-scope-v{ordinal+1}`); read under the per-Source lock.
+      def policy_count(source_id)
+        exec("SELECT COUNT(*) AS n FROM source_scope_policies WHERE source_id = $1::uuid", [source_id])
+          .to_a.first["n"].to_i
+      end
+
+      # Insert a new immutable Source Scope Policy version (S-05-006 shape).
+      def insert_source_scope_policy(row)
+        params = [
+          row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+          row[:source_id], row[:policy_version], row[:canonical_host],
+          pg_text_array(row[:allowed_schemes]), pg_int_array(row[:allowed_ports]),
+          pg_text_array(row[:include_prefixes]), pg_text_array(row[:exclude_prefixes]),
+          row[:query_handling], bytea(row[:content_sha256])
+        ]
+        exec(<<~SQL, params)
+          INSERT INTO source_scope_policies
+            (id, created_at, correlation_id, schema_version, organization_id, project_id, source_id,
+             policy_version, scope, canonical_host, allowed_schemes, allowed_ports,
+             include_prefixes, exclude_prefixes, query_handling, content_sha256)
+          VALUES ($1,$2::timestamptz,$3::uuid,'source-scope-policy-v1',$4::uuid,$5::uuid,$6::uuid,
+                  $7,'source',$8,$9::text[],$10::integer[],$11::text[],$12::text[],$13,$14)
+        SQL
+      end
+
+      # Repoint the Source's active Source Scope Policy, guarded on the expected current
+      # pointer so two concurrent activations cannot both apply. Returns the row count.
+      def repoint_source(source_id, new_policy_id, expected_policy_id, now)
+        exec(<<~SQL, [source_id, new_policy_id, expected_policy_id, iso(now)]).cmd_tuples
+          UPDATE sources
+          SET current_scope_policy_id = $2::uuid, state_version = state_version + 1, updated_at = $4::timestamptz
+          WHERE id = $1::uuid AND current_scope_policy_id = $3::uuid
+        SQL
+      end
+
+      # Transition a pending request to a terminal state, guarded on the expected request
+      # state version AND on the row still being pending. Returns the row count.
+      def transition_request(id, expected_state_version, to_state, decision_actor_id:, decision_reason:,
+                             activated_policy_version:, now:)
+        params = [id, expected_state_version, to_state, decision_actor_id, decision_reason,
+                  activated_policy_version, iso(now)]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE source_scope_change_requests
+          SET state = $3, decision_actor_id = $4::uuid, decided_at_utc = $7::timestamptz,
+              decision_reason = $5, activated_policy_version = $6, terminal_at_utc = $7::timestamptz,
+              state_version = state_version + 1, updated_at = $7::timestamptz
+          WHERE id = $1::uuid AND state = 'pending' AND state_version = $2
+        SQL
+      end
+
       private
 
       def exec(sql, params) = @pg.exec_params(sql, params)

@@ -1677,3 +1677,19 @@ S-06-003 (source_scope_change_requests + ProposeSourceScopeChange, pending path)
 
 Authority And Precedence:
 Executes the owner's standing-authority directive and accepts S-06-003. Allocated the next unused number after ADR-060. Supersedes the prior per-tranche human_gate_after acceptance requirement for the remaining authorised S-06 sub-tranches. No production path.
+
+## ADR-062: S-06-004 Source Scope Policy Version Naming Is Autonomous (Not A Contract Term)
+
+Status: Accepted
+Date: 2026-07-27
+Owner: implementation agent (recorded under standing authority ADR-061); no owner ruling required — an internal naming choice, not a behavioural or contract term
+Reversibility: The version string is regenerable and touches no frozen contract; a later slice may rename the scheme without behavioural effect. On `tranche/S-06/S-06-004`; nothing merged.
+
+Context:
+S-06-004 activates a new immutable `source_scope_policies` version on approval (fast-path on Propose, or DecideSourceScopeChange approval). The contract (contracts/S-06.json MTX-029) requires an immutable, versioned policy record and an "expected active policy version" used as the concurrency value, but does NOT prescribe the version STRING. The S-05 interim policy is `source-scope-interim-v1`.
+
+Decision:
+A newly activated Source Scope Policy version takes the string `source-scope-v{N}`, where `N` is a monotonic per-Source ordinal computed as `policy_count(source_id) + 1` read under the per-Source advisory lock the activation already holds (so the interim policy is ordinal 1 and the first activated version is `source-scope-v2`). Uniqueness is enforced by the `(organization_id, project_id, source_id, policy_version)` constraint. The exact string is NOT behaviourally material: the predicate and the classifier read the policy's RULES, never its name, and any unique deterministic token would serve identically as the expected-active-policy-version concurrency value. This is therefore an autonomous naming choice recorded for traceability, not a contract clarification, and is not a stop condition under ADR-061.
+
+Authority And Precedence:
+Internal engineering decision under standing authority. Allocated the next unused number after ADR-061. Adds no permission, changes no contract, and does not alter the frozen S-05-006 policy shape. No production path.

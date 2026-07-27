@@ -228,6 +228,15 @@ module Platform
       "source_not_verified"               => "F1-DOMAIN-409",
       "stale_active_policy_version"       => "F1-DOMAIN-409",
       "source_scope_unauthorized"         => "F1-AUTH-403",
+      # S-06-004 DecideSourceScopeChange + CancelSourceScopeChange (contracts/S-06.json MTX-029
+      # error_contract: stale request/policy version; unauthorized decision; a non-pending
+      # request). Decision-status conflicts -> F1-DOMAIN-409; authority/dual-control -> F1-AUTH-403.
+      # `source_scope_reason_invalid` (reject/cancel reason) is reused from the S-06-003 block.
+      "source_scope_request_not_pending"  => "F1-DOMAIN-409",
+      "stale_request_version"             => "F1-DOMAIN-409",
+      "source_scope_decision_invalid"     => "F1-VALIDATION-400",
+      "source_scope_decision_unauthorized" => "F1-AUTH-403",
+      "source_scope_cancel_unauthorized"  => "F1-AUTH-403",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the
