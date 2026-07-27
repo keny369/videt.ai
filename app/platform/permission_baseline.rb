@@ -81,9 +81,14 @@ module Platform
       # | allow | allow for Project scope | deny | deny | deny | deny | deny"): allowed to an
       # OrganizationAdmin (Organization scope) or a MarketingOperator (Project scope), every
       # other role denies. It is NOT a protected permission (:333 omits it). Materialized here
-      # for S-06-004; the Project-vs-Organization scope limb of the MarketingOperator cell is
-      # enforced by the caller, as with the other scoped cells. Only an OrganizationAdmin may
-      # approve or reject an EXPANSION (the additional dual-control rule lives in the handler).
+      # for S-06-004. The Project-vs-Organization scope limb of the MarketingOperator cell —
+      # GrantScope containment of the Assignment's scope against the target Source's Project —
+      # is NOT yet enforced: assignment-scope containment is wired only to `role.manage`
+      # (IdentityAccess::Domain::GrantAuthority#contains_scope?) and remains deferred
+      # platform-wide for the resource capabilities (as for `source.register` and
+      # `project.create`); the WF-004 handlers gate only Organization membership + the
+      # dual-control rule. Recorded as a cross-cutting follow-up (DECISIONS ADR-063). Only an
+      # OrganizationAdmin may approve or reject an EXPANSION (dual control lives in the handler).
       "policy.source_scope.manage" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 

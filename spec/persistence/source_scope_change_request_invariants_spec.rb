@@ -124,6 +124,20 @@ RSpec.describe "Source scope change request invariants", type: :model do
         .to raise_error(PG::RaiseException, /source_scope_change_request_transition_unavailable/)
     end
 
+    it "refuses a pending -> pending UPDATE that mutates decision facts (ADR-063 hardening)" do
+      id = insert_request
+      expect { conn.exec_params("UPDATE source_scope_change_requests SET decision_actor_id = gen_random_uuid() WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /source_scope_change_request_transition_unavailable/)
+      expect { conn.exec_params("UPDATE source_scope_change_requests SET activated_policy_version = 'source-scope-v99' WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /source_scope_change_request_transition_unavailable/)
+    end
+
+    it "freezes created_at and correlation_id provenance on a pending row (ADR-063 hardening)" do
+      id = insert_request
+      expect { conn.exec_params("UPDATE source_scope_change_requests SET correlation_id = gen_random_uuid() WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /facts_immutable/)
+    end
+
     it "makes a terminal request fully immutable" do
       id = insert_request
       conn.exec_params("UPDATE source_scope_change_requests SET state = 'approved' WHERE id = $1::uuid", [id])

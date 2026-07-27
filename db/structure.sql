@@ -1072,16 +1072,18 @@ BEGIN
      OR NEW.request_reason IS DISTINCT FROM OLD.request_reason
      OR NEW.requested_at_utc IS DISTINCT FROM OLD.requested_at_utc
      OR NEW.due_at_utc IS DISTINCT FROM OLD.due_at_utc
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
      OR NEW.idempotency_key_digest IS DISTINCT FROM OLD.idempotency_key_digest THEN
     RAISE EXCEPTION 'source_scope_change_request_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  IF NEW.state IS DISTINCT FROM OLD.state THEN
-  IF NOT (OLD.state = 'pending' AND NEW.state IN ('approved','rejected','canceled')) THEN
+  -- The only permitted change to a pending request is a transition to a terminal
+  -- decision state; pending -> pending and pending -> expired are refused.
+  IF NOT (NEW.state IN ('approved','rejected','canceled')) THEN
     RAISE EXCEPTION 'source_scope_change_request_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
-END IF;
 
   RETURN NEW;
 END;
@@ -3749,6 +3751,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120051'),
 ('20260727120050'),
 ('20260727120040'),
 ('20260726120033'),

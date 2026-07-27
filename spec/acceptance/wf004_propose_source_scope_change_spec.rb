@@ -153,6 +153,19 @@ RSpec.describe "WF-004 propose source scope change", type: :acceptance,
       actions = DbInspector.all("SELECT action FROM authorization_decisions WHERE resource_id = $1::uuid", [v[:source_id]]).map { |r| r["action"] }
       expect(actions).to include("source.scope.propose", "policy.source_scope.manage")
     end
+
+    it "activates an OrganizationAdmin's OWN expansion atomically (TYP-SEC self-approval fast-path)" do
+      v = verified_source
+      propose(v) # admin contraction /shop -> source-scope-v2 (active is now narrower than the boundary)
+      result = propose(v, includes: ["/shop", "/blog"], expected: "source-scope-v2",
+                       reason: "restore blog coverage alongside the shop section")
+      expect(result.success?).to be(true)
+      expect(result.payload[:state]).to eq("approved")
+      expect(result.payload[:activated_policy_version]).to eq("source-scope-v3")
+      pols = policies(v[:source_id])
+      expect(pols.map { |p| p["policy_version"] }).to eq(%w[source-scope-interim-v1 source-scope-v2 source-scope-v3])
+      expect(pols.last["include_prefixes"]).to eq("{/blog,/shop}")
+    end
   end
 
   describe "the pending path (a proposer who cannot self-activate)" do

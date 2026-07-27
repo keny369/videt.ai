@@ -93,8 +93,7 @@ module Workflows
           # The idempotency check precedes the active-policy-version check: the fast-path moves
           # the active version, so an exact replay of an auto-activating proposal (same key, same
           # original expected version) must return the stored result rather than be rejected as
-          # stale. The per-Source advisory lock serializes concurrent proposals and lets us read
-          # the active policy under the lock (no stale pre-lock read).
+          # stale. The per-Source advisory lock serializes concurrent proposals.
           store.lock_source(command.source_id)
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           existing = store.find_idempotency(org: d[:org], command_type: command.command_type,
@@ -102,6 +101,12 @@ module Workflows
           return replay(d, existing) if existing && existing["request_hex"] == hex(d[:request_sha256])
           return denied(d, "idempotency_conflict") if existing
 
+          # Re-read the Source UNDER the lock: a concurrent activation may have repointed it
+          # since the pre-lock read, so its current pointer (the repoint guard) must be live.
+          # This makes the stale-version precheck, the classification and the repoint guard all
+          # agree, and a losing race returns a clean stale_active_policy_version rather than a
+          # repoint LostRace.
+          source = store.source(command.source_id)
           active = store.active_scope_policy(source["current_scope_policy_id"])
           return denied(d, "source_not_verified") if active.nil?
           return denied(d, "stale_active_policy_version") unless active["policy_version"] == command.expected_active_policy_version
@@ -224,14 +229,6 @@ module Workflows
             requested_at:, due_at: now + (EXPIRY_HOURS * 3600), idempotency_key_digest: key_digest
           )
 
-          requested_payload = {
-            "source_scope_change_request_id" => ids[:request], "source_id" => command.source_id,
-            "project_id" => command.project_id, "organization_id" => org, "state" => "pending",
-            "expected_active_policy_version" => command.expected_active_policy_version,
-            "requested_at_utc" => iso(requested_at)
-          }
-          write_audit(store, ids[:audit], org, ctx, command, ids[:request], actor,
-                      to_state: "approved", outcome: "success", reason_code: nil, payload: requested_payload, now:)
           write_event(store, ids.merge(event: ids[:requested]), org, ctx, command, actor, now, 0, ids[:request],
                       request_sha256, key_digest, "SourceScopeChangeRequested", "created",
                       { "source_id" => command.source_id, "source_scope_change_request_id" => ids[:request],
@@ -255,6 +252,9 @@ module Workflows
             "expected_active_policy_version" => command.expected_active_policy_version,
             "requested_at_utc" => iso(requested_at)
           }
+          # One audit row for the whole command, recording the terminal state it reached.
+          write_audit(store, ids[:audit], org, ctx, command, ids[:request], actor,
+                      to_state: "approved", outcome: "success", reason_code: nil, payload:, now:)
           write_event(store, ids.merge(event: ids[:approved]), org, ctx, command, actor, now, 1, ids[:request],
                       request_sha256, key_digest, "SourceScopeChangeApproved", "state_transition",
                       { "source_id" => command.source_id, "affected_entity_id" => ids[:request],
