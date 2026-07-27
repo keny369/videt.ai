@@ -651,7 +651,7 @@ blocks:
   - id: S-06-006
     name: Source Discovery and Scope — Source lifecycle (PRULE-006 Activate/Disable/Reactivate/Remove)
     type: product
-    status: pending
+    status: completed   # 2026-07-27: accepted (standing authority ADR-061); all 5 ADR-026 lenses PASS, zero confirmed-blocking (ADR-065). CLOSES S-06 — S-07 requires fresh owner authorisation
     depends_on:
       - S-06-005
     authoritative_sources:

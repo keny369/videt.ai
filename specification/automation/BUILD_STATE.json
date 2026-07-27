@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
   "controller_version": "1.0.0",
-  "current_block": "S-06",
-  "current_tranche": "S-06-006",
-  "status": "authorized",
+  "current_block": "S-07",
+  "current_tranche": null,
+  "status": "blocked_awaiting_authorization",
   "attempt_number": 1,
-  "base_commit": "31bc6fb",
+  "base_commit": "13002aa",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
-  "implementation_commit": "d435916",
-  "review_commit": "40b9489",
-  "last_verified_commit": "40b9489",
+  "implementation_commit": "cfe1b2f",
+  "review_commit": "4484a1f",
+  "last_verified_commit": "4484a1f",
   "verification_run_id": "",
   "open_decisions": [],
   "completed_blocks": [
@@ -30,9 +30,10 @@
     "S-06-002",
     "S-06-003",
     "S-06-004",
-    "S-06-005"
+    "S-06-005",
+    "S-06-006"
   ],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: S-06-005 (ExpireSourceScopeChange — the service-only timed expiry behind the ratified source_scope_request_expire ScheduledAction — plus the expiry-wins-at-due_at precedence in Decide/Cancel) ACCEPTED under standing authority (ADR-061). All five ADR-026 lenses returned PASS with zero confirmed-blocking findings, with live exercise: a two-tenant forged-org cross-tenant expiry attack was rejected (target_mismatch, victim row untouched, RLS held); an 8/8 two-connection expire-vs-approve race at exact due_at yielded exactly one outcome, always the expiry; the before-due idempotency-poisoning hazard was empirically disproved (not_due deny is replayable:false). Two coverage tests added (rejection-at-due_at; second-decision-on-expired). Guard widened (migration 20260727120060) to permit pending->expired, preserving every other invariant. Gate: rspec 1320/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (15 checks, RLS intact); migration builds from empty; structure.sql matches. Non-blocking observations recorded (ADR-064): expired-edge decision-fact latitude (pre-existing table-wide design, not a regression, unexploitable); no event (aggregate_type,aggregate_id,aggregate_version) unique index (pre-existing platform). Prior owner follow-ups still open: ADR-063 FU-1 (permission_mode read_only ignored) and FU-2 (assignment-scope containment deferred). Next: S-06-006 (Source lifecycle PRULE-006 — the LAST authorised S-06 sub-tranche), authorised under ADR-061; after it S-06 is exhausted and S-07 requires fresh owner authorisation. main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: S-06-006 (Source lifecycle PRULE-006 — ActivateSource/DisableSource/ReactivateSource/RemoveSource) ACCEPTED under standing authority (ADR-061), CLOSING and EXHAUSTING the S-06 block. All five ADR-026 lenses returned PASS with zero confirmed-blocking findings, with live exercise: all 5 legal edges succeed and all 15 illegal edges raise source_lifecycle_transition_unavailable; a forged-org cross-tenant raw UPDATE affects 0 rows under RLS; 5/5 two-connection concurrent ActivateSource races yield exactly one success; no source-aggregate event-version collision (gaps from scope bumps on a different aggregate, never a reuse). MarketingOperator allow-side coverage test added. Guard widened (migration 20260727120070) to permit exactly verified->active/active->disabled/disabled->active/disabled->removed, every other edge refused, tenant/registration freezes preserved. Gate: rspec 1330/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (15 checks, RLS intact); migration builds from empty; structure.sql matches. Non-blocking observations recorded (ADR-065): pinned-policy is a live reference (correct S-06 design, S-07 note); three pre-existing platform deferrals (ADR-063 FU-1 permission_mode read_only ignored; FU-2 assignment-scope containment deferred; no authority_current? epoch recheck between authorize and commit) confirmed NOT newly widened. STOP CONDITION REACHED: S-06 is complete and exhausted; the S-06 authorisation was limited to S-06. S-07 is NOT authorised and requires fresh owner authorisation (HD-S07-AUTHORISE) before any work — no S-07 scope is inferred or begun. Open owner follow-ups for attention: ADR-063 FU-1 and FU-2 (platform-authorization hardening). main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
 }
