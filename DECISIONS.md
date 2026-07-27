@@ -1596,3 +1596,19 @@ Verification: whole-repo suite 1264 examples / 0 failures; Zeitwerk/Packwerk/Bra
 
 Authority And Precedence:
 Records the review outcome and the applied hardening. Allocated the next unused number after ADR-056. No automatic merge, no push, no production path; the controller stops at human_gate_after (owner acceptance) with S-06-002 at ready_for_review. Do not begin S-06-003 until S-06-002 is accepted.
+
+## ADR-058: S-06-002 Accepted And Merged; S-06-003 Is A Human Gate
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (approved: "S-06-002 — ACCEPTED ... Proceed with the normal acceptance-and-merge sequence"; push authorisation granted only for this S-06-002 acceptance-and-merge) / implementation agent (recorded)
+Reversibility: Fast-forward on the non-protected integration branch `implementation/s01-registration-access` (`6e8413a -> 5127cc8`, incorporating the S-06-002 planning history from `729dbfd`); `main` untouched; pushed to origin per the owner's scoped authorisation. Revertible by branch reset (no history rewritten). No further tranche is authorised.
+
+Decision:
+Accept S-06-002 (the pure Option-B Source Scope Change classifier, `Workflows::Wf004::ScopeChangeClassification`). It classifies a proposed scope change as :contraction | :expansion | :boundary_violation per ADR-054 (Option B): a semantic subset test with PRULE-021 (S-06-001) as the admission oracle over a complete witness set, the query-multiplicity exception, and boundary rejection; fail-closed; boundary violations decided outside the fail-closed rescue so they can never degrade to an approvable expansion. Merge gate re-verified on the merged state: whole-repo suite 1264 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change (no structure.sql drift possible); the tracked tree clean; the branch diff contained only the classifier, its spec and records (no S-06-003+ work pulled forward). Independent review (ADR-026, five separately-invoked adversarial lenses) returned PASS on all five with zero confirmed-blocking findings — the security lens ran ~22,000 fuzzer :contraction verdicts and the contract lens a 3,969-pair brute-force oracle, both finding zero misclassified broadenings. Fast-forward merged into `implementation/s01-registration-access` at `5127cc8`; `S-06-002` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-06-002 -> completed; `S-06-002_COMPLETION_REPORT.md` marked accepted; the merged local tranche branch `tranche/S-06/S-06-002` deleted per repository policy. The integration branch was pushed to origin under the owner's push authorisation scoped to this acceptance; `main` untouched.
+
+Next — Human Gate (HD-S06-003-AUTHORISE):
+S-06-003 (source_scope_change_requests table + ProposeSourceScopeChange creating a pending request + F-04 24h expiry + ledger + idempotency + SourceScopeChangeRequested) remains `human_gate_before`. The controller stops for the owner to authorise it; per the owner's instruction it was NOT begun. The interim (a contraction remains pending until S-06-004) is fail-closed with no provisional alternative activation path. S-06-004..006 remain human_gate_before behind it.
+
+Authority And Precedence:
+Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-057. No automatic merge to the protected branch and no production path; the controller stops at the S-06-003 human gate and does not authorise or begin any subsequent tranche.

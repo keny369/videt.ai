@@ -1,8 +1,11 @@
 # S-06-002 Source Scope Change classifier (Option B, pure) — Completion Report
 
-Status: **READY FOR REVIEW.** Implemented and independently reviewed on the isolated branch
-`tranche/S-06/S-06-002` (base `6e8413a` = the integration tip after the S-06-001 merge; tip `e8b6d60`).
-The protected branch (`main`) and the integration branch are untouched; **nothing is pushed**. The first
+Status: **ACCEPTED AND MERGED** (owner approval, 2026-07-27) — fast-forward merged from
+`tranche/S-06/S-06-002` into the integration branch `implementation/s01-registration-access` at `5127cc8`
+(base `6e8413a`; no merge commit, no history rewrite); added to `BUILD_STATE.completed_blocks` (BUILD_PLAN
+S-06-002 → completed, DECISIONS ADR-058); the integration branch was pushed to origin (push authorisation
+scoped to this acceptance). The protected branch (`main`) is untouched. Implemented and independently
+reviewed on that branch (tip `e8b6d60`). The first
 sub-tranche of the owner's Option-1 three-way decomposition of S-06-002 (ADR-055/056). It is a **pure PORO**
 consuming only S-06-001's merged `SourceScopePredicate` and core Ruby.
 

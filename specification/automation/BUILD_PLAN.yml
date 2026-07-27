@@ -491,7 +491,7 @@ blocks:
   - id: S-06-002
     name: Source Discovery and Scope — Source Scope Change classifier (Option B, pure)
     type: product
-    status: ready_for_review   # 2026-07-27: authorised (ADR-053); Option B (ADR-054); Option-1 decomposition (ADR-056); implemented + all 5 review lenses PASS (ADR-057, 22k fuzzer verdicts, 0 bypass); tip e8b6d60
+    status: completed   # 2026-07-27: owner-accepted and fast-forward merged into implementation/s01-registration-access (5127cc8); DECISIONS ADR-058. Option B (ADR-054); Option-1 decomposition (ADR-056); all 5 review lenses PASS (ADR-057, 22k fuzzer verdicts + 3,969-pair brute-force oracle, 0 bypass)
     depends_on:
       - S-06-001
     authoritative_sources:
