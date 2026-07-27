@@ -619,7 +619,7 @@ blocks:
   - id: S-06-005
     name: Source Discovery and Scope — ExpireSourceScopeChange + SourceScopeChangeExpiryJob
     type: product
-    status: pending
+    status: completed   # 2026-07-27: accepted (standing authority ADR-061); all 5 ADR-026 lenses PASS, zero confirmed-blocking (ADR-064); expiry wins at due_at, live race-proven
     depends_on:
       - S-06-004
     authoritative_sources:
