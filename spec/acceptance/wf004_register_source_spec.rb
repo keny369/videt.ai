@@ -327,14 +327,14 @@ RSpec.describe "WF-004 register source", type: :acceptance,
       expect(source(sid)["state"]).to eq("proposed")
     end
 
-    it "does not verify or activate the Source: it stays proposed with no scope subsystem or verify/activate events" do
-      # S-05-001 adds `verification_requests` (challenge issuance) and S-05-004 adds
-      # `verification_attempts` (observation reservation), but WF-004 registration
-      # never touches them, and the source-set/scope tables and the
-      # SourceVerified/SourceActivated events remain later slices.
-      %w[source_set_versions source_scope_change_requests].each do |t|
-        expect(DbInspector.one("SELECT to_regclass('public.#{t}') AS t")["t"]).to be_nil
-      end
+    it "does not verify or activate the Source: it stays proposed, creates no scope-change request, and emits no verify/activate events" do
+      # S-05-001 adds `verification_requests` (challenge issuance), S-05-004 adds
+      # `verification_attempts` (observation reservation), and S-06-003 adds
+      # `source_scope_change_requests`; WF-004 REGISTRATION touches none of them (a
+      # scope change is the separate ProposeSourceScopeChange command). The source-set
+      # tables and the SourceVerified/SourceActivated events remain later slices.
+      expect(DbInspector.one("SELECT to_regclass('public.source_set_versions') AS t")["t"]).to be_nil
+      expect(DbInspector.count("source_scope_change_requests")).to eq(0)
       expect(DbInspector.count("event_registry")).to be >= 0
       expect(DbInspector.all("SELECT id FROM event_registry WHERE event_type IN ('SourceVerified','SourceActivated')")).to be_empty
     end

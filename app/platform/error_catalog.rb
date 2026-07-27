@@ -214,6 +214,20 @@ module Platform
       "on_demand_limit_reached"           => "F1-DOMAIN-409",
       "on_demand_observation_in_progress" => "F1-DOMAIN-409",
       "on_demand_rate_limited"            => "F1-DOMAIN-409",
+      # S-06-003 ProposeSourceScopeChange (WF-004 / CAP-006, contracts/S-06.json MTX-029
+      # error_contract). Class mapping: request-shape and boundary rejections ->
+      # F1-VALIDATION-400; state/precondition/version conflicts -> F1-DOMAIN-409; permission
+      # -> F1-AUTH-403. `tenant_mismatch`, `idempotency_conflict` and `unsupported_source_scheme`
+      # are reused from above with identical semantics. `cross_host_expansion` is unreachable
+      # via this command (the host is the Source's verified host, never a command input) but
+      # is mapped for completeness.
+      "source_scope_reason_invalid"       => "F1-VALIDATION-400",
+      "source_scope_proposal_invalid"     => "F1-VALIDATION-400",
+      "source_scope_boundary_violation"   => "F1-VALIDATION-400",
+      "cross_host_expansion"              => "F1-VALIDATION-400",
+      "source_not_verified"               => "F1-DOMAIN-409",
+      "stale_active_policy_version"       => "F1-DOMAIN-409",
+      "source_scope_unauthorized"         => "F1-AUTH-403",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the

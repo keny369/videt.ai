@@ -1035,6 +1035,55 @@ $$;
 
 
 --
+-- Name: f1_source_scope_change_requests_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_source_scope_change_requests_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'source_scope_change_request_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id THEN
+    RAISE EXCEPTION 'source_scope_change_request_tenant_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+     OR NEW.requester_account_id IS DISTINCT FROM OLD.requester_account_id
+     OR NEW.expected_active_policy_version IS DISTINCT FROM OLD.expected_active_policy_version
+     OR NEW.current_content_sha256 IS DISTINCT FROM OLD.current_content_sha256
+     OR NEW.proposed_canonical_host IS DISTINCT FROM OLD.proposed_canonical_host
+     OR NEW.proposed_allowed_schemes IS DISTINCT FROM OLD.proposed_allowed_schemes
+     OR NEW.proposed_allowed_ports IS DISTINCT FROM OLD.proposed_allowed_ports
+     OR NEW.proposed_include_prefixes IS DISTINCT FROM OLD.proposed_include_prefixes
+     OR NEW.proposed_exclude_prefixes IS DISTINCT FROM OLD.proposed_exclude_prefixes
+     OR NEW.proposed_query_handling IS DISTINCT FROM OLD.proposed_query_handling
+     OR NEW.proposed_content_sha256 IS DISTINCT FROM OLD.proposed_content_sha256
+     OR NEW.request_reason IS DISTINCT FROM OLD.request_reason
+     OR NEW.requested_at_utc IS DISTINCT FROM OLD.requested_at_utc
+     OR NEW.due_at_utc IS DISTINCT FROM OLD.due_at_utc
+     OR NEW.idempotency_key_digest IS DISTINCT FROM OLD.idempotency_key_digest THEN
+    RAISE EXCEPTION 'source_scope_change_request_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+  IF NOT FALSE THEN
+    RAISE EXCEPTION 'source_scope_change_request_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_source_scope_policies_immutable(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2181,6 +2230,54 @@ CREATE TABLE public.sessions (
 
 
 --
+-- Name: source_scope_change_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_scope_change_requests (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    requester_account_id uuid NOT NULL,
+    expected_active_policy_version text NOT NULL,
+    current_content_sha256 bytea NOT NULL,
+    proposed_canonical_host text NOT NULL,
+    proposed_allowed_schemes text[] NOT NULL,
+    proposed_allowed_ports integer[] NOT NULL,
+    proposed_include_prefixes text[] NOT NULL,
+    proposed_exclude_prefixes text[] DEFAULT '{}'::text[] NOT NULL,
+    proposed_query_handling text NOT NULL,
+    proposed_content_sha256 bytea NOT NULL,
+    request_reason text NOT NULL,
+    requested_at_utc timestamp(6) with time zone NOT NULL,
+    due_at_utc timestamp(6) with time zone NOT NULL,
+    state text DEFAULT 'pending'::text NOT NULL,
+    decision_actor_id uuid,
+    decided_at_utc timestamp(6) with time zone,
+    decision_reason text,
+    activated_policy_version text,
+    terminal_at_utc timestamp(6) with time zone,
+    idempotency_key_digest bytea NOT NULL,
+    CONSTRAINT source_scope_change_requests_current_content_sha256_check CHECK ((octet_length(current_content_sha256) = 32)),
+    CONSTRAINT source_scope_change_requests_idempotency_key_digest_check CHECK ((octet_length(idempotency_key_digest) = 32)),
+    CONSTRAINT source_scope_change_requests_proposed_allowed_ports_check CHECK ((cardinality(proposed_allowed_ports) >= 1)),
+    CONSTRAINT source_scope_change_requests_proposed_allowed_schemes_check CHECK ((cardinality(proposed_allowed_schemes) >= 1)),
+    CONSTRAINT source_scope_change_requests_proposed_content_sha256_check CHECK ((octet_length(proposed_content_sha256) = 32)),
+    CONSTRAINT source_scope_change_requests_proposed_include_prefixes_check CHECK ((cardinality(proposed_include_prefixes) >= 1)),
+    CONSTRAINT source_scope_change_requests_request_reason_check CHECK (((char_length(request_reason) >= 20) AND (char_length(request_reason) <= 2000))),
+    CONSTRAINT source_scope_change_requests_schema_version_check CHECK ((schema_version = 'source-scope-change-request-v1'::text)),
+    CONSTRAINT source_scope_change_requests_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'canceled'::text, 'expired'::text])))
+);
+
+ALTER TABLE ONLY public.source_scope_change_requests FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: source_scope_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2738,6 +2835,22 @@ ALTER TABLE ONLY public.sessions
 
 
 --
+-- Name: source_scope_change_requests source_scope_change_requests_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_change_requests
+    ADD CONSTRAINT source_scope_change_requests_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: source_scope_change_requests source_scope_change_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_change_requests
+    ADD CONSTRAINT source_scope_change_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: source_scope_policies source_scope_policies_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2967,6 +3080,20 @@ CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (l
 
 
 --
+-- Name: source_scope_change_requests_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_scope_change_requests_due ON public.source_scope_change_requests USING btree (due_at_utc) WHERE (state = 'pending'::text);
+
+
+--
+-- Name: source_scope_change_requests_source_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_scope_change_requests_source_state ON public.source_scope_change_requests USING btree (organization_id, source_id, state);
+
+
+--
 -- Name: sources_nonremoved_host_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3034,6 +3161,13 @@ CREATE TRIGGER role_assignments_lifecycle_guard BEFORE UPDATE ON public.role_ass
 --
 
 CREATE TRIGGER scheduled_actions_guard BEFORE UPDATE ON public.scheduled_actions FOR EACH ROW EXECUTE FUNCTION public.f1_scheduled_actions_guard();
+
+
+--
+-- Name: source_scope_change_requests source_scope_change_requests_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER source_scope_change_requests_guard BEFORE DELETE OR UPDATE ON public.source_scope_change_requests FOR EACH ROW EXECUTE FUNCTION public.f1_source_scope_change_requests_guard();
 
 
 --
@@ -3149,6 +3283,14 @@ ALTER TABLE ONLY public.pretenant_authorization_decisions
 
 ALTER TABLE ONLY public.scheduled_actions
     ADD CONSTRAINT scheduled_actions_executing_service_identity_fkey FOREIGN KEY (executing_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: source_scope_change_requests source_scope_change_requests_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_change_requests
+    ADD CONSTRAINT source_scope_change_requests_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -3518,6 +3660,19 @@ CREATE POLICY sessions_context ON public.sessions USING ((organization_id = publ
 
 
 --
+-- Name: source_scope_change_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.source_scope_change_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: source_scope_change_requests source_scope_change_requests_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY source_scope_change_requests_context ON public.source_scope_change_requests USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: source_scope_policies; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3589,6 +3744,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120040'),
 ('20260726120033'),
 ('20260726120032'),
 ('20260726120031'),

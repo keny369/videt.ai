@@ -62,7 +62,18 @@ module Platform
       # allowlist gate applies. The same permission later governs pending-challenge
       # retrieval and cancellation (QRY-021 / CancelVerificationRequest), which are
       # not built in this limb.
-      "source.verify"   => %w[OrganizationAdmin TechnicalImplementer].freeze
+      "source.verify"   => %w[OrganizationAdmin TechnicalImplementer].freeze,
+      # CAP-006 / WF-004 Source Discovery and Scope. `source.scope.propose` governs
+      # proposing a Source Scope Change (WORKFLOW_SPECIFICATIONS.md § Permission Baseline
+      # :144 "`source.register`, `source.scope.propose` | allow | allow | allow | deny |
+      # deny | deny"): allowed to an OrganizationAdmin, MarketingOperator or Technical
+      # Implementer, every other role denies. It is NOT a protected permission (:333 omits
+      # it), so the baseline allow is sufficient and no protected-allowlist gate applies.
+      # It is materialized here for S-06-003 exactly as `source.verify` was for S-05-001;
+      # the later `policy.source_scope.manage` (activation, S-06-004) and
+      # `source.lifecycle.manage` (S-06-006) rows remain deliberately absent until their
+      # slices consume them.
+      "source.scope.propose" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are
