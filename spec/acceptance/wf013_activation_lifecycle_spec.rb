@@ -18,7 +18,7 @@ RSpec.describe "WF-013 invitation activation lifecycle", type: :acceptance,
 
   after { ReceiptMinter.truncate_all }
 
-  def fixed_now = Time.utc(2026, 7, 20, 10, 0, 0)
+  def fixed_now = (@fixed_now ||= (TenantSeeder.db_now - (3 * 24 * 3600)).floor(6))
 
   let(:admin) { TenantSeeder.seed_authorized_admin(issued_at: fixed_now - 900) }
   let(:invitee) do
