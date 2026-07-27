@@ -720,7 +720,7 @@ blocks:
   - id: S-07-001
     name: Crawl Execution — crawl policy (dedicated crawl_policies table) + narrowing activation
     type: product
-    status: pending
+    status: completed   # 2026-07-27: accepted (standing delegation ADR-061); all 5 ADR-026 lenses PASS, zero confirmed-blocking (ADR-070)
     depends_on:
       - S-06
     authoritative_sources:

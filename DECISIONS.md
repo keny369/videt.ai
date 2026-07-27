@@ -1840,3 +1840,26 @@ The entitlement reservation subsystem — `entitlement_counter_windows`, `entitl
 
 Authority And Precedence:
 Ratifies the owner's D2 ruling and resolves BUILD_STATE.open_decisions D2. Allocated the next unused number after ADR-068. F-05 is authorised by this owner decision and proceeds under standing delegation ADR-061 with the same gate + five-lens ADR-026 discipline as F-01..F-04. The provisional S-07 decomposition (ADR-067) is updated: its provisional S-07-002 "entitlement reservation surface" becomes foundation F-05; the remaining S-07 tranches renumber accordingly in BUILD_PLAN.
+
+## ADR-070: S-07-001 (Crawl Policy) Independently Reviewed (All Five Lenses PASS) — Refinements Applied; Accepted
+
+Status: Accepted
+Date: 2026-07-27
+Owner: implementation agent (recorded under standing delegation ADR-061); no owner product ruling required — zero confirmed-blocking findings
+Reversibility: Fast-forward acceptance on the non-protected integration branch; `main` untouched.
+
+Decision:
+Record the independent ADR-026 review of S-07-001 (crawl policy — the dedicated `crawl_policies` table, the frozen crawl-policy-v1 global ceiling, and ActivateCrawlPolicy narrowing activation). Five separately-invoked adversarial lenses (contract, security/tenant, concurrency/atomicity/idempotency, schema/migration, architecture/scope) each returned **PASS with ZERO confirmed-blocking findings**, under heavy live exercise: the contract lens confirmed the twelve crawl-policy-v1 bounds match WORKFLOW:425-438 exactly AND that the strict scope reading (OrganizationAdmin→Organization, MarketingOperator→Project) is FAITHFUL — three converging sources show the Admin cell is a qualified "narrow Organization bounds", unlike `policy.source_scope.manage`'s unqualified superset; the security lens live-proved (as a BYPASSRLS superuser and under a proof-gated org context) that the guard refuses every mutation exploit (DELETE, cross-tenant row-move, content mutation, superseded resurrection), that tenant isolation holds (cross-tenant read → 0 rows; cross-tenant insert → RLS-refused), and that the narrowing check cannot be bypassed (the parent is read from the store, never the command); the concurrency+schema lens live-verified single-transaction atomicity, supersede-before-insert, the version guards under the lock, LostRace rollback, and build-from-empty with zero drift.
+
+Refinements applied in response to non-blocking findings (commit `c5b32f1`), none a behavioural regression:
+1. **Concurrency NB-1:** crawl-policy activations now serialize on a single per-Organization advisory lock (`lock_organization`) instead of a per-(org,scope,project) lock, so an Organization-scope supersession cannot race a Project activation's parent read into a transiently-broader stored Project row (which was already safe — effective bounds are `most_restrictive(global, org, project)` at execution).
+2. **Schema NB-2 (defense-in-depth):** the `crawl_policies` guard now freezes the primary key `id` (a supersession UPDATE cannot re-key a row); unreachable via the handler, closed at the DB backstop. The guard is now `CREATE OR REPLACE`.
+3. **Architecture:** a mis-scoped command is now denied AND AUDITED inside the transaction with a dedicated `crawl_policy_scope_invalid` reason (was an unaudited pre-transaction `crawl_policy_incomplete`); the unused `well_formed?` helper was dropped; a unit spec was added for the load-bearing `most_restrictive` resolver.
+
+Non-blocking observations RECORDED (no fix): inter-version broadening WITHIN a scope is permitted but never weakens the effective envelope (narrowing is defined relative to the resolved parent+global, and effective bounds are a per-dimension MIN across active levels — faithful to WORKFLOW:390/732); the CrawlPolicyActivated payload carries version references, with the numeric bounds in the audit record + policy row; `crawl-policy-{scope}-v{N}` is unique per (org,scope,project) via the index though the label alone does not name the project (cosmetic); and the pre-existing platform gaps FU-1 (permission_mode read_only ignored) and FU-2 (assignment-scope containment) are inherited identically with NO new instance (already backlogged, ADR-066).
+
+S-07-001 acceptance:
+S-07-001 met every mandatory gate (whole-repo suite **1361/0**; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness **31/0**; verify_runtime OK, 15 checks, RLS intact; migration builds from empty; structure.sql matches) and all five ADR-026 lenses returned PASS with zero confirmed-blocking findings. It is therefore ACCEPTED; `S-07-001` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-07-001 → completed; completion report accepted; the integration branch pushed. `main` untouched. Next: S-07-002 (Crawl aggregate + QueueCrawl), then foundation F-05 (before StartCrawl), under standing delegation.
+
+Authority And Precedence:
+Executes the owner's standing-delegation directive (ADR-061) and accepts S-07-001. Allocated the next unused number after ADR-069.
