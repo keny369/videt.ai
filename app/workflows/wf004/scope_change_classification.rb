@@ -50,16 +50,26 @@ module Workflows
       # (source-scope-interim-v1 shape: the verified host, HTTPS, its default port,
       # include "/", no exclude, retain_all).
       def classify(current:, proposed:, boundary:)
+        # The boundary check is intentionally OUTSIDE the fail-closed rescue below: a
+        # boundary violation must hard-reject and must never degrade to an approvable
+        # expansion (independent review, ADR-057). For the documented Policy value-object
+        # inputs it cannot raise; if a malformed non-Policy input made it raise, the error
+        # propagates and the caller rejects, which is more restrictive than an expansion.
         violation = boundary_violation(proposed, boundary)
         return Result.new(classification: :boundary_violation, reason: violation) if violation
 
+        classify_broadening(current, proposed)
+      end
+
+      # The broadening classification, guarded fail-closed (ADR-054): an unexpected error
+      # in the admitted-set or query probes means non-broadening could not be proven, so the
+      # result is an EXPANSION — never a contraction (the sole auto-activating classification).
+      def classify_broadening(current, proposed)
         return expansion("broadens_admitted_set") if admitted_set_broadens?(proposed, current)
         return expansion("broadens_query_multiplicity") if query_multiplicity_broadens?(proposed, current)
 
         Result.new(classification: :contraction, reason: nil)
       rescue StandardError
-        # Fail-closed (ADR-054): inability to prove non-broadening is an expansion. A
-        # boundary violation is decided above and is not masked by this guard.
         expansion("unprovable_fail_closed")
       end
 

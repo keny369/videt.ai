@@ -51,6 +51,12 @@ RSpec.describe Workflows::Wf004::ScopeChangeClassification, type: :model do
       expect(r).to have_attributes(classification: :expansion, reason: "broadens_admitted_set")
     end
 
+    it "narrowing an existing exclude subtree (/private -> /private/admin) is an expansion" do
+      # excluding only /private/admin re-admits the rest of /private, which was denied
+      r = classify(pol(exc: ["/private"]), pol(exc: ["/private/admin"]))
+      expect(r).to have_attributes(classification: :expansion, reason: "broadens_admitted_set")
+    end
+
     it "narrowing a subpath at a boundary (/shop -> /shop/deals) is a contraction" do
       expect(classify(pol(inc: ["/shop"]), pol(inc: ["/shop/deals"]))).to be_contraction
     end
@@ -85,13 +91,18 @@ RSpec.describe Workflows::Wf004::ScopeChangeClassification, type: :model do
       expect(r).to have_attributes(classification: :expansion, reason: "broadens_query_multiplicity")
     end
 
+    it "a superset allowlist ([a,b] -> [a,b,c]) is an expansion" do
+      r = classify(pol(q: ["a", "b"]), pol(q: ["a", "b", "c"]))
+      expect(r).to have_attributes(classification: :expansion, reason: "broadens_query_multiplicity")
+    end
+
     it "retain_all -> retain_all is a contraction (no multiplicity change)" do
       expect(classify(pol(q: "retain_all"), pol(q: "retain_all"))).to be_contraction
     end
 
-    it "a path narrowing combined with a query widening is an expansion" do
+    it "a path narrowing combined with a query widening is an expansion (query exception wins)" do
       r = classify(pol(inc: ["/"], q: ["a"]), pol(inc: ["/shop"], q: "retain_all"))
-      expect(r.classification).to eq(:expansion)
+      expect(r).to have_attributes(classification: :expansion, reason: "broadens_query_multiplicity")
     end
   end
 
@@ -113,7 +124,7 @@ RSpec.describe Workflows::Wf004::ScopeChangeClassification, type: :model do
 
     it "a boundary violation is decided even when the path would otherwise narrow" do
       r = classify(pol(inc: ["/"]), pol(inc: ["/shop"], host: "other.example"))
-      expect(r.classification).to eq(:boundary_violation)
+      expect(r).to have_attributes(classification: :boundary_violation, reason: "cross_host_expansion")
     end
   end
 
