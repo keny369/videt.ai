@@ -578,7 +578,7 @@ blocks:
   - id: S-06-004
     name: Source Discovery and Scope — atomic contraction activation + Decide + Cancel
     type: product
-    status: pending
+    status: completed   # 2026-07-27: accepted (standing authority ADR-061) and fast-forward merged into implementation/s01-registration-access; all 5 ADR-026 lenses PASS, zero confirmed-blocking, refinements applied (ADR-063)
     depends_on:
       - S-06-003
     authoritative_sources:

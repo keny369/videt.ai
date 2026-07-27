@@ -2,15 +2,15 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-06",
-  "current_tranche": "S-06-004",
-  "status": "implementing",
+  "current_tranche": "S-06-005",
+  "status": "authorized",
   "attempt_number": 1,
   "base_commit": "d187410",
   "worktree_path": "",
-  "branch_name": "tranche/S-06/S-06-004",
-  "implementation_commit": null,
-  "review_commit": null,
-  "last_verified_commit": "b76e16b",
+  "branch_name": "implementation/s01-registration-access",
+  "implementation_commit": "67e6a2d",
+  "review_commit": "4bf4487",
+  "last_verified_commit": "4bf4487",
   "verification_run_id": "",
   "open_decisions": [],
   "completed_blocks": [
@@ -28,9 +28,10 @@
     "S-05-007",
     "S-06-001",
     "S-06-002",
-    "S-06-003"
+    "S-06-003",
+    "S-06-004"
   ],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: Implementing S-06-004 (atomic contraction activation + Decide + Cancel) on tranche/S-06/S-06-004 under standing authority (ADR-061). Groundwork (1/n) committed: the source_scope_change_requests guard relaxed for the decision edges pending->approved/rejected/canceled (terminal rows fully immutable; pending->expired still refused, S-06-005), runtime grant extended to UPDATE, and policy.source_scope.manage materialized into permission-baseline-v1 (WORKFLOW_SPECIFICATIONS.md :172, ratified data addition). Migration applied to dev+test; verify_runtime OK; no structure.sql drift beyond the migration. The Decide/Cancel handlers, the atomic-contraction Propose fast-path, the shared policy-version-activation commit, the events and the acceptance specs follow. main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: S-06-004 (atomic contraction activation + Decide + Cancel + the ProposeSourceScopeChange fast-path) ACCEPTED and fast-forward merged into implementation/s01-registration-access under standing authority (ADR-061). All five ADR-026 lenses returned PASS with zero confirmed-blocking findings; the non-blocking refinements were applied (guard hardening migration 20260727120051 forbidding pending->pending decision-fact mutation; Propose fast-path re-reads the Source under the per-Source lock; fast-path audit records its terminal state; corrected an inaccurate permission-baseline scope comment; added the OrganizationAdmin-own-expansion TYP-SEC test). Gate: rspec 1309/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (15 checks, RLS intact); both S-06-004 migrations build from empty; structure.sql matches. Two systemic non-blocking findings recorded as owner follow-ups (ADR-063 FU-1: permission_mode read_only is ignored for write capabilities; FU-2: assignment-scope GrantScope containment is not enforced for the resource capabilities) — both PRE-EXISTING in the platform CommandAuthorizer, not S-06-004 defects. Next: S-06-005 (Expire + expiry job), authorised under ADR-061. S-07 is NOT authorised and requires fresh owner authorisation after S-06 is exhausted. main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
 }
