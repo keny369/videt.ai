@@ -241,6 +241,12 @@ module Platform
       # cancellation (contracts/S-06.json MTX-029 concurrency), so Decide/Cancel refuse a
       # still-pending-but-due request with this terminal reason.
       "source_scope_request_expired"      => "F1-DOMAIN-409",
+      # S-06-006 Source lifecycle (PRULE-006 / contracts/S-06.json MTX-057): an unlisted or
+      # stale transition is denied AND audited; authority is source.lifecycle.manage (Admin or
+      # Marketing only). `stale_state_version` is reused from above for a stale Source version.
+      "source_lifecycle_transition_invalid" => "F1-DOMAIN-409",
+      "source_lifecycle_unauthorized"     => "F1-AUTH-403",
+      "source_lifecycle_reason_invalid"   => "F1-VALIDATION-400",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the

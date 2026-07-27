@@ -70,9 +70,8 @@ module Platform
       # Implementer, every other role denies. It is NOT a protected permission (:333 omits
       # it), so the baseline allow is sufficient and no protected-allowlist gate applies.
       # It is materialized here for S-06-003 exactly as `source.verify` was for S-05-001;
-      # the later `policy.source_scope.manage` (activation, S-06-004) and
-      # `source.lifecycle.manage` (S-06-006) rows remain deliberately absent until their
-      # slices consume them.
+      # `policy.source_scope.manage` (activation, S-06-004) and `source.lifecycle.manage`
+      # (lifecycle, S-06-006) are materialized below as their slices consume them.
       "source.scope.propose" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
       # CAP-006 / WF-004 Source Scope policy activation. `policy.source_scope.manage`
       # governs activating a Source Scope Policy version — the atomic contraction fast-path
@@ -89,7 +88,15 @@ module Platform
       # `project.create`); the WF-004 handlers gate only Organization membership + the
       # dual-control rule. Recorded as a cross-cutting follow-up (DECISIONS ADR-063). Only an
       # OrganizationAdmin may approve or reject an EXPANSION (dual control lives in the handler).
-      "policy.source_scope.manage" => %w[OrganizationAdmin MarketingOperator].freeze
+      "policy.source_scope.manage" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # CAP-006 / WF-004 Source lifecycle transitions (PRULE-006): ActivateSource,
+      # DisableSource, ReactivateSource, RemoveSource (WORKFLOW_SPECIFICATIONS.md § Permission
+      # Baseline :145 "`source.lifecycle.manage` | allow | allow | deny | deny | deny | deny"):
+      # allowed to an OrganizationAdmin or a MarketingOperator only; a TechnicalImplementer
+      # cannot mutate lifecycle regardless of other permissions (S-06.json MTX-057). NOT a
+      # protected permission (:333 omits it). Materialized here for S-06-006. The scope-limb
+      # deferral recorded for policy.source_scope.manage (ADR-063 FU-2) applies identically.
+      "source.lifecycle.manage" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

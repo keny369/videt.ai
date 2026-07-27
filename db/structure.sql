@@ -1133,9 +1133,13 @@ BEGIN
   END IF;
 
   IF NEW.state IS DISTINCT FROM OLD.state THEN
-  -- S-05-006 relaxes exactly the proposed -> verified edge (matched success
-  -- commit); the S-06 verified -> active/disabled/removed edges remain refused.
-  IF NOT (OLD.state = 'proposed' AND NEW.state = 'verified') THEN
+  -- S-06-006 permits the four PRULE-006 lifecycle edges in addition to the S-05-006
+  -- proposed -> verified edge; every other transition is refused and audited by the caller.
+  IF NOT ((OLD.state = 'proposed' AND NEW.state = 'verified')
+OR (OLD.state = 'verified' AND NEW.state = 'active')
+OR (OLD.state = 'active'   AND NEW.state = 'disabled')
+OR (OLD.state = 'disabled' AND NEW.state = 'active')
+OR (OLD.state = 'disabled' AND NEW.state = 'removed')) THEN
     RAISE EXCEPTION 'source_lifecycle_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
@@ -3751,6 +3755,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120070'),
 ('20260727120060'),
 ('20260727120051'),
 ('20260727120050'),
