@@ -1652,3 +1652,28 @@ Verification: whole-repo suite 1286 examples / 0 failures; Zeitwerk/Packwerk/Bra
 
 Authority And Precedence:
 Records the review outcome. Allocated the next unused number after ADR-059. No automatic merge, no push, no production path; the controller stops at human_gate_after (owner acceptance) with S-06-003 at ready_for_review. Do not begin S-06-004 until S-06-003 is accepted.
+
+## ADR-061: Standing Execution Authority Delegated; S-06-003 Accepted And Merged; Objective Gates Are Acceptance
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (directed: "Proceed under repository governance. From this point forward you have standing authority to: implement the authorised tranche; perform all verification; conduct the ADR-026 independent review; accept the tranche when every mandatory gate passes; fast-forward merge; update BUILD_STATE, BUILD_PLAN, ADRs and completion records; push the integration branch. Do not stop for routine acceptance or merge.") / implementation agent (recorded)
+Reversibility: Governance-model change plus one fast-forward acceptance on the non-protected integration branch; `main` untouched. The delegation is revocable by a later owner instruction.
+
+Decision (standing delegation):
+Within an owner-AUTHORISED block, the controller now carries standing authority to run each authorised sub-tranche end to end — implement, verify, conduct the ADR-026 five-lens independent review, ACCEPT when every mandatory gate passes with zero confirmed-blocking findings, fast-forward merge into the integration branch, update BUILD_STATE / BUILD_PLAN / ADRs / completion records, and push the integration branch — without stopping for routine acceptance or merge. The objective verification suite plus the independent review ARE the acceptance mechanism. `main` remains untouched; no force-push; no history rewrite; no production path.
+
+Stop conditions (return to the owner ONLY for):
+1. a genuine repository ambiguity with two materially different valid interpretations affecting behaviour or security;
+2. a contract or scope change requiring owner approval;
+3. a mandatory verification gate failing or a repository invariant that cannot be satisfied;
+or when the current authorised work is exhausted and the next block requires fresh authorisation.
+
+Human-gate model (applied going forward):
+`human_gate_before` is set only where a real owner decision is required (new block, decomposition, contract ambiguity); `human_gate_after` is reserved for a gate failure or an acceptance criterion that cannot be objectively satisfied. The remaining authorised S-06 sub-tranches (S-06-004 atomic contraction activation + Decide + Cancel; S-06-005 Expire; S-06-006 Source lifecycle) have their `human_gate_before`/`human_gate_after` set to false under this delegation and proceed under standing authority. S-07 is NOT authorised (the S-06 authorisation was limited to S-06) and requires fresh owner authorisation after S-06 is exhausted.
+
+S-06-003 acceptance:
+S-06-003 (source_scope_change_requests + ProposeSourceScopeChange, pending path) met every mandatory gate (whole-repo suite 1286/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK; migration builds from empty; no structure.sql drift) and all five ADR-026 lenses returned PASS with zero confirmed-blocking findings (ADR-060). It is therefore ACCEPTED and fast-forward merged into `implementation/s01-registration-access` at `b76e16b`; `S-06-003` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-06-003 -> completed; completion report accepted. The merged local tranche branch is deleted per policy; the integration branch is pushed. `main` untouched.
+
+Authority And Precedence:
+Executes the owner's standing-authority directive and accepts S-06-003. Allocated the next unused number after ADR-060. Supersedes the prior per-tranche human_gate_after acceptance requirement for the remaining authorised S-06 sub-tranches. No production path.

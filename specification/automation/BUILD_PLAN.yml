@@ -534,7 +534,7 @@ blocks:
   - id: S-06-003
     name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange (pending)
     type: product
-    status: ready_for_review   # 2026-07-27: authorised (ADR-059); implemented + all 5 review lenses PASS, zero confirmed-blocking (ADR-060); tip b94b0f0
+    status: completed   # 2026-07-27: owner-accepted (standing authority, ADR-061) and fast-forward merged into implementation/s01-registration-access (b76e16b); all 5 review lenses PASS, zero confirmed-blocking (ADR-060)
     depends_on:
       - S-06-002
     authoritative_sources:
@@ -566,8 +566,8 @@ blocks:
       - runtime_role_and_rls
       - architecture_fitness
       - repository_security
-    human_gate_before: true
-    human_gate_after: true
+    human_gate_before: false   # cleared/delegated under owner standing authority (ADR-061); no owner decision required to run
+    human_gate_after: false    # objective mandatory gates + the ADR-026 five-lens review are the acceptance mechanism (ADR-061)
     risk_level: high
     allowed_foundation_dependencies:
       - F-02
@@ -608,8 +608,8 @@ blocks:
       - runtime_role_and_rls
       - architecture_fitness
       - repository_security
-    human_gate_before: true
-    human_gate_after: true
+    human_gate_before: false   # cleared/delegated under owner standing authority (ADR-061); no owner decision required to run
+    human_gate_after: false    # objective mandatory gates + the ADR-026 five-lens review are the acceptance mechanism (ADR-061)
     risk_level: high
     allowed_foundation_dependencies:
       - F-04
@@ -640,8 +640,8 @@ blocks:
       - background_execution
       - migration_safety_no_drift
       - architecture_fitness
-    human_gate_before: true
-    human_gate_after: true
+    human_gate_before: false   # cleared/delegated under owner standing authority (ADR-061); no owner decision required to run
+    human_gate_after: false    # objective mandatory gates + the ADR-026 five-lens review are the acceptance mechanism (ADR-061)
     risk_level: high
     allowed_foundation_dependencies:
       - F-04
@@ -676,8 +676,8 @@ blocks:
       - runtime_role_and_rls
       - architecture_fitness
       - repository_security
-    human_gate_before: true
-    human_gate_after: true
+    human_gate_before: false   # cleared/delegated under owner standing authority (ADR-061); no owner decision required to run
+    human_gate_after: false    # objective mandatory gates + the ADR-026 five-lens review are the acceptance mechanism (ADR-061)
     risk_level: high
     allowed_foundation_dependencies:
       - F-03

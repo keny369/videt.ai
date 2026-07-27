@@ -6,6 +6,12 @@ This policy defines what the autonomous build controller may decide, what it mus
 
 The repository, frozen contracts, Decision Ledger, architecture records, and approved build plan are authoritative. Conversational memory is not authoritative state.
 
+## Standing execution authority (DECISIONS ADR-061)
+
+Within an owner-AUTHORISED block, the controller runs each authorised sub-tranche end to end — implement, verify, conduct the ADR-026 five-lens independent review, ACCEPT when every mandatory gate passes with zero confirmed-blocking findings, fast-forward merge into the integration branch, update BUILD_STATE / BUILD_PLAN / ADRs / completion records, and push the integration branch — without stopping for routine acceptance or merge. The objective verification suite plus the independent review ARE the acceptance mechanism. `main` remains untouched; no force-push; no history rewrite; no production path.
+
+`human_gate_before` is set only where a real owner decision is required (a new block, a decomposition, or a genuine contract ambiguity). `human_gate_after` is reserved for a mandatory-gate failure or an acceptance criterion that cannot be objectively satisfied. The controller returns to the owner ONLY for: (1) a genuine repository ambiguity with two materially different valid interpretations affecting behaviour or security; (2) a contract or scope change requiring owner approval; (3) a mandatory verification gate failing or a repository invariant that cannot be satisfied; or when the current authorised block is exhausted and the next requires fresh authorisation.
+
 ## Decision classes
 
 Every decision made by the controller or an invoked agent must be classified as one of:

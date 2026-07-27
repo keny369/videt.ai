@@ -1,9 +1,11 @@
 # S-06-003 source_scope_change_requests + ProposeSourceScopeChange (pending) — Completion Report
 
-Status: **READY FOR REVIEW.** Implemented and independently reviewed on the isolated branch
-`tranche/S-06/S-06-003` (base `4d3773f` = the integration tip after the S-06-002 merge; implementation
-commit `b94b0f0`, plus a records commit). The protected branch (`main`) and the integration branch are
-untouched; **nothing is pushed**. The second sub-tranche of the owner's Option-1 decomposition of S-06.
+Status: **ACCEPTED AND MERGED** (under owner standing authority, 2026-07-27, DECISIONS ADR-061) —
+fast-forward merged from `tranche/S-06/S-06-003` into `implementation/s01-registration-access` at `b76e16b`
+(no merge commit, no history rewrite); added to `BUILD_STATE.completed_blocks` (BUILD_PLAN S-06-003 →
+completed); the integration branch pushed. The protected branch (`main`) is untouched. Implemented and
+independently reviewed on that branch (implementation commit `b94b0f0`). The second sub-tranche of the
+owner's Option-1 decomposition of S-06.
 
 All five independent ADR-026 lenses returned **PASS** with **zero confirmed-blocking findings** (ADR-060).
 
