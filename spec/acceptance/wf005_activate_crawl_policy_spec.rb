@@ -207,5 +207,14 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
       result = activate(session: g[:session_id], org: SecureRandom.uuid_v7, scope: "organization", bounds: bounds)
       expect(result.failure.reason_code).to eq("tenant_mismatch")
     end
+
+    it "refuses (and audits) a scope/project_id mismatch as crawl_policy_scope_invalid" do
+      g = bootstrap
+      result = activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                        project_id: g[:project_id], bounds: bounds)
+      expect(result.failure.reason_code).to eq("crawl_policy_scope_invalid")
+      audited = DbInspector.all("SELECT id FROM audit_record_registry WHERE reason_code='crawl_policy_scope_invalid' AND outcome='failure'")
+      expect(audited).not_to be_empty
+    end
   end
 end

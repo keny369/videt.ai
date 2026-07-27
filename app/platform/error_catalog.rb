@@ -252,6 +252,7 @@ module Platform
       # F1-VALIDATION-400; stale expected version / resolver unavailable -> F1-DOMAIN-409;
       # authority/scope -> F1-AUTH-403. `idempotency_conflict` reused from above.
       "crawl_policy_unauthorized"         => "F1-AUTH-403",
+      "crawl_policy_scope_invalid"        => "F1-VALIDATION-400",
       "crawl_policy_incomplete"           => "F1-VALIDATION-400",
       "crawl_policy_soft_exceeds_hard"    => "F1-VALIDATION-400",
       "crawl_policy_not_narrowing"        => "F1-VALIDATION-400",

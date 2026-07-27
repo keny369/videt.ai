@@ -16,11 +16,13 @@ module IdentityAccess
         @pg = pg_connection
       end
 
-      # Serialize concurrent activations for one (Organization, scope, Project) so exactly one
-      # new active version wins; the loser's expected-version guard then fails cleanly.
-      def lock_scope(organization_id, scope, project_id)
-        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-             ["crawl-policy:#{organization_id}:#{scope}:#{project_id}"])
+      # Serialize ALL crawl-policy activations for one Organization (organization AND project
+      # scope) so a project activation cannot race an Organization-scope supersession of its
+      # parent, and exactly one new version per scope wins; the loser's expected-version guard
+      # then fails cleanly. Crawl-policy activation is a rare administrative operation, so a
+      # single per-Organization lock is ample and avoids the cross-scope race (ADR-026 NB-1).
+      def lock_organization(organization_id)
+        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["crawl-policy:#{organization_id}"])
       end
 
       # The current active crawl policy version for the scope, or nil (project_id NULL for

@@ -64,8 +64,6 @@ module Workflows
         DIMENSIONS.all? { |d| bounds[d]["soft"] <= bounds[d]["hard"] }
       end
 
-      def well_formed?(bounds) = complete?(bounds) && soft_le_hard?(bounds)
-
       # True iff `bounds` is at or below `parent` on every dimension, both soft and hard
       # (narrowing-only; lower is more restrictive). Assumes both are well-formed.
       def narrows?(bounds, parent)

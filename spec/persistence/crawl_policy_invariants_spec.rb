@@ -52,11 +52,14 @@ RSpec.describe "crawl_policies invariants", type: :model do
         .not_to raise_error
     end
 
-    it "refuses a content mutation on an active row" do
+    it "refuses a content mutation on an active row (including the primary key)" do
       p = insert_active
       expect { conn.exec_params("UPDATE crawl_policies SET normalized_bounds='{}'::jsonb WHERE id=$1::uuid", [p[:id]]) }
         .to raise_error(PG::RaiseException, /crawl_policy_facts_immutable/)
       expect { conn.exec_params("UPDATE crawl_policies SET policy_version='x' WHERE id=$1::uuid", [p[:id]]) }
+        .to raise_error(PG::RaiseException, /crawl_policy_facts_immutable/)
+      # ADR-026 NB-2 hardening: id is frozen too (a supersession UPDATE cannot re-key the row).
+      expect { conn.exec_params("UPDATE crawl_policies SET id=gen_random_uuid(), state='superseded', superseded_at=now() WHERE id=$1::uuid", [p[:id]]) }
         .to raise_error(PG::RaiseException, /crawl_policy_facts_immutable/)
     end
 

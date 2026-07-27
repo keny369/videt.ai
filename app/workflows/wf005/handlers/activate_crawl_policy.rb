@@ -29,7 +29,6 @@ module Workflows
         def call(command:, request_context:)
           ctx = request_context
           return schema_failure(command, ctx) unless supported_schema?(command.schema_version)
-          return in_memory_failure(command, ctx, "crawl_policy_incomplete") unless valid_scope_shape?(command)
 
           Platform::UnitOfWork.run do |conn|
             pg = conn.raw_connection
@@ -56,6 +55,7 @@ module Workflows
           now = d[:now]
 
           return denied(d, "tenant_mismatch") unless command.organization_id == actor.organization_id
+          return denied(d, "crawl_policy_scope_invalid") unless valid_scope_shape?(command)
 
           decision = auth.authorize(actor:, capability: CAPABILITY, now:)
           d = d.merge(decision:)
@@ -68,7 +68,7 @@ module Workflows
           return denied(d, "crawl_policy_soft_exceeds_hard") unless CrawlPolicy.soft_le_hard?(command.proposed_bounds)
           return denied(d, "crawl_policy_unavailable") unless command.expected_global_version == CrawlPolicy::GLOBAL_VERSION
 
-          store.lock_scope(d[:org], command.scope, command.project_id)
+          store.lock_organization(d[:org])
 
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           existing = store.find_idempotency(org: d[:org], command_type: command.command_type,

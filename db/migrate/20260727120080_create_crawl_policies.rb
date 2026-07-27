@@ -83,7 +83,7 @@ class CreateCrawlPolicies < ActiveRecord::Migration[8.1]
   # frozen, a superseded row is terminal, and DELETE is refused.
   def create_lifecycle_guard
     execute <<~SQL
-      CREATE FUNCTION f1_crawl_policies_guard() RETURNS trigger
+      CREATE OR REPLACE FUNCTION f1_crawl_policies_guard() RETURNS trigger
       LANGUAGE plpgsql SET search_path = pg_catalog, public
       AS $$
       BEGIN
@@ -96,7 +96,8 @@ class CreateCrawlPolicies < ActiveRecord::Migration[8.1]
           RAISE EXCEPTION 'crawl_policy_immutable' USING ERRCODE = 'raise_exception';
         END IF;
 
-        IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+        IF NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
            OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
            OR NEW.project_id IS DISTINCT FROM OLD.project_id
            OR NEW.scope IS DISTINCT FROM OLD.scope

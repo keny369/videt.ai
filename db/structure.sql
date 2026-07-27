@@ -231,7 +231,8 @@ BEGIN
     RAISE EXCEPTION 'crawl_policy_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
      OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
      OR NEW.scope IS DISTINCT FROM OLD.scope
