@@ -1612,3 +1612,23 @@ S-06-003 (source_scope_change_requests table + ProposeSourceScopeChange creating
 
 Authority And Precedence:
 Executes the owner's accept-and-merge instruction. Allocated the next unused number after ADR-057. No automatic merge to the protected branch and no production path; the controller stops at the S-06-003 human gate and does not authorise or begin any subsequent tranche.
+
+## ADR-059: S-06-003 Authorised (ProposeSourceScopeChange, pending path); HD-S06-003-AUTHORISE Resolved
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (resolved HD-S06-003-AUTHORISE: "Authorize S-06-003 — source_scope_change_requests table + ProposeSourceScopeChange pending path, according to the approved Option-1 decomposition and the authoritative repository contracts") / implementation agent (recorded)
+Reversibility: Implemented on the isolated branch `tranche/S-06/S-06-003`; nothing merged or pushed; `main` untouched.
+
+Decision:
+S-06-003 is authorised and implementation begins on `tranche/S-06/S-06-003` (base `4d3773f`). Scope (owner instruction + MTX-029 propose path + WORKFLOW_SPECIFICATIONS.md § Source Scope Change Contract :414): the `source_scope_change_requests` aggregate table with constraints/indexes/RLS and terminal-row immutability; `Workflows::Wf004::ProposeSourceScopeChange` creating a PENDING request; normalization + canonical content hashing of the proposed rules; idempotency + `idempotency_conflict`; the 24h F-04 expiry scheduling obligation (`source_scope_request_expire`, already in the ratified catalogue, mapping to the later `ExpireSourceScopeChange`); the required ledger + `SourceScopeChangeRequested` event; authoritative permissions, tenant isolation, concurrency and failure semantics.
+
+Repository-first pins (no owner-decision blocker found):
+- Permission `source.scope.propose` (allow: OrganizationAdmin, MarketingOperator, TechnicalImplementer; not protected) is a ratified Permission Baseline row (WORKFLOW_SPECIFICATIONS.md :144) materialized into `Platform::PermissionBaseline` for this slice — the same data-addition pattern by which S-05-001 materialized `source.verify` (no version or evaluator change).
+- The classifier `Workflows::Wf004::ScopeChangeClassification` (S-06-002, merged) is consumed to reject boundary violations; the contraction/expansion distinction is not acted on in this tranche (a contraction remains PENDING — the fail-closed interim; atomic activation is S-06-004).
+- The ledger reuses `Workflows::Wf004::SourceLedger`; expiry scheduling mirrors `VerificationRequestExpirySchedule` on the ratified `source_scope_request_expire` kind.
+
+Out of scope (later tranches): atomic contraction activation, approval, cancellation and expiry execution (S-06-004/005), except a minimal seam if strictly required by the contract. No provisional alternative activation path.
+
+Authority And Precedence:
+Executes the owner's S-06-003 authorisation. Allocated the next unused number after ADR-058. No automatic merge, no push, no production path; the controller returns at the normal completed-tranche review gate.

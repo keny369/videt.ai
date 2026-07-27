@@ -2,32 +2,19 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-06",
-  "current_tranche": "",
-  "status": "human_decision_required",
-  "attempt_number": 0,
-  "base_commit": "5127cc8",
+  "current_tranche": "S-06-003",
+  "status": "implementing",
+  "attempt_number": 1,
+  "base_commit": "4d3773f",
   "worktree_path": "",
-  "branch_name": "implementation/s01-registration-access",
+  "branch_name": "tranche/S-06/S-06-003",
   "implementation_commit": null,
   "review_commit": null,
-  "last_verified_commit": "5127cc8",
+  "last_verified_commit": "4d3773f",
   "verification_run_id": "",
-  "open_decisions": [
-    {
-      "decision_id": "HD-S06-003-AUTHORISE",
-      "block": "S-06",
-      "tranche": "S-06-003",
-      "question": "S-06-002 (the pure Option-B Source Scope Change classifier) is accepted and merged. The next S-06 sub-tranche, S-06-003 (source_scope_change_requests table + ProposeSourceScopeChange creating a PENDING request + F-04 24h expiry + ledger + idempotency + SourceScopeChangeRequested), remains human_gate_before. Authorise S-06-003, or hold. The controller does not begin a human_gate_before tranche without owner authorisation.",
-      "recommended_option": "Owner authorises S-06-003 in BUILD_PLAN (clears its human_gate_before); the controller then plans the smallest reviewable tranche under the mandate. Interim reminder: a contraction remains pending here (fail-closed; no alternative activation path), resolved by S-06-004.",
-      "options": [
-        "Authorise S-06-003 in BUILD_PLAN (clear its human_gate_before)",
-        "Hold pending other owner-directed work"
-      ],
-      "related": "S-06-002 is in completed_blocks (DECISIONS ADR-058, owner acceptance-and-merge). S-06-004..006 remain human_gate_before behind S-06-003. No S-06-003 work has begun."
-    }
-  ],
+  "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007", "S-06-001", "S-06-002"],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: S-06-002 (the pure Option-B Source Scope Change classifier, ScopeChangeClassification) ACCEPTED by the owner and fast-forward merged into implementation/s01-registration-access at 5127cc8 (base 6e8413a incorporating the S-06-002 planning/governance history; no merge commit, no history rewrite); added to completed_blocks (BUILD_PLAN S-06-002 -> completed, DECISIONS ADR-058). Merge gate re-verified on the merged state: whole-repo suite 1264 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change (no structure.sql drift possible). Independent review (ADR-026, five separately-invoked adversarial lenses) returned PASS on all five with zero confirmed-blocking findings (security lens ~22,000 fuzzer verdicts + contract lens 3,969-pair brute-force oracle, no misclassification bypass; witness-set complete). The merged local tranche branch tranche/S-06/S-06-002 is deleted per repository policy. The integration branch was pushed to origin (owner push authorisation scoped to this S-06-002 acceptance-and-merge). Protected branch (main) untouched at e22deed. S-06-003 (source_scope_change_requests + ProposeSourceScopeChange pending) remains human_gate_before: the controller stops at HD-S06-003-AUTHORISE for the owner to authorise it; per owner instruction, no S-06-003 work was begun. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: The owner resolved HD-S06-003-AUTHORISE and authorised S-06-003 (source_scope_change_requests table + ProposeSourceScopeChange pending path; DECISIONS ADR-059). Implementing on tranche/S-06/S-06-003 (base 4d3773f). Repository-first pins: the table follows POSTGRESQL_SCHEMA.md :289 + WORKFLOW_SPECIFICATIONS.md § Source Scope Change Contract :414 (RLS, terminal-row immutability, state CHECK pending/approved/rejected/canceled/expired); ProposeSourceScopeChange creates a PENDING request, consuming the merged S-06-002 classifier to reject boundary violations (a contraction remains pending here — the fail-closed interim; atomic activation is S-06-004); the source.scope.propose permission (allow OrganizationAdmin/MarketingOperator/TechnicalImplementer, WORKFLOW_SPECIFICATIONS.md :144, not protected) is materialized into permission-baseline-v1 as a ratified data addition (the S-05-001 source.verify pattern); the 24h expiry is scheduled through F-04 on the ratified source_scope_request_expire kind (execution is S-06-005); the ledger reuses Workflows::Wf004::SourceLedger; the SourceScopeChangeRequested event and idempotency/content-hash/reason-length semantics follow :414/MTX-029. Out of scope: atomic contraction activation, approval, cancellation, expiry execution (S-06-004/005). main untouched at e22deed; nothing pushed; S-06-004..006 remain human_gate_before; do not begin S-06-004. This file and the repository are authoritative, not conversational memory."
 }
