@@ -42,4 +42,11 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf003::Handlers::ObserveAutomatedSlot,
     command: Workflows::Wf003::Commands::ObserveAutomatedSlot
   )
+  registry.register(
+    action_kind: "source_scope_request_expire",
+    action_schema_version: "1.0",
+    operation: "ExpireSourceScopeChange",
+    handler: Workflows::Wf004::Handlers::ExpireSourceScopeChange,
+    command: Workflows::Wf004::Commands::ExpireSourceScopeChange
+  )
 end

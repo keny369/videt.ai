@@ -237,6 +237,10 @@ module Platform
       "source_scope_decision_invalid"     => "F1-VALIDATION-400",
       "source_scope_decision_unauthorized" => "F1-AUTH-403",
       "source_scope_cancel_unauthorized"  => "F1-AUTH-403",
+      # S-06-005: at or after due_at_utc the expiry transition wins over a decision or
+      # cancellation (contracts/S-06.json MTX-029 concurrency), so Decide/Cancel refuse a
+      # still-pending-but-due request with this terminal reason.
+      "source_scope_request_expired"      => "F1-DOMAIN-409",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the

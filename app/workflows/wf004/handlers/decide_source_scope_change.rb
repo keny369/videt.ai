@@ -92,6 +92,8 @@ module Workflows
           request = store.read_request(command.request_id)
           return denied(d, "source_scope_request_not_pending") unless request["state"] == "pending"
           return denied(d, "stale_request_version") unless request["state_version"].to_i == command.expected_request_state_version
+          # At or after due_at the expiry transition wins over a decision (MTX-029 concurrency).
+          return denied(d, "source_scope_request_expired") if expiry_due?(request, now)
 
           source = store.source(request["source_id"])
           active = store.active_scope_policy(source && source["current_scope_policy_id"])
@@ -277,6 +279,12 @@ module Workflows
         end
 
         def supported_schema?(version) = version.to_s.split(".").first == SUPPORTED_SCHEMA_MAJOR
+
+        # True once the request is at or past its expiry instant: expiry wins over a decision.
+        def expiry_due?(request, now)
+          due = request["due_at_utc"]
+          due && now >= (due.respond_to?(:getutc) ? due.getutc : Time.parse(due).getutc)
+        end
 
         def pg_array(literal)
           return literal if literal.is_a?(::Array)

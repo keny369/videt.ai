@@ -110,18 +110,12 @@ RSpec.describe "Source scope change request invariants", type: :model do
   end
 
   describe "terminal-row immutability and refused transitions" do
-    it "permits the S-06-004 decision edges (pending -> approved/rejected/canceled)" do
-      %w[approved rejected canceled].each do |to|
+    it "permits the terminal edges pending -> approved/rejected/canceled (S-06-004) and expired (S-06-005)" do
+      %w[approved rejected canceled expired].each do |to|
         rid = insert_request
         expect { conn.exec_params("UPDATE source_scope_change_requests SET state = $2 WHERE id = $1::uuid", [rid, to]) }
           .not_to raise_error
       end
-    end
-
-    it "still refuses the pending -> expired edge (S-06-005) and any other transition" do
-      id = insert_request
-      expect { conn.exec_params("UPDATE source_scope_change_requests SET state = 'expired' WHERE id = $1::uuid", [id]) }
-        .to raise_error(PG::RaiseException, /source_scope_change_request_transition_unavailable/)
     end
 
     it "refuses a pending -> pending UPDATE that mutates decision facts (ADR-063 hardening)" do

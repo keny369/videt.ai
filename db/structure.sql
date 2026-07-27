@@ -1078,9 +1078,9 @@ BEGIN
     RAISE EXCEPTION 'source_scope_change_request_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- The only permitted change to a pending request is a transition to a terminal
-  -- decision state; pending -> pending and pending -> expired are refused.
-  IF NOT (NEW.state IN ('approved','rejected','canceled')) THEN
+  -- The only permitted change to a pending request is a transition to a terminal state
+  -- (a decision or, from this tranche, an expiry); pending -> pending is refused.
+  IF NOT (NEW.state IN ('approved','rejected','canceled','expired')) THEN
     RAISE EXCEPTION 'source_scope_change_request_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
@@ -3751,6 +3751,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120060'),
 ('20260727120051'),
 ('20260727120050'),
 ('20260727120040'),

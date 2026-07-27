@@ -123,7 +123,7 @@ module IdentityAccess
           SELECT id, organization_id, project_id, source_id, requester_account_id, state, state_version,
                  expected_active_policy_version, proposed_canonical_host, proposed_allowed_schemes,
                  proposed_allowed_ports, proposed_include_prefixes, proposed_exclude_prefixes,
-                 proposed_query_handling, proposed_content_sha256
+                 proposed_query_handling, proposed_content_sha256, due_at_utc
           FROM source_scope_change_requests WHERE id = $1::uuid
         SQL
       end
