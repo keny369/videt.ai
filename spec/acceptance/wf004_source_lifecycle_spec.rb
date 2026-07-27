@@ -219,6 +219,14 @@ RSpec.describe "WF-004 source lifecycle", type: :acceptance,
       result = activate(v, expected: 0, source_id: SecureRandom.uuid_v7)
       expect(result.failure.reason_code).to eq("tenant_mismatch")
     end
+
+    it "allows a MarketingOperator (the other source.lifecycle.manage holder) to transition" do
+      v = verified_source
+      mkt = seeded_actor(v, "MarketingOperator")
+      result = activate(v, expected: sv(v[:source_id]), session: mkt)
+      expect(result.success?).to be(true)
+      expect(source_row(v[:source_id])["state"]).to eq("active")
+    end
   end
 
   describe "removal frees the host for a fresh lineage" do
