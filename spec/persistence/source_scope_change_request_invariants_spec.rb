@@ -73,12 +73,12 @@ RSpec.describe "Source scope change request invariants", type: :model do
       expect(rel["f"]).to eq("t")
     end
 
-    it "grants the runtime role SELECT and INSERT only (no transition built in this tranche)" do
+    it "grants the runtime role SELECT, INSERT and UPDATE (UPDATE added by S-06-004 for the decision edges)" do
       privs = DbInspector.all(<<~SQL).map { |r| r["privilege_type"] }.sort
         SELECT privilege_type FROM information_schema.role_table_grants
         WHERE table_name = 'source_scope_change_requests' AND grantee = 'f1_runtime'
       SQL
-      expect(privs).to eq(%w[INSERT SELECT])
+      expect(privs).to eq(%w[INSERT SELECT UPDATE])
     end
   end
 
@@ -110,10 +110,25 @@ RSpec.describe "Source scope change request invariants", type: :model do
   end
 
   describe "terminal-row immutability and refused transitions" do
-    it "refuses every state transition in this tranche" do
+    it "permits the S-06-004 decision edges (pending -> approved/rejected/canceled)" do
+      %w[approved rejected canceled].each do |to|
+        rid = insert_request
+        expect { conn.exec_params("UPDATE source_scope_change_requests SET state = $2 WHERE id = $1::uuid", [rid, to]) }
+          .not_to raise_error
+      end
+    end
+
+    it "still refuses the pending -> expired edge (S-06-005) and any other transition" do
       id = insert_request
-      expect { conn.exec_params("UPDATE source_scope_change_requests SET state = 'approved' WHERE id = $1::uuid", [id]) }
+      expect { conn.exec_params("UPDATE source_scope_change_requests SET state = 'expired' WHERE id = $1::uuid", [id]) }
         .to raise_error(PG::RaiseException, /source_scope_change_request_transition_unavailable/)
+    end
+
+    it "makes a terminal request fully immutable" do
+      id = insert_request
+      conn.exec_params("UPDATE source_scope_change_requests SET state = 'approved' WHERE id = $1::uuid", [id])
+      expect { conn.exec_params("UPDATE source_scope_change_requests SET decision_reason = 'anything at all here' WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /source_scope_change_request_immutable/)
     end
 
     it "freezes the tenant identity and the proposed facts" do

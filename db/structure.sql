@@ -1047,6 +1047,11 @@ BEGIN
     RAISE EXCEPTION 'source_scope_change_request_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
+  -- A terminal request is immutable: no field may change once it leaves pending.
+  IF OLD.state <> 'pending' THEN
+    RAISE EXCEPTION 'source_scope_change_request_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
      OR NEW.source_id IS DISTINCT FROM OLD.source_id THEN
@@ -1072,7 +1077,7 @@ BEGIN
   END IF;
 
   IF NEW.state IS DISTINCT FROM OLD.state THEN
-  IF NOT FALSE THEN
+  IF NOT (OLD.state = 'pending' AND NEW.state IN ('approved','rejected','canceled')) THEN
     RAISE EXCEPTION 'source_scope_change_request_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
@@ -3744,6 +3749,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120050'),
 ('20260727120040'),
 ('20260726120033'),
 ('20260726120032'),

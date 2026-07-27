@@ -82,7 +82,7 @@ module F1
       # new-table grant (backwards-compatible extension, ADR-029); no existing grant
       # changes and FORCE RLS is preserved.
       "source_scope_policies"             => "SELECT, INSERT",
-      "source_scope_change_requests"      => "SELECT, INSERT",
+      "source_scope_change_requests"      => "SELECT, INSERT, UPDATE",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",
       "invitation_reference_registry"     => "SELECT, INSERT, UPDATE",

@@ -73,7 +73,18 @@ module Platform
       # the later `policy.source_scope.manage` (activation, S-06-004) and
       # `source.lifecycle.manage` (S-06-006) rows remain deliberately absent until their
       # slices consume them.
-      "source.scope.propose" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
+      "source.scope.propose" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
+      # CAP-006 / WF-004 Source Scope policy activation. `policy.source_scope.manage`
+      # governs activating a Source Scope Policy version — the atomic contraction fast-path
+      # on ProposeSourceScopeChange and approval in DecideSourceScopeChange
+      # (WORKFLOW_SPECIFICATIONS.md § Permission Baseline :172 "`policy.source_scope.manage`
+      # | allow | allow for Project scope | deny | deny | deny | deny | deny"): allowed to an
+      # OrganizationAdmin (Organization scope) or a MarketingOperator (Project scope), every
+      # other role denies. It is NOT a protected permission (:333 omits it). Materialized here
+      # for S-06-004; the Project-vs-Organization scope limb of the MarketingOperator cell is
+      # enforced by the caller, as with the other scoped cells. Only an OrganizationAdmin may
+      # approve or reject an EXPANSION (the additional dual-control rule lives in the handler).
+      "policy.source_scope.manage" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are
