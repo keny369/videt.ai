@@ -224,12 +224,30 @@ RSpec.describe "WF-004 expire source scope change", type: :acceptance,
       expect(policies(s[:v][:source_id]).size).to eq(1)
     end
 
+    it "refuses a rejection at exactly due_at with source_scope_request_expired" do
+      s = pending_request
+      result = decide(admin_at(s[:v], due_at), s[:rid], decision: "reject", exp_pol: "source-scope-interim-v1", reason: reason20, at: due_at)
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("source_scope_request_expired")
+      expect(request_row(s[:rid])["state"]).to eq("pending")
+    end
+
     it "refuses a cancellation at exactly due_at with source_scope_request_expired" do
       s = pending_request
       result = cancel(admin_at(s[:v], due_at), s[:rid], reason: reason20, at: due_at)
       expect(result.success?).to be(false)
       expect(result.failure.reason_code).to eq("source_scope_request_expired")
       expect(request_row(s[:rid])["state"]).to eq("pending")
+    end
+
+    it "leaves an already-expired request unchanged when a later decision arrives" do
+      s = pending_request
+      expire(s[:rid], s[:v][:org], at: due_at)
+      result = decide(admin_at(s[:v], due_at + 3600), s[:rid], decision: "approve", exp_pol: "source-scope-interim-v1", at: due_at + 3600)
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("source_scope_request_not_pending")
+      expect(request_row(s[:rid])["state"]).to eq("expired")
+      expect(policies(s[:v][:source_id]).size).to eq(1)
     end
 
     it "still allows a decision strictly before due_at" do
