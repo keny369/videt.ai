@@ -3,7 +3,7 @@
   "controller_version": "1.0.0",
   "current_block": "S-07",
   "current_tranche": "S-07-001",
-  "status": "blocked_awaiting_owner_decision",
+  "status": "authorized",
   "attempt_number": 1,
   "base_commit": "13002aa",
   "worktree_path": "",
@@ -29,19 +29,17 @@
     },
     {
       "id": "D1",
-      "title": "S-07 crawl policy realization: generic policy_artifacts machinery vs dedicated crawl_policies table",
-      "status": "owner_decision_required",
-      "authority": "DECISIONS ADR-067",
-      "blocks": "S-07-001 (first tranche)",
-      "note": "MTX-030 names crawl_policies 'per POSTGRESQL_SCHEMA.md'; the schema doc + WORKFLOW:318/387 realize it via the generic policy_artifacts/release_artifacts/policy_snapshots machinery (policy_type='crawl'), which is UNBUILT. Every shipped slice used a dedicated table (source_scope_policies etc.). Option 1: build the generic shared machinery. Option 2: dedicated crawl_policies table (contradicts schema doc; needs reconciliation ADR)."
+      "title": "S-07 crawl policy realization",
+      "status": "resolved",
+      "authority": "DECISIONS ADR-068 (owner HD-S07-D1-CRAWL-POLICY)",
+      "note": "RESOLVED: dedicated immutable crawl_policies table (continue the per-domain convention); generic policy_artifacts machinery deferred; schema-doc reconciliation note added. S-07-001 unblocked."
     },
     {
       "id": "D2",
-      "title": "S-07 entitlement reservation foundation ownership: inside S-07 vs separate foundation F-05",
-      "status": "owner_decision_required",
-      "authority": "DECISIONS ADR-067",
-      "blocks": "S-07-003/004 (StartCrawl)",
-      "note": "crawl.start reservation behaviour fully specified (entitlement-interim-v1, WORKFLOW:513-532) but the reservation subsystem (entitlement_counter_windows/decisions/reservations/lease_heartbeats/commit_intents) is UNBUILT and shared by all high-cost ops. Option 1: build inside S-07. Option 2: build as a separate authorised foundation F-05. Behaviour identical; scope/ownership decision."
+      "title": "S-07 entitlement reservation foundation ownership",
+      "status": "resolved",
+      "authority": "DECISIONS ADR-069 (owner HD-S07-D2-ENTITLEMENT-RESERVATION)",
+      "note": "RESOLVED: build as a separate shared foundation F-05 before S-07 StartCrawl (S-07-003); S-07 consumes it. Not owned by S-07."
     }
   ],
   "completed_blocks": [
@@ -66,5 +64,5 @@
   ],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: S-06-006 (Source lifecycle PRULE-006 — ActivateSource/DisableSource/ReactivateSource/RemoveSource) ACCEPTED under standing authority (ADR-061), CLOSING and EXHAUSTING the S-06 block. All five ADR-026 lenses returned PASS with zero confirmed-blocking findings, with live exercise: all 5 legal edges succeed and all 15 illegal edges raise source_lifecycle_transition_unavailable; a forged-org cross-tenant raw UPDATE affects 0 rows under RLS; 5/5 two-connection concurrent ActivateSource races yield exactly one success; no source-aggregate event-version collision (gaps from scope bumps on a different aggregate, never a reuse). MarketingOperator allow-side coverage test added. Guard widened (migration 20260727120070) to permit exactly verified->active/active->disabled/disabled->active/disabled->removed, every other edge refused, tenant/registration freezes preserved. Gate: rspec 1330/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (15 checks, RLS intact); migration builds from empty; structure.sql matches. Non-blocking observations recorded (ADR-065): pinned-policy is a live reference (correct S-06 design, S-07 note); three pre-existing platform deferrals (ADR-063 FU-1 permission_mode read_only ignored; FU-2 assignment-scope containment deferred; no authority_current? epoch recheck between authorize and commit) confirmed NOT newly widened. STOP CONDITION REACHED: S-06 is complete and exhausted; the S-06 authorisation was limited to S-06. S-07 is NOT authorised and requires fresh owner authorisation (HD-S07-AUTHORISE) before any work — no S-07 scope is inferred or begun. Open owner follow-ups for attention: ADR-063 FU-1 and FU-2 (platform-authorization hardening). main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27 (S-07): Owner authorised S-07 (HD-S07-AUTHORISE) under standing delegation ADR-061, and resolved the two gating decisions — D1 (ADR-068): crawl policy is a dedicated immutable crawl_policies table (per-domain convention; generic policy_artifacts machinery deferred; schema-doc reconciliation note added); D2 (ADR-069): the entitlement reservation subsystem is a separate shared foundation F-05, built and reviewed BEFORE S-07 StartCrawl (S-07-003), consumed by S-07 and all high-cost ops. Ratified 12-item decomposition minus the F-05 extraction: S-07-001 crawl policy; S-07-002 Crawl aggregate + QueueCrawl; F-05 entitlement reservation foundation; S-07-003 StartCrawl + initial Evaluation (OD-018); S-07-004 frontier; S-07-005 host gate+robots+rate; S-07-006 sitemap; S-07-007 content fetch+scope/redirect+bytes; S-07-008 limits+events+wall clock; S-07-009 terminal checkpoint+coverage+CancelCrawl; S-07-010 Documents+ingestion+Evidence+handoff; S-07-011 recovery+replay. Ends before the OD-027 withheld limb (downstream S-08 indexing). FU-1/FU-2 remain accepted platform-hardening backlog. Now implementing S-07-001. PRIOR: S-06-006 (Source lifecycle PRULE-006) ACCEPTED under ADR-061, CLOSING and EXHAUSTING the S-06 block. All five ADR-026 lenses returned PASS with zero confirmed-blocking findings, with live exercise: all 5 legal edges succeed and all 15 illegal edges raise source_lifecycle_transition_unavailable; a forged-org cross-tenant raw UPDATE affects 0 rows under RLS; 5/5 two-connection concurrent ActivateSource races yield exactly one success; no source-aggregate event-version collision (gaps from scope bumps on a different aggregate, never a reuse). MarketingOperator allow-side coverage test added. Guard widened (migration 20260727120070) to permit exactly verified->active/active->disabled/disabled->active/disabled->removed, every other edge refused, tenant/registration freezes preserved. Gate: rspec 1330/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (15 checks, RLS intact); migration builds from empty; structure.sql matches. Non-blocking observations recorded (ADR-065): pinned-policy is a live reference (correct S-06 design, S-07 note); three pre-existing platform deferrals (ADR-063 FU-1 permission_mode read_only ignored; FU-2 assignment-scope containment deferred; no authority_current? epoch recheck between authorize and commit) confirmed NOT newly widened. STOP CONDITION REACHED: S-06 is complete and exhausted; the S-06 authorisation was limited to S-06. S-07 is NOT authorised and requires fresh owner authorisation (HD-S07-AUTHORISE) before any work — no S-07 scope is inferred or begun. Open owner follow-ups for attention: ADR-063 FU-1 and FU-2 (platform-authorization hardening). main untouched at e22deed. This file and the repository are authoritative, not conversational memory."
 }

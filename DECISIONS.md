@@ -1812,3 +1812,31 @@ Provisional decomposition (dependency-ordered; to be ratified after D1/D2): S-07
 
 Decision:
 STOP and return to the owner for D1 and D2 per ADR-061 stop conditions (1) a genuine repository ambiguity with materially different valid interpretations affecting behaviour/schema, and (2) a scope question requiring owner approval — both of which gate the first S-07 tranche. No S-07 behavioural code is written until D1 (and, before S-07-003, D2) are resolved. Allocated the next unused number after ADR-066.
+
+## ADR-068: D1 Resolved — Tenant Policy Concerns Are Realized As Dedicated Per-Domain Immutable Policy Tables (crawl_policies)
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (HD-S07-D1-CRAWL-POLICY: "Implement crawl policy using a dedicated immutable, versioned `crawl_policies` table. Continue the established implementation convention used by access_policies and source_scope_policies. Treat the generic policy_artifacts / release_artifacts / policy_snapshots framework as deferred shared infrastructure. Do not introduce it as part of S-07. Record a reconciliation ADR ... and update repository documentation as required to eliminate ambiguity.") / implementation agent (recorded)
+Reversibility: Sets the implementation strategy for policy realization; a table + documentation-reconciliation decision. Reversible by a later architecture decision that introduces the generic machinery and migrates the dedicated tables.
+
+Decision (implementation strategy, reconciling the contract, the schema doc, and the as-built code):
+Tenant policy concerns in this build are realized as **dedicated, per-domain, immutable, versioned policy tables**, NOT through the generic `policy_artifacts` / `release_artifacts` / `policy_snapshots` framework described in `schemas/POSTGRESQL_SCHEMA.md` and WORKFLOW_SPECIFICATIONS.md:318/387. This ratifies the already-shipped convention: `access_policies` (S-01), `source_scope_policies` (S-05/S-06), and `entitlement_policies` were each built as dedicated tables and NONE appears in the schema doc's generic-machinery catalogue. S-07 therefore realizes crawl policy as a dedicated **`crawl_policies`** table (the contract's literal name, MTX-030), immutable and versioned, with the crawl-policy-v1 bounds, a release-owned global-safety ceiling row, narrowing-only activation, and a pinned resolution — mirroring `source_scope_policies` / `SourceScopePolicyActivation`. The generic `policy_artifacts` / `release_artifacts` / `policy_snapshots` framework is **deferred shared infrastructure** and is NOT introduced by S-07.
+
+Reconciliation of the ambiguity (D1): the S-07 contract names `crawl_policies` "per schemas/POSTGRESQL_SCHEMA.md"; the schema doc realizes policy via the generic framework and defines no `crawl_policies` table; WORKFLOW:318 calls the Policy Artifact "an immutable versioned logical CONTRACT, not an additional core domain aggregate." These are reconciled thus: the "logical policy contract" is satisfied physically by a dedicated immutable versioned table per domain, which is the established convention; the schema doc's generic framework is the deferred ideal, not the current realization. A reconciliation note is added to `schemas/POSTGRESQL_SCHEMA.md` pointing here so the ambiguity does not recur.
+
+Authority And Precedence:
+Ratifies the owner's D1 ruling and resolves BUILD_STATE.open_decisions D1. Allocated the next unused number after ADR-067. S-07-001 (crawl policy) is unblocked and proceeds under standing delegation ADR-061. No frozen product contract is changed; a documentation reconciliation note is added to the schema doc.
+
+## ADR-069: D2 Resolved — Entitlement Reservation Is A Separate Shared Foundation Block (F-05), Consumed By S-07
+
+Status: Accepted
+Date: 2026-07-27
+Owner: Owner (HD-S07-D2-ENTITLEMENT-RESERVATION: "Build the entitlement reservation subsystem as a separate shared foundation block (F-05) before any S-07 tranche requiring reservation semantics. Treat the reservation subsystem (reservation records, quota windows, heartbeats, commit intents, decisions, etc.) as reusable platform infrastructure consumed by S-07 and future high-cost operations. Do not expand S-07 to own this shared infrastructure. Create the appropriate foundation tranche under repository governance and have S-07 consume it once complete.") / implementation agent (recorded)
+Reversibility: A scope/ownership decision; the reservation behaviour is fixed by entitlement-interim-v1 regardless of where it is built.
+
+Decision:
+The entitlement reservation subsystem — `entitlement_counter_windows`, `entitlement_decisions`, `entitlement_reservations`, `entitlement_lease_heartbeats`, `entitlement_commit_intents` and the reserve/commit/release/heartbeat operations implementing the ratified Interim Entitlement Contract (`entitlement-interim-v1`, WORKFLOW:513-532: high-cost allowed iff `committed + active_reserved + requested ≤ hard`, equality allowed; `crawl.start` counter-group `crawl_run`, unit 1, soft 3 / hard 4, 15-min reservation lifetime, 65-min max execution, durable commit = "Crawl reaches completed with ≥1 valid Document") — is built as a **separate authorised shared foundation block, F-05**, NOT as part of S-07. It is reusable platform infrastructure consumed by every high-cost operation (`crawl.start`, `reassessment.start`, `ai.generate`, `export.generate`). S-07 CONSUMES F-05's reserve/commit/release surface (as it consumes F-01 outbound and F-03 Evidence); it does not own it. F-05 is built and independently reviewed BEFORE the first S-07 tranche requiring reservation semantics — StartCrawl (S-07-003). S-07 tranches that require no reservation (S-07-001 crawl policy; S-07-002 Crawl aggregate + QueueCrawl, which pins the entitlement policy version but reserves nothing) may precede F-05.
+
+Authority And Precedence:
+Ratifies the owner's D2 ruling and resolves BUILD_STATE.open_decisions D2. Allocated the next unused number after ADR-068. F-05 is authorised by this owner decision and proceeds under standing delegation ADR-061 with the same gate + five-lens ADR-026 discipline as F-01..F-04. The provisional S-07 decomposition (ADR-067) is updated: its provisional S-07-002 "entitlement reservation surface" becomes foundation F-05; the remaining S-07 tranches renumber accordingly in BUILD_PLAN.

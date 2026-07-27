@@ -684,3 +684,207 @@ blocks:
       - F-04
     expected_outputs:
       - the Source lifecycle slice + specs; S-06 completion summary
+
+  # ---------------------------------------------------------------------------
+  # S-07 "Crawl Execution and Recovery" — authorised by owner HD-S07-AUTHORISE
+  # under standing delegation ADR-061. Decomposition ratified by DECISIONS
+  # ADR-067 (recon) as adjusted by ADR-068 (D1: dedicated crawl_policies table)
+  # and ADR-069 (D2: entitlement reservation extracted to foundation F-05).
+  # Every tranche: human_gate_before/after false (standing delegation); the
+  # objective gate + the ADR-026 five-lens review are the acceptance mechanism.
+  # The slice ends BEFORE the OD-027 withheld limb (S-08 indexing multiplicity).
+  # ---------------------------------------------------------------------------
+
+  - id: F-05
+    name: Foundation — Entitlement reservation subsystem (entitlement-interim-v1)
+    type: foundation
+    status: pending
+    depends_on:
+      - S-01   # entitlement_policies
+    authoritative_sources:
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # Interim Entitlement Contract :513-532
+      - schemas/POSTGRESQL_SCHEMA.md   # entitlement_counter_windows/decisions/reservations/lease_heartbeats/commit_intents
+    scope:
+      - the shared reserve/commit/release/heartbeat surface implementing entitlement-interim-v1 for high-cost
+        operations (crawl.start, reassessment.start, ai.generate, export.generate); allow iff
+        committed+active_reserved+requested <= hard (equality allowed); allow-with-warning at/above soft
+      - the entitlement reservation tables + the crawl_run counter group + reservation lifetime/commit-point rules
+    out_of_scope:
+      - any crawl execution (S-07 consumes this surface); the final OD-006 grace policy
+    human_gate_before: false   # owner HD-S07-D2-ENTITLEMENT-RESERVATION authorised F-05 under ADR-061
+    human_gate_after: false    # objective gate + ADR-026 five-lens review are acceptance (ADR-061/069)
+    risk_level: high
+    expected_outputs:
+      - the entitlement reservation foundation + specs; consumed by S-07 StartCrawl and future high-cost ops
+
+  - id: S-07-001
+    name: Crawl Execution — crawl policy (dedicated crawl_policies table) + narrowing activation
+    type: product
+    status: pending
+    depends_on:
+      - S-06
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-07.json   # MTX-030 policy limb, MTX-059 (PRULE-008)
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # crawl-policy-v1 :423-458, policy subflow :732
+    scope:
+      - a dedicated immutable versioned crawl_policies table (ADR-068), the crawl-policy-v1 twelve soft/hard
+        bounds, a release-owned global-safety ceiling, ActivateCrawlPolicy (narrowing-only, Org/Project scope,
+        more-restrictive-than-parent+global validation, soft<=hard, expected-version guard), the pure
+        most-restrictive resolver, CrawlPolicyActivated, permission policy.crawl.manage
+    out_of_scope:
+      - crawl execution, queue, fetch, entitlement reservation (F-05); the generic policy_artifacts framework
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the crawl policy slice + specs
+
+  - id: S-07-002
+    name: Crawl Execution — Crawl aggregate + QueueCrawl (no reservation, no Evaluation)
+    type: product
+    status: pending
+    depends_on:
+      - S-07-001
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-07.json   # MTX-030 queue limb, MTX-058 (PRULE-007)
+    scope:
+      - crawls + crawl_sources tables; QueueCrawl pinning request-time scope/crawl/entitlement/policy versions;
+        reserves no usage and creates no Evaluation; reassessment_required guard; CrawlQueued; perm crawl.trigger
+    out_of_scope:
+      - StartCrawl / reservation (F-05 + S-07-003); fetch; the reassessment-child branch (deferred to WF-011, ADR-067 D4)
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the Crawl aggregate + QueueCrawl slice + specs
+
+  - id: S-07-003
+    name: Crawl Execution — StartCrawl + initial Evaluation (OD-018) [consumes F-05]
+    type: product
+    status: pending
+    depends_on:
+      - S-07-002
+      - F-05
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-07.json   # MTX-030 start limb; DECISIONS OD-018
+    scope:
+      - evaluations table (+ the two OD-018 partial-unique indexes) + evaluation_orchestration_contexts;
+        StartCrawl (re-resolve policy, obtain crawl.start reservation via F-05, create one pending initial
+        Evaluation, Queued->Running); CrawlStarted, EvaluationPending; initial_evaluation_already_running,
+        evaluation_creation_conflict; pre-execution current-policy/entitlement gate -> failed
+    out_of_scope:
+      - fetch/frontier; the reassessment-child branch (deferred to WF-011, ADR-067 D4)
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the StartCrawl + initial-Evaluation slice + specs
+
+  - id: S-07-004
+    name: Crawl Execution — deterministic frontier + dequeue
+    type: product
+    status: pending
+    depends_on:
+      - S-07-003
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the frontier + dequeue slice + specs
+
+  - id: S-07-005
+    name: Crawl Execution — host gate + robots (fail-closed) + per-host rate
+    type: product
+    status: pending
+    depends_on:
+      - S-07-004
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the robots/host-gate slice + specs
+
+  - id: S-07-006
+    name: Crawl Execution — sitemap discovery + XXE-hardened XML
+    type: product
+    status: pending
+    depends_on:
+      - S-07-005
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the sitemap slice + specs
+
+  - id: S-07-007
+    name: Crawl Execution — content fetch + scope/redirect validation + byte accounting + retry
+    type: product
+    status: pending
+    depends_on:
+      - S-07-005
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the content-fetch slice + specs
+
+  - id: S-07-008
+    name: Crawl Execution — limits, soft/hard events, wall clock
+    type: product
+    status: pending
+    depends_on:
+      - S-07-007
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the limits slice + specs
+
+  - id: S-07-009
+    name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
+    type: product
+    status: pending
+    depends_on:
+      - S-07-007
+      - S-07-008
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the terminal-checkpoint slice + specs
+
+  - id: S-07-010
+    name: Crawl Execution — Documents + ingestion + Evidence + durable handoff
+    type: product
+    status: pending
+    depends_on:
+      - S-07-009
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-07.json   # MTX-008; ingestion-interim-v1
+    scope:
+      - documents + ingestion_jobs + ingestion_attempts; IngestionJob lifecycle; F-03 source_document /
+        content_absent Evidence (D3 interim, ADR-067); durable handoff. ENDS BEFORE the OD-027 withheld limb
+        (no unique(parsing_job_id), no has_one, no ParsingJob/IndexingJob).
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the documents/ingestion slice + specs
+
+  - id: S-07-011
+    name: Crawl Execution — recovery + replay (PRULE-022 envelope)
+    type: product
+    status: pending
+    depends_on:
+      - S-07-009
+      - S-07-010
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-07.json   # MTX-030 recover/replay; MTX-073 (PRULE-022)
+    scope:
+      - RecoverCrawl (new linked attempt), ReplayIngestionJob (dead-letter, 24h staging); perms crawl.recover,
+        ingestion.recover + Support Session; recovery_of_id/replay_generation. Closes S-07.
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the recovery/replay slice + specs; S-07 completion summary
