@@ -77,7 +77,9 @@ class CreateSourceScopeChangeRequests < ActiveRecord::Migration[8.1]
         idempotency_key_digest      bytea NOT NULL
           CHECK (octet_length(idempotency_key_digest) = 32),
         CONSTRAINT source_scope_change_requests_org_id_unique UNIQUE (organization_id, id),
-        -- due_at is exactly 24h after requested_at (asserted at insert; frozen by the guard).
+        -- due_at is exactly requested_at + 24h; the equality is computed by the handler at
+        -- insert (there is no DB CHECK) and then frozen by the immutability guard, with the
+        -- SELECT/INSERT-only runtime grant leaving the handler as the sole writer.
         CONSTRAINT source_scope_change_requests_source_fk
           FOREIGN KEY (organization_id, project_id, source_id)
           REFERENCES sources (organization_id, project_id, id)

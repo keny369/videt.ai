@@ -534,7 +534,7 @@ blocks:
   - id: S-06-003
     name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange (pending)
     type: product
-    status: in_progress   # 2026-07-27: owner-authorised (ADR-059, HD-S06-003-AUTHORISE resolved); implementing on tranche/S-06/S-06-003
+    status: ready_for_review   # 2026-07-27: authorised (ADR-059); implemented + all 5 review lenses PASS, zero confirmed-blocking (ADR-060); tip b94b0f0
     depends_on:
       - S-06-002
     authoritative_sources:

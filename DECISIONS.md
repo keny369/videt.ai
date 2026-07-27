@@ -1632,3 +1632,23 @@ Out of scope (later tranches): atomic contraction activation, approval, cancella
 
 Authority And Precedence:
 Executes the owner's S-06-003 authorisation. Allocated the next unused number after ADR-058. No automatic merge, no push, no production path; the controller returns at the normal completed-tranche review gate.
+
+## ADR-060: S-06-003 Independently Reviewed (All Five Lenses PASS) — ready_for_review
+
+Status: Accepted
+Date: 2026-07-27
+Owner: implementation agent (recorded); no product ruling required — zero confirmed-blocking findings
+Reversibility: On `tranche/S-06/S-06-003`; nothing merged or pushed; `main` untouched.
+
+Decision:
+Record the independent ADR-026 review of S-06-003 (source_scope_change_requests + ProposeSourceScopeChange, pending path). Five separately-invoked adversarial lenses (contract-correctness, security/tenant-isolation, concurrency/atomicity/idempotency, schema/migration-safety, architecture/scope) all returned PASS with ZERO confirmed-blocking findings, each with live DB verification and the 21 new specs green. Highlights: single-transaction atomicity (request + F-04 expiry + full ledger on one connection); idempotency (request_hash folds all proposed content; per-Source advisory lock converts the unique-index conflict into graceful replay; changed content -> idempotency_conflict); FORCE RLS with a proved, unspoofable org context and tenant checks before any write; the composite Source FK preventing cross-tenant binding; source.scope.propose materialized as the ratified permission-baseline-v1 data row (VERSION unchanged); the migration builds from empty with no structure.sql drift, SELECT/INSERT-only grant, and a fail-closed transition guard; pending-only with no pulled-forward S-06-004/005 behaviour; F-04 consumed only through its frozen surface on the ratified source_scope_request_expire kind.
+
+Non-blocking observations recorded (not actioned — repair-only-confirmed-blocking):
+- The 24h due_at delta is enforced application-side (no DB CHECK), then frozen by the guard with the SELECT/INSERT-only grant leaving the handler as the sole writer. The migration comment was clarified accordingly (comment-only, no schema change). A DB CHECK is an optional future hardening.
+- The current-side rules are stored by reference (expected_active_policy_version + current_content_sha256) rather than inline: the current active Source Scope Policy is immutable and fully recoverable by version, so this is a faithful normalization (an inline snapshot would be write-only in this design), consistent with the review paraphrase; recorded for owner awareness.
+- FORWARD-COMPAT FLAGS FOR S-06-004 (not defects here — vacuous while this tranche grants no UPDATE and permits no transition): (1) when S-06-004 grants UPDATE and relaxes the pending->approved edge, its guard must freeze already-terminal decision facts (decision_actor_id/decided_at_utc/decision_reason/activated_policy_version/terminal_at_utc); (2) the active-policy read + expected-version check should be taken or re-validated under the per-Source advisory lock at activation, since S-06-004 introduces a concurrent policy writer.
+
+Verification: whole-repo suite 1286 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness 31/0; verify_runtime OK (RLS intact, 15 checks); no structure.sql drift beyond the migration.
+
+Authority And Precedence:
+Records the review outcome. Allocated the next unused number after ADR-059. No automatic merge, no push, no production path; the controller stops at human_gate_after (owner acceptance) with S-06-003 at ready_for_review. Do not begin S-06-004 until S-06-003 is accepted.
