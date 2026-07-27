@@ -1546,3 +1546,29 @@ Alternatives noted for the owner: Option 2 (2-way: keep classifier + table + Pro
 
 Authority And Precedence:
 Surfaces the decomposition per the owner's explicit split-and-stop condition. Allocated the next unused number after ADR-054. No product change, no merge, no push; S-06-003..005 (current numbering) remain human_gate_before.
+
+## ADR-056: HD-S06-002-DECOMPOSITION Resolved — Option 1 (Three-Way Split, Renumber)
+
+Status: Accepted (owner-ratified)
+Date: 2026-07-27
+Owner: Owner (decision HD-S06-002-DECOMPOSITION: "OPTION 1. Authorize the three-way decomposition") / implementation agent (recorded)
+Reversibility: Governance/planning — updates BUILD_PLAN and BUILD_STATE; no product code. On `tranche/S-06/S-06-002`; nothing merged or pushed; `main` untouched.
+
+Decision:
+S-06 is re-decomposed (Option 1), isolating the pure classifier (S-05-003 precedent) and the atomic multi-root commit (S-05-006 precedent):
+
+- S-06-002 — Source-scope classifier: the pure Option-B `ScopeChangeClassification` only, with committed fixtures for admitted URL-set subset/equality/widening/mixed changes; query-handling narrowing/equality/widening; fail-closed unprovable cases; and verified-boundary violations remaining errors rather than classifications. Deterministic, side-effect-free, independently testable, isolated for adversarial security review.
+- S-06-003 — Source-scope change request proposal: the source_scope_change_requests table + constraints + RLS + terminal-row immutability; ProposeSourceScopeChange pending-request path; idempotency + content hash; F-04 24h expiry scheduling; the required ledger + SourceScopeChangeRequested event. No temporary weakening of authority rules.
+- S-06-004 — Source-scope activation and request decisions: atomic contraction activation; the policy-version creation + Source pointer update as one none-without-the-others commit; Decide and Cancel sharing that activation and request-state machinery; the required approval, cancellation, concurrency, idempotency, event and authorization behaviour.
+- S-06-005 — Expiry: the former S-06-004 (ExpireSourceScopeChange + expiry job), renumbered.
+- S-06-006 — Source lifecycle: the former S-06-005 (PRULE-006), renumbered.
+
+Interim behaviour (owner-accepted): until S-06-004, a contraction may remain pending rather than auto-activating — a fail-closed IMPLEMENTATION interim (S-05-005 -> S-05-006 precedent), never represented as final contract behaviour. No provisional alternative activation path is introduced.
+
+Rationale (owner-directed record): reviewability (the former single tranche reached ~2,500-3,000+ diff lines, at/over max_diff_lines_before_forced_split=3000); security isolation of the classifier (the dual-control routing predicate gets its own focused adversarial review); and separation of the atomic multi-root commit (S-05-006 precedent). Existing dependencies, acceptance criteria and human gates are preserved except where the split makes a dependency change necessary (S-06-003 now depends on S-06-002; S-06-004 on S-06-003; renumbered tranches shift their depends_on accordingly). No behaviour is moved between tranches beyond this authorised decomposition.
+
+Governance:
+BUILD_PLAN updated to the six-tranche S-06 structure; HD-S06-002-DECOMPOSITION resolved. Do not begin S-06-003 until S-06-002 passes its normal review and acceptance gate.
+
+Authority And Precedence:
+Executes the owner's Option-1 ruling. Allocated the next unused number after ADR-055. No automatic merge, no push, no production path.

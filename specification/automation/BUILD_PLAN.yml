@@ -474,28 +474,91 @@ blocks:
       - the SourceScopePredicate engine + exhaustive fixtures
       - S-06-001 completion report + DECISIONS ledger entry
 
+  # ==========================================================================
+  # S-06-002..006 THREE-WAY DECOMPOSITION (owner Option 1, DECISIONS ADR-055/056)
+  # Implementation evidence showed the former S-06-002 (table + Propose + classifier
+  # + atomic contraction) would reach ~2,500-3,000+ diff lines and bundle three
+  # concerns S-05 kept as separate tranches. The owner authorised a 3-way split that
+  # isolates the pure classifier (S-05-003 precedent) and the atomic multi-root commit
+  # (S-05-006 precedent). The former S-06-004 (Expire) and S-06-005 (lifecycle) are
+  # renumbered to S-06-005 and S-06-006. Dependencies, acceptance criteria and human
+  # gates are preserved except where the split makes a dependency change necessary.
+  # Interim (until S-06-004): a contraction may remain pending rather than
+  # auto-activating — a fail-closed implementation interim (S-05-005 -> S-05-006
+  # precedent), never represented as final contract behaviour; no provisional
+  # alternative activation path is introduced.
+
   - id: S-06-002
-    name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange
+    name: Source Discovery and Scope — Source Scope Change classifier (Option B, pure)
     type: product
-    status: decomposition_pending   # 2026-07-27: authorised (ADR-053); classifier ruled Option B (ADR-054); implementation-evidence shows the tranche would breach reviewability (~2,500-3,000+ lines, 3 S-05-scale concerns) — decomposition surfaced (ADR-055, HD-S06-002-DECOMPOSITION) before any product code
+    status: in_progress   # 2026-07-27: owner-authorised (ADR-053); classifier ruled Option B (ADR-054); decomposition Option 1 (ADR-056); implementing on tranche/S-06/S-06-002
     depends_on:
       - S-06-001
     authoritative_sources:
-      - specification/volume-ii/contracts/S-06.json   # MTX-029 propose path
-      - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
-      - schemas/POSTGRESQL_SCHEMA.md
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # Source Scope Change Contract (:410-421)
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope   # dual control is asymmetric (:769-813)
+      - specification/volume-ii/DECISIONS.md ADR-054 (owner Option B classifier ruling)
+      - specification/volume-ii/contracts/S-06.json   # MTX-029
     scope:
-      - the `source_scope_change_requests` aggregate table (canonical schema; RLS; immutable terminal;
-        state CHECK pending/approved/rejected/canceled/expired)
-      - ProposeSourceScopeChange — normalization + content hash, expansion-vs-contraction classification,
-        24h due_at, idempotency, SourceScopeChangeRequested; a contraction by an authorised actor
-        activates a new immutable policy version atomically in its creation transaction
+      - a pure PORO classifier (`Workflows::Wf004::ScopeChangeClassification`) given the current active
+        policy, a proposed policy and the verified boundary -> :contraction | :expansion | :boundary_violation
+      - base classification (owner Option B / ADR-054): a proposal is a CONTRACTION only when its PRULE-021
+        admitted URL set is a subset of the current active policy's; any non-strict-subset or mixed change is
+        an EXPANSION; fail-closed (inability to prove subset => expansion); PRULE-021 (S-06-001) is the oracle
+      - query handling exception: any query-handling change that can INCREASE distinct crawlable canonical-URL
+        multiplicity (e.g. allowlist -> retain_all, or widening the retained-key set) is an EXPANSION; a change
+        preserving or reducing multiplicity may remain contraction-eligible
+      - boundary violations (host/scheme/port beyond the verified boundary) are :boundary_violation, not a
+        classification (rejected by the caller through the authoritative failure path)
     out_of_scope:
-      - DecideSourceScopeChange / Cancel / Expire (S-06-003/004); Source lifecycle (S-06-005); any crawl
+      - persistence, the source_scope_change_requests table, any command/handler/event/migration (S-06-003+)
+      - atomic contraction activation, Decide, Cancel, Expire, Source lifecycle (S-06-004..006)
       - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
     acceptance_criteria:
-      - a proposal persists an immutable pending request (expansion) or atomically activates a contraction
-      - a cross-host request is denied and cannot be approved as a policy expansion
+      - committed fixtures pin admitted URL-set subset, equality, widening and mixed changes; query-handling
+        narrowing, equality and widening; fail-closed unprovable cases; boundary violations as errors
+      - the classifier is deterministic, side-effect-free and independently testable; no caller-input mutation
+      - full suite + architecture fitness green; no structure.sql drift (no schema change)
+    required_verification:
+      - complete_test_suite
+      - architecture_fitness
+      - repository_security
+    human_gate_before: false   # cleared by owner authorisation (ADR-053) + Option-1 decomposition (ADR-056)
+    human_gate_after: true
+    risk_level: high   # security-critical dual-control routing predicate
+    allowed_foundation_dependencies: []   # a pure PORO; consumes only S-06-001's PRULE-021 predicate
+    expected_outputs:
+      - the ScopeChangeClassification classifier + committed fixtures (both dimensions)
+      - S-06-002 completion report + DECISIONS ledger entry
+
+  - id: S-06-003
+    name: Source Discovery and Scope — source_scope_change_requests + ProposeSourceScopeChange (pending)
+    type: product
+    status: pending
+    depends_on:
+      - S-06-002
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-06.json   # MTX-029 propose path
+      - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # Source Scope Change Contract
+      - schemas/POSTGRESQL_SCHEMA.md
+    scope:
+      - the `source_scope_change_requests` aggregate table (canonical schema; RLS; terminal-row immutability;
+        state CHECK pending/approved/rejected/canceled/expired)
+      - ProposeSourceScopeChange creating a PENDING request — normalization + content hash, classification via
+        S-06-002 (boundary violation rejected through the authoritative failure path), 24h due_at, idempotency
+        (idempotency_conflict on changed content), SourceScopeChangeRequested, full ledger; the 24h expiry
+        scheduled through F-04
+      - no temporary weakening of authority rules
+    out_of_scope:
+      - atomic contraction activation, Decide, Cancel (S-06-004); Expire execution (S-06-005); Source lifecycle
+        (S-06-006); any crawl. INTERIM: a contraction remains pending here (fail-closed; no alternative
+        activation path), resolved in S-06-004
+      - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
+    acceptance_criteria:
+      - a proposal persists an immutable pending request; a cross-host/scheme/port change is a boundary
+        violation rejected through the failure path and cannot be approved as an expansion
+      - exact replay returns the stored request; changed content under the same key is idempotency_conflict
       - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
     required_verification:
       - complete_test_suite
@@ -503,35 +566,41 @@ blocks:
       - runtime_role_and_rls
       - architecture_fitness
       - repository_security
-    human_gate_before: false   # cleared by owner authorisation (ADR-053); implementation still blocked on HD-S06-002-SCOPE-CLASSIFIER
+    human_gate_before: true
     human_gate_after: true
     risk_level: high
     allowed_foundation_dependencies:
       - F-02
       - F-04
     expected_outputs:
-      - the source_scope_change_requests migration + Propose slice + specs
+      - the source_scope_change_requests migration + ProposeSourceScopeChange (pending) slice + specs
 
-  - id: S-06-003
-    name: Source Discovery and Scope — DecideSourceScopeChange + CancelSourceScopeChange
+  - id: S-06-004
+    name: Source Discovery and Scope — atomic contraction activation + Decide + Cancel
     type: product
     status: pending
     depends_on:
-      - S-06-002
+      - S-06-003
     authoritative_sources:
-      - specification/volume-ii/contracts/S-06.json   # MTX-029 decide path
+      - specification/volume-ii/contracts/S-06.json   # MTX-029 decide + atomic-contraction paths
       - specification/volume-ii/APPLICATION_LAYER.md#wf-004-manage-source-scope
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # Source Scope Change Contract
     scope:
-      - DecideSourceScopeChange (approve/reject) with dual-control (an OrganizationAdmin approver who is a
-        different Account from a non-admin requester), guarded on the expected request state version AND
-        the expected active-policy version; approval inserts exactly one new immutable policy version
-      - CancelSourceScopeChange from pending only; SourceScopeChangeApproved/Rejected/Canceled
+      - the shared policy-version-activation multi-root commit — a new immutable source_scope_policies version
+        + the Source current-scope-policy pointer, none-without-the-others
+      - the atomic contraction fast-path on ProposeSourceScopeChange (a contraction by an authorised
+        OrganizationAdmin or MarketingOperator activates in the creation transaction; SourceScopeChangeApproved)
+      - DecideSourceScopeChange (approve/reject) with dual control (an OrganizationAdmin approver who is a
+        different Account from a non-admin requester), guarded on the expected request state AND active-policy
+        versions; CancelSourceScopeChange from pending only; SourceScopeChangeApproved/Rejected/Canceled
     out_of_scope:
-      - the 24h expiry (S-06-004); Source lifecycle (S-06-005); any crawl
+      - Expire execution (S-06-005); Source lifecycle (S-06-006); any crawl
       - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
     acceptance_criteria:
-      - dual control holds; a stale request or policy version rejects with no side effect
-      - approval activates exactly one policy version; rejection/cancellation activate none
+      - the activation commit is all-or-nothing (a fixture proves neither the policy version nor the pointer
+        appears without the other); concurrent decisions transition once; a stale request or policy version
+        rejects with no side effect
+      - dual control holds; approval activates exactly one policy version; rejection/cancellation activate none
       - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
     required_verification:
       - complete_test_suite
@@ -545,14 +614,14 @@ blocks:
     allowed_foundation_dependencies:
       - F-04
     expected_outputs:
-      - the Decide + Cancel slice + specs
+      - the atomic contraction activation + Decide + Cancel slice + specs
 
-  - id: S-06-004
+  - id: S-06-005
     name: Source Discovery and Scope — ExpireSourceScopeChange + SourceScopeChangeExpiryJob
     type: product
     status: pending
     depends_on:
-      - S-06-003
+      - S-06-004
     authoritative_sources:
       - specification/volume-ii/contracts/S-06.json   # MTX-029 expiry path
       - specification/volume-ii/BACKGROUND_PROCESSING.md
@@ -561,7 +630,7 @@ blocks:
         SourceScopeChangeExpired once at due_at_utc and changes no policy or Source state
       - expiry wins over approval, rejection and cancellation at exact due_at_utc equality
     out_of_scope:
-      - Source lifecycle (S-06-005); any crawl
+      - Source lifecycle (S-06-006); any crawl
       - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
     acceptance_criteria:
       - the before/at/after due_at_utc race — at exact equality expiry wins and emits once
@@ -579,12 +648,12 @@ blocks:
     expected_outputs:
       - the ExpireSourceScopeChange slice + expiry job + specs
 
-  - id: S-06-005
+  - id: S-06-006
     name: Source Discovery and Scope — Source lifecycle (PRULE-006 Activate/Disable/Reactivate/Remove)
     type: product
     status: pending
     depends_on:
-      - S-06-004
+      - S-06-005
     authoritative_sources:
       - specification/volume-ii/contracts/S-06.json   # MTX-057 (PRULE-006) + MTX-029 lifecycle
       - specification/volume-ii/APPLICATION_LAYER.md#prule-006-source-lifecycle-transitions
