@@ -258,6 +258,57 @@ $$;
 
 
 --
+-- Name: f1_crawl_sources_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_sources_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'crawl_source_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_crawls_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawls_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'crawl_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.kind IS DISTINCT FROM OLD.kind
+     OR NEW.parent_evaluation_id IS DISTINCT FROM OLD.parent_evaluation_id
+     OR NEW.parent_crawl_id IS DISTINCT FROM OLD.parent_crawl_id
+     OR NEW.requested_crawl_policy_id IS DISTINCT FROM OLD.requested_crawl_policy_id
+     OR NEW.requested_crawl_policy_version IS DISTINCT FROM OLD.requested_crawl_policy_version
+     OR NEW.requested_entitlement_policy_id IS DISTINCT FROM OLD.requested_entitlement_policy_id
+     OR NEW.requested_entitlement_policy_version IS DISTINCT FROM OLD.requested_entitlement_policy_version
+     OR NEW.trigger_kind IS DISTINCT FROM OLD.trigger_kind
+     OR NEW.triggered_by_account_id IS DISTINCT FROM OLD.triggered_by_account_id
+     OR NEW.queued_at IS DISTINCT FROM OLD.queued_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'crawl_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'crawl_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_current_bootstrap_principal(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -649,6 +700,34 @@ BEGIN
   RETURN QUERY SELECT r.id, r.purpose, r.validated_at, r.expires_at, r.email_verified,
                       r.mfa_satisfied, r.issuer_key, r.issuer_subject, r.receipt_schema_version,
                       r.assurance_version, v_principal, p_org_id;
+END;
+$$;
+
+
+--
+-- Name: f1_evaluations_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_evaluations_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'evaluation_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.kind IS DISTINCT FROM OLD.kind
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'evaluation_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'evaluation_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
 END;
 $$;
 
@@ -1616,6 +1695,76 @@ ALTER TABLE ONLY public.crawl_policies FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_sources; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_sources (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    source_state_version bigint NOT NULL,
+    scope_policy_id uuid NOT NULL,
+    scope_policy_version text NOT NULL,
+    canonical_root_uri text NOT NULL,
+    source_order integer NOT NULL,
+    CONSTRAINT crawl_sources_source_order_check CHECK ((source_order >= 0))
+);
+
+ALTER TABLE ONLY public.crawl_sources FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: crawls; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawls (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    kind text NOT NULL,
+    parent_evaluation_id uuid,
+    parent_crawl_id uuid,
+    requested_crawl_policy_id uuid,
+    requested_crawl_policy_version text,
+    requested_entitlement_policy_id uuid NOT NULL,
+    requested_entitlement_policy_version text NOT NULL,
+    entitlement_decision_id uuid,
+    entitlement_reservation_id uuid,
+    trigger_kind text NOT NULL,
+    triggered_by_account_id uuid,
+    queued_at timestamp(6) with time zone NOT NULL,
+    started_at timestamp(6) with time zone,
+    terminal_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone,
+    state text NOT NULL,
+    coverage_status text,
+    completion_reason text,
+    limit_counters jsonb DEFAULT '{}'::jsonb NOT NULL,
+    retry_generation bigint DEFAULT 0 NOT NULL,
+    recovery_generation bigint DEFAULT 0 NOT NULL,
+    recovery_of_id uuid,
+    idempotency_key_digest bytea,
+    CONSTRAINT crawls_coverage_status_check CHECK ((coverage_status = ANY (ARRAY['full'::text, 'partial'::text]))),
+    CONSTRAINT crawls_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
+    CONSTRAINT crawls_kind_check CHECK ((kind = ANY (ARRAY['root'::text, 'reassessment_child'::text]))),
+    CONSTRAINT crawls_kind_parent_agreement CHECK ((((kind = 'root'::text) AND (parent_evaluation_id IS NULL)) OR ((kind = 'reassessment_child'::text) AND (parent_evaluation_id IS NOT NULL)))),
+    CONSTRAINT crawls_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text]))),
+    CONSTRAINT crawls_terminal_shape CHECK ((((state = ANY (ARRAY['queued'::text, 'running'::text])) AND (terminal_at IS NULL) AND (coverage_status IS NULL) AND (completion_reason IS NULL)) OR ((state = ANY (ARRAY['completed'::text, 'failed'::text, 'canceled'::text])) AND (terminal_at IS NOT NULL)))),
+    CONSTRAINT crawls_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['manual'::text, 'scheduled'::text])))
+);
+
+ALTER TABLE ONLY public.crawls FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: entitlement_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1639,6 +1788,40 @@ CREATE TABLE public.entitlement_policies (
 );
 
 ALTER TABLE ONLY public.entitlement_policies FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: evaluations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evaluations (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    kind text NOT NULL,
+    crawl_id uuid,
+    prior_evaluation_id uuid,
+    retry_of_evaluation_id uuid,
+    input_snapshot_id uuid,
+    applicability_snapshot_id uuid,
+    policy_snapshot_id uuid,
+    state text NOT NULL,
+    started_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
+    failed_at timestamp(6) with time zone,
+    superseded_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone,
+    reason text,
+    orchestration_slot_active boolean DEFAULT false NOT NULL,
+    CONSTRAINT evaluations_kind_check CHECK ((kind = ANY (ARRAY['initial'::text, 'reassessment'::text, 'retry'::text]))),
+    CONSTRAINT evaluations_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'superseded'::text])))
+);
+
+ALTER TABLE ONLY public.evaluations FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -2667,11 +2850,43 @@ ALTER TABLE ONLY public.crawl_policies
 
 
 --
+-- Name: crawl_sources crawl_sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sources
+    ADD CONSTRAINT crawl_sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: crawls crawls_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawls
+    ADD CONSTRAINT crawls_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawls crawls_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawls
+    ADD CONSTRAINT crawls_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: entitlement_policies entitlement_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.entitlement_policies
     ADD CONSTRAINT entitlement_policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evaluations evaluations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluations
+    ADD CONSTRAINT evaluations_pkey PRIMARY KEY (id);
 
 
 --
@@ -3064,6 +3279,48 @@ CREATE UNIQUE INDEX crawl_policies_version_unique ON public.crawl_policies USING
 
 
 --
+-- Name: crawl_sources_crawl_order_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX crawl_sources_crawl_order_unique ON public.crawl_sources USING btree (crawl_id, source_order);
+
+
+--
+-- Name: crawl_sources_crawl_source_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX crawl_sources_crawl_source_unique ON public.crawl_sources USING btree (crawl_id, source_id);
+
+
+--
+-- Name: crawls_project_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawls_project_state ON public.crawls USING btree (organization_id, project_id, state);
+
+
+--
+-- Name: evaluations_initial_per_crawl_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX evaluations_initial_per_crawl_unique ON public.evaluations USING btree (organization_id, project_id, crawl_id) WHERE (kind = 'initial'::text);
+
+
+--
+-- Name: evaluations_orchestration_slot_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX evaluations_orchestration_slot_unique ON public.evaluations USING btree (organization_id, project_id) WHERE orchestration_slot_active;
+
+
+--
+-- Name: evaluations_project_kind_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX evaluations_project_kind_state ON public.evaluations USING btree (organization_id, project_id, kind, state);
+
+
+--
 -- Name: evidence_content_hash_lookup; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3253,6 +3510,27 @@ CREATE TRIGGER crawl_policies_guard BEFORE DELETE OR UPDATE ON public.crawl_poli
 
 
 --
+-- Name: crawl_sources crawl_sources_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_sources_guard BEFORE DELETE OR UPDATE ON public.crawl_sources FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_sources_guard();
+
+
+--
+-- Name: crawls crawls_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawls_guard BEFORE DELETE OR UPDATE ON public.crawls FOR EACH ROW EXECUTE FUNCTION public.f1_crawls_guard();
+
+
+--
+-- Name: evaluations evaluations_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evaluations_guard BEFORE DELETE OR UPDATE ON public.evaluations FOR EACH ROW EXECUTE FUNCTION public.f1_evaluations_guard();
+
+
+--
 -- Name: evidence evidence_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3367,6 +3645,38 @@ ALTER TABLE ONLY public.command_results
 
 ALTER TABLE ONLY public.crawl_policies
     ADD CONSTRAINT crawl_policies_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: crawl_sources crawl_sources_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sources
+    ADD CONSTRAINT crawl_sources_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_sources crawl_sources_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sources
+    ADD CONSTRAINT crawl_sources_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: crawls crawls_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawls
+    ADD CONSTRAINT crawls_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: evaluations evaluations_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluations
+    ADD CONSTRAINT evaluations_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
 
 
 --
@@ -3585,6 +3895,32 @@ CREATE POLICY crawl_policies_context ON public.crawl_policies USING ((organizati
 
 
 --
+-- Name: crawl_sources; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_sources ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_sources crawl_sources_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_sources_context ON public.crawl_sources USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: crawls; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawls ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawls crawls_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawls_context ON public.crawls USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: entitlement_policies; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3595,6 +3931,19 @@ ALTER TABLE public.entitlement_policies ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY entitlement_policies_context ON public.entitlement_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: evaluations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.evaluations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: evaluations evaluations_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY evaluations_context ON public.evaluations USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -3889,6 +4238,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120090'),
 ('20260727120080'),
 ('20260727120070'),
 ('20260727120060'),

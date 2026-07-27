@@ -83,6 +83,9 @@ module F1
       # changes and FORCE RLS is preserved.
       "source_scope_policies"             => "SELECT, INSERT",
       "crawl_policies"                    => "SELECT, INSERT, UPDATE",
+      "crawls"                            => "SELECT, INSERT, UPDATE",
+      "crawl_sources"                     => "SELECT, INSERT",
+      "evaluations"                       => "SELECT, INSERT, UPDATE",
       "source_scope_change_requests"      => "SELECT, INSERT, UPDATE",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",

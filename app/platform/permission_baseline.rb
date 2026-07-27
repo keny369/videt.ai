@@ -108,7 +108,14 @@ module Platform
       # The scope-containment deferral (ADR-063 FU-2) applies identically. Materialized here for
       # S-07-001; the release service activates the global safety ceiling only (deferred; the
       # frozen crawl-policy-v1 constant is the interim ceiling, ADR-068).
-      "policy.crawl.manage" => %w[OrganizationAdmin MarketingOperator].freeze
+      "policy.crawl.manage" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # CAP-007 / WF-005 Crawl trigger (S-07-002). `crawl.trigger` (WORKFLOW_SPECIFICATIONS.md
+      # § Permission Baseline :147 "allow | allow | deny | deny | deny | deny | scheduler only"):
+      # an OrganizationAdmin or MarketingOperator may queue a manual Crawl; the Project
+      # scheduler service identity queues configured schedules through its own service path (not
+      # a baseline role). Every other role denies. NOT a protected permission (:333 omits it).
+      # Materialized here for S-07-002.
+      "crawl.trigger" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

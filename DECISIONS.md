@@ -1863,3 +1863,24 @@ S-07-001 met every mandatory gate (whole-repo suite **1361/0**; Zeitwerk/Packwer
 
 Authority And Precedence:
 Executes the owner's standing-delegation directive (ADR-061) and accepts S-07-001. Allocated the next unused number after ADR-069.
+
+## ADR-071: S-07-002 Built; A Ratified-Sequence Prerequisite Surfaced (Project Activation Precedes S-07) — STOP For Owner Decision D3
+
+Status: Proposed (owner decision required — stop condition 2, a scope/prerequisite question)
+Date: 2026-07-27
+Owner: implementation agent (S-07-002 built under standing delegation ADR-061; prerequisite STOP raised) / owner decision D3 pending
+Reversibility: The S-07-002 code is built and its migration applied to dev/test but NOT accepted, reviewed, or pushed; it is preserved as a local WIP commit. No production path.
+
+Context — S-07-002 built:
+S-07-002 (Crawl aggregate + QueueCrawl) is implemented: the `crawls`, `crawl_sources` and `evaluations` tables (schema doc :292/293/339; RLS, immutability/lifecycle guards freezing identity/pinned facts and refusing state transitions to be relaxed by later tranches, the two OD-018 partial-unique indexes on `evaluations`); `QueueCrawl` (authenticate → tenant → authorize `crawl.trigger` → active Project + active Entitlement Policy + ≥1 active Source → per-Project lock + idempotency → OD-018 queue-time guard → insert one root queued Crawl pinning the request-time crawl-policy [Project else Org active version, else the frozen global ceiling] + entitlement-policy versions and the active Source set, reserving no usage and creating no Evaluation → `CrawlQueued`); the `crawl.trigger` permission; and the QueueCrawl ErrorCatalog reasons. Two documented interims within S-07-002 (defensible, not owner decisions): `reassessment_required` is vacuously satisfied because promotion (`current_score_projections`) is an S-09 table not yet built — no Project can hold a promoted pair, so every request is a root initial-assessment Crawl, and the guard's query is wired when S-09 builds promotion; the reassessment-child branch is deferred to the WF-011 slice (ADR-067 D4), so QueueCrawl always queues a root Crawl.
+
+The blocker — D3, a ratified-sequence prerequisite:
+QueueCrawl requires an **active Project** (WORKFLOW_SPECIFICATIONS.md § WF-005 :725 "A Crawl request requires an active Project"). Both WF-001 bootstrap and WF-002 CreateProject create a Project in state **`draft`**, and the `projects_lifecycle_guard` (db/migrate/20260723120020) REFUSES every Project state change with an explicit note: "WF-002 State Transitions define Project.Draft -> Project.Active only, and that transition is gated on >=1 active same-Project Source (CAP-003, PRULE-004) ... activation is not implementable in this baseline ... The activation slice will relax this guard to permit the single draft->active edge under its ratified prerequisites." That project-activation slice (WF-002/S-03 ActivateProject) is **NOT built** — the ratified build sequence is `... S-06 -> S-03 ActivateProject -> S-07` (PROJECT_STATE.md), placing it BEFORE S-07 — and its own prerequisite (>=1 active Source) is NOW satisfiable because S-06-006 ActivateSource is built. QueueCrawl's active-Project precondition therefore cannot be met, and no test may seed an active Project without masking this ratified-sequence prerequisite (the guard refuses draft->active; a direct active INSERT would fabricate a state only the unbuilt activation slice may produce). This is a genuine scope/prerequisite decision, parallel to D2 (F-05): the project-activation slice is a DIFFERENT slice (S-03/WF-002 project lifecycle), not part of the S-07 authorisation.
+
+Decision (D3, owner):
+STOP and return to the owner per ADR-061 stop condition (2) — a scope change requires owner approval. Options:
+- **Option 1 (recommended): build the project-activation slice now as a prerequisite** (like F-05) — WF-002/S-03 ActivateProject: the single `draft -> active` Project edge gated on >=1 active Source, relaxing the `projects_lifecycle_guard` to permit exactly that edge, with its permission (`project.activate` or the WF-002 named permission per WORKFLOW), built + independently reviewed under the standing delegation before S-07-002 is accepted. It is small, now-buildable, explicitly sequenced before S-07, and unblocks QueueCrawl (and every downstream S-07 tranche) for real rather than by test fixture.
+- **Option 2: proceed with S-07 test-seeding an active Project and defer project activation** — S-07 stays production-dead until the activation slice is built; QueueCrawl's precondition is enforced but exercised only via a fabricated active-Project fixture.
+
+Authority And Precedence:
+Records S-07-002 and the D3 prerequisite. No S-07-002 acceptance, review, merge, or push until D3 is resolved. Allocated the next unused number after ADR-070.

@@ -258,6 +258,16 @@ module Platform
       "crawl_policy_not_narrowing"        => "F1-VALIDATION-400",
       "crawl_policy_stale_version"        => "F1-DOMAIN-409",
       "crawl_policy_unavailable"          => "F1-DOMAIN-409",
+      # S-07-002 QueueCrawl (WF-005 / contracts/S-07.json MTX-030 queue limb, MTX-058 PRULE-007).
+      # Authority -> F1-AUTH-403; precondition/state failures -> F1-DOMAIN-409. OD-018:
+      # `initial_evaluation_already_running` is severity warning, retryable=false (recovery
+      # await_running_initial_evaluation_or_submit_new_command). `tenant_mismatch` /
+      # `idempotency_conflict` reused from above.
+      "crawl_trigger_unauthorized"        => "F1-AUTH-403",
+      "crawl_project_not_active"          => "F1-DOMAIN-409",
+      "crawl_no_active_source"            => "F1-DOMAIN-409",
+      "crawl_entitlement_unavailable"     => "F1-DOMAIN-409",
+      "initial_evaluation_already_running" => "F1-DOMAIN-409",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the
