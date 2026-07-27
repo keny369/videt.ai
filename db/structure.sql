@@ -214,6 +214,49 @@ $$;
 
 
 --
+-- Name: f1_crawl_policies_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_policies_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'crawl_policy_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- A superseded policy version is terminal: no field may change once it leaves active.
+  IF OLD.state <> 'active' THEN
+    RAISE EXCEPTION 'crawl_policy_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF NEW.schema_version IS DISTINCT FROM OLD.schema_version
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.scope IS DISTINCT FROM OLD.scope
+     OR NEW.policy_version IS DISTINCT FROM OLD.policy_version
+     OR NEW.supersedes_id IS DISTINCT FROM OLD.supersedes_id
+     OR NEW.activated_by_account_id IS DISTINCT FROM OLD.activated_by_account_id
+     OR NEW.normalized_bounds IS DISTINCT FROM OLD.normalized_bounds
+     OR NEW.content_sha256 IS DISTINCT FROM OLD.content_sha256
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'crawl_policy_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- The only permitted transition of an active row is to superseded.
+  IF NEW.state <> 'superseded' THEN
+    RAISE EXCEPTION 'crawl_policy_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_current_bootstrap_principal(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1539,6 +1582,39 @@ ALTER TABLE ONLY public.command_results FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_policies (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    schema_version text NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid,
+    scope text NOT NULL,
+    policy_version text NOT NULL,
+    state text NOT NULL,
+    supersedes_id uuid,
+    activated_by_account_id uuid NOT NULL,
+    normalized_bounds jsonb NOT NULL,
+    content_sha256 bytea NOT NULL,
+    superseded_at timestamp(6) with time zone,
+    CONSTRAINT crawl_policies_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT crawl_policies_normalized_bounds_check CHECK ((jsonb_typeof(normalized_bounds) = 'object'::text)),
+    CONSTRAINT crawl_policies_schema_version_check CHECK ((schema_version = 'crawl-policy-v1'::text)),
+    CONSTRAINT crawl_policies_scope_check CHECK ((scope = ANY (ARRAY['organization'::text, 'project'::text]))),
+    CONSTRAINT crawl_policies_scope_project_agreement CHECK ((((scope = 'organization'::text) AND (project_id IS NULL)) OR ((scope = 'project'::text) AND (project_id IS NOT NULL)))),
+    CONSTRAINT crawl_policies_state_check CHECK ((state = ANY (ARRAY['active'::text, 'superseded'::text]))),
+    CONSTRAINT crawl_policies_terminal_shape CHECK ((((state = 'active'::text) AND (superseded_at IS NULL)) OR ((state = 'superseded'::text) AND (superseded_at IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.crawl_policies FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: entitlement_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2582,6 +2658,14 @@ ALTER TABLE ONLY public.command_results
 
 
 --
+-- Name: crawl_policies crawl_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_policies
+    ADD CONSTRAINT crawl_policies_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: entitlement_policies entitlement_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2958,6 +3042,27 @@ ALTER TABLE ONLY public.work_dispatch_bindings
 
 
 --
+-- Name: crawl_policies_active_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX crawl_policies_active_unique ON public.crawl_policies USING btree (organization_id, scope, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE (state = 'active'::text);
+
+
+--
+-- Name: crawl_policies_org_scope; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_policies_org_scope ON public.crawl_policies USING btree (organization_id, scope, project_id);
+
+
+--
+-- Name: crawl_policies_version_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX crawl_policies_version_unique ON public.crawl_policies USING btree (organization_id, scope, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), policy_version);
+
+
+--
 -- Name: evidence_content_hash_lookup; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3140,6 +3245,13 @@ CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_
 
 
 --
+-- Name: crawl_policies crawl_policies_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_policies_guard BEFORE DELETE OR UPDATE ON public.crawl_policies FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_policies_guard();
+
+
+--
 -- Name: evidence evidence_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3246,6 +3358,14 @@ ALTER TABLE ONLY public.command_executions
 
 ALTER TABLE ONLY public.command_results
     ADD CONSTRAINT command_results_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: crawl_policies crawl_policies_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_policies
+    ADD CONSTRAINT crawl_policies_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
 
 
 --
@@ -3448,6 +3568,19 @@ ALTER TABLE public.command_results ENABLE ROW LEVEL SECURITY;
 CREATE POLICY command_results_context ON public.command_results USING ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions))) WITH CHECK ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions)));
+
+
+--
+-- Name: crawl_policies; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_policies ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_policies crawl_policies_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_policies_context ON public.crawl_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -3755,6 +3888,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120080'),
 ('20260727120070'),
 ('20260727120060'),
 ('20260727120051'),

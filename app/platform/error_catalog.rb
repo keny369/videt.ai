@@ -247,6 +247,16 @@ module Platform
       "source_lifecycle_transition_invalid" => "F1-DOMAIN-409",
       "source_lifecycle_unauthorized"     => "F1-AUTH-403",
       "source_lifecycle_reason_invalid"   => "F1-VALIDATION-400",
+      # S-07-001 ActivateCrawlPolicy (WF-005 / contracts/S-07.json MTX-030 policy limb,
+      # MTX-059 PRULE-008). Narrowing-only, Org/Project scope. Shape/narrowing rejections ->
+      # F1-VALIDATION-400; stale expected version / resolver unavailable -> F1-DOMAIN-409;
+      # authority/scope -> F1-AUTH-403. `idempotency_conflict` reused from above.
+      "crawl_policy_unauthorized"         => "F1-AUTH-403",
+      "crawl_policy_incomplete"           => "F1-VALIDATION-400",
+      "crawl_policy_soft_exceeds_hard"    => "F1-VALIDATION-400",
+      "crawl_policy_not_narrowing"        => "F1-VALIDATION-400",
+      "crawl_policy_stale_version"        => "F1-DOMAIN-409",
+      "crawl_policy_unavailable"          => "F1-DOMAIN-409",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the

@@ -96,7 +96,19 @@ module Platform
       # cannot mutate lifecycle regardless of other permissions (S-06.json MTX-057). NOT a
       # protected permission (:333 omits it). Materialized here for S-06-006. The scope-limb
       # deferral recorded for policy.source_scope.manage (ADR-063 FU-2) applies identically.
-      "source.lifecycle.manage" => %w[OrganizationAdmin MarketingOperator].freeze
+      "source.lifecycle.manage" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # CAP-007 / WF-005 Crawl policy narrowing (S-07-001). `policy.crawl.manage`
+      # (WORKFLOW_SPECIFICATIONS.md § Permission Baseline :173 "allow to narrow Organization
+      # bounds | allow to narrow Project bounds | deny | deny | deny | deny"): an
+      # OrganizationAdmin may narrow the ORGANIZATION-scope crawl policy; a MarketingOperator
+      # may narrow a PROJECT-scope crawl policy; every other role denies. The Org-vs-Project
+      # SCOPE limb is enforced in the ActivateCrawlPolicy handler (an OrganizationAdmin at
+      # organization scope, a MarketingOperator at project scope). It implies NO crawl-execution
+      # permission (crawl.trigger etc. are separate). NOT a protected permission (:333 omits it).
+      # The scope-containment deferral (ADR-063 FU-2) applies identically. Materialized here for
+      # S-07-001; the release service activates the global safety ceiling only (deferred; the
+      # frozen crawl-policy-v1 constant is the interim ceiling, ADR-068).
+      "policy.crawl.manage" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are
