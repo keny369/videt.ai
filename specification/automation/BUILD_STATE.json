@@ -3,18 +3,18 @@
   "controller_version": "1.0.0",
   "current_block": "S-06",
   "current_tranche": "S-06-002",
-  "status": "implementing",
+  "status": "ready_for_review",
   "attempt_number": 1,
   "base_commit": "6e8413a",
   "worktree_path": "",
   "branch_name": "tranche/S-06/S-06-002",
-  "implementation_commit": null,
-  "review_commit": null,
-  "last_verified_commit": "6e8413a",
+  "implementation_commit": "e8b6d60",
+  "review_commit": "e8b6d60",
+  "last_verified_commit": "e8b6d60",
   "verification_run_id": "",
   "open_decisions": [],
   "completed_blocks": ["F-01", "F-02", "F-03", "F-04", "CTRL-01", "S-05-001", "S-05-002", "S-05-003", "S-05-004", "S-05-005", "S-05-006", "S-05-007", "S-06-001"],
   "failed_attempts": [],
   "updated_at": "2026-07-27T00:00:00Z",
-  "reconciliation_note": "2026-07-27: The owner resolved HD-S06-002-DECOMPOSITION by selecting Option 1 (three-way split, DECISIONS ADR-056). S-06 is re-decomposed: S-06-002 = the pure Option-B ScopeChangeClassification classifier + fixtures (isolated for adversarial security review, S-05-003 precedent); S-06-003 = source_scope_change_requests table + ProposeSourceScopeChange(pending) + F-04 24h expiry + ledger + idempotency + SourceScopeChangeRequested; S-06-004 = atomic contraction activation + Decide + Cancel (the shared none-without-the-others policy-version-activation multi-root commit, S-05-006 precedent); S-06-005 = Expire + expiry job (was S-06-004); S-06-006 = Source lifecycle (was S-06-005). Interim (until S-06-004): a contraction may remain pending rather than auto-activating — a fail-closed implementation interim, never final contract behaviour, with no provisional alternative activation path. Implementing S-06-002 (classifier and fixtures only) on tranche/S-06/S-06-002 (base 6e8413a). Do not begin S-06-003 until S-06-002 passes its normal review and acceptance gate. main untouched at e22deed; nothing pushed; S-06-003..006 remain human_gate_before. This file and the repository are authoritative, not conversational memory."
+  "reconciliation_note": "2026-07-27: S-06-002 (the pure Option-B Source Scope Change classifier, ScopeChangeClassification) is READY_FOR_REVIEW on tranche/S-06/S-06-002 (base 6e8413a, tip e8b6d60). It classifies a proposed scope change as :contraction | :expansion | :boundary_violation per DECISIONS ADR-054 (owner Option B): a semantic subset test with PRULE-021 (S-06-001) as the admission oracle over a complete witness set, plus the query-multiplicity exception (any query-handling change that can increase distinct crawlable canonical URLs is an expansion) and boundary rejection; fail-closed. Pure — no persistence, event, network, migration or Source/Request transition. Full gate green: whole-repo suite 1264 examples/0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change so no structure.sql drift is possible. Independent review (ADR-026, five separately-invoked adversarial lenses) returned PASS on ALL FIVE with zero confirmed-blocking findings — the security lens ran ~22,000 fuzzer :contraction verdicts and the contract lens a 3,969-pair brute-force oracle, both finding zero misclassified broadenings (no bypass; witness-set complete). One defense-in-depth hardening was applied (boundary check moved outside the fail-closed rescue; ADR-057) with two test strengthenings; ADR-054's Scope was annotated superseded-in-part by ADR-056. Next: owner acceptance-and-merge at human_gate_after. No merge, no push; main and the integration branch untouched; S-06-003..006 remain human_gate_before; do not begin S-06-003 until S-06-002 is accepted. This file and the repository are authoritative, not conversational memory."
 }

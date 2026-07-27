@@ -1519,6 +1519,8 @@ Rationale (owner): the security boundary is not only which documents are admitte
 Scope:
 Governs S-06-002 (ProposeSourceScopeChange + atomic contraction activation) and is inherited by S-06-003 (DecideSourceScopeChange). Resolves HD-S06-002-SCOPE-CLASSIFIER. Implementation of S-06-002 proceeds, including atomic contraction activation; S-06-003..005 remain human_gate_before.
 
+> Superseded in part by ADR-056 (2026-07-27): the classifier RULING in this ADR stands unchanged, but its tranche PLACEMENT is re-scoped by the owner's Option-1 decomposition — the classifier is now the isolated S-06-002; ProposeSourceScopeChange(pending) is S-06-003; atomic contraction activation + Decide + Cancel is S-06-004; Expire and Source lifecycle renumber to S-06-005/006. See ADR-056 (per the constitution's "update earlier documents if architecture changes").
+
 Authority And Precedence:
 Executes the owner's Option-B ruling. Allocated the next unused number after ADR-053. No automatic merge, no push, no production path.
 
@@ -1572,3 +1574,25 @@ BUILD_PLAN updated to the six-tranche S-06 structure; HD-S06-002-DECOMPOSITION r
 
 Authority And Precedence:
 Executes the owner's Option-1 ruling. Allocated the next unused number after ADR-055. No automatic merge, no push, no production path.
+
+## ADR-057: S-06-002 Classifier Independently Reviewed (All Five Lenses PASS) — Defense-in-Depth Hardening Applied
+
+Status: Accepted
+Date: 2026-07-27
+Owner: implementation agent (recorded); no product ruling required — zero confirmed-blocking findings
+Reversibility: On `tranche/S-06/S-06-002`; nothing merged or pushed; `main` untouched. Revertible by branch reset.
+
+Decision:
+Record the independent ADR-026 review of the S-06-002 pure Option-B classifier and the one defense-in-depth hardening applied. Five separately-invoked adversarial lenses (security/misclassification-bypass, contract-correctness, determinism/purity, architecture/scope, test-quality) all returned PASS with ZERO confirmed-blocking findings. The security lens ran two independent differential fuzzers (~22,000 :contraction verdicts) and the contract lens a brute-force oracle over 3,969 policy pairs; both found zero misclassified broadenings — no auto-activated-widening bypass exists, and the witness-set is complete for the `/`-boundary prefix semantics (delegating admission to PRULE-021, inheriting the ADR-051 exclusion-separator hardening).
+
+Hardening Applied (non-blocking, flagged by the purity and contract lenses):
+`classify` is split so the boundary check runs OUTSIDE the fail-closed rescue (the rescue now guards only `classify_broadening`), so a boundary violation can never degrade to an approvable :expansion. No behaviour changes for any real Policy value-object input (all committed fixtures and the whole-repo suite pass unchanged); only the unreachable "boundary accessor raises" edge is affected. Two spec assertions were tightened to pin their reason, and exclude-narrowing and superset-allowlist fixtures were added.
+
+Non-blocking observations recorded (not actioned — repair-only-confirmed-blocking):
+- Host trailing-dot (`host.`) currently classifies as :boundary_violation rather than in-boundary (over-strict / fail-safe; the command layer normalizes the host under ascii-host-v1 before it reaches the classifier). Candidate normalization nicety.
+- Additional nested include+exclude characterization fixtures could be added (behaviour already correct and fuzzer-covered).
+
+Verification: whole-repo suite 1264 examples / 0 failures; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness green within the suite; no db/ or app/models change (no structure.sql drift possible).
+
+Authority And Precedence:
+Records the review outcome and the applied hardening. Allocated the next unused number after ADR-056. No automatic merge, no push, no production path; the controller stops at human_gate_after (owner acceptance) with S-06-002 at ready_for_review. Do not begin S-06-003 until S-06-002 is accepted.
