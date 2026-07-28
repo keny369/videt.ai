@@ -826,7 +826,7 @@ blocks:
   - id: S-07-004
     name: Crawl Execution — deterministic frontier + dequeue
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061); 5-lens review, 5 CB fixed + hardening (ADR-078). Discharges the frontier limb of HD-S07-FU4-FU5.
     depends_on:
       - S-07-003
     human_gate_before: false
