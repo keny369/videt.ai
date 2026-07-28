@@ -276,6 +276,20 @@ module Platform
       "crawl_no_active_source"            => "F1-DOMAIN-409",
       "crawl_entitlement_unavailable"     => "F1-DOMAIN-409",
       "initial_evaluation_already_running" => "F1-DOMAIN-409",
+      # S-07-003 StartCrawl (WF-005 / contracts/S-07.json MTX-030 start limb). The service-only
+      # `Queued -> Running` commit. A dispatch for a Crawl that already left `queued` is the
+      # harmless terminal execution -> F1-DOMAIN-409; the exact pre-execution gate reuses
+      # crawl_project_not_active / crawl_no_active_source / initial_evaluation_already_running /
+      # crawl_policy_unavailable above and the three Entitlement Block reasons below, each of which
+      # becomes the failed Crawl's `completion_reason` (WORKFLOW_SPECIFICATIONS.md :734).
+      "crawl_not_queued"                  => "F1-DOMAIN-409",
+      # The `entitlement-interim-v1` Block reasons (WORKFLOW_SPECIFICATIONS.md :519/:541), returned
+      # verbatim by Platform::Entitlement::InterimPolicy. `operation_unknown` is unreachable for the
+      # constant `crawl.start`, and is mapped so no Block reason the F-05 surface can return is
+      # unmapped. Their recovery actions are the ratified entitlement ones, not the class default.
+      "hard_limit_exceeded"               => "F1-DOMAIN-409",
+      "entitlement_inactive"              => "F1-DOMAIN-409",
+      "operation_unknown"                 => "F1-DOMAIN-409",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069). Executing
       # against an expired linked Reservation is a domain conflict with no new Decision and no side
       # effect (WORKFLOW_SPECIFICATIONS.md :553).
@@ -294,8 +308,14 @@ module Platform
     # recovery distinct from their error-code class default. QueueCrawl OD-018
     # (contracts/S-07.json MTX-030 error_contract; WORKFLOW_SPECIFICATIONS.md :734): the
     # caller awaits the running initial Evaluation rather than the generic re-read.
+    # S-07-003: the entitlement Block reasons carry the recovery `InterimPolicy` returns and the
+    # `entitlement_decisions_recovery_action_check` vocabulary admits, not the F1-DOMAIN-409 re-read
+    # default (WORKFLOW_SPECIFICATIONS.md :519/:541).
     REASON_RECOVERY = {
-      "initial_evaluation_already_running" => "await_running_initial_evaluation_or_submit_new_command"
+      "initial_evaluation_already_running" => "await_running_initial_evaluation_or_submit_new_command",
+      "hard_limit_exceeded"                => "wait_for_window",
+      "entitlement_inactive"               => "restore_policy",
+      "operation_unknown"                  => "contact_support"
     }.freeze
 
     def failure(reason_code, support_reference:)

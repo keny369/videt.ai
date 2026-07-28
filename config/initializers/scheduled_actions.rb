@@ -49,4 +49,16 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf004::Handlers::ExpireSourceScopeChange,
     command: Workflows::Wf004::Commands::ExpireSourceScopeChange
   )
+  # `crawl_dispatch` is a SPECIALIZED work type (`crawl_orchestrate`, BACKGROUND_PROCESSING.md
+  # :197), so it is absent from the generic `scheduled_action_dispatch` operation table and the
+  # registry's operation cross-check does not apply; :377 fixes its permitted operations to
+  # StartCrawl / CompleteCrawl / FailCrawl / CancelCrawl "selected solely from persisted Crawl
+  # state". S-07-003 registers the start; the three terminal operations are later tranches.
+  registry.register(
+    action_kind: "crawl_dispatch",
+    action_schema_version: "1.0",
+    operation: "StartCrawl",
+    handler: Workflows::Wf005::Handlers::StartCrawl,
+    command: Workflows::Wf005::Commands::StartCrawl
+  )
 end

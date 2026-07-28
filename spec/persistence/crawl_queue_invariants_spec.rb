@@ -61,11 +61,19 @@ RSpec.describe "Crawl-queue invariants", type: :model do
   end
 
   describe "the OD-018 database backstops on evaluations" do
+    # S-07-003 transcribed POSTGRESQL_SCHEMA.md :340 ("the slot may be true only for a
+    # reassessment/retry") into a CHECK, so this WF-011 single-flight is exercised on the kinds it
+    # actually governs; the INITIAL single-flight is its own backstop below.
     it "permits at most one active orchestration slot per Project" do
       pid = draft_project
-      insert_evaluation(pid, slot: true)
-      expect { insert_evaluation(pid, slot: true, crawl_id: SecureRandom.uuid_v7) }
+      insert_evaluation(pid, kind: "reassessment", slot: true)
+      expect { insert_evaluation(pid, kind: "retry", slot: true, crawl_id: SecureRandom.uuid_v7) }
         .to raise_error(PG::UniqueViolation, /evaluations_orchestration_slot_unique/)
+    end
+
+    it "refuses the orchestration slot to an initial Evaluation" do
+      expect { insert_evaluation(draft_project, kind: "initial", slot: true) }
+        .to raise_error(PG::CheckViolation, /evaluations_orchestration_slot_kind/)
     end
 
     it "permits at most one initial Evaluation per Crawl" do
@@ -76,10 +84,26 @@ RSpec.describe "Crawl-queue invariants", type: :model do
         .to raise_error(PG::UniqueViolation, /evaluations_initial_per_crawl_unique/)
     end
 
-    it "allows two non-slot initial Evaluations for DIFFERENT Crawls" do
+    # S-07-003 added `evaluations_initial_single_flight_unique`, the OD-018 backstop proper: at most
+    # one PENDING-or-RUNNING initial Evaluation per Project, whatever its Crawl. It keys on the
+    # in-flight states only, so a root `crawl.recover` after a FAILED initial Evaluation stays
+    # admissible (WORKFLOW_SPECIFICATIONS.md :725).
+    it "permits at most one pending-or-running initial Evaluation per Project, across Crawls" do
       pid = draft_project
-      insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7)
-      expect { insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7) }.not_to raise_error
+      insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "pending")
+      expect { insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "running") }
+        .to raise_error(PG::UniqueViolation, /evaluations_initial_single_flight_unique/)
+    end
+
+    it "allows a new initial Evaluation once the prior one is terminal (a root recovery stays admissible)" do
+      pid = draft_project
+      insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "failed")
+      expect { insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "pending") }.not_to raise_error
+    end
+
+    it "does not constrain initial Evaluations across different Projects" do
+      insert_evaluation(draft_project, kind: "initial", crawl_id: SecureRandom.uuid_v7)
+      expect { insert_evaluation(draft_project, kind: "initial", crawl_id: SecureRandom.uuid_v7) }.not_to raise_error
     end
 
     it "requires an initial Evaluation to carry its crawl_id (closes the NULL-crawl_id backstop hole)" do

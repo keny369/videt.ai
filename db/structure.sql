@@ -2142,6 +2142,7 @@ CREATE TABLE public.evaluations (
     orchestration_slot_active boolean DEFAULT false NOT NULL,
     CONSTRAINT evaluations_initial_requires_crawl CHECK (((kind <> 'initial'::text) OR (crawl_id IS NOT NULL))),
     CONSTRAINT evaluations_kind_check CHECK ((kind = ANY (ARRAY['initial'::text, 'reassessment'::text, 'retry'::text]))),
+    CONSTRAINT evaluations_orchestration_slot_kind CHECK (((NOT orchestration_slot_active) OR (kind = ANY (ARRAY['reassessment'::text, 'retry'::text])))),
     CONSTRAINT evaluations_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'superseded'::text])))
 );
 
@@ -3770,6 +3771,13 @@ CREATE UNIQUE INDEX evaluations_initial_per_crawl_unique ON public.evaluations U
 
 
 --
+-- Name: evaluations_initial_single_flight_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX evaluations_initial_single_flight_unique ON public.evaluations USING btree (organization_id, project_id) WHERE ((kind = 'initial'::text) AND (state = ANY (ARRAY['pending'::text, 'running'::text])));
+
+
+--
 -- Name: evaluations_orchestration_slot_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4925,6 +4933,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120150'),
 ('20260727120140'),
 ('20260727120130'),
 ('20260727120120'),

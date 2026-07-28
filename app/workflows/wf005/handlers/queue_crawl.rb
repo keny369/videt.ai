@@ -17,6 +17,8 @@ module Workflows
       # active Source set (each Source's state version + active Source Scope Policy id/version).
       # It reserves NO usage and creates NO Evaluation (those are StartCrawl + F-05, S-07-003).
       # The OD-018 guard refuses a root request while an initial Evaluation is pending/running.
+      # The same transaction schedules the ratified `crawl_dispatch` ScheduledAction that carries
+      # the Crawl to StartCrawl (S-07-003); it starts no work here and reserves nothing.
       #
       # reassessment_required (a promoted Evaluation/Issue-set/ScoreSnapshot pair exists) is
       # governed by `current_score_projections`, an S-09 table not yet built: no Project can hold
@@ -124,6 +126,15 @@ module Workflows
               scope_policy_version: s["scope_policy_version"], canonical_root_uri: s["canonical_root_uri"], source_order: i
             )
           end
+
+          # The admitted queued Crawl's start dispatch (BACKGROUND_PROCESSING.md :137 `crawl_dispatch`
+          # -> :197 `crawl_orchestrate` -> :377 `StartCrawl`), created on THIS transaction's
+          # connection so the Crawl and its dispatch commit or roll back together. S-07-003: nothing
+          # is enqueued after commit and a rolled-back queue leaves no action to claim.
+          Wf005::CrawlDispatchSchedule.schedule(
+            pg: d[:pg], organization_id: org, project_id: command.project_id, crawl_id: ids[:crawl],
+            now:, correlation_id: ctx.correlation_id, command_id: command.command_id
+          )
 
           payload = {
             "crawl_id" => ids[:crawl], "organization_id" => org, "project_id" => command.project_id,
