@@ -705,6 +705,128 @@ $$;
 
 
 --
+-- Name: f1_entitlement_commit_intents_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_entitlement_commit_intents_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'entitlement_commit_intent_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.reservation_id IS DISTINCT FROM OLD.reservation_id
+     OR NEW.durable_output_type IS DISTINCT FROM OLD.durable_output_type
+     OR NEW.durable_output_id IS DISTINCT FROM OLD.durable_output_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id THEN
+    RAISE EXCEPTION 'entitlement_commit_intent_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state
+     AND NOT (OLD.state = 'pending' AND NEW.state IN ('committed','released')) THEN
+    RAISE EXCEPTION 'entitlement_commit_intent_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_entitlement_counter_windows_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_entitlement_counter_windows_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'entitlement_counter_window_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.counter_group IS DISTINCT FROM OLD.counter_group
+     OR NEW.window_start IS DISTINCT FROM OLD.window_start
+     OR NEW.window_end IS DISTINCT FROM OLD.window_end
+     OR NEW.soft_limit IS DISTINCT FROM OLD.soft_limit
+     OR NEW.hard_limit IS DISTINCT FROM OLD.hard_limit
+     OR NEW.policy_version IS DISTINCT FROM OLD.policy_version
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id THEN
+    RAISE EXCEPTION 'entitlement_counter_window_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_entitlement_decisions_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_entitlement_decisions_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'entitlement_decision_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_entitlement_lease_heartbeats_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_entitlement_lease_heartbeats_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'entitlement_lease_heartbeat_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_entitlement_reservations_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_entitlement_reservations_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'entitlement_reservation_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.decision_id IS DISTINCT FROM OLD.decision_id
+     OR NEW.counter_window_id IS DISTINCT FROM OLD.counter_window_id
+     OR NEW.units IS DISTINCT FROM OLD.units
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id THEN
+    RAISE EXCEPTION 'entitlement_reservation_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state
+     AND NOT (
+       (OLD.state = 'reserved'  AND NEW.state IN ('executing','released','expired')) OR
+       (OLD.state = 'executing' AND NEW.state IN ('committed','released'))
+     ) THEN
+    RAISE EXCEPTION 'entitlement_reservation_transition_unavailable % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_evaluations_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1758,6 +1880,137 @@ ALTER TABLE ONLY public.crawls FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: entitlement_commit_intents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_commit_intents (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    reservation_id uuid NOT NULL,
+    durable_output_type text NOT NULL,
+    durable_output_id uuid NOT NULL,
+    durable_output_sha256 bytea,
+    state text NOT NULL,
+    terminal_at timestamp(6) with time zone,
+    terminal_reason text,
+    CONSTRAINT entitlement_commit_intents_durable_output_sha256_check CHECK (((durable_output_sha256 IS NULL) OR (octet_length(durable_output_sha256) = 32))),
+    CONSTRAINT entitlement_commit_intents_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'committed'::text, 'released'::text]))),
+    CONSTRAINT entitlement_commit_intents_terminal_shape CHECK ((((state = 'pending'::text) AND (terminal_at IS NULL)) OR ((state = ANY (ARRAY['committed'::text, 'released'::text])) AND (terminal_at IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.entitlement_commit_intents FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: entitlement_counter_windows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_counter_windows (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    counter_group text NOT NULL,
+    window_start timestamp(6) with time zone NOT NULL,
+    window_end timestamp(6) with time zone NOT NULL,
+    soft_limit bigint NOT NULL,
+    hard_limit bigint NOT NULL,
+    reserved_units bigint DEFAULT 0 NOT NULL,
+    committed_units bigint DEFAULT 0 NOT NULL,
+    low_cost_units bigint DEFAULT 0 NOT NULL,
+    policy_version text NOT NULL,
+    reconciliation_state text DEFAULT 'authoritative'::text NOT NULL,
+    CONSTRAINT entitlement_counter_windows_limits_ordered CHECK ((soft_limit < hard_limit)),
+    CONSTRAINT entitlement_counter_windows_reconciliation_state_check CHECK ((reconciliation_state = ANY (ARRAY['authoritative'::text, 'reconciling'::text]))),
+    CONSTRAINT entitlement_counter_windows_units_nonneg CHECK (((reserved_units >= 0) AND (committed_units >= 0) AND (low_cost_units >= 0))),
+    CONSTRAINT entitlement_counter_windows_window_ordered CHECK ((window_end > window_start))
+);
+
+ALTER TABLE ONLY public.entitlement_counter_windows FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: entitlement_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_decisions (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    decided_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    account_id uuid,
+    service_identity_id uuid,
+    operation text NOT NULL,
+    usage_unit text NOT NULL,
+    requested_units bigint NOT NULL,
+    counter_window_id uuid,
+    window_start timestamp(6) with time zone,
+    window_end timestamp(6) with time zone,
+    policy_version text NOT NULL,
+    plan_version text NOT NULL,
+    soft_limit bigint,
+    hard_limit bigint,
+    committed_before bigint,
+    committed_after bigint,
+    active_reserved_before bigint,
+    active_reserved_after bigint,
+    reservation_id uuid,
+    cached_snapshot_id uuid,
+    cached_snapshot_age bigint,
+    idempotency_key_digest bytea,
+    retry_of_decision_id uuid,
+    decision text NOT NULL,
+    reason_code text NOT NULL,
+    recovery_action text NOT NULL,
+    CONSTRAINT entitlement_decisions_decision_check CHECK ((decision = ANY (ARRAY['allow'::text, 'allow_with_warning'::text, 'block'::text]))),
+    CONSTRAINT entitlement_decisions_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
+    CONSTRAINT entitlement_decisions_reason_code_check CHECK ((reason_code = ANY (ARRAY['within_limit'::text, 'soft_limit_reached'::text, 'hard_limit_exceeded'::text, 'organization_inactive'::text, 'actor_inactive'::text, 'service_unauthorized'::text, 'entitlement_inactive'::text, 'policy_unavailable'::text, 'counter_unavailable'::text, 'cached_policy_snapshot_used'::text, 'cached_counter_snapshot_used'::text, 'operation_unknown'::text, 'reservation_conflict'::text]))),
+    CONSTRAINT entitlement_decisions_recovery_action_check CHECK ((recovery_action = ANY (ARRAY['none'::text, 'wait_for_window'::text, 'upgrade_plan'::text, 'reactivate_organization'::text, 'reactivate_actor'::text, 'restore_policy'::text, 'restore_counter'::text, 'submit_new_attempt'::text, 'contact_support'::text]))),
+    CONSTRAINT entitlement_decisions_requested_positive CHECK ((requested_units > 0)),
+    CONSTRAINT entitlement_decisions_reservation_iff_allowed CHECK (((reservation_id IS NULL) OR (decision = ANY (ARRAY['allow'::text, 'allow_with_warning'::text])))),
+    CONSTRAINT entitlement_decisions_subject_xor CHECK (((account_id IS NOT NULL) <> (service_identity_id IS NOT NULL)))
+);
+
+ALTER TABLE ONLY public.entitlement_decisions FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: entitlement_lease_heartbeats; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_lease_heartbeats (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    entitlement_reservation_id uuid NOT NULL,
+    heartbeat_generation bigint NOT NULL,
+    prior_lease_expires_at timestamp(6) with time zone NOT NULL,
+    renewed_lease_expires_at timestamp(6) with time zone NOT NULL,
+    renewed_at timestamp(6) with time zone NOT NULL,
+    worker_process_identity text NOT NULL,
+    worker_service_identity_id uuid NOT NULL,
+    status text NOT NULL,
+    input_sha256 bytea,
+    output_sha256 bytea,
+    CONSTRAINT entitlement_lease_heartbeats_advances CHECK ((renewed_lease_expires_at > prior_lease_expires_at)),
+    CONSTRAINT entitlement_lease_heartbeats_heartbeat_generation_check CHECK ((heartbeat_generation > 0)),
+    CONSTRAINT entitlement_lease_heartbeats_input_sha256_check CHECK (((input_sha256 IS NULL) OR (octet_length(input_sha256) = 32))),
+    CONSTRAINT entitlement_lease_heartbeats_output_sha256_check CHECK (((output_sha256 IS NULL) OR (octet_length(output_sha256) = 32))),
+    CONSTRAINT entitlement_lease_heartbeats_status_check CHECK ((status = 'renewed'::text))
+);
+
+ALTER TABLE ONLY public.entitlement_lease_heartbeats FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: entitlement_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1781,6 +2034,36 @@ CREATE TABLE public.entitlement_policies (
 );
 
 ALTER TABLE ONLY public.entitlement_policies FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: entitlement_reservations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entitlement_reservations (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    decision_id uuid NOT NULL,
+    counter_window_id uuid NOT NULL,
+    units bigint NOT NULL,
+    lease_generation bigint DEFAULT 0 NOT NULL,
+    lease_due timestamp(6) with time zone NOT NULL,
+    last_heartbeat_at timestamp(6) with time zone,
+    started_at timestamp(6) with time zone,
+    state text NOT NULL,
+    terminal_at timestamp(6) with time zone,
+    terminal_reason text,
+    CONSTRAINT entitlement_reservations_executing_started CHECK ((((state = 'reserved'::text) AND (started_at IS NULL)) OR (state <> 'reserved'::text))),
+    CONSTRAINT entitlement_reservations_state_check CHECK ((state = ANY (ARRAY['reserved'::text, 'executing'::text, 'committed'::text, 'released'::text, 'expired'::text]))),
+    CONSTRAINT entitlement_reservations_terminal_shape CHECK ((((state = ANY (ARRAY['reserved'::text, 'executing'::text])) AND (terminal_at IS NULL)) OR ((state = ANY (ARRAY['committed'::text, 'released'::text, 'expired'::text])) AND (terminal_at IS NOT NULL)))),
+    CONSTRAINT entitlement_reservations_units_positive CHECK ((units > 0))
+);
+
+ALTER TABLE ONLY public.entitlement_reservations FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -2868,11 +3151,83 @@ ALTER TABLE ONLY public.crawls
 
 
 --
+-- Name: entitlement_commit_intents entitlement_commit_intents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_commit_intents
+    ADD CONSTRAINT entitlement_commit_intents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entitlement_counter_windows entitlement_counter_windows_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_counter_windows
+    ADD CONSTRAINT entitlement_counter_windows_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: entitlement_counter_windows entitlement_counter_windows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_counter_windows
+    ADD CONSTRAINT entitlement_counter_windows_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entitlement_decisions entitlement_decisions_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_decisions
+    ADD CONSTRAINT entitlement_decisions_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: entitlement_decisions entitlement_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_decisions
+    ADD CONSTRAINT entitlement_decisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entitlement_lease_heartbeats entitlement_lease_heartbeats_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_lease_heartbeats
+    ADD CONSTRAINT entitlement_lease_heartbeats_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: entitlement_policies entitlement_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.entitlement_policies
     ADD CONSTRAINT entitlement_policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_decision_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_decision_unique UNIQUE (decision_id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_pkey PRIMARY KEY (id);
 
 
 --
@@ -3294,6 +3649,48 @@ CREATE INDEX crawls_project_state ON public.crawls USING btree (organization_id,
 
 
 --
+-- Name: entitlement_commit_intents_reservation_output_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX entitlement_commit_intents_reservation_output_unique ON public.entitlement_commit_intents USING btree (reservation_id, durable_output_type, durable_output_id);
+
+
+--
+-- Name: entitlement_counter_windows_slot_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX entitlement_counter_windows_slot_unique ON public.entitlement_counter_windows USING btree (organization_id, counter_group, window_start, window_end);
+
+
+--
+-- Name: entitlement_decisions_org_operation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entitlement_decisions_org_operation ON public.entitlement_decisions USING btree (organization_id, operation, decided_at);
+
+
+--
+-- Name: entitlement_lease_heartbeats_generation_time_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX entitlement_lease_heartbeats_generation_time_unique ON public.entitlement_lease_heartbeats USING btree (entitlement_reservation_id, heartbeat_generation, renewed_at);
+
+
+--
+-- Name: entitlement_lease_heartbeats_generation_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX entitlement_lease_heartbeats_generation_unique ON public.entitlement_lease_heartbeats USING btree (entitlement_reservation_id, heartbeat_generation);
+
+
+--
+-- Name: entitlement_reservations_window_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entitlement_reservations_window_state ON public.entitlement_reservations USING btree (organization_id, counter_window_id, state);
+
+
+--
 -- Name: evaluations_initial_per_crawl_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3518,6 +3915,41 @@ CREATE TRIGGER crawls_guard BEFORE DELETE OR UPDATE ON public.crawls FOR EACH RO
 
 
 --
+-- Name: entitlement_commit_intents entitlement_commit_intents_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER entitlement_commit_intents_guard BEFORE DELETE OR UPDATE ON public.entitlement_commit_intents FOR EACH ROW EXECUTE FUNCTION public.f1_entitlement_commit_intents_guard();
+
+
+--
+-- Name: entitlement_counter_windows entitlement_counter_windows_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER entitlement_counter_windows_guard BEFORE DELETE OR UPDATE ON public.entitlement_counter_windows FOR EACH ROW EXECUTE FUNCTION public.f1_entitlement_counter_windows_guard();
+
+
+--
+-- Name: entitlement_decisions entitlement_decisions_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER entitlement_decisions_guard BEFORE DELETE OR UPDATE ON public.entitlement_decisions FOR EACH ROW EXECUTE FUNCTION public.f1_entitlement_decisions_guard();
+
+
+--
+-- Name: entitlement_lease_heartbeats entitlement_lease_heartbeats_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER entitlement_lease_heartbeats_guard BEFORE DELETE OR UPDATE ON public.entitlement_lease_heartbeats FOR EACH ROW EXECUTE FUNCTION public.f1_entitlement_lease_heartbeats_guard();
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER entitlement_reservations_guard BEFORE DELETE OR UPDATE ON public.entitlement_reservations FOR EACH ROW EXECUTE FUNCTION public.f1_entitlement_reservations_guard();
+
+
+--
 -- Name: evaluations evaluations_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3663,6 +4095,78 @@ ALTER TABLE ONLY public.crawl_sources
 
 ALTER TABLE ONLY public.crawls
     ADD CONSTRAINT crawls_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: entitlement_commit_intents entitlement_commit_intents_org_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_commit_intents
+    ADD CONSTRAINT entitlement_commit_intents_org_fk FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: entitlement_commit_intents entitlement_commit_intents_reservation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_commit_intents
+    ADD CONSTRAINT entitlement_commit_intents_reservation_fk FOREIGN KEY (organization_id, reservation_id) REFERENCES public.entitlement_reservations(organization_id, id);
+
+
+--
+-- Name: entitlement_counter_windows entitlement_counter_windows_org_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_counter_windows
+    ADD CONSTRAINT entitlement_counter_windows_org_fk FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: entitlement_decisions entitlement_decisions_org_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_decisions
+    ADD CONSTRAINT entitlement_decisions_org_fk FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: entitlement_decisions entitlement_decisions_window_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_decisions
+    ADD CONSTRAINT entitlement_decisions_window_fk FOREIGN KEY (organization_id, counter_window_id) REFERENCES public.entitlement_counter_windows(organization_id, id);
+
+
+--
+-- Name: entitlement_lease_heartbeats entitlement_lease_heartbeats_reservation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_lease_heartbeats
+    ADD CONSTRAINT entitlement_lease_heartbeats_reservation_fk FOREIGN KEY (organization_id, entitlement_reservation_id) REFERENCES public.entitlement_reservations(organization_id, id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_decision_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_decision_fk FOREIGN KEY (organization_id, decision_id) REFERENCES public.entitlement_decisions(organization_id, id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_org_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_org_fk FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: entitlement_reservations entitlement_reservations_window_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_reservations
+    ADD CONSTRAINT entitlement_reservations_window_fk FOREIGN KEY (organization_id, counter_window_id) REFERENCES public.entitlement_counter_windows(organization_id, id);
 
 
 --
@@ -3915,6 +4419,58 @@ CREATE POLICY crawls_context ON public.crawls USING ((organization_id = public.f
 
 
 --
+-- Name: entitlement_commit_intents; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_commit_intents ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_commit_intents entitlement_commit_intents_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_commit_intents_context ON public.entitlement_commit_intents USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: entitlement_counter_windows; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_counter_windows ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_counter_windows entitlement_counter_windows_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_counter_windows_context ON public.entitlement_counter_windows USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: entitlement_decisions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_decisions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_decisions entitlement_decisions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_decisions_context ON public.entitlement_decisions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: entitlement_lease_heartbeats; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_lease_heartbeats ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_lease_heartbeats entitlement_lease_heartbeats_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_lease_heartbeats_context ON public.entitlement_lease_heartbeats USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: entitlement_policies; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -3925,6 +4481,19 @@ ALTER TABLE public.entitlement_policies ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY entitlement_policies_context ON public.entitlement_policies USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: entitlement_reservations; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.entitlement_reservations ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: entitlement_reservations entitlement_reservations_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY entitlement_reservations_context ON public.entitlement_reservations USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -4232,6 +4801,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120120'),
 ('20260727120110'),
 ('20260727120100'),
 ('20260727120090'),

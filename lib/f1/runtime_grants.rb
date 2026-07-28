@@ -86,6 +86,18 @@ module F1
       "crawls"                            => "SELECT, INSERT, UPDATE",
       "crawl_sources"                     => "SELECT, INSERT",
       "evaluations"                       => "SELECT, INSERT, UPDATE",
+      # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
+      # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
+      # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter
+      # columns), reservations move through their lifecycle (UPDATE) and commit intents transition
+      # pending -> committed/released (UPDATE); the immutable Decision and lease-heartbeat records
+      # are SELECT/INSERT only (T-IMM triggers refuse UPDATE/DELETE, the missing grant is defence
+      # in depth); no row DELETE anywhere.
+      "entitlement_counter_windows"       => "SELECT, INSERT, UPDATE",
+      "entitlement_decisions"             => "SELECT, INSERT",
+      "entitlement_reservations"          => "SELECT, INSERT, UPDATE",
+      "entitlement_lease_heartbeats"      => "SELECT, INSERT",
+      "entitlement_commit_intents"        => "SELECT, INSERT, UPDATE",
       "source_scope_change_requests"      => "SELECT, INSERT, UPDATE",
       "sessions"                          => "SELECT, INSERT, UPDATE",
       "invitations"                       => "SELECT, INSERT, UPDATE",

@@ -276,6 +276,10 @@ module Platform
       "crawl_no_active_source"            => "F1-DOMAIN-409",
       "crawl_entitlement_unavailable"     => "F1-DOMAIN-409",
       "initial_evaluation_already_running" => "F1-DOMAIN-409",
+      # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069). Executing
+      # against an expired linked Reservation is a domain conflict with no new Decision and no side
+      # effect (WORKFLOW_SPECIFICATIONS.md :553).
+      "reservation_expired"               => "F1-DOMAIN-409",
       # S-05-005 CompleteVerificationAttempt (WF-003 observation recording). A completion
       # whose attempt/Request do not name each other (a wiring error) and a completion for
       # an attempt that is no longer reserved are harmless state conflicts between the
