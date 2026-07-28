@@ -1,6 +1,15 @@
 # S-07-005 Host Gate, Robots (Fail-Closed), Per-Host Rate, Execution-Time Authorization — Completion Report
 
-Status: **ACCEPTED** (standing delegation ADR-061; DECISIONS ADR-079) — the integration branch
+Status: **ACCEPTED** on the COMPLETE five-lens outcome (standing delegation ADR-061; DECISIONS
+ADR-079, **corrected by ADR-080**)
+
+> **Correction.** Acceptance was first recorded (ADR-079) on FOUR of the five lenses, while the
+> concurrency lens was still running. That was a mandatory-gate failure. That lens then returned two
+> confirmed-blocking defects live at HEAD — an unguarded `release_slot` that let one worker drop
+> another's slot and silently widen the nonexceedable concurrency ceiling, and no reclamation of a
+> slot lost with its worker, which closed the host for the rest of the run. Both are fixed
+> (a claim is now an identified, self-expiring lease), every gate was re-run green, and the tranche
+> is re-accepted. A tranche is not accepted until every lens has reported. — the integration branch
 `implementation/s01-registration-access` pushed; protected branch `main` untouched. The FIFTH tranche
 of the S-07 slice.
 

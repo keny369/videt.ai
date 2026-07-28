@@ -67,34 +67,83 @@ module IdentityAccess
         SQL
       end
 
+      # A lease older than this is presumed lost with its worker and is reclaimed
+      # (SEARCH_CRAWL_RETRIEVAL :82 "Process loss after claim is repaired by the lease sweeper").
+      # Generously longer than the hard per-request timeout, so a slow-but-live request is never
+      # reclaimed out from under itself.
+      LEASE_STALE_SECONDS = 120
+
       # Commit a claimed slot: append this start to the rolling window (trimming anything already
-      # outside it), advance the crawl-delay floor, and increment the live connection count. Guarded
-      # on the expected version so a lost race can never double-claim.
-      def claim_slot(id, expected_version, interval_ms)
-        exec(<<~SQL, [id, expected_version, interval_ms.to_i]).to_a.first
+      # outside it), advance the crawl-delay floor, and add an IDENTIFIED lease. Guarded on the
+      # expected version so a lost race can never double-claim.
+      #
+      # The same statement sweeps leases older than `LEASE_STALE_SECONDS`, so reclamation needs no
+      # separate scheduled job and cannot itself be lost: every claim repairs the accounting it is
+      # about to rely on. `active_connection_count` is derived from the surviving lease set, so the
+      # counter and the leases can never disagree.
+      def claim_slot(id, expected_version, interval_ms, token, now)
+        params = [id, expected_version, interval_ms.to_i, token, iso(now), LEASE_STALE_SECONDS]
+        exec(<<~SQL, params).to_a.first
+          WITH live AS (
+            SELECT COALESCE(jsonb_agg(l), '[]'::jsonb) AS leases
+            FROM crawl_host_gates g, jsonb_array_elements(g.active_leases) AS l
+            WHERE g.id = $1::uuid
+              AND (l->>'claimed_at')::timestamptz > $5::timestamptz - ($6 || ' seconds')::interval
+          )
           UPDATE crawl_host_gates
           SET recent_start_instants =
                 (SELECT COALESCE(array_agg(s), ARRAY[]::timestamptz(6)[])
                  FROM unnest(recent_start_instants) AS s
                  WHERE s > clock_timestamp() - interval '1 second') || clock_timestamp(),
               next_allowed_start_at = clock_timestamp() + ($3 || ' milliseconds')::interval,
-              active_connection_count = active_connection_count + 1,
+              active_leases = live.leases || jsonb_build_object('token', $4::text, 'claimed_at', $5::text),
+              active_connection_count = jsonb_array_length(live.leases) + 1,
               lease_version = lease_version + 1,
               state_version = state_version + 1,
               updated_at = clock_timestamp()
+          FROM live
           WHERE id = $1::uuid AND state_version = $2
           RETURNING id, lease_version, active_connection_count, next_allowed_start_at
         SQL
       end
 
-      # Release a slot when the attempt terminates. `GREATEST(...,0)` is deliberate: a double release
-      # must not drive the count negative and silently widen the concurrency ceiling.
-      def release_slot(id, now)
-        exec(<<~SQL, [id, iso(now)]).to_a.first
+      # Release the slot a specific TOKEN holds. Removing a token is idempotent — a second release of
+      # the same claim removes nothing — and it can only ever release the claim it names, so one
+      # worker can no longer drop another's slot and silently widen the nonexceedable ceiling.
+      def release_slot(id, token, now)
+        exec(<<~SQL, [id, token, iso(now)]).to_a.first
+          WITH remaining AS (
+            SELECT COALESCE(jsonb_agg(l), '[]'::jsonb) AS leases
+            FROM crawl_host_gates g, jsonb_array_elements(g.active_leases) AS l
+            WHERE g.id = $1::uuid AND l->>'token' <> $2::text
+          )
           UPDATE crawl_host_gates
-          SET active_connection_count = GREATEST(active_connection_count - 1, 0),
-              state_version = state_version + 1, updated_at = $2::timestamptz
+          SET active_leases = remaining.leases,
+              active_connection_count = jsonb_array_length(remaining.leases),
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          FROM remaining
           WHERE id = $1::uuid
+          RETURNING active_connection_count
+        SQL
+      end
+
+      # Reclaim every lease older than the stale bound, without claiming. Exposed so a sweeper or a
+      # health check can repair a host no worker is currently claiming on.
+      def sweep_leases(id, now)
+        params = [id, iso(now), LEASE_STALE_SECONDS]
+        exec(<<~SQL, params).to_a.first
+          WITH live AS (
+            SELECT COALESCE(jsonb_agg(l), '[]'::jsonb) AS leases
+            FROM crawl_host_gates g, jsonb_array_elements(g.active_leases) AS l
+            WHERE g.id = $1::uuid
+              AND (l->>'claimed_at')::timestamptz > $2::timestamptz - ($3 || ' seconds')::interval
+          )
+          UPDATE crawl_host_gates
+          SET active_leases = live.leases,
+              active_connection_count = jsonb_array_length(live.leases),
+              state_version = state_version + 1, updated_at = $2::timestamptz
+          FROM live
+          WHERE id = $1::uuid AND jsonb_array_length(live.leases) <> active_connection_count
           RETURNING active_connection_count
         SQL
       end

@@ -2103,3 +2103,29 @@ Every mandatory gate is green (whole-repo suite **1601/0**; Zeitwerk/Packwerk/Br
 
 Authority And Precedence:
 Executes the standing delegation ADR-061 under HD-S07-AUTHORISE and the owner's S-07-005 objectives. Allocated the next unused number after ADR-078.
+
+## ADR-080: S-07-005 Acceptance Was Recorded Prematurely — Reopened, Two Further Confirmed-Blocking Findings Fixed, Re-Accepted
+
+Status: Accepted (correction to ADR-079; standing delegation ADR-061)
+Date: 2026-07-29
+Owner: implementation agent (process error, correction and re-acceptance)
+Reversibility: The corrected tranche is pushed to the integration branch; `main` untouched. No accepted behaviour outside S-07-005 changed.
+
+What went wrong:
+ADR-079 recorded S-07-005 as ACCEPTED on the outcome of FOUR of the five ADR-026 lenses. The CONCURRENCY lens was still running and had not reported. That is a mandatory-gate failure on my part, not a judgement call: ADR-026 requires the five-lens review, and a tranche cannot be accepted while a lens is outstanding — the whole point of the mandate is that the lenses find what the implementer did not. The elapsed time of a review is not a reason to close it early.
+
+The lens then returned FAIL-WITH-FINDINGS with two confirmed-blocking defects LIVE AT HEAD, both in the concurrency slot accounting, both demonstrated with real two-connection races:
+- CB1 — `release_slot` carried NO claim identity of any kind. `HostGate#claim` minted a `lease_version` and returned it, but `release` discarded it and `lease_version` had no consumer anywhere in the repository. One worker calling release twice — a retry, a replayed message, an `ensure` plus an explicit release — decremented a slot it did not hold, and `GREATEST(count - 1, 0)` turned that accounting error into a SILENTLY WIDENED nonexceedable ceiling. The reviewer drove the count to 0 with two connections still live, and the next claim was granted: three real connections accounted as one. WORKFLOW_SPECIFICATIONS.md :442 calls the ceilings "nonexceedable".
+- CB2 — NOTHING reconciled `active_connection_count` after process loss. SEARCH_CRAWL_RETRIEVAL.md :82 is directly on point: "Process loss after claim is repaired by the LEASE SWEEPER; the same attempt identity is completed or timed out, never replaced by an unaccounted request." There was no sweeper, and the gate row can never be deleted, so the count only ever fell via an explicit release. After just TWO lost workers the host sat at its concurrency target and refused every claim for the rest of the run, which :452 then turns into `content_fetch_failed` and partial coverage for every URL on that host. The earlier hardening had added a stale-attempt reclaim for the ROBOTS attempt but not for the connection slot, which is what :82's sentence is actually about.
+
+The fix (migration 20260727120210): a claim is now an IDENTIFIED, SELF-EXPIRING LEASE. `active_leases jsonb` holds `{token, claimed_at}` per live claim and is the authority; `active_connection_count` is retained because schema :296 names it, but is always DERIVED from the lease set in the same statement, and a CHECK makes the two unable to disagree. Releasing removes a TOKEN, so it is idempotent by construction and can only ever release the claim it names. Every claim sweeps leases older than `LEASE_STALE_SECONDS` (generously longer than the hard per-request timeout), so reclamation needs no separate scheduled job and cannot itself be lost — each claim repairs the accounting it is about to rely on. `HostGate#sweep` exposes the same reclamation for a health check on a host no worker is currently claiming against.
+
+The lens also confirmed, with real races, that the rest of the gate holds: 4 and 8 concurrent claims on one host each granted EXACTLY ONE, the nonexceedable ceilings were never approached under any contention it could produce, two concurrent `EnsureRobots` calls performed exactly ONE fetch, and the network call was verified to hold no transaction and no row lock (a concurrent `lock_gate` on the same row returned in 0.6 ms mid-fetch). It also verified the earlier self-review fix empirically. Non-blocking observations recorded: the `state_version` CAS is load-bearing without an enclosing transaction and can refuse spuriously (a 250 ms retry, not a safety hole); `updated_at` is written from `clock_timestamp()` on claim and from the injected clock elsewhere, so it must never be used for staleness reasoning; and no lock ORDER is documented for a future consumer that holds the frontier lock while blocking on a contended gate.
+
+Process correction, recorded so it binds future tranches: a tranche is not accepted, and no acceptance record is written, until EVERY lens of the ADR-026 review has reported. ADR-079's acceptance statement is superseded by this one.
+
+Acceptance:
+Every mandatory gate re-run green after the fix (whole-repo suite **1603/0**; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness **31/0**; verify_runtime OK, 15 checks, RLS intact; all migrations build from empty; structure.sql idempotent). S-07-005 is RE-ACCEPTED on the complete five-lens outcome. `main` untouched. Next: **S-07-006** (sitemap discovery + XXE-hardened XML).
+
+Authority And Precedence:
+Corrects ADR-079, which recorded acceptance on an incomplete review. Allocated the next unused number after ADR-079.

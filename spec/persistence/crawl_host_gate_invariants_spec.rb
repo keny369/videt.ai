@@ -144,7 +144,13 @@ RSpec.describe "Crawl host-gate invariants", type: :model do
       c = context
       a = insert_gate(c, state: "in_progress")
       update_gate(a, "robots_state='no_restrictions', robots_terminal_at=now()")
-      expect { update_gate(a, "active_connection_count = 2, next_allowed_start_at = now()") }.not_to raise_error
+      # The counter is DERIVED from the lease set, so it moves with it — the database refuses a
+      # counter that disagrees (S-07-005 concurrency-lens hardening).
+      leases = JSON.generate([{ token: SecureRandom.uuid_v7, claimed_at: Time.now.utc.iso8601(6) },
+                              { token: SecureRandom.uuid_v7, claimed_at: Time.now.utc.iso8601(6) }])
+      expect { conn.exec_params("UPDATE crawl_host_gates SET state_version = state_version + 1,
+                 active_leases = $2::jsonb, active_connection_count = 2, next_allowed_start_at = now()
+                 WHERE id = $1::uuid", [a, leases]) }.not_to raise_error
     end
 
     it "requires exactly the terminal states to carry a terminal instant" do
@@ -211,9 +217,11 @@ RSpec.describe "Crawl host-gate invariants", type: :model do
         .to raise_error(PG::RaiseException, /crawl_host_gate_version_invalid/)
     end
 
-    it "refuses a negative connection count or crawl delay" do
+    it "refuses a connection count that disagrees with the lease set, or a negative crawl delay" do
       c = context
       a = insert_gate(c)
+      expect { update_gate(a, "active_connection_count = 1") }
+        .to raise_error(PG::CheckViolation, /crawl_host_gates_lease_count_agrees/)
       expect { update_gate(a, "active_connection_count = -1") }.to raise_error(PG::CheckViolation, /active_connection_count/)
       expect { update_gate(a, "robots_crawl_delay_ms = -1") }.to raise_error(PG::CheckViolation, /robots_crawl_delay_ms/)
     end

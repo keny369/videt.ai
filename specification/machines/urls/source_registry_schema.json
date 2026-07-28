@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-07-27",
+  "schema": {
+    "source_id": "string",
+    "country": "AU|CA|UK|US|GLOBAL",
+    "jurisdiction": "string|null",
+    "category": "string",
+    "name": "string",
+    "url": "string",
+    "access_mode": "GET|UI|POST_UI|API|LOGIN|PAID|DIRECTORY",
+    "authoritative_for": [
+      "string"
+    ],
+    "not_authoritative_for": [
+      "string"
+    ],
+    "automation_status": "permitted|restricted|prohibited|unknown",
+    "last_verified_at": "date",
+    "notes": "string|null"
+  }
+}

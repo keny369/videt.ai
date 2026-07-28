@@ -149,7 +149,7 @@ Instrument motion, not theatre: 120–240ms, ease-out only. No bounce, spring, p
 
 ## 8. Voice In Type
 
-The identity carries the brand personality (calm, authoritative, understated — `000 STRATEGY_BRIEF.md`). Sentence case everywhere including headlines and buttons; no exclamation marks; no gradient text; no ALL-CAPS except letterspaced mono small-caps labels.
+The identity carries the brand personality (calm, authoritative, understated — `000 STRATEGY_BRIEF.md`). Sentence case everywhere including headlines and buttons; no exclamation marks; no gradient text; no ALL-CAPS except letterspaced mono small-caps labels. The tagline "Become the answer." always carries its full stop, is never letterspaced, capitalised or reworded, and may sit beneath the wordmark at ~40% of cap height in ink-2 (`videt-lockup-tagline.svg`).
 
 ## 9. Graphic Language
 
@@ -157,7 +157,7 @@ Three cartographic layers plus the canonical component:
 
 1. **Graticule** — a fine 1px coordinate grid with margin ticks, printed at 4–6% ink opacity on large surfaces. The surveyed substrate.
 2. **Contour fields** — generated from the customer's actual score topography, drawn as 0.75px ochre `#C27E3A` lines with inline mono labels breaking the line exactly as elevations do on a map. Data as landscape, never decoration; contours appear only where data exists.
-3. **Benchmark mark** — Videt's ownable device, an original abstraction of the surveyor's incised benchmark (horizontal datum bar over a chevron): score badge, list bullet, favicon. Set inside a ruled ring it becomes the **verification seal**, used at most once per page for verified states.
+3. **Benchmark mark** — Videt's ownable device, an original abstraction of the surveyor's incised benchmark (horizontal datum bar over a chevron): score badge, list bullet, favicon. Set inside a ruled ring it becomes the **verification seal**, used at most once per page for verified states. Master vectors live in `branding/logo/` (construction: `005 LOGO_PROMPTS.md` §2; application rules: `006 BRAND_PACK.md`).
 4. **The evidence cell** (canonical component) — a score set in the mono face with its evidence identifier and capture timestamp beneath, boxed by hairline rules. This unit appears on marketing pages, dashboards and exports identically; it is the brand's most-repeated element because it is the product's core promise made visible.
 
 5. **Observation arcs** (added 2026-07-23) — concentric ring segments sweeping from a corner or datum point, 0.75px strokes in ochre or petrol at 20–50% opacity, with tiny mono tick labels. The visual register of repeated watching: use behind heroes and observation-related sections; arcs may animate in like a slow sweep (plotter rules apply — no pulsing).
@@ -201,6 +201,6 @@ Any token change re-runs the palette validator (`validate_palette.js "<categoric
 
 1. Klim licensing purchase (Founders Grotesk, Untitled Sans, Founders Grotesk Mono) — budget early; the OFL fallback stack is shippable but less distinctive.
 2. Trademark search on the benchmark mark before registration; the drawn device must be an original abstraction, not a copy of the Ordnance Survey symbol.
-3. Wordmark design (Videt lockup in Founders Grotesk) — not yet commissioned.
+3. Wordmark lockup — built provisionally (`branding/logo/videt-lockup.svg`, stand-in type stack); final reset in Founders Grotesk and conversion to outlines happens with the Klim licence purchase (item 1).
 4. Brand-name ADR dependency — see `000 STRATEGY_BRIEF.md`, Open Naming Items.
 5. Commit the palette validator and the text-contrast script into this repository and wire them into CI, so §11's validation is enforced automatically rather than manually.

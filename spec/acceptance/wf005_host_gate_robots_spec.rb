@@ -158,6 +158,22 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
     end
   end
 
+  # Seed `count` live leases, keeping the derived counter in agreement (the database now enforces
+  # that they match, so a test cannot fabricate one without the other).
+  def seed_leases(id, count, at: start_now)
+    leases = Array.new(count) { { token: SecureRandom.uuid_v7, claimed_at: at.utc.iso8601(6) } }
+    DbInspector.connection.exec_params(
+      "UPDATE crawl_host_gates SET active_leases = $2::jsonb, active_connection_count = $3,
+         state_version = state_version + 1 WHERE id = $1::uuid",
+      [id, JSON.generate(leases), count])
+  end
+
+  def clear_rate_window(id)
+    DbInspector.connection.exec_params(
+      "UPDATE crawl_host_gates SET recent_start_instants = ARRAY[]::timestamptz(6)[],
+         next_allowed_start_at = NULL, state_version = state_version + 1 WHERE id = $1::uuid", [id])
+  end
+
   def ensure_gate(ctx)
     in_gate(ctx[:g][:organization_id]) do |_s, gate|
       gate.ensure_gate(organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
@@ -202,7 +218,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       ctx = running_crawl
       ensure_gate(ctx)
       decision = in_gate(ctx[:g][:organization_id]) do |store, gate|
-        gate.claim(organization_id: ctx[:g][:organization_id],
+        gate.claim(organization_id: ctx[:g][:organization_id], now: start_now,
                    gate_id: store.gate(ctx[:g][:organization_id], ctx[:crawl_id], ctx[:host])["id"])
       end
       expect(decision.granted?).to be(false)
@@ -213,7 +229,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       ctx = running_crawl
       ensure_gate(ctx)
       decision = in_gate(ctx[:g][:organization_id]) do |store, gate|
-        gate.claim(organization_id: ctx[:g][:organization_id], kind: "robots",
+        gate.claim(organization_id: ctx[:g][:organization_id], kind: "robots", now: start_now,
                    gate_id: store.gate(ctx[:g][:organization_id], ctx[:crawl_id], ctx[:host])["id"])
       end
       expect(decision.granted?).to be(true)
@@ -222,7 +238,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
   end
 
   describe "per-host rate and concurrency (deterministic, ceilings nonexceedable)" do
-    def claim(ctx, gate_id, store, gate) = gate.claim(organization_id: ctx[:g][:organization_id], gate_id:, kind: "robots")
+    def claim(ctx, gate_id, store, gate) = gate.claim(organization_id: ctx[:g][:organization_id], gate_id:, now: start_now, kind: "robots")
 
     it "refuses a second start inside the rolling one-second window (target 1/sec)" do
       ctx = running_crawl
@@ -242,9 +258,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       ensure_gate(ctx)
       # Drive the live connection count to the target without consuming the rate window.
       id = gate_row(ctx[:crawl_id])["id"]
-      DbInspector.connection.exec_params(
-        "UPDATE crawl_host_gates SET active_connection_count = $2, state_version = state_version + 1 WHERE id = $1::uuid",
-        [id, Workflows::Wf005::HostGate::CONCURRENCY_TARGET])
+      seed_leases(id, Workflows::Wf005::HostGate::CONCURRENCY_TARGET)
       decision = in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
       expect(decision.granted?).to be(false)
       expect(decision.reason_code).to eq("host_concurrency_limited")
@@ -255,21 +269,66 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       ctx = running_crawl
       ensure_gate(ctx)
       id = gate_row(ctx[:crawl_id])["id"]
-      DbInspector.connection.exec_params(
-        "UPDATE crawl_host_gates SET active_connection_count = $2, state_version = state_version + 1 WHERE id = $1::uuid",
-        [id, Workflows::Wf005::HostGate::CONCURRENCY_CEILING])
+      seed_leases(id, Workflows::Wf005::HostGate::CONCURRENCY_CEILING)
       decision = in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
       expect(decision.reason_code).to eq("host_concurrency_ceiling")
     end
 
-    it "releases a slot on termination and never drives the count negative" do
+    it "releases exactly the slot a token holds, and a repeated release is a no-op" do
+      # The review's defect: an unguarded release let one worker drop a slot it did not hold, and
+      # GREATEST(count-1,0) turned that into a SILENTLY WIDENED nonexceedable ceiling.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      id = gate_row(ctx[:crawl_id])["id"]
+      first = in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
+      # A second live claim, made possible by clearing only the rate window.
+      clear_rate_window(id)
+      second = in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
+      expect([first.granted?, second.granted?]).to eq([true, true])
+      expect(first.lease_token).not_to eq(second.lease_token)
+      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("2")
+
+      # Releasing the FIRST claim three times drops exactly one slot — the second holder keeps its own.
+      3.times do
+        in_gate(ctx[:g][:organization_id]) { |_s, gate| gate.release(gate_id: id, lease_token: first.lease_token, now: start_now) }
+      end
+      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("1")
+      in_gate(ctx[:g][:organization_id]) { |_s, gate| gate.release(gate_id: id, lease_token: second.lease_token, now: start_now) }
+      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("0")
+    end
+
+    it "RECLAIMS a slot lost with its worker, instead of closing the host for the rest of the run" do
+      # SEARCH_CRAWL_RETRIEVAL :82 — "Process loss after claim is repaired by the lease sweeper".
+      # Without reclamation, two lost workers sat the host at its concurrency target and every later
+      # claim was refused, which :452 turns into content_fetch_failed and partial coverage.
       ctx = running_crawl
       ensure_gate(ctx)
       id = gate_row(ctx[:crawl_id])["id"]
       in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
-      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("1")
-      3.times { in_gate(ctx[:g][:organization_id]) { |_s, gate| gate.release(gate_id: id, now: start_now) } }
-      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("0")
+      clear_rate_window(id)
+      in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
+      expect(gate_row(ctx[:crawl_id])["active_connection_count"]).to eq("2")
+
+      # Both workers vanish. A later claim, past the stale bound, repairs the accounting itself.
+      later = start_now + IdentityAccess::Infrastructure::CrawlHostGateStore::LEASE_STALE_SECONDS + 60
+      swept = in_gate(ctx[:g][:organization_id]) { |_s, gate| gate.sweep(gate_id: id, now: later) }
+      expect(swept["active_connection_count"].to_i).to eq(0)
+
+      clear_rate_window(id)
+      revived = in_gate(ctx[:g][:organization_id]) do |_s, gate|
+        gate.claim(organization_id: ctx[:g][:organization_id], gate_id: id, now: later, kind: "robots")
+      end
+      expect(revived.granted?).to be(true)
+    end
+
+    it "keeps the derived connection count and the lease set in agreement at the database" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+      id = gate_row(ctx[:crawl_id])["id"]
+      in_gate(ctx[:g][:organization_id]) { |s, gate| claim(ctx, id, s, gate) }
+      expect { DbInspector.connection.exec_params(
+        "UPDATE crawl_host_gates SET active_connection_count = 0, state_version = state_version + 1 WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::CheckViolation, /crawl_host_gates_lease_count_agrees/)
     end
 
     it "honours a robots crawl-delay as a floor on the next permitted start" do
@@ -278,7 +337,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       resolve_robots(ctx, outbound_returning(response(status: 200, body: "User-agent: *\nCrawl-delay: 30\n")))
       id = gate_row(ctx[:crawl_id])["id"]
       in_gate(ctx[:g][:organization_id]) do |store, gate|
-        gate.claim(organization_id: ctx[:g][:organization_id], gate_id: id)
+        gate.claim(organization_id: ctx[:g][:organization_id], gate_id: id, now: start_now)
       end
       row = gate_row(ctx[:crawl_id])
       # 30s delay pushes the next permitted start far beyond the 1s policy interval.
@@ -432,7 +491,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       ensure_gate(ctx)
       resolve(ctx, response(status: 403))
       decision = in_gate(ctx[:g][:organization_id]) do |store, gate|
-        gate.claim(organization_id: ctx[:g][:organization_id],
+        gate.claim(organization_id: ctx[:g][:organization_id], now: start_now,
                    gate_id: store.gate(ctx[:g][:organization_id], ctx[:crawl_id], ctx[:host])["id"])
       end
       expect(decision.granted?).to be(false)

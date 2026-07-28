@@ -1,0 +1,608 @@
+<!doctype html>
+<!-- VIDET Phase-1 homepage mockup — static export (2026-07-28, brand-pack conformant, tagline release). Governing docs: branding/006 BRAND_PACK.md, 001 §4, 002. Sample values and conversations are illustrative/simulated. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIDET — Observatory homepage mockup</title>
+<style>
+  /* Marketing surfaces are light-committed (002 VISUAL_IDENTITY §3 mode policy). */
+  :root, :root[data-theme="dark"], :root[data-theme="light"] {
+    --ground: #F2F3EF;
+    --surface: #FAFAF7;
+    --ink: #1E2B28;
+    --ink-2: #44534E;
+    --ink-3: #5D6B65;
+    --line: #D6DAD2;
+    --accent: #0E4553;
+    --accent-hover: #0A3644;
+    --wash: #E3EDEC;
+    --horizon: #E4EDF1;
+    --on-accent: #F2F3EF;
+    --ochre: #C27E3A;
+    --ochre-deep: #875213;
+    --series: #00889E;
+    --grid-line: rgba(30, 43, 40, 0.05);
+    --grid-line-inverse: rgba(242, 243, 239, 0.09);
+    --sans: "Helvetica Neue", "Archivo", Arial, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  html { color-scheme: light only; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  ::selection { background: var(--wash); }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  :is(a, button, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { font-weight: 500; margin: 0; text-wrap: balance; }
+
+  .rv { opacity: 0; transform: translateY(16px); transition: opacity 380ms ease-out, transform 380ms ease-out; }
+  .rv.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; transition: none; } }
+
+  /* ---------- nav ---------- */
+  header.nav { position: sticky; top: 0; z-index: 20; background: var(--ground); border-bottom: 1px solid var(--line); }
+  .nav-row { display: flex; align-items: center; gap: 32px; padding: 14px 0; }
+  .wordmark { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 500; font-size: 21px; letter-spacing: 0.02em; }
+  .wordmark:hover { text-decoration: none; }
+  .bm { fill: var(--accent); }
+  nav.links { display: flex; gap: 24px; margin-left: auto; font-size: 15px; }
+  nav.links a { color: var(--ink-2); }
+  nav.links a:hover { color: var(--ink); text-decoration: none; }
+  @media (max-width: 760px) { nav.links { display: none; } }
+
+  .btn { display: inline-block; border: 0; cursor: pointer; font-family: var(--sans); font-size: 16px; font-weight: 500; padding: 13px 24px; border-radius: 2px; transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear; }
+  .btn-primary { background: var(--accent); color: #FFFFFF; }
+  .btn-primary:hover { background: var(--accent-hover); text-decoration: none; }
+  .btn-secondary { background: transparent; color: var(--ink); border: 1px solid var(--ink-3); }
+  .btn-secondary:hover { border-color: var(--ink); text-decoration: none; }
+  .nav-row .btn { margin-left: 8px; padding: 9px 18px; font-size: 15px; }
+  @media (max-width: 760px) { .nav-row .btn { margin-left: auto; } }
+
+  .graticule {
+    background-image:
+      repeating-linear-gradient(to right, var(--grid-line) 0 1px, transparent 1px 48px),
+      repeating-linear-gradient(to bottom, var(--grid-line) 0 1px, transparent 1px 48px);
+  }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ochre-deep); margin: 0 0 20px; font-weight: 400; }
+  section { border-bottom: 1px solid var(--line); }
+  .sec { padding: 96px 0; }
+  @media (max-width: 720px) { .sec { padding: 64px 0; } }
+  .h2-big { font-size: clamp(31px, 4.5vw, 49px); letter-spacing: -0.015em; line-height: 1.12; }
+  .lede { font-size: 19px; color: var(--ink-2); max-width: 60ch; }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .hero-field { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .hero-field .arc { stroke: var(--ochre); fill: none; }
+  .hero-field .arc.p { stroke: var(--series); }
+  .hero-field text { font-family: var(--mono); font-size: 9px; fill: var(--ochre-deep); }
+  .hero-grid { position: relative; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; padding: 88px 0 96px; }
+  @media (max-width: 960px) { .hero-grid { grid-template-columns: 1fr; gap: 48px; padding: 64px 0 72px; } }
+  .hero h1 { font-size: clamp(44px, 6.8vw, 84px); line-height: 1.05; letter-spacing: -0.025em; }
+  .hl { position: relative; display: inline-block; }
+  .hl svg { position: absolute; left: 0; right: 0; bottom: -0.08em; width: 100%; height: 0.22em; overflow: visible; }
+  .hl svg path { stroke: var(--ochre); stroke-width: 5; fill: none; stroke-linecap: butt; }
+  .hero .now { margin: 30px 0 0; font-size: 22px; font-weight: 500; color: var(--ink); }
+  .hero .sub { margin: 12px 0 0; font-size: 17px; color: var(--ink-2); max-width: 54ch; }
+  .hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+
+  /* ---------- plates & chat ---------- */
+  .plate { position: relative; }
+  .tick { position: absolute; width: 14px; height: 14px; border-color: var(--ink-3); border-style: solid; border-width: 0; }
+  .tick.tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .tick.tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+  .tick.bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+  .tick.br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+  .chat { background: var(--surface); border: 1px solid var(--line); padding: 22px; }
+  .chat-head { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .chat-head .dot { width: 8px; height: 8px; background: var(--series); display: inline-block; }
+  .chat-body { padding-top: 18px; min-height: 300px; }
+  .bubble { max-width: 92%; font-size: 15px; line-height: 1.55; padding: 12px 16px; border-radius: 2px; margin: 0 0 14px; white-space: pre-line; }
+  .bubble.user { background: var(--wash); color: var(--ink); margin-left: auto; width: fit-content; }
+  .bubble.ai { background: var(--ground); border: 1px solid var(--line); color: var(--ink-2); }
+  .caret { display: inline-block; width: 8px; height: 1em; background: var(--ink-3); vertical-align: text-bottom; animation: blink 900ms steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .caret { display: none; } }
+  .absent { display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--ochre); color: var(--ochre-deep); font-weight: 500; font-size: 16px; padding: 14px 16px; margin-top: 6px; opacity: 0; transform: scale(1.04); }
+  .absent.show { opacity: 1; transform: none; transition: opacity 260ms ease-out, transform 260ms ease-out; }
+  .absent .bm { fill: var(--accent); flex: 0 0 auto; }
+  @media (prefers-reduced-motion: reduce) { .absent { opacity: 1; transform: none; } }
+  .chat-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 14px; }
+  .chat-cap { font-size: 12.5px; color: var(--ink-3); }
+  .replay { background: none; border: 0; padding: 0; font-family: var(--mono); font-size: 12px; color: var(--accent); cursor: pointer; letter-spacing: 0.04em; }
+  .replay:hover { text-decoration: underline; }
+
+  /* ---------- five questions ---------- */
+  .five { background: var(--surface); }
+  .qs { margin-top: 40px; border-top: 1px solid var(--line); }
+  .q { display: grid; grid-template-columns: 72px 1fr; gap: 20px; align-items: baseline; padding: 22px 0; border-bottom: 1px solid var(--line); }
+  .q .n { font-family: var(--mono); font-size: 14px; color: var(--ochre-deep); letter-spacing: 0.08em; }
+  .q .t { font-size: clamp(20px, 2.6vw, 28px); font-weight: 500; letter-spacing: -0.01em; }
+  .q.why .t { color: var(--accent); }
+  .q.why .n { color: var(--accent); }
+  .five .closer { margin-top: 28px; font-size: 17px; color: var(--ink-2); }
+
+  /* ---------- eras ---------- */
+  .eras h2 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.015em; line-height: 1.15; max-width: 24ch; }
+  .era-strip { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin-top: 44px; }
+  @media (max-width: 720px) { .era-strip { grid-template-columns: repeat(2, 1fr); } }
+  .era { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 20px; }
+  .era .when { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .era .what { font-size: 16px; font-weight: 500; margin-top: 6px; }
+  .era .verb { font-size: 13.5px; color: var(--ink-2); margin-top: 2px; }
+  .era.now-era { background: var(--wash); }
+  .era.now-era .when { color: var(--ochre-deep); }
+  .cat-line { color: var(--ink-2); font-size: 16px; margin-top: 32px; max-width: 60ch; }
+
+  /* ---------- two pictures ---------- */
+  .mirror-sec { background: var(--horizon); }
+  .mirror { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 44px; align-items: start; }
+  @media (max-width: 860px) { .mirror { grid-template-columns: 1fr; } }
+  .pic { background: var(--surface); border: 1px solid var(--line); padding: 26px; }
+  .pic-tag { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border: 1px solid var(--line); color: var(--ink-2); }
+  .pic.per .pic-tag { border-color: var(--ochre); color: var(--ochre-deep); }
+  .pic h3 { font-size: 18px; margin-top: 16px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); border: 1px solid var(--line); background: var(--ground); padding: 4px 10px; }
+  .rowset { margin-top: 18px; border-top: 1px solid var(--line); }
+  .frow { display: flex; gap: 12px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .frow .mk { font-family: var(--mono); font-size: 12px; flex: 0 0 auto; width: 18px; text-align: center; }
+  .frow.ok .mk { color: var(--series); }
+  .frow.gap { color: var(--ink-2); }
+  .frow.gap .mk { color: var(--ochre-deep); }
+  .frow.gap .note { font-family: var(--mono); font-size: 12px; color: var(--ochre-deep); margin-left: auto; flex: 0 0 auto; }
+  .mirror-cap { font-size: 17px; color: var(--ink-2); margin-top: 28px; max-width: 56ch; }
+  .mirror-cap strong { color: var(--ink); font-weight: 500; }
+
+  /* ---------- demonstration ---------- */
+  .demo { background: var(--wash); }
+  .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; }
+  @media (max-width: 900px) { .demo-grid { grid-template-columns: 1fr; gap: 36px; } }
+  .demo h2 { font-size: clamp(34px, 5vw, 56px); letter-spacing: -0.02em; line-height: 1.06; }
+  .demo .ask { font-size: 19px; color: var(--ink-2); margin: 18px 0 0; max-width: 46ch; }
+  .paths { border-top: 1px solid var(--ink); margin-top: 8px; }
+  .path { padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .path h3 { font-size: 18px; }
+  .path p { color: var(--ink-2); font-size: 15px; margin: 6px 0 0; }
+  .capture { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .capture input { flex: 1 1 240px; font-family: var(--mono); font-size: 15px; padding: 12px 14px; border: 1px solid var(--ink-3); border-radius: 2px; background: var(--surface); color: var(--ink); }
+  .capture input::placeholder { color: var(--ink-3); }
+
+  /* ---------- measured ---------- */
+  .measures-grid { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 64px; align-items: center; }
+  @media (max-width: 960px) { .measures-grid { grid-template-columns: 1fr; gap: 44px; } }
+  .score-card { background: var(--surface); border: 1px solid var(--line); padding: 32px; }
+  .sc-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .sc-title { font-size: 14px; color: var(--ink-2); margin-top: 10px; }
+  .sc-overall { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: clamp(56px, 6vw, 76px); line-height: 1; letter-spacing: -0.01em; }
+  .sc-overall .of { font-size: 18px; color: var(--ink-3); letter-spacing: 0; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); border: 1px solid var(--line); padding: 3px 8px; }
+  .rows { margin-top: 26px; border-top: 1px solid var(--line); }
+  .prow { display: grid; grid-template-columns: 150px 1fr 44px; gap: 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .prow .name { font-size: 14px; color: var(--ink-2); }
+  .prow .bar { height: 10px; background: var(--wash); position: relative; }
+  .prow .bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--series); transition: width 700ms ease-out; }
+  .go .prow .bar i { width: var(--w); }
+  @media (prefers-reduced-motion: reduce) { .prow .bar i { width: var(--w); transition: none; } }
+  .prow .val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; text-align: right; }
+  .prow .na { grid-column: 2 / 4; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .sc-foot { font-size: 13.5px; color: var(--ink-3); margin-top: 18px; }
+  @media (max-width: 480px) { .prow { grid-template-columns: 108px 1fr 40px; } }
+  .loop-cap { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.03em; margin-top: 26px; }
+
+  /* ---------- learned (vision) ---------- */
+  .learned { background: var(--horizon); position: relative; overflow: hidden; }
+  .learned-field { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .learned-field .arc { stroke: var(--ochre); fill: none; opacity: 0.35; }
+  .learned .inner { position: relative; }
+  .learned h2 { font-size: clamp(31px, 4.5vw, 52px); letter-spacing: -0.02em; }
+  .loop-strip { font-family: var(--mono); font-size: 13.5px; color: var(--ink-2); letter-spacing: 0.02em; margin-top: 32px; display: flex; flex-wrap: wrap; gap: 8px 14px; }
+  .loop-strip .st { border: 1px solid var(--line); background: var(--surface); padding: 7px 13px; }
+  .loop-strip .ar { color: var(--ochre-deep); align-self: center; }
+  .vision-tag { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.06em; color: var(--ink-3); margin-top: 26px; }
+
+  /* ---------- promise ---------- */
+  .promise { text-align: center; }
+  .promise .inner { position: relative; padding: 24px 32px 40px; display: inline-block; }
+  .promise h2 { font-size: clamp(34px, 5.5vw, 66px); letter-spacing: -0.025em; line-height: 1.08; max-width: 22ch; }
+  .promise .rules { max-width: 62ch; font-size: 18px; color: var(--ink-2); margin: 28px auto 0; }
+  .promise .meth { font-size: 15px; margin-top: 24px; }
+
+  /* ---------- readers + trust ---------- */
+  .who { background: var(--surface); }
+  .readers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 40px; }
+  @media (max-width: 800px) { .readers { grid-template-columns: 1fr; gap: 24px; } }
+  .reader { border-top: 2px solid var(--ochre); padding-top: 18px; }
+  .reader h3 { font-size: 18px; }
+  .reader p { font-size: 15px; color: var(--ink-2); margin: 8px 0 0; }
+  .trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin-top: 56px; }
+  @media (max-width: 900px) { .trust-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .trust-grid { grid-template-columns: 1fr; } }
+  .fact { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 20px; }
+  .fact h3 { font-size: 15px; }
+  .fact p { font-size: 13px; color: var(--ink-3); margin: 6px 0 0; }
+  .trust-link { display: inline-block; margin-top: 22px; font-size: 15px; }
+
+  /* ---------- closing ---------- */
+  .closing { background-color: var(--accent); background-image: repeating-linear-gradient(to right, var(--grid-line-inverse) 0 1px, transparent 1px 48px), repeating-linear-gradient(to bottom, var(--grid-line-inverse) 0 1px, transparent 1px 48px); color: var(--on-accent); text-align: center; padding: 128px 0; border-bottom: 0; }
+  .closing h2 { font-size: clamp(48px, 7vw, 88px); letter-spacing: -0.025em; line-height: 1.04; }
+  .closing p { color: var(--on-accent); opacity: 0.85; max-width: 46ch; margin: 20px auto 0; font-size: 18px; }
+  .closing .btn { margin-top: 34px; background: var(--ground); color: var(--accent); font-size: 17px; padding: 15px 30px; }
+  .closing .btn:hover { background: var(--surface); }
+
+  footer { padding: 44px 0 32px; color: var(--ink-3); font-size: 14px; }
+  .foot-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; }
+  .foot-row nav { display: flex; flex-wrap: wrap; gap: 20px; margin-left: auto; }
+  .foot-row a { color: var(--ink-3); }
+  .mock-note { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; letter-spacing: 0.03em; color: var(--ink-3); }
+</style>
+
+</head>
+<body>
+<header class="nav">
+  <div class="wrap nav-row">
+    <a class="wordmark" href="#">
+      <svg class="bm" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="5" width="20" height="3"></rect>
+        <path d="M 5 18 L 12 11 L 19 18 L 14.588 18 L 12 15.412 L 9.412 18 Z"></path>
+      </svg>
+      VIDET
+    </a>
+    <nav class="links" aria-label="Primary">
+      <a href="#">Methodology</a>
+      <a href="#">Manifesto</a>
+      <a href="#">FAQ</a>
+      <a href="#">Trust &amp; security</a>
+    </nav>
+    <a class="btn btn-primary" href="#early-access">Book a 90-second demo</a>
+  </div>
+</header>
+
+<section class="hero graticule">
+  <svg class="hero-field" viewBox="0 0 1200 560" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path class="arc cpath" style="opacity:.4" stroke-width="0.9" d="M 1240 -40 A 620 620 0 0 1 620 580"></path>
+    <path class="arc cpath" style="opacity:.3" stroke-width="0.8" d="M 1240 60 A 520 520 0 0 1 720 580"></path>
+    <path class="arc cpath p" style="opacity:.25" stroke-width="0.8" d="M 1240 160 A 420 420 0 0 1 820 580"></path>
+    <path class="arc cpath" style="opacity:.18" stroke-width="0.7" d="M 1240 260 A 320 320 0 0 1 920 580"></path>
+    <text x="1050" y="120">obs 041</text>
+    <text x="1010" y="230">obs 042</text>
+  </svg>
+  <div class="wrap hero-grid">
+    <div>
+      <h1>The customer you never met <span class="hl">asked an AI first<svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><path id="hl-path" d="M1 7 C 25 4, 75 4, 99 6"></path></svg></span>.</h1>
+      <p class="now">Whose name did it give them?</p>
+      <p class="sub">People ready to spend are asking ChatGPT, Gemini, Claude and Perplexity who to call. When the machines name someone else — or hand out your old number — the job goes elsewhere, and you never hear about it. We show you exactly what they're saying about your business, and what to fix, in plain English.</p>
+      <p class="sub" style="margin-top:8px;">We ran it on our own companies first. Every finding is screenshot-backed and dated — ask to see any of them.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="#early-access">Book a 90-second demo</a>
+        <a class="btn btn-secondary" href="#">See what we measure</a>
+      </div>
+    </div>
+    <div class="plate">
+      <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+      <div class="chat">
+        <div class="chat-head"><span class="dot"></span> AI assistant — simulated</div>
+        <div class="chat-body">
+          <div class="bubble user"><span id="q-text"></span></div>
+          <div class="bubble ai" id="a-bubble" hidden><span id="a-text"></span><span class="caret" id="a-caret"></span></div>
+          <div class="absent" id="absent">
+            <svg class="bm" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="2" y="5" width="20" height="3"></rect>
+              <path d="M 5 18 L 12 11 L 19 18 L 14.588 18 L 12 15.412 L 9.412 18 Z"></path>
+            </svg>
+            Your business — not in this answer.
+          </div>
+        </div>
+        <div class="chat-foot">
+          <span class="chat-cap">Simulated answer, illustrative names. This is the moment the Observatory watches.</span>
+          <button class="replay" id="replay" type="button">Replay</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="five">
+  <div class="wrap sec">
+    <p class="eyebrow rv">The five questions</p>
+    <h2 class="h2-big rv">Five questions now decide how often your name comes up.</h2>
+    <div class="qs rv">
+      <div class="q"><span class="n">01</span><span class="t">Does the machine know you exist?</span></div>
+      <div class="q"><span class="n">02</span><span class="t">Does it understand what you offer?</span></div>
+      <div class="q"><span class="n">03</span><span class="t">Does it trust what it knows?</span></div>
+      <div class="q"><span class="n">04</span><span class="t">Does it recommend you?</span></div>
+      <div class="q why"><span class="n">05</span><span class="t">Why?</span></div>
+    </div>
+    <p class="closer rv">Your assessment answers all five about your business — with counts, screenshots and dates you can check.</p>
+  </div>
+</section>
+
+<section class="eras graticule">
+  <div class="wrap sec">
+    <p class="eyebrow rv">How we got here</p>
+    <h2 class="rv">First they listed you. Then they ranked you. Then they learned about you. Now they answer for you.</h2>
+    <div class="era-strip rv">
+      <div class="era"><div class="when">Era one</div><div class="what">Directories</div><div class="verb">You were listed.</div></div>
+      <div class="era"><div class="when">Era two</div><div class="what">Search engines</div><div class="verb">You were ranked.</div></div>
+      <div class="era"><div class="when">Era three</div><div class="what">Knowledge graphs</div><div class="verb">You were learned.</div></div>
+      <div class="era now-era"><div class="when">Now</div><div class="what">Generated answers</div><div class="verb">You are chosen — or not.</div></div>
+    </div>
+    <p class="cat-line rv">Your customers ask; the machine replies with one recommendation. Being inside that answer is the new first page. VIDET is the Commercial Discoverability Observatory — where you watch the machines learn your business.</p>
+  </div>
+</section>
+
+<section class="mirror-sec">
+  <div class="wrap sec">
+    <p class="eyebrow rv">Reality · Perception</p>
+    <h2 class="h2-big rv">Your business exists twice.</h2>
+    <div class="mirror rv">
+      <div class="pic plate">
+        <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+        <span class="pic-tag">Reality — what's true</span>
+        <h3>Harper &amp; Lane, Accountants</h3>
+        <div class="rowset">
+          <div class="frow ok"><span class="mk">·</span>Small-business accounting since 2011</div>
+          <div class="frow ok"><span class="mk">·</span>14 Collins Street, Melbourne</div>
+          <div class="frow ok"><span class="mk">·</span>214 client reviews — 4.8 average</div>
+          <div class="frow ok"><span class="mk">·</span>Certified practice, registered tax agents</div>
+        </div>
+      </div>
+      <div class="pic per plate">
+        <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+        <span class="pic-tag">Perception — what a machine believes</span>
+        <h3>The same firm, as one assistant sees it</h3>
+        <div class="chips"><span class="chip">assistant one</span><span class="chip">assistant two</span><span class="chip">assistant three</span></div>
+        <div class="rowset">
+          <div class="frow ok"><span class="mk">·</span>Bookkeeping — recognised</div>
+          <div class="frow gap"><span class="mk">△</span>Small-business accounting — not associated<span class="note">gap</span></div>
+          <div class="frow gap"><span class="mk">△</span>Address — three years stale<span class="note">gap</span></div>
+          <div class="frow gap"><span class="mk">△</span>"Accountant in Melbourne" — two competitors named, not them<span class="note">gap</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="mirror-cap rv"><strong>There's the one you built, and the one the machines describe to your customers.</strong> The gap between the two is where enquiries change hands — a stale address here, a missing service there, a competitor named in your place. Nobody rings to tell you it happened; measuring is the only way to find out. Illustrative example.</p>
+  </div>
+</section>
+
+<section class="demo">
+  <div class="wrap sec demo-grid">
+    <div>
+      <p class="eyebrow rv">See it for yourself</p>
+      <h2 class="rv">Find out now.</h2>
+      <p class="ask rv">Open ChatGPT or Gemini and ask who to use for what you do, in your suburb. Read it the way a customer would — someone with a job to book and no idea you exist. That's one answer on one day; the assessment asks properly, so you know whether it holds.</p>
+      <form class="capture rv" id="early-access" onsubmit="return false;">
+        <label for="domain" style="position:absolute;left:-9999px;">Your company domain</label>
+        <input class="mono" id="domain" type="text" inputmode="url" placeholder="yourbusiness.com" autocomplete="off">
+        <button class="btn btn-primary" type="submit">Book a 90-second demo</button>
+      </form>
+    </div>
+    <div class="paths rv">
+      <div class="path">
+        <h3>If you appeared</h3>
+        <p>For which questions? Was your business cited, or improvised? Will the answer hold next month, on another model, phrased another way? One answer is an anecdote — the questions underneath it are the Observatory's job.</p>
+      </div>
+      <div class="path">
+        <h3>If you didn't</h3>
+        <p>That absence is the gap — and it can be measured.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="measures">
+  <div class="wrap sec measures-grid">
+    <div>
+      <p class="eyebrow rv">Your business, measured</p>
+      <h2 class="h2-big rv">One number that means something — because you can open it.</h2>
+      <p class="lede rv" style="font-size:17px; margin-top:18px;">One Discoverability Score. Seven evidence-backed pillars: how sound your site is, how present you are in search and in AI answers, how much authority and trust you've earned, how clear your content is, and how well your local presence carries. Equal weights. Published maths. No black box.</p>
+      <p class="loop-cap rv">verified ownership in · evidence-backed score out · your systems untouched</p>
+    </div>
+    <div class="plate rv" id="score-plate">
+      <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+      <div class="score-card">
+        <div class="sc-head">
+          <div>
+            <span class="tag">Illustrative sample</span>
+            <div class="sc-title">Discoverability Score — harperlane.com.au</div>
+          </div>
+          <div class="sc-overall"><span id="overall">0</span><span class="of"> / 100</span></div>
+        </div>
+        <div class="rows">
+          <div class="prow"><span class="name">Technical Integrity</span><span class="bar"><i style="--w:74%"></i></span><span class="val">74</span></div>
+          <div class="prow"><span class="name">Search Presence</span><span class="bar"><i style="--w:58%"></i></span><span class="val">58</span></div>
+          <div class="prow"><span class="name">AI Presence</span><span class="bar"><i style="--w:41%"></i></span><span class="val">41</span></div>
+          <div class="prow"><span class="name">Authority Signals</span><span class="bar"><i style="--w:63%"></i></span><span class="val">63</span></div>
+          <div class="prow"><span class="name">Trust Signals</span><span class="bar"><i style="--w:70%"></i></span><span class="val">70</span></div>
+          <div class="prow"><span class="name">Content Quality</span><span class="bar"><i style="--w:66%"></i></span><span class="val">66</span></div>
+          <div class="prow"><span class="name">Local Presence</span><span class="na">not applicable — excluded from the score</span></div>
+        </div>
+        <p class="sc-foot">When evidence is missing, a pillar reads <span class="mono">unavailable</span> — never an estimate. Every value traces to inspectable evidence: <span class="mono">EV·2041·A1 · captured 2026-07-14 09:12 UTC</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="learned">
+  <svg class="learned-field" viewBox="0 0 1200 420" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path class="arc" stroke-width="0.8" d="M -40 460 A 560 560 0 0 1 520 -60"></path>
+    <path class="arc" stroke-width="0.7" style="opacity:.22" d="M -40 560 A 660 660 0 0 1 620 -60"></path>
+  </svg>
+  <div class="wrap sec inner">
+    <p class="eyebrow rv">Where the Observatory is headed</p>
+    <h2 class="rv">Fix it once. Know it worked. Keep what you learned.</h2>
+    <p class="lede rv" style="margin-top:20px;">Every change you make is verified, observed again and measured — and the outcome is remembered, so the next recommendation starts smarter than the last. Reports depreciate. Knowledge compounds. Yours starts compounding the day you begin.</p>
+    <div class="loop-strip rv" aria-label="The learning loop">
+      <span class="st">observe</span><span class="ar">→</span>
+      <span class="st">understand</span><span class="ar">→</span>
+      <span class="st">fix</span><span class="ar">→</span>
+      <span class="st">verify</span><span class="ar">→</span>
+      <span class="st">observe again</span><span class="ar">→</span>
+      <span class="st">learn</span>
+    </div>
+    <p class="vision-tag rv">Category direction, from VIDET's published future specifications — not yet shipping behaviour.</p>
+  </div>
+</section>
+
+<section class="promise graticule">
+  <div class="wrap sec" style="display:flex; flex-direction:column; align-items:center;">
+    <p class="eyebrow rv">The promise</p>
+    <div class="inner plate rv">
+      <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+      <h2>You'll never be shown a number we can't prove.</h2>
+    </div>
+    <p class="rules rv">No evidence, no Issue. Every Issue traces to evidence you can inspect. Every score movement is attributable. Incomparable history shows no delta. Missing data is never synthesised.</p>
+    <p class="meth rv"><a href="#">See what we measure — the scoring maths is published in full</a></p>
+  </div>
+</section>
+
+<section class="who">
+  <div class="wrap sec">
+    <p class="eyebrow rv">Three readers, one record</p>
+    <div class="readers rv">
+      <div class="reader"><h3>For owners and executives</h3><p>Where you stand, which way it's moving, and what it means commercially — without a single vanity metric.</p></div>
+      <div class="reader"><h3>For marketing teams</h3><p>Which customer questions you're absent from, and what to publish or fix first.</p></div>
+      <div class="reader"><h3>For technical implementers</h3><p>Implementation-ready artifacts with ordered steps and verification — not screenshots of problems.</p></div>
+    </div>
+    <div class="trust-grid rv">
+      <div class="fact"><h3>Deny by default</h3><p>Every permission is explicit. Nothing is reachable until it is granted.</p></div>
+      <div class="fact"><h3>Hard tenant isolation</h3><p>Your records belong to your organisation alone. No object bridges customer data.</p></div>
+      <div class="fact"><h3>Credential-free identity</h3><p>VIDET never receives or stores passwords. Identity proof is cryptographically signed and single-use.</p></div>
+      <div class="fact"><h3>Never touches your systems</h3><p>Verified-scope observation in; recommendation artifacts out. Zero writes to your site, ever.</p></div>
+    </div>
+    <a class="trust-link rv" href="#">The full security architecture, including crawler conduct</a>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <h2 class="rv">Become the answer.</h2>
+    <p class="rv">It's your name they should be saying. Twenty founding places this August. Bring your domain — we'll bring the evidence.</p>
+    <a class="btn rv" href="#early-access">Book a 90-second demo</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-row">
+      <span class="mono" style="font-size:12px; letter-spacing:0.05em;">VIDET · videt.ai</span>
+      <span style="font-size:13.5px; color: var(--ink-2);">Become the answer.</span>
+      <nav aria-label="Footer">
+        <a href="#">Methodology</a>
+        <a href="#">Manifesto</a>
+        <a href="#">FAQ</a>
+        <a href="#">Trust &amp; security</a>
+        <a href="#">Crawler conduct</a>
+      </nav>
+    </div>
+    <p class="mock-note">Design mockup — Phase-1 (pre-launch) Observatory homepage per branding/001 WEBSITE_STRATEGY §4 (2026-07-23 vision overhaul, VISION-001) and branding/002 VISUAL_IDENTITY (Meridian — The Observatory). Marketing surfaces are light-committed. Sample values, business names and assistant conversations are illustrative or simulated. Vision-layer sections are labelled category direction, not shipping behaviour. Type shown in system stand-ins for Founders Grotesk / Founders Grotesk Mono, pending Klim licensing.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* arcs + underline draw-in */
+  document.querySelectorAll(".cpath, .learned-field .arc").forEach(function (p, i) {
+    if (reduced) return;
+    var len = p.getTotalLength();
+    p.style.strokeDasharray = len;
+    p.style.strokeDashoffset = len;
+    p.style.transition = "stroke-dashoffset 1400ms ease-out " + (i * 140) + "ms";
+    requestAnimationFrame(function () { requestAnimationFrame(function () { p.style.strokeDashoffset = "0"; }); });
+  });
+  var hl = document.getElementById("hl-path");
+  if (hl && !reduced) {
+    var hlen = hl.getTotalLength();
+    hl.style.strokeDasharray = hlen;
+    hl.style.strokeDashoffset = hlen;
+    hl.style.transition = "stroke-dashoffset 600ms ease-out 700ms";
+    requestAnimationFrame(function () { requestAnimationFrame(function () { hl.style.strokeDashoffset = "0"; }); });
+  }
+
+  /* chat simulation */
+  var Q = "Who's the best plumber in Richmond?";
+  var A = "Based on reviews and local presence, three plumbers stand out in Richmond:\n\n1. FlowRight Plumbing — rapid response, strong reviews\n2. Harbour Gas & Water — licensed gas fitting\n3. Rapid Drain Co. — 24/7 emergency callouts";
+  var qEl = document.getElementById("q-text"),
+      aWrap = document.getElementById("a-bubble"),
+      aEl = document.getElementById("a-text"),
+      caret = document.getElementById("a-caret"),
+      absent = document.getElementById("absent"),
+      replay = document.getElementById("replay");
+  var timers = [];
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  function finalState() {
+    qEl.textContent = Q; aWrap.hidden = false; aEl.textContent = A;
+    if (caret) caret.style.display = "none";
+    absent.classList.add("show");
+  }
+  function play() {
+    clearTimers();
+    qEl.textContent = ""; aEl.textContent = ""; aWrap.hidden = true;
+    absent.classList.remove("show");
+    if (caret) caret.style.display = "";
+    if (reduced) { finalState(); return; }
+    var i = 0;
+    (function typeQ() {
+      if (i < Q.length) { qEl.textContent += Q[i++]; timers.push(setTimeout(typeQ, 34)); }
+      else timers.push(setTimeout(function () { aWrap.hidden = false; streamA(); }, 500));
+    })();
+    var j = 0;
+    function streamA() {
+      if (j < A.length) { aEl.textContent += A[j++]; timers.push(setTimeout(streamA, 11)); }
+      else {
+        if (caret) caret.style.display = "none";
+        timers.push(setTimeout(function () { absent.classList.add("show"); }, 420));
+      }
+    }
+  }
+  if (replay) replay.addEventListener("click", play);
+  play();
+
+  /* scroll reveals */
+  var revealEls = document.querySelectorAll(".rv");
+  if (reduced || !("IntersectionObserver" in window)) {
+    revealEls.forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { threshold: 0.15 });
+    revealEls.forEach(function (el) { io.observe(el); });
+  }
+
+  /* score card: bars + count-up */
+  var plate = document.getElementById("score-plate"),
+      overall = document.getElementById("overall"),
+      counted = false;
+  function runScore() {
+    if (counted) return; counted = true;
+    plate.classList.add("go");
+    if (reduced) { overall.textContent = "61"; return; }
+    var t0 = null, dur = 800, target = 61;
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var p = Math.min((ts - t0) / dur, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      overall.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+  if (plate) {
+    if (reduced || !("IntersectionObserver" in window)) runScore();
+    else {
+      var io2 = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { runScore(); io2.unobserve(e.target); } });
+      }, { threshold: 0.3 });
+      io2.observe(plate);
+    }
+  }
+})();
+</script>
+</body>
+</html>

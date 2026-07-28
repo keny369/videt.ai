@@ -6,7 +6,7 @@ Status: Working strategy executing `000 STRATEGY_BRIEF.md`. Marketing document �
 
 **Category:** the Commercial Discoverability Observatory (VISION-001) — the category story the site claims and owns. The ratified spec label remains Discoverability Intelligence Platform (ADR-003, PR-REQ-001) until an ADR changes it; the website uses the Observatory as narrative, once per page, never as the headline — the category is the answer to "so what is it?", delivered after the problem has landed.
 
-**Promise:** Become the answer. (PR-REQ-003 — spec-canonical, ownable, and the natural closing line of every page.)
+**Promise & tagline:** Become the answer. (PR-REQ-003 — spec-canonical, ownable; the brand tagline, the closing line of every page, and a candidate second trade mark. Usage rules: `006 BRAND_PACK.md` §5.)
 
 **Organising frames:** Google indexed the web. AI evaluates it. — and the owner's version: **your business exists twice — as it is, and as the machines believe it is.** The commercial question is no longer "how do I rank?" but "will the machine choose me?" (VISION-001).
 

@@ -145,7 +145,7 @@ Measurement before optimisation.
 
 Confidence before action.
 
-Canonical promise (PR-REQ-003): **Become the answer.**
+Canonical promise and brand tagline (PR-REQ-003): **Become the answer.** — always with the full stop; usage rules in `006 BRAND_PACK.md` §5; second-mark registration under advice (see `branding/trademark/`).
 
 ## Core Brand Personality
 

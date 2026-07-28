@@ -2030,8 +2030,10 @@ CREATE TABLE public.crawl_host_gates (
     active_connection_count integer DEFAULT 0 NOT NULL,
     lease_version bigint DEFAULT 0 NOT NULL,
     robots_attempt_started_at timestamp(6) with time zone,
+    active_leases jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT crawl_host_gates_active_connection_count_check CHECK ((active_connection_count >= 0)),
     CONSTRAINT crawl_host_gates_canonical_host_sha256_check CHECK ((octet_length(canonical_host_sha256) = 32)),
+    CONSTRAINT crawl_host_gates_lease_count_agrees CHECK ((active_connection_count = jsonb_array_length(active_leases))),
     CONSTRAINT crawl_host_gates_robots_attempt_count_check CHECK ((robots_attempt_count >= 0)),
     CONSTRAINT crawl_host_gates_robots_crawl_delay_ms_check CHECK (((robots_crawl_delay_ms IS NULL) OR (robots_crawl_delay_ms >= 0))),
     CONSTRAINT crawl_host_gates_robots_rules_shape CHECK (((robots_state = 'rules_applied'::text) = ((robots_rules IS NOT NULL) AND (robots_rules_schema IS NOT NULL)))),
@@ -5505,6 +5507,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120210'),
 ('20260727120200'),
 ('20260727120190'),
 ('20260727120180'),
