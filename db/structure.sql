@@ -1810,6 +1810,7 @@ CREATE TABLE public.evaluations (
     deadline_at timestamp(6) with time zone,
     reason text,
     orchestration_slot_active boolean DEFAULT false NOT NULL,
+    CONSTRAINT evaluations_initial_requires_crawl CHECK (((kind <> 'initial'::text) OR (crawl_id IS NOT NULL))),
     CONSTRAINT evaluations_kind_check CHECK ((kind = ANY (ARRAY['initial'::text, 'reassessment'::text, 'retry'::text]))),
     CONSTRAINT evaluations_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'superseded'::text])))
 );
@@ -4231,6 +4232,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120110'),
 ('20260727120100'),
 ('20260727120090'),
 ('20260727120080'),

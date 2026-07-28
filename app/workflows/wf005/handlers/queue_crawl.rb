@@ -70,19 +70,25 @@ module Workflows
                         outward: "crawl_trigger_unauthorized", internal: "crawl_trigger_unauthorized")
           end
 
-          return denied(d, "crawl_project_not_active") unless project["state"] == "active"
-          entitlement = store.active_entitlement_policy(d[:org])
-          return denied(d, "crawl_entitlement_unavailable") if entitlement.nil?
-          sources = store.active_sources(d[:org], command.project_id)
-          return denied(d, "crawl_no_active_source") if sources.empty?
-          # reassessment_required: vacuously satisfied — no promotion mechanism exists yet (S-09).
-
           store.lock_project(d[:org], command.project_id)
+
+          # Idempotency BEFORE the domain preconditions (as the ActivateProject sibling): an exact
+          # replay must faithfully return its stored result even if a precondition no longer holds.
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           existing = store.find_idempotency(org: d[:org], command_type: command.command_type,
                                             target_type: TARGET_TYPE, target_id: command.project_id, key_digest:)
           return replay(d, existing) if existing && existing["request_hex"] == hex(d[:request_sha256])
           return denied(d, "idempotency_conflict") if existing
+
+          # Re-read the preconditions under the lock, in the WORKFLOW_SPECIFICATIONS :725 order
+          # (active Project -> active Source -> resolvable active Entitlement Policy).
+          project = store.project(d[:org], command.project_id)
+          return denied(d, "crawl_project_not_active") unless project["state"] == "active"
+          sources = store.active_sources(d[:org], command.project_id)
+          return denied(d, "crawl_no_active_source") if sources.empty?
+          entitlement = store.active_entitlement_policy(d[:org])
+          return denied(d, "crawl_entitlement_unavailable") if entitlement.nil?
+          # reassessment_required: vacuously satisfied — no promotion mechanism exists yet (S-09).
 
           # OD-018 queue-time guard, under the lock (re-checked at Queued->Running in S-07-003).
           return denied(d, "initial_evaluation_already_running") if store.running_initial_evaluation?(d[:org], command.project_id)
@@ -134,7 +140,9 @@ module Workflows
           write_event(store, ids, org, ctx, command, actor, now, 0, ids[:crawl], request_sha256, key_digest,
                       "CrawlQueued", "created",
                       { "project_id" => command.project_id, "crawl_id" => ids[:crawl], "kind" => "root",
-                        "state" => "queued", "source_count" => sources.size })
+                        "state" => "queued", "source_count" => sources.size,
+                        "requested_crawl_policy_version" => crawl_policy && crawl_policy["policy_version"],
+                        "requested_entitlement_policy_version" => entitlement["semantic_version"] })
           write_result_success(store, ids, command, ctx, org, actor, now, payload, ids[:crawl])
           write_idempotency(store, ids[:idem], org, command, command.project_id, key_digest, request_sha256,
                             ids[:execution], ids[:result], now)

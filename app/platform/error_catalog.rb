@@ -286,11 +286,20 @@ module Platform
       "verification_attempt_not_reserved"    => "F1-DOMAIN-409"
     }.freeze
 
+    # Per-reason recovery_action overrides, for the reasons whose contract mandates a
+    # recovery distinct from their error-code class default. QueueCrawl OD-018
+    # (contracts/S-07.json MTX-030 error_contract; WORKFLOW_SPECIFICATIONS.md :734): the
+    # caller awaits the running initial Evaluation rather than the generic re-read.
+    REASON_RECOVERY = {
+      "initial_evaluation_already_running" => "await_running_initial_evaluation_or_submit_new_command"
+    }.freeze
+
     def failure(reason_code, support_reference:)
       error_code = REASONS.fetch(reason_code) do
         raise Platform::InvariantViolation, "unmapped reason_code #{reason_code.inspect}"
       end
       error_class, severity, retryable, recovery = CODES.fetch(error_code)
+      recovery = REASON_RECOVERY.fetch(reason_code, recovery)
       # onboarding-interim-v1: none of these is automatically retried at the
       # product level; dependency exhaustion is terminal (retryable=false at
       # exhaustion) even though its class default is true.
