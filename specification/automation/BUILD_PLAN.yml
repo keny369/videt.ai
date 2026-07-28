@@ -740,7 +740,7 @@ blocks:
   - id: F-05
     name: Foundation — Entitlement reservation subsystem (entitlement-interim-v1)
     type: foundation
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061; owner D2/ADR-069); 5-lens review, CB (max-execution ceiling) fixed + hardening (ADR-075). Consumed by S-07-003.
     depends_on:
       - S-01   # entitlement_policies
     authoritative_sources:
