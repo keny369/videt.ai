@@ -90,6 +90,13 @@ module F1
       # a trigger refuses UPDATE/DELETE, the missing grant is defence in depth). Additive new-table
       # grant (ADR-029); no existing grant changes and FORCE RLS is preserved.
       "evaluation_orchestration_contexts" => "SELECT, INSERT",
+      # S-07-004 crawl frontier. Entries are T-MUT (admitted, claimed, discarded in place, never
+      # deleted — a discard is a state, not a row removal); occurrences are T-IMM. Both are
+      # implementation-owned technical execution records (MTX-030 persistence_model), never product
+      # entities. Additive new-table grants (ADR-029); no existing grant changes and FORCE RLS is
+      # preserved.
+      "crawl_frontier_entries"            => "SELECT, INSERT, UPDATE",
+      "crawl_frontier_occurrences"        => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

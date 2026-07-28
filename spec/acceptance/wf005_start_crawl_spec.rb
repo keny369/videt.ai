@@ -346,10 +346,19 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       expect(audit["to_state"]).to eq("running")
     end
 
-    it "performs no outbound work and creates no frontier record (S-07-004 owns the frontier)" do
+    it "seeds the ordered root frontier and performs no outbound work" do
       q = queued
-      expect(start(q[:crawl_id]).success?).to be(true)
-      expect(DbInspector.connection.exec("SELECT to_regclass('crawl_frontier_entries') AS t").getvalue(0, 0)).to be_nil
+      result = start(q[:crawl_id])
+      expect(result.success?).to be(true)
+      # S-07-004 completed SEARCH_CRAWL_RETRIEVAL step 6 inside this same commit; the fetch itself
+      # is S-07-007, so no attempt record exists and no network call occurs on this path.
+      expect(result.payload[:frontier_root_count]).to eq(1)
+      entries = DbInspector.all("SELECT * FROM crawl_frontier_entries WHERE crawl_id = $1::uuid", [q[:crawl_id]])
+      expect(entries.size).to eq(1)
+      expect(entries.first["origin"]).to eq("root")
+      expect(entries.first["depth"]).to eq("0")
+      expect(entries.first["state"]).to eq("queued")
+      expect(DbInspector.connection.exec("SELECT to_regclass('fetch_attempts') AS t").getvalue(0, 0)).to be_nil
     end
   end
 

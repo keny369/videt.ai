@@ -85,16 +85,19 @@ module Workflows
             organization = store.organization(org)
             next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if organization.nil?
 
+            frontier_store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
             process(store:, entitlement: Platform::Entitlement::Service.new(pg), organization:,
+                    frontier_store:,
+                    frontier: Wf005::Frontier.new(frontier_store, ids: ctx.ids, correlation_id: ctx.correlation_id),
                     command:, ctx:, org:, now:, key_digest:)
           end
         end
 
         private
 
-        def process(store:, entitlement:, organization:, command:, ctx:, org:, now:, key_digest:)
+        def process(store:, entitlement:, organization:, frontier_store:, frontier:, command:, ctx:, org:, now:, key_digest:)
           request_sha256 = request_hash(command, ctx)
-          d = { store:, entitlement:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
+          d = { store:, entitlement:, frontier_store:, frontier:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
 
           # First read resolves the Project for the lock; then lock and re-read authoritatively. This
           # pre-lock read decides only `mismatch`, which cannot go stale: `f1_crawls_guard` refuses
@@ -163,7 +166,12 @@ module Workflows
 
           project = store.project(org, pid)
           return fail_crawl(d, crawl, "crawl_project_not_active") unless project && project["state"] == "active"
-          return fail_crawl(d, crawl, "crawl_no_active_source") if store.active_source_count(org, pid).zero?
+          # The precondition is evaluated over the PINNED set intersected with what is still active,
+          # not over the Project's Sources at large. Only pinned Sources can be crawled — the set is
+          # T-IMM — so a run whose every pinned Source has been disabled or removed can produce
+          # nothing, and admitting it would strand a running Crawl with an empty frontier. This is
+          # the same intersection S-07-004 seeds the frontier from (owner HD-S07-FU4-FU5).
+          return fail_crawl(d, crawl, "crawl_no_active_source") if d[:frontier_store].active_pinned_sources(org, crawl["id"]).empty?
           if store.initial_evaluation_elsewhere?(org, pid, crawl["id"])
             return fail_crawl(d, crawl, "initial_evaluation_already_running")
           end
@@ -266,13 +274,22 @@ module Workflows
             publication_preconditions: {}
           )
 
+          # S-07-004, the last limb of the accepted-start commit (SEARCH_CRAWL_RETRIEVAL.md § Crawl
+          # Admission And Snapshot step 6): the ordered ROOT frontier, seeded ONLY from pinned
+          # Sources that are still active. The gate above guarantees at least one.
+          seeded = d[:frontier].seed_roots(organization_id: org, project_id: pid, crawl_id: crawl["id"], now:)
+          raise LostRace if seeded.admitted.zero?
+
           payload = {
             "crawl_id" => crawl["id"], "organization_id" => org, "project_id" => pid, "state" => "running",
             "evaluation_id" => ids[:evaluation], "evaluation_kind" => EVALUATION_KIND, "evaluation_state" => "pending",
             "crawl_policy_version" => policy[:version], "started_at_utc" => now.iso8601(6),
             "deadline_at_utc" => deadline.iso8601(6), "entitlement_decision_id" => decision.decision_id,
             "entitlement_reservation_id" => decision.reservation_id,
-            "entitlement_decision" => decision.decision
+            "entitlement_decision" => decision.decision,
+            "frontier_root_count" => seeded.admitted,
+            "pinned_source_count" => seeded.pinned_total,
+            "excluded_inactive_source_count" => seeded.excluded_inactive
           }
           # WF-005 Audit and Observability requires "all policy versions AND effective limits". The
           # resolved bounds are a per-dimension minimum that no single policy version labels, so the
@@ -287,7 +304,11 @@ module Workflows
                       { "from_state" => "queued", "to_state" => "running", "crawl_id" => crawl["id"],
                         "crawl_policy_version" => policy[:version],
                         "entitlement_policy_version" => decision.policy_version,
-                        "deadline_at_utc" => deadline.iso8601(6) })
+                        "deadline_at_utc" => deadline.iso8601(6),
+                        # Per-Source root counts, which CAP-007 observability requires and which make
+                        # a queue-time/execution-time Source-set divergence visible in the stream.
+                        "frontier_root_count" => seeded.admitted,
+                        "excluded_inactive_source_count" => seeded.excluded_inactive })
           write_event(store, ids[:evaluation_event], ids[:audit], org, ctx, command, now, 0, pid,
                       d[:request_sha256], d[:key_digest], "EvaluationPending", "created", "evaluation", ids[:evaluation],
                       { "evaluation_id" => ids[:evaluation], "crawl_id" => crawl["id"], "kind" => EVALUATION_KIND,

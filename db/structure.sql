@@ -214,6 +214,66 @@ $$;
 
 
 --
+-- Name: f1_crawl_frontier_entries_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_frontier_entries_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'crawl_frontier_entry_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id
+     OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
+     OR NEW.canonical_url_preimage IS DISTINCT FROM OLD.canonical_url_preimage
+     OR NEW.canonical_url_sha256 IS DISTINCT FROM OLD.canonical_url_sha256
+     OR NEW.collision_ordinal IS DISTINCT FROM OLD.collision_ordinal
+     OR NEW.origin IS DISTINCT FROM OLD.origin
+     OR NEW.depth IS DISTINCT FROM OLD.depth
+     OR NEW.discovering_document_url IS DISTINCT FROM OLD.discovering_document_url
+     OR NEW.link_position IS DISTINCT FROM OLD.link_position
+     OR NEW.dequeue_key IS DISTINCT FROM OLD.dequeue_key
+     OR NEW.parent_entry_id IS DISTINCT FROM OLD.parent_entry_id
+     OR NEW.canonicalization_version IS DISTINCT FROM OLD.canonicalization_version
+     OR NEW.scope_policy_id IS DISTINCT FROM OLD.scope_policy_id
+     OR NEW.scope_policy_version IS DISTINCT FROM OLD.scope_policy_version
+     OR NEW.enqueue_order IS DISTINCT FROM OLD.enqueue_order
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'crawl_frontier_entry_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    IF NOT ((OLD.state = 'discovered' AND NEW.state IN ('queued','discarded'))
+            OR (OLD.state = 'queued' AND NEW.state = 'in_progress')) THEN
+      RAISE EXCEPTION 'crawl_frontier_transition_unavailable % -> %', OLD.state, NEW.state
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_crawl_frontier_occurrences_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_frontier_occurrences_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'crawl_frontier_occurrence_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_policies_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1793,6 +1853,81 @@ ALTER TABLE ONLY public.command_results FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_frontier_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_frontier_entries (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    canonical_url_preimage bytea NOT NULL,
+    canonical_url_sha256 bytea NOT NULL,
+    collision_ordinal integer DEFAULT 0 NOT NULL,
+    origin text NOT NULL,
+    depth integer NOT NULL,
+    discovering_document_url text DEFAULT ''::text NOT NULL,
+    link_position integer DEFAULT 0 NOT NULL,
+    dequeue_key bytea NOT NULL,
+    parent_entry_id uuid,
+    canonicalization_version text NOT NULL,
+    scope_policy_id uuid NOT NULL,
+    scope_policy_version text NOT NULL,
+    robots_decision_id uuid,
+    robots_policy_version text,
+    enqueue_order bigint NOT NULL,
+    commit_order bigint,
+    state text NOT NULL,
+    reason text,
+    CONSTRAINT crawl_frontier_entries_canonical_url_sha256_check CHECK ((octet_length(canonical_url_sha256) = 32)),
+    CONSTRAINT crawl_frontier_entries_collision_ordinal_check CHECK ((collision_ordinal >= 0)),
+    CONSTRAINT crawl_frontier_entries_depth_check CHECK ((depth >= 0)),
+    CONSTRAINT crawl_frontier_entries_discard_reason CHECK (((state = 'discarded'::text) = (reason IS NOT NULL))),
+    CONSTRAINT crawl_frontier_entries_link_position_check CHECK ((link_position >= 0)),
+    CONSTRAINT crawl_frontier_entries_origin_check CHECK ((origin = ANY (ARRAY['root'::text, 'sitemap'::text, 'link'::text]))),
+    CONSTRAINT crawl_frontier_entries_origin_shape CHECK (((origin = 'link'::text) OR ((discovering_document_url = ''::text) AND (link_position = 0)))),
+    CONSTRAINT crawl_frontier_entries_root_depth CHECK (((origin <> 'root'::text) OR (depth = 0))),
+    CONSTRAINT crawl_frontier_entries_state_check CHECK ((state = ANY (ARRAY['discovered'::text, 'queued'::text, 'in_progress'::text, 'fetched_pending_commit'::text, 'terminal'::text, 'discarded'::text])))
+);
+
+ALTER TABLE ONLY public.crawl_frontier_entries FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: crawl_frontier_occurrences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_frontier_occurrences (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    frontier_entry_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    referrer_entry_id uuid,
+    occurrence_url text NOT NULL,
+    occurrence_url_sha256 bytea NOT NULL,
+    discovering_document_url text DEFAULT ''::text NOT NULL,
+    link_position integer DEFAULT 0 NOT NULL,
+    occurrence_order bigint NOT NULL,
+    discovered_at timestamp(6) with time zone NOT NULL,
+    duplicate_reason text NOT NULL,
+    CONSTRAINT crawl_frontier_occurrences_link_position_check CHECK ((link_position >= 0)),
+    CONSTRAINT crawl_frontier_occurrences_occurrence_url_sha256_check CHECK ((octet_length(occurrence_url_sha256) = 32))
+);
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawl_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3168,6 +3303,70 @@ ALTER TABLE ONLY public.command_results
 
 
 --
+-- Name: crawl_frontier_entries crawl_frontier_entries_dequeue_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_dequeue_unique UNIQUE (crawl_id, dequeue_key);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_identity_unique UNIQUE (crawl_id, canonical_url_sha256, collision_ordinal);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_identity_unique UNIQUE (crawl_id, frontier_entry_id, discovering_document_url, link_position);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_order_unique UNIQUE (crawl_id, occurrence_order);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawl_policies crawl_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3696,6 +3895,20 @@ ALTER TABLE ONLY public.work_dispatch_bindings
 
 
 --
+-- Name: crawl_frontier_entries_dequeue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_frontier_entries_dequeue ON public.crawl_frontier_entries USING btree (crawl_id, dequeue_key) WHERE (state = 'queued'::text);
+
+
+--
+-- Name: crawl_frontier_entries_preimage; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_frontier_entries_preimage ON public.crawl_frontier_entries USING btree (crawl_id, canonical_url_sha256);
+
+
+--
 -- Name: crawl_policies_active_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3983,6 +4196,20 @@ CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_
 
 
 --
+-- Name: crawl_frontier_entries crawl_frontier_entries_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_frontier_entries_guard BEFORE DELETE OR UPDATE ON public.crawl_frontier_entries FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_frontier_entries_guard();
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_frontier_occurrences_guard BEFORE DELETE OR UPDATE ON public.crawl_frontier_occurrences FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_frontier_occurrences_guard();
+
+
+--
 -- Name: crawl_policies crawl_policies_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4159,6 +4386,70 @@ ALTER TABLE ONLY public.command_executions
 
 ALTER TABLE ONLY public.command_results
     ADD CONSTRAINT command_results_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_parent_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_parent_fk FOREIGN KEY (organization_id, project_id, parent_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_scope_policy_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_scope_policy_fk FOREIGN KEY (organization_id, scope_policy_id) REFERENCES public.source_scope_policies(organization_id, id);
+
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_entries
+    ADD CONSTRAINT crawl_frontier_entries_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_entry_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_entry_fk FOREIGN KEY (organization_id, project_id, frontier_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_referrer_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_referrer_fk FOREIGN KEY (organization_id, project_id, referrer_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -4545,6 +4836,32 @@ ALTER TABLE public.command_results ENABLE ROW LEVEL SECURITY;
 CREATE POLICY command_results_context ON public.command_results USING ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions))) WITH CHECK ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions)));
+
+
+--
+-- Name: crawl_frontier_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_frontier_entries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_frontier_entries crawl_frontier_entries_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_frontier_entries_context ON public.crawl_frontier_entries USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: crawl_frontier_occurrences; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_frontier_occurrences ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_frontier_occurrences_context ON public.crawl_frontier_occurrences USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -4982,6 +5299,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120170'),
 ('20260727120160'),
 ('20260727120150'),
 ('20260727120140'),
