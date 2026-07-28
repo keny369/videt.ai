@@ -838,7 +838,7 @@ blocks:
   - id: S-07-005
     name: Crawl Execution — host gate + robots (fail-closed) + per-host rate
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061); 5-lens review by five independent reviewers, CB fixed (ADR-079).
     depends_on:
       - S-07-004
     human_gate_before: false
