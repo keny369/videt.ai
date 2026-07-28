@@ -97,9 +97,14 @@ module Platform
         SQL
       end
 
+      # The reservation joined to its Decision's operation, so the service can resolve the operation's
+      # maximum-execution ceiling (WORKFLOW :551) without a second read.
       def reservation(organization_id, id)
-        exec("SELECT * FROM entitlement_reservations WHERE organization_id = $1::uuid AND id = $2::uuid",
-             [organization_id, id]).to_a.first
+        exec(<<~SQL, [organization_id, id]).to_a.first
+          SELECT r.*, d.operation FROM entitlement_reservations r
+          JOIN entitlement_decisions d ON d.organization_id = r.organization_id AND d.id = r.decision_id
+          WHERE r.organization_id = $1::uuid AND r.id = $2::uuid
+        SQL
       end
 
       def lock_reservation(organization_id, id)

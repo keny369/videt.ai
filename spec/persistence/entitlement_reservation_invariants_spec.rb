@@ -29,15 +29,16 @@ RSpec.describe "Entitlement reservation invariants", type: :model do
 
   def decision(window_id, organization_id: org, dec: "allow", account: SecureRandom.uuid_v7, service: nil)
     id = SecureRandom.uuid_v7
-    conn.exec_params(<<~SQL, [id, organization_id, account, service, window_id, dec])
+    key = { value: Digest::SHA256.digest("k-#{id}"), format: 1 }
+    conn.exec_params(<<~SQL, [id, organization_id, account, service, window_id, dec, key])
       INSERT INTO entitlement_decisions
         (id, created_at, decided_at, correlation_id, organization_id, account_id, service_identity_id,
          operation, usage_unit, requested_units, counter_window_id, window_start, window_end, policy_version,
          plan_version, soft_limit, hard_limit, committed_before, committed_after, active_reserved_before,
-         active_reserved_after, reservation_id, decision, reason_code, recovery_action)
+         active_reserved_after, reservation_id, idempotency_key_digest, decision, reason_code, recovery_action)
       VALUES ($1::uuid,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,'crawl.start','crawl_run',1,
               $5::uuid,'2026-07-27T00:00:00Z','2026-07-28T00:00:00Z','entitlement-interim-v1','interim-baseline-plan-v1',
-              3,4,0,0,0,1,NULL,$6,'within_limit','none')
+              3,4,0,0,0,1,NULL,$7,$6,'within_limit','none')
     SQL
     id
   end

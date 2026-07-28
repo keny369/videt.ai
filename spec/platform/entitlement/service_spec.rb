@@ -38,7 +38,7 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
               subject: { account_id: SecureRandom.uuid_v7, service_identity_id: nil }, reservation_id: SecureRandom.uuid_v7)
     run(organization_id) do |svc|
       svc.reserve(operation:, organization_id:, subject:, requested_units: requested,
-                  correlation_id: SecureRandom.uuid_v7, now:,
+                  correlation_id: SecureRandom.uuid_v7, now:, idempotency_key_digest: Digest::SHA256.digest(SecureRandom.hex(8)),
                   ids: { decision: SecureRandom.uuid_v7, reservation: reservation_id, window: SecureRandom.uuid_v7 })
     end
   end
@@ -137,6 +137,38 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
       expect(run { |s| s.expire(organization_id: org, reservation_id: rid, now: t0 + 60 + (15 * 60) + 1) }).to eq(:released)
       expect(reservation(rid)["state"]).to eq("released")
       expect(reservation(rid)["terminal_reason"]).to eq("lease_expired")
+    end
+
+    it "RELEASES (does not commit) when the durable point is reached past the lease deadline (WORKFLOW :551)" do
+      rid = SecureRandom.uuid_v7
+      reserve(reservation_id: rid)
+      run { |s| s.start_execution(organization_id: org, reservation_id: rid, now: t0 + 60) } # lease_due = t0+60+15m
+      # Commit 30 min in — past the 15-min heartbeat lease. Must release, not commit; the unit is NOT charged.
+      out = { type: "crawl", id: SecureRandom.uuid_v7, sha256: nil }
+      expect(run { |s| s.commit(organization_id: org, reservation_id: rid, durable_output: out, now: t0 + (30 * 60),
+                                ids: { commit_intent: SecureRandom.uuid_v7 }) }).to eq(:released)
+      expect(reservation(rid)["state"]).to eq("released")
+      expect(reservation(rid)["terminal_reason"]).to eq("lease_expired_at_commit")
+      expect([only_window["reserved_units"], only_window["committed_units"]]).to eq(%w[0 0])
+    end
+
+    it "caps a faithfully-heartbeating lease at the maximum-execution instant (CB-1: 65-min ceiling)" do
+      rid = SecureRandom.uuid_v7
+      reserve(reservation_id: rid)
+      run { |s| s.start_execution(organization_id: org, reservation_id: rid, now: t0 + 60) } # max-execution at t0+60+3900s
+      # Heartbeat every 5 minutes while under the 65-min ceiling — each is accepted.
+      (1..12).each do |i|
+        hb = run { |s| s.heartbeat(organization_id: org, reservation_id: rid, worker_process_identity: "w",
+                                   worker_service_identity_id: SecureRandom.uuid_v7, now: t0 + 60 + (i * 300),
+                                   ids: { heartbeat: SecureRandom.uuid_v7 }) }
+        expect(hb).to be_a(Hash), "heartbeat #{i} at #{i * 5}min should be accepted, got #{hb.inspect}"
+      end
+      # A heartbeat AT the 65-min max-execution instant loses to expiry even though the 15-min lease is open.
+      expect(run { |s| s.heartbeat(organization_id: org, reservation_id: rid, worker_process_identity: "w",
+                                   worker_service_identity_id: SecureRandom.uuid_v7, now: t0 + 60 + 3900,
+                                   ids: { heartbeat: SecureRandom.uuid_v7 }) }).to eq(:lease_expired)
+      # And expire() at that instant releases it.
+      expect(run { |s| s.expire(organization_id: org, reservation_id: rid, now: t0 + 60 + 3900) }).to eq(:released)
     end
   end
 end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "time"
+require "securerandom"
 
 module Platform
   module Entitlement
@@ -31,17 +32,26 @@ module Platform
       # the UTC-day counter window, and — serialized on that window — classify the request and, when
       # allowed, create the immutable Decision + a reserved reservation accruing its units.
       # `subject` is {account_id:} XOR {service_identity_id:}. `ids` supplies :decision, :reservation.
+      # `idempotency_key_digest` is required and recorded on the Decision (WORKFLOW :543 "always
+      # nonnull"). reserve does NOT itself dedup replays: command-level idempotency is the consuming
+      # operation's layer (its idempotency_records), so an exact replay is resolved by the consumer
+      # before it re-enters reserve; `retry_of_decision_id` is recorded for lineage only.
       def reserve(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:, ids:,
-                  idempotency_key_digest: nil, retry_of_decision_id: nil)
+                  idempotency_key_digest:, retry_of_decision_id: nil)
         rule = InterimPolicy.rule(operation)
-        return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
-                             ids:, idempotency_key_digest:, retry_of_decision_id:, usage_unit: "unknown",
-                             reason: "operation_unknown", recovery: "contact_support") if rule.nil?
-
+        # Reason precedence (WORKFLOW :541): entitlement_inactive outranks operation_unknown.
         policy = @store.active_entitlement_policy(organization_id)
-        return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
-                             ids:, idempotency_key_digest:, retry_of_decision_id:, usage_unit: rule[:usage_unit],
-                             reason: "entitlement_inactive", recovery: "contact_support") if policy.nil?
+        if policy.nil?
+          return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
+                               ids:, idempotency_key_digest:, retry_of_decision_id:,
+                               usage_unit: rule ? rule[:usage_unit] : "unknown",
+                               reason: "entitlement_inactive", recovery: "restore_policy")
+        end
+        if rule.nil?
+          return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
+                               ids:, idempotency_key_digest:, retry_of_decision_id:, usage_unit: "unknown",
+                               reason: "operation_unknown", recovery: "contact_support")
+        end
 
         window_start, window_end = InterimPolicy.counter_window(now)
         @store.lock_window(organization_id, rule[:counter_group], window_start)
@@ -83,10 +93,11 @@ module Platform
       def start_execution(organization_id:, reservation_id:, now:)
         r = locked(organization_id, reservation_id)
         return :not_reserved unless r && r["state"] == "reserved"
-        return :expired if now >= as_time(r["lease_due"])
-        @store.transition_reservation(reservation_id, from_state: "reserved", to_state: "executing",
-                                      expected_version: r["state_version"].to_i, now:, started_at: now,
-                                      last_heartbeat_at: now, lease_due: now + InterimPolicy::LEASE_RENEWAL_SECONDS)
+        return :expired if now >= effective_deadline(r) # prestart lease for a reserved reservation
+        moved = @store.transition_reservation(reservation_id, from_state: "reserved", to_state: "executing",
+                                              expected_version: r["state_version"].to_i, now:, started_at: now,
+                                              last_heartbeat_at: now, lease_due: now + InterimPolicy::LEASE_RENEWAL_SECONDS)
+        raise Platform::InvariantViolation, "reservation transition lost" unless moved == 1
         :executing
       end
 
@@ -98,27 +109,32 @@ module Platform
         r = locked(organization_id, reservation_id)
         return :not_executing unless r && r["state"] == "executing"
         prior = as_time(r["lease_due"])
-        return :lease_expired if now >= prior
+        # Lease-expiry wins at 15 min since the last heartbeat OR the maximum-execution instant (:551).
+        return :lease_expired if now >= effective_deadline(r)
         renewed = now + InterimPolicy::LEASE_RENEWAL_SECONDS
         generation = r["lease_generation"].to_i + 1
         @store.insert_lease_heartbeat(id: ids[:heartbeat], now:, correlation_id: r["correlation_id"],
                                       organization_id:, reservation_id:, heartbeat_generation: generation,
                                       prior_lease_expires_at: prior, renewed_lease_expires_at: renewed,
                                       worker_process_identity:, worker_service_identity_id:, input_sha256:, output_sha256:)
-        @store.transition_reservation(reservation_id, from_state: "executing", to_state: "executing",
-                                      expected_version: r["state_version"].to_i, now:, last_heartbeat_at: now,
-                                      lease_due: renewed, lease_generation: generation)
+        moved = @store.transition_reservation(reservation_id, from_state: "executing", to_state: "executing",
+                                              expected_version: r["state_version"].to_i, now:, last_heartbeat_at: now,
+                                              lease_due: renewed, lease_generation: generation)
+        raise Platform::InvariantViolation, "reservation transition lost" unless moved == 1
         { heartbeat_generation: generation, renewed_lease_expires_at: renewed, prior_lease_expires_at: prior }
       end
 
       # executing -> committed at the durable commit point: move the units from reserved to committed
-      # and bind the reservation to its durable output. `durable_output` is {type:, id:, sha256:}.
+      # and bind the reservation to its durable output. `durable_output` is {type:, id:, sha256:}. A
+      # commit reached at or after the lease-expiry/max-execution instant RELEASES instead (WORKFLOW :551).
       def commit(organization_id:, reservation_id:, durable_output:, now:, ids:, reason: "durable_commit_point_reached")
         r = locked(organization_id, reservation_id)
         return :not_executing unless r && r["state"] == "executing"
-        @store.transition_reservation(reservation_id, from_state: "executing", to_state: "committed",
-                                      expected_version: r["state_version"].to_i, now:, terminal_at: now,
-                                      terminal_reason: reason)
+        return release_reservation(r, reservation_id, "lease_expired_at_commit", now) if now >= effective_deadline(r)
+        moved = @store.transition_reservation(reservation_id, from_state: "executing", to_state: "committed",
+                                              expected_version: r["state_version"].to_i, now:, terminal_at: now,
+                                              terminal_reason: reason)
+        raise Platform::InvariantViolation, "reservation transition lost" unless moved == 1
         @store.adjust_window(r["counter_window_id"], reserved_delta: -r["units"].to_i,
                              committed_delta: r["units"].to_i, now:)
         @store.insert_commit_intent(id: ids[:commit_intent], now:, correlation_id: r["correlation_id"],
@@ -133,26 +149,23 @@ module Platform
       def release(organization_id:, reservation_id:, reason:, now:)
         r = locked(organization_id, reservation_id)
         return :already_terminal unless r && %w[reserved executing].include?(r["state"])
-        @store.transition_reservation(reservation_id, from_state: r["state"], to_state: "released",
-                                      expected_version: r["state_version"].to_i, now:, terminal_at: now,
-                                      terminal_reason: reason)
-        @store.adjust_window(r["counter_window_id"], reserved_delta: -r["units"].to_i, committed_delta: 0, now:)
-        :released
+        release_reservation(r, reservation_id, reason, now)
       end
 
       # The lease-expiry / prestart-expiry reclaim (WORKFLOW :551). A reserved reservation past its
-      # prestart lease expires; an executing reservation past its lease releases (commit already won if
-      # it committed strictly before). Returns the terminal state or nil when not yet due.
+      # prestart lease expires; an executing reservation past its lease (or max-execution instant)
+      # releases (commit already won if it committed strictly before). Returns the terminal state or nil.
       def expire(organization_id:, reservation_id:, now:)
         r = locked(organization_id, reservation_id)
         return nil unless r && %w[reserved executing].include?(r["state"])
-        return nil if now < as_time(r["lease_due"])
-        terminal, reason = r["state"] == "reserved" ? ["expired", "prestart_expired"] : ["released", "lease_expired"]
-        @store.transition_reservation(reservation_id, from_state: r["state"], to_state: terminal,
-                                      expected_version: r["state_version"].to_i, now:, terminal_at: now,
-                                      terminal_reason: reason)
+        return nil if now < effective_deadline(r)
+        return release_reservation(r, reservation_id, "lease_expired", now) if r["state"] == "executing"
+        moved = @store.transition_reservation(reservation_id, from_state: "reserved", to_state: "expired",
+                                              expected_version: r["state_version"].to_i, now:, terminal_at: now,
+                                              terminal_reason: "prestart_expired")
+        raise Platform::InvariantViolation, "reservation transition lost" unless moved == 1
         @store.adjust_window(r["counter_window_id"], reserved_delta: -r["units"].to_i, committed_delta: 0, now:)
-        terminal.to_sym
+        :expired
       end
 
       private
@@ -164,6 +177,27 @@ module Platform
 
       # timestamptz values come back as Time (raw-connection type map) or String (plain reads).
       def as_time(value) = value.is_a?(Time) ? value : Time.parse(value)
+
+      # The instant the lease-expiry handler wins (WORKFLOW :551): the renewable heartbeat lease, capped
+      # for an executing reservation by the operation's maximum-execution instant (started_at + max_exec).
+      # A reserved reservation has only its prestart lease.
+      def effective_deadline(r)
+        lease = as_time(r["lease_due"])
+        return lease if r["started_at"].nil?
+        max_exec = InterimPolicy.rule(r["operation"])[:max_execution_seconds]
+        [lease, as_time(r["started_at"]) + max_exec].min
+      end
+
+      # reserved|executing -> released, decrementing the held units. Shared by release() and a
+      # past-deadline commit(); the CAS is verified so a lost transition never double-adjusts the counter.
+      def release_reservation(r, reservation_id, reason, now)
+        moved = @store.transition_reservation(reservation_id, from_state: r["state"], to_state: "released",
+                                              expected_version: r["state_version"].to_i, now:, terminal_at: now,
+                                              terminal_reason: reason)
+        raise Platform::InvariantViolation, "reservation transition lost" unless moved == 1
+        @store.adjust_window(r["counter_window_id"], reserved_delta: -r["units"].to_i, committed_delta: 0, now:)
+        :released
+      end
 
       def create_window(organization_id, rule, window_start, window_end, policy, correlation_id, now, ids)
         @store.insert_window(id: ids[:window] || SecureRandom.uuid_v7, now:, correlation_id:, organization_id:,

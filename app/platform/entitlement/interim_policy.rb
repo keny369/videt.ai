@@ -19,7 +19,10 @@ module Platform
 
       # Under entitlement-interim-v1 the prestart reservation lifetime is exactly 15 minutes for every
       # high-cost operation (WORKFLOW :551); the executing lease renews on a heartbeat and expires 15
-      # minutes after the last accepted heartbeat.
+      # minutes after the last accepted heartbeat, capped by the operation's maximum-execution instant.
+      # WORKFLOW :551 also permits an Organization policy to SHORTEN the prestart lifetime to a whole
+      # 1-15 minutes; the mandatory byte-equivalent interim policy fixes 15 for every org, so that
+      # configurable shortening is an OD-006-replacement-era feature, deferred here (not implemented).
       PRESTART_LIFETIME_SECONDS = 15 * 60
       LEASE_RENEWAL_SECONDS = 15 * 60
       HEARTBEAT_CADENCE_SECONDS = 5 * 60

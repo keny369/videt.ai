@@ -1929,7 +1929,8 @@ CREATE TABLE public.entitlement_counter_windows (
     CONSTRAINT entitlement_counter_windows_limits_ordered CHECK ((soft_limit < hard_limit)),
     CONSTRAINT entitlement_counter_windows_reconciliation_state_check CHECK ((reconciliation_state = ANY (ARRAY['authoritative'::text, 'reconciling'::text]))),
     CONSTRAINT entitlement_counter_windows_units_nonneg CHECK (((reserved_units >= 0) AND (committed_units >= 0) AND (low_cost_units >= 0))),
-    CONSTRAINT entitlement_counter_windows_window_ordered CHECK ((window_end > window_start))
+    CONSTRAINT entitlement_counter_windows_window_ordered CHECK ((window_end > window_start)),
+    CONSTRAINT entitlement_counter_windows_within_hard CHECK (((reserved_units + committed_units) <= hard_limit))
 );
 
 ALTER TABLE ONLY public.entitlement_counter_windows FORCE ROW LEVEL SECURITY;
@@ -1964,7 +1965,7 @@ CREATE TABLE public.entitlement_decisions (
     reservation_id uuid,
     cached_snapshot_id uuid,
     cached_snapshot_age bigint,
-    idempotency_key_digest bytea,
+    idempotency_key_digest bytea NOT NULL,
     retry_of_decision_id uuid,
     decision text NOT NULL,
     reason_code text NOT NULL,
@@ -3670,13 +3671,6 @@ CREATE INDEX entitlement_decisions_org_operation ON public.entitlement_decisions
 
 
 --
--- Name: entitlement_lease_heartbeats_generation_time_unique; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX entitlement_lease_heartbeats_generation_time_unique ON public.entitlement_lease_heartbeats USING btree (entitlement_reservation_id, heartbeat_generation, renewed_at);
-
-
---
 -- Name: entitlement_lease_heartbeats_generation_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4801,6 +4795,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120130'),
 ('20260727120120'),
 ('20260727120110'),
 ('20260727120100'),
