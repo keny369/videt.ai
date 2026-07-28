@@ -784,9 +784,10 @@ blocks:
   - id: S-07-002
     name: Crawl Execution — Crawl aggregate + QueueCrawl (no reservation, no Evaluation)
     type: product
-    status: pending
+    status: completed   # 2026-07-27: accepted (ADR-061; owner D5 real-activation resume); 5-lens review, B1 (OD-018 recovery_action) fixed + N1/N2/N3 + OD-018 CHECK hardened (ADR-074)
     depends_on:
       - S-07-001
+      - S-03   # QueueCrawl requires a real active Project (owner D3/D5)
     authoritative_sources:
       - specification/volume-ii/contracts/S-07.json   # MTX-030 queue limb, MTX-058 (PRULE-007)
     scope:

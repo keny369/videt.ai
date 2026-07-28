@@ -1933,3 +1933,27 @@ S-03 ActivateProject is ACCEPTED under the standing delegation ADR-061. Every ma
 
 Authority And Precedence:
 Executes the owner's D5 ruling and the standing delegation ADR-061; accepts S-03 and registers FU-3 with its downstream consumers. Allocated the next unused number after ADR-072.
+
+## ADR-074: S-07-002 (Crawl Aggregate + QueueCrawl) Accepted
+
+Status: Accepted (standing delegation ADR-061; five-lens review, one confirmed-blocking fixed)
+Date: 2026-07-27
+Owner: implementation agent (S-07-002 completed, reviewed, hardened, accepted) under the owner's D5 directive to "resume S-07-002 using real end-to-end Project activation"
+Reversibility: Accepted and pushed to the integration branch; `main` untouched. The Crawl aggregate is additive; the crawls guard freezes queued state (later tranches relax Queued->Running).
+
+Context — S-07-002 completed and resumed on real activation:
+QueueCrawl (contracts/S-07.json MTX-030 queue limb, MTX-058 PRULE-007; WORKFLOW_SPECIFICATIONS.md § WF-005 :725-728, :734) creates one root queued Crawl pinning the request-time crawl-policy (Project else Organization active version, else the frozen global ceiling) + entitlement-policy versions and the active Source set; it reserves NO usage and creates NO Evaluation (PRULE-007). The S-07-002 WIP implementation (crawls/crawl_sources/evaluations migration, QueueCrawl command/handler, CrawlStore, `crawl.trigger`, ErrorCatalog reasons) was completed with its specs written over the PRODUCTION-REAL chain per owner D5 (bootstrap -> register -> verify -> ActivateSource -> ActivateProject -> QueueCrawl; no fabricated active-Project fixtures) — 16 acceptance + 10 persistence examples. Documented interims (ADR-067/071): `reassessment_required` vacuous until S-09 promotion; the reassessment-child branch deferred to WF-011.
+
+Five-lens ADR-026 review outcome:
+Security, schema, concurrency and architecture lenses returned PASS (live cross-tenant probes blocked on all three FORCE-RLS tables; composite tenant FKs reject cross-tenant Source pinning; guards/constraints edge-probed; race-tight per-Project lock + single-transaction idempotency with a DB unique backstop; packwerk/ledger-arity/interim-honesty conform — `current_score_projections` confirmed absent). ONE confirmed-blocking issue (B1, contract lens) was FIXED before acceptance, and the strongest non-blocking items were hardened:
+- B1: `initial_evaluation_already_running` returned the F1-DOMAIN-409 class-default `recovery_action`; MTX-030/WORKFLOW :734 mandate `await_running_initial_evaluation_or_submit_new_command`. Added a per-reason `REASON_RECOVERY` override in `Platform::ErrorCatalog` (the first reason needing a non-default recovery) + a `recovery_action` assertion.
+- N1: idempotency/replay is now resolved BEFORE the domain preconditions (as the ActivateProject sibling), so a replay faithfully returns its stored result even after a precondition ceases to hold (new test); N2: preconditions re-read UNDER the lock in the WORKFLOW :725 order (Project -> Source -> Entitlement), closing the pre-lock staleness window (new order/entitlement tests).
+- N3: `CrawlQueued` now carries the pinned crawl/entitlement policy versions.
+- Schema backstop: new migration `20260727120110` adds `CHECK (kind <> 'initial' OR crawl_id IS NOT NULL)` so the OD-018 `evaluations_initial_per_crawl_unique` index no longer relies on the app always supplying `crawl_id` (btree NULLs are distinct); persistence test added.
+Non-blocking observations recorded (no change): multiple queued root Crawls per Project is intended (single-flight authoritatively enforced at Queued->Running via the evaluations partial-unique, S-07-003); front-loaded crawl-lifecycle columns/grants are inert now and consumed by later tranches; `active_sources` INNER JOIN is safe under the verified->active invariant (an active Source always carries a scope policy); the F-01 org-context trust boundary is pre-existing and unchanged.
+
+Acceptance:
+Every mandatory gate is green (whole-repo suite **1397/0**; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture fitness **31/0**; verify_runtime OK, 15 checks, RLS intact; schema dump idempotent; both migrations build from empty; structure.sql delta is exactly the three tables + the OD-018 CHECK). S-07-002 is ACCEPTED; `S-07-002` added to `BUILD_STATE.completed_blocks`; `BUILD_PLAN` S-07-002 -> completed; `S-07-002_COMPLETION_REPORT.md` accepted; the integration branch pushed. `main` untouched. Next: foundation **F-05** (entitlement reservation, required before StartCrawl S-07-003), then S-07-003, continuing under the standing delegation.
+
+Authority And Precedence:
+Records the completion, review, hardening and acceptance of S-07-002 under ADR-061. Allocated the next unused number after ADR-073.
