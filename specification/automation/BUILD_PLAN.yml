@@ -931,3 +931,42 @@ blocks:
     risk_level: high
     expected_outputs:
       - the recovery/replay slice + specs; S-07 completion summary
+
+  # Scheduled by owner decision HD-S07-FU4-FU5 (DECISIONS ADR-077, 2026-07-29). S-22 is not yet
+  # decomposed; this entry exists so the two obligations the S-07-003 review surfaced are explicit
+  # and scheduled rather than discoverable only from an ADR. Neither is an S-07 dependency.
+  - id: S-22
+    name: Entitlements and Usage (WF-015) — carries the two obligations resolved by HD-S07-FU4-FU5
+    type: product
+    status: pending
+    depends_on:
+      - S-02   # entitlement_policies, BillingEntity, Plan Assignment
+      - F-05   # the reserve/commit/release/heartbeat foundation this slice completes and owns
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-22.json   # MTX-024 (AC-WF-015); MTX-040/090/091
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # Interim Entitlement Contract :513-554 (:541 precedence)
+      - specification/volume-ii/API_CONTRACTS.md   # :907-910 the WF-015 entitlement event rows
+    scope:
+      # FU-4 (ADR-077): canonical ownership of the entitlement aggregate events.
+      - EntitlementReserved, EntitlementExecutionStarted, EntitlementLeaseRenewed, EntitlementCommitted,
+        EntitlementReleased, EntitlementReservationExpired (plus EntitlementPolicyActivated / Checked /
+        WarningIssued / ViolationDetected) — the ten WF-015 events of contracts/S-22.json MTX-024
+        domain_events, emitted on the entitlement_reservation / entitlement_lease_heartbeat aggregate.
+        S-07 consumers invoke F-05 and record their OWN WF-005 outcomes; they never emit these.
+      # FU-5 (ADR-077): complete the :541 short-circuit precedence in the F-05 surface.
+      - the complete six-reason short-circuit in Platform::Entitlement::Service#reserve —
+        organization_inactive, actor_inactive, service_unauthorized added to the implemented
+        entitlement_inactive / operation_unknown / classify limits, in the WORKFLOW :541 precedence with
+        its fixed recovery mapping (Organization -> reactivate_organization; actor -> reactivate_actor;
+        service or unknown operation -> contact_support)
+      - the low-cost baseline_reads accounting deferred from F-05 (low_cost_* tables, RecordLowCostUsage)
+      - ActivateEntitlementPolicy (the policy-management limb; the only WF-015 surface with a route)
+    out_of_scope:
+      - reopening accepted S-07-003. Its consumer-side Organization re-authorization is PRESERVED as
+        defence in depth at the point MTX-030 authorization_entry_point requires it, and is not removed
+        when the foundation-level short-circuit lands.
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the WF-015 entitlement enforcement + policy-management slice + specs

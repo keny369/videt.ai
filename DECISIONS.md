@@ -2014,3 +2014,28 @@ Every mandatory gate is green (whole-repo suite **1471/0**; Zeitwerk/Packwerk/Br
 
 Authority And Precedence:
 Executes the standing delegation ADR-061 under the S-07 authorisation (HD-S07-AUTHORISE); records the completion, five-lens review, hardening and acceptance of S-07-003, and the two contract corrections it makes to accepted code (ADR-075's F-05 `Service` recovery mapping and entitlement-event expectation). Allocated the next unused number after ADR-075.
+
+## ADR-077: Owner Decision HD-S07-FU4-FU5 — Entitlement Event Ownership and Short-Circuit Completion Assigned to S-22 / WF-015
+
+Status: Accepted (owner decision HD-S07-FU4-FU5, 2026-07-29)
+Date: 2026-07-29
+Owner: repository owner (decision); implementation agent (records the resolution and its scheduling)
+Reversibility: Governance-only. No code changes; no accepted tranche reopened. FU-4 and FU-5 move from open follow-ups to scheduled S-22 scope.
+
+Context:
+The S-07-003 ADR-026 review (ADR-076) surfaced two items at the WF-005 / WF-015 boundary and registered them as `BUILD_STATE.open_decisions` FU-4 (owner attention) and FU-5 (accepted backlog). The owner has resolved both.
+
+FU-4 — entitlement event ownership. RESOLVED: **S-22 / WF-015 is the canonical owner** of `EntitlementReserved`, `EntitlementExecutionStarted` and the remaining entitlement-reservation lifecycle events. **No new WF-005 limb is to be added and S-07's event ownership is NOT expanded beyond MTX-030.** An S-07 consumer may invoke F-05 and record its own workflow outcomes; the entitlement aggregate events remain WF-015's.
+
+This confirms what the ratified contracts already say, and closes the gap between them and the ADR-075 acceptance note. `contracts/S-22.json` MTX-024 `domain_events` already reads "Exactly the ten WF-015 events: `EntitlementPolicyActivated`, `EntitlementChecked`, `EntitlementWarningIssued`, `EntitlementViolationDetected`, `EntitlementReserved`, `EntitlementExecutionStarted`, `EntitlementLeaseRenewed`, `EntitlementCommitted`, `EntitlementReleased`, `EntitlementReservationExpired`", and API_CONTRACTS.md :907-910 assigns each to WF-015 on the `entitlement_reservation` / `entitlement_lease_heartbeat` aggregate. MTX-030 `event_producer` independently scopes `Workflows::Wf005` to "all seventeen events" of WORKFLOW_SPECIFICATIONS.md :737, which exclude every entitlement event. The two contracts were already aligned; only the ADR-075 prose ("emitted by the CONSUMING workflow", "S-07-003 must emit EntitlementReserved/LeaseRenewed") disagreed, and that prose is hereby superseded. S-07-003's decision to emit none was correct and is confirmed. `contracts/S-22.json` `reservation_consumption` states the same division from the other side: "S-22 supplies the WF-015 machinery that decision consumes ... and does not redefine when a Crawl reserves."
+
+FU-5 — the incomplete F-05 short-circuit precedence. RESOLVED: the **complete six-reason** entitlement short-circuit implementation (`organization_inactive`, `actor_inactive`, `service_unauthorized` added to the already-implemented `entitlement_inactive`, `operation_unknown` and the `classify` limits, in the WORKFLOW_SPECIFICATIONS.md :541 precedence with its fixed recovery mapping) is assigned to **S-22 / WF-015 as platform-foundation completion work**. Accepted S-07-003 is **not** reopened — the owner's test is an observable correctness or security defect in an S-07 consumer, and there is none: S-07-003's CB1 fix re-authorizes the Organization as its first gate limb, before `reserve` is reached, and it is currently the only consumer. **The consumer-side protections already added are preserved** and are not to be removed when S-22 lands the foundation-level fix; they are defence in depth at the point WF-005 is contractually required to reauthorize (SEARCH_CRAWL_RETRIEVAL.md § Crawl Admission And Snapshot step 1; MTX-030 `authorization_entry_point`).
+
+Scheduling:
+`BUILD_PLAN.yml` gains an `S-22` entry carrying both obligations explicitly, so neither is discoverable only from this ADR. `BUILD_STATE.open_decisions` FU-4 and FU-5 move to `resolved` with this ADR as authority and S-22 named as owner. Neither is an S-07 dependency: no S-07 contract obligation is unmet by their being outstanding, which is why S-07 continues under the standing delegation.
+
+Acceptance:
+Governance-only change; the mandatory gates are unaffected and were green at `f89e7b3` (rspec 1471/0; Zeitwerk/Packwerk/Brakeman/bundler-audit clean; architecture 31/0; verify_runtime OK; migrations build from empty; structure.sql idempotent). `main` untouched. Next: **S-07-004** (crawl frontier) under the standing delegation, carrying the owner-restated gate requirement that the deterministic frontier MUST exclude any pinned Source that is no longer active at execution time — a disabled, removed or otherwise inactive Source is never crawled on queue-time authority.
+
+Authority And Precedence:
+Records owner decision HD-S07-FU4-FU5. Supersedes the ADR-075 statement that the consuming workflow emits the entitlement events, and the corresponding `BUILD_STATE` reconciliation sentence. Confirms ADR-076's reading of MTX-030 `event_producer` and API_CONTRACTS.md :907-910. Allocated the next unused number after ADR-076.
