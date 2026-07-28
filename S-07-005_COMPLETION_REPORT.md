@@ -9,9 +9,10 @@ ADR-079, **corrected by ADR-080**)
 > another's slot and silently widen the nonexceedable concurrency ceiling, and no reclamation of a
 > slot lost with its worker, which closed the host for the rest of the run. Both are fixed
 > (a claim is now an identified, self-expiring lease), every gate was re-run green, and the tranche
-> is re-accepted. A tranche is not accepted until every lens has reported. — the integration branch
-`implementation/s01-registration-access` pushed; protected branch `main` untouched. The FIFTH tranche
-of the S-07 slice.
+> is re-accepted. A tranche is not accepted until every lens has reported.
+
+The integration branch `implementation/s01-registration-access` is pushed; protected branch `main` is
+untouched. The FIFTH tranche of the S-07 slice.
 
 The ADR-026 five-lens review was run by **five independent reviewers**, restoring the per-lens
 independence ADR-078 recorded as reduced. Confirmed-blocking findings were returned and **all fixed
@@ -45,7 +46,7 @@ before acceptance**; two further defects were found by **self-review before the 
   → entitlement reservation still executing **and within its deadline** → current scope policy admits
   the URL → robots permits it. Every unknown denies.
 
-## Independent review (ADR-026 — ADR-079)
+## Independent review (ADR-026 — ADR-079, corrected by ADR-080)
 
 Found by **self-review** first: the robots fetch sat inside the caller's transaction holding the gate
 row lock (MTX-030: "No external call sits inside a database transaction" — a slow host would have
@@ -53,7 +54,13 @@ stalled every other worker on it); and `:444`'s retry delays and `Retry-After` o
 unimplemented, with only the attempt count honoured.
 
 Confirmed-blocking from the lenses, all fixed. **Three were fail-open at the last gate before bytes
-leave the platform**:
+leave the platform**, and **two more came from the concurrency lens after acceptance had been
+prematurely recorded** (see the correction above): an unguarded `release_slot` that let one worker
+drop another's slot and silently widen the nonexceedable concurrency ceiling, and no reclamation of a
+slot lost with its worker, which closed the host for the rest of the run. A claim is now an
+identified, self-expiring lease: the counter is derived from the lease set with a CHECK making
+disagreement impossible, release removes a token (idempotent, and only ever its own claim), and every
+claim sweeps stale leases so reclamation cannot itself be lost.
 
 - **Robots bypass via the raw URL** — `path_of` used the caller's string while scope used the
   predicate's canonical form, so `/%70rivate/secret` and `/a/../private/secret` walked past
@@ -82,7 +89,7 @@ carries `:452`'s coverage penalty.
 
 ## Verification (exact results)
 
-- Whole repository: **1601 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
+- Whole repository: **1603 examples, 0 failures** (re-run after the ADR-080 correction). Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
 - All migrations **build from empty**; the schema dump is **idempotent** with no drift.
   `verify_runtime` OK — 15 checks, RLS intact.
