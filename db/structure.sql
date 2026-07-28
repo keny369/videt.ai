@@ -301,7 +301,9 @@ BEGIN
     RAISE EXCEPTION 'crawl_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
   IF NEW.state IS DISTINCT FROM OLD.state THEN
-    RAISE EXCEPTION 'crawl_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
+    IF NOT (OLD.state = 'queued' AND NEW.state IN ('running','failed')) THEN
+      RAISE EXCEPTION 'crawl_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -822,6 +824,20 @@ BEGIN
       USING ERRCODE = 'raise_exception';
   END IF;
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_evaluation_orchestration_contexts_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_evaluation_orchestration_contexts_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'evaluation_orchestration_context_immutable' USING ERRCODE = 'raise_exception';
 END;
 $$;
 
@@ -2068,6 +2084,36 @@ ALTER TABLE ONLY public.entitlement_reservations FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: evaluation_orchestration_contexts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evaluation_orchestration_contexts (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    prior_evaluation_id uuid,
+    prior_issue_set_id uuid,
+    prior_score_snapshot_id uuid,
+    source_set_hash bytea,
+    normalized_scope_hash bytea,
+    crawl_policy_version text,
+    entitlement_policy_version text,
+    root_entitlement_decision_id uuid NOT NULL,
+    root_entitlement_reservation_id uuid,
+    stage_input_hashes jsonb DEFAULT '{}'::jsonb NOT NULL,
+    publication_preconditions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT evaluation_orchestration_contexts_normalized_scope_hash_check CHECK (((normalized_scope_hash IS NULL) OR (octet_length(normalized_scope_hash) = 32))),
+    CONSTRAINT evaluation_orchestration_contexts_source_set_hash_check CHECK (((source_set_hash IS NULL) OR (octet_length(source_set_hash) = 32)))
+);
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: evaluations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3232,6 +3278,38 @@ ALTER TABLE ONLY public.entitlement_reservations
 
 
 --
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_evaluation_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_evaluation_unique UNIQUE (evaluation_id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evaluations evaluations_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluations
+    ADD CONSTRAINT evaluations_org_id_unique UNIQUE (organization_id, id);
+
+
+--
 -- Name: evaluations evaluations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3944,6 +4022,13 @@ CREATE TRIGGER entitlement_reservations_guard BEFORE DELETE OR UPDATE ON public.
 
 
 --
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evaluation_orchestration_contexts_guard BEFORE DELETE OR UPDATE ON public.evaluation_orchestration_contexts FOR EACH ROW EXECUTE FUNCTION public.f1_evaluation_orchestration_contexts_guard();
+
+
+--
 -- Name: evaluations evaluations_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4161,6 +4246,38 @@ ALTER TABLE ONLY public.entitlement_reservations
 
 ALTER TABLE ONLY public.entitlement_reservations
     ADD CONSTRAINT entitlement_reservations_window_fk FOREIGN KEY (organization_id, counter_window_id) REFERENCES public.entitlement_counter_windows(organization_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_decision_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_decision_fk FOREIGN KEY (organization_id, root_entitlement_decision_id) REFERENCES public.entitlement_decisions(organization_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_evaluation_fk FOREIGN KEY (organization_id, evaluation_id) REFERENCES public.evaluations(organization_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
 
 
 --
@@ -4491,6 +4608,19 @@ CREATE POLICY entitlement_reservations_context ON public.entitlement_reservation
 
 
 --
+-- Name: evaluation_orchestration_contexts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.evaluation_orchestration_contexts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY evaluation_orchestration_contexts_context ON public.evaluation_orchestration_contexts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: evaluations; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -4795,6 +4925,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120140'),
 ('20260727120130'),
 ('20260727120120'),
 ('20260727120110'),

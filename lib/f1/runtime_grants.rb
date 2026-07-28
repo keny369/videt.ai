@@ -86,6 +86,10 @@ module F1
       "crawls"                            => "SELECT, INSERT, UPDATE",
       "crawl_sources"                     => "SELECT, INSERT",
       "evaluations"                       => "SELECT, INSERT, UPDATE",
+      # S-07-003 StartCrawl: the immutable orchestration context for an accepted root start (T-IMM;
+      # a trigger refuses UPDATE/DELETE, the missing grant is defence in depth). Additive new-table
+      # grant (ADR-029); no existing grant changes and FORCE RLS is preserved.
+      "evaluation_orchestration_contexts" => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

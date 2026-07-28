@@ -306,14 +306,16 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
   describe "the Crawl aggregate database guards (on a real queued Crawl)" do
     def conn = DbInspector.connection
 
-    it "freezes the queued Crawl: no DELETE, no pinned-fact edit, no state change" do
+    it "freezes the queued Crawl: no DELETE, no pinned-fact edit, and only the start edges" do
       g = org_with_active_project
       cid = queue_crawl(g).payload[:crawl_id]
       expect { conn.exec_params("DELETE FROM crawls WHERE id = $1::uuid", [cid]) }
         .to raise_error(PG::RaiseException, /crawl_immutable/)
       expect { conn.exec_params("UPDATE crawls SET requested_entitlement_policy_version = 'x' WHERE id = $1::uuid", [cid]) }
         .to raise_error(PG::RaiseException, /crawl_facts_immutable/)
-      expect { conn.exec_params("UPDATE crawls SET state = 'running' WHERE id = $1::uuid", [cid]) }
+      # S-07-003 relaxed the guard to permit exactly queued->running and queued->failed; queued->canceled
+      # (and every other edge) is still refused until later tranches relax it.
+      expect { conn.exec_params("UPDATE crawls SET state = 'canceled', terminal_at = now() WHERE id = $1::uuid", [cid]) }
         .to raise_error(PG::RaiseException, /crawl_transition_unavailable/)
     end
 
