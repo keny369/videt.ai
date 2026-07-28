@@ -139,9 +139,9 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
     end
   end
 
-  def response(status:, body: "", truncated: false)
+  def response(status:, body: "", truncated: false, headers: {})
     Platform::Outbound::Outcome.response(
-      status:, headers: {}, body:, byte_count: body.bytesize, truncated:,
+      status:, headers:, body:, byte_count: body.bytesize, truncated:,
       canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
       final_url: "https://shop.acme.example/robots.txt", redirect_count: 0, latency_ms: 5)
   end
@@ -165,12 +165,12 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
     end
   end
 
+  # EnsureRobots owns its own transactions (claim / fetch outside any transaction / record), so it
+  # is invoked WITHOUT a surrounding unit of work — which is itself part of what this asserts.
   def resolve_robots(ctx, outbound)
-    in_gate(ctx[:g][:organization_id]) do |store, _gate|
-      row = store.gate(ctx[:g][:organization_id], ctx[:crawl_id], ctx[:host])
-      Workflows::Wf005::EnsureRobots.new(store, outbound:)
-                                    .call(organization_id: ctx[:g][:organization_id], gate: row, now: start_now)
-    end
+    Workflows::Wf005::EnsureRobots.new(outbound:).call(
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+      canonical_host: ctx[:host], now: start_now)
   end
 
   def authorize(ctx, url: nil, kind: "content", source_id: nil)
@@ -350,6 +350,58 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       expect(results.last.state).to eq("unavailable")
       expect(results.last.reason_code).to eq("robots_unavailable_fail_closed")
       expect(gate_row(ctx[:crawl_id])["robots_attempt_count"]).to eq(Workflows::Wf005::EnsureRobots::MAX_ATTEMPTS.to_s)
+    end
+
+    it "applies the :444 retry DELAYS — 30s after the first failure, 120s after the second" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+      out = outbound_returning(timeout_outcome)
+      first = resolve_robots(ctx, out)
+      second = resolve_robots(ctx, out)
+      expect(first.retry_after_ms).to eq(30_000)
+      expect(second.retry_after_ms).to eq(120_000)
+    end
+
+    # :444 — "A valid integer `Retry-After` from 1 through 120 seconds replaces that retry's delay;
+    # every other value is ignored." One example per value: each needs its own bootstrapped tenant.
+    { "45" => 45_000, "120" => 120_000, "1" => 1000 }.each do |header, expected|
+      it "lets Retry-After: #{header} REPLACE the schedule delay" do
+        ctx = running_crawl
+        ensure_gate(ctx)
+        result = resolve_robots(ctx, outbound_returning(response(status: 503, headers: { "Retry-After" => header })))
+        expect(result.retry_after_ms).to eq(expected)
+      end
+    end
+
+    %w[0 121 soon -5].each do |header|
+      it "ignores Retry-After: #{header} and keeps the fixed 30s schedule" do
+        ctx = running_crawl
+        ensure_gate(ctx)
+        result = resolve_robots(ctx, outbound_returning(response(status: 503, headers: { "Retry-After" => header })))
+        expect(result.retry_after_ms).to eq(30_000)
+      end
+    end
+
+    it "performs the network fetch OUTSIDE any database transaction" do
+      # MTX-030 transaction_boundary — "No external call sits inside a database transaction." A robots
+      # fetch can block for the full request timeout; holding the gate's row lock across it would
+      # stall every other worker on that host.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      observed = nil
+      probe = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |*_a, **_k|
+          observed = ActiveRecord::Base.connection.transaction_open?
+          Platform::Outbound::Outcome.response(status: 200, headers: {}, body: "User-agent: *\nDisallow: /x\n",
+                                               byte_count: 30, truncated: false, canonical_host: "shop.acme.example",
+                                               port: 443, pinned_address: "198.51.100.7",
+                                               final_url: "https://shop.acme.example/robots.txt",
+                                               redirect_count: 0, latency_ms: 1)
+        end
+      end
+      resolve_robots(ctx, probe)
+      expect(observed).to be(false)
+      expect(gate_row(ctx[:crawl_id])["robots_state"]).to eq("rules_applied")
     end
 
     it "is DETERMINISTIC: a second resolve returns the frozen decision without re-fetching" do
