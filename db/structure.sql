@@ -293,6 +293,62 @@ $$;
 
 
 --
+-- Name: f1_crawl_host_gates_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_host_gates_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'crawl_host_gate_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
+     OR NEW.canonical_host_sha256 IS DISTINCT FROM OLD.canonical_host_sha256
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'crawl_host_gate_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- The robots terminal decision is WRITE-ONCE (schema :296). Once a host has failed closed it
+  -- can never become fetchable within the run, and once rules are applied they cannot be
+  -- swapped for different ones.
+  IF OLD.robots_state IN ('rules_applied','no_restrictions','unavailable') THEN
+    IF NEW.robots_state IS DISTINCT FROM OLD.robots_state
+       OR NEW.robots_rules IS DISTINCT FROM OLD.robots_rules
+       OR NEW.robots_agent_group IS DISTINCT FROM OLD.robots_agent_group
+       OR NEW.robots_crawl_delay_ms IS DISTINCT FROM OLD.robots_crawl_delay_ms
+       OR NEW.robots_sitemap_candidates IS DISTINCT FROM OLD.robots_sitemap_candidates
+       OR NEW.robots_source_sha256 IS DISTINCT FROM OLD.robots_source_sha256
+       OR NEW.robots_terminal_reason IS DISTINCT FROM OLD.robots_terminal_reason
+       OR NEW.robots_terminal_at IS DISTINCT FROM OLD.robots_terminal_at
+       OR NEW.robots_http_status IS DISTINCT FROM OLD.robots_http_status THEN
+      RAISE EXCEPTION 'crawl_host_gate_robots_decision_frozen' USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  IF NEW.robots_state IS DISTINCT FROM OLD.robots_state THEN
+    IF NOT ((OLD.robots_state = 'pending' AND NEW.robots_state = 'in_progress')
+            OR (OLD.robots_state = 'in_progress' AND NEW.robots_state IN ('rules_applied','no_restrictions','unavailable'))
+            -- a retryable attempt returns to pending for the next attempt (:444 schedule)
+            OR (OLD.robots_state = 'in_progress' AND NEW.robots_state = 'pending')) THEN
+      RAISE EXCEPTION 'crawl_host_gate_robots_transition_unavailable % -> %',
+        OLD.robots_state, NEW.robots_state USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  -- Every mutation advances the version by exactly one: it is the CAS defence for the claim.
+  IF NEW.state_version IS DISTINCT FROM OLD.state_version + 1 THEN
+    RAISE EXCEPTION 'crawl_host_gate_version_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_policies_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1947,6 +2003,51 @@ ALTER TABLE ONLY public.crawl_frontier_occurrences FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_host_gates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_host_gates (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    canonical_host text NOT NULL,
+    canonical_host_sha256 bytea NOT NULL,
+    robots_state text DEFAULT 'pending'::text NOT NULL,
+    robots_generation bigint DEFAULT 0 NOT NULL,
+    robots_attempt_count integer DEFAULT 0 NOT NULL,
+    robots_rules jsonb,
+    robots_rules_schema text,
+    robots_agent_group text,
+    robots_crawl_delay_ms integer,
+    robots_sitemap_candidates jsonb DEFAULT '[]'::jsonb NOT NULL,
+    robots_source_sha256 bytea,
+    robots_http_status integer,
+    robots_terminal_reason text,
+    robots_terminal_at timestamp(6) with time zone,
+    next_allowed_start_at timestamp(6) with time zone,
+    recent_start_instants timestamp(6) with time zone[] DEFAULT (ARRAY[]::timestamp with time zone[])::timestamp(6) with time zone[] NOT NULL,
+    active_connection_count integer DEFAULT 0 NOT NULL,
+    lease_version bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT crawl_host_gates_active_connection_count_check CHECK ((active_connection_count >= 0)),
+    CONSTRAINT crawl_host_gates_canonical_host_sha256_check CHECK ((octet_length(canonical_host_sha256) = 32)),
+    CONSTRAINT crawl_host_gates_robots_attempt_count_check CHECK ((robots_attempt_count >= 0)),
+    CONSTRAINT crawl_host_gates_robots_crawl_delay_ms_check CHECK (((robots_crawl_delay_ms IS NULL) OR (robots_crawl_delay_ms >= 0))),
+    CONSTRAINT crawl_host_gates_robots_rules_shape CHECK (((robots_rules IS NULL) OR (robots_state = 'rules_applied'::text))),
+    CONSTRAINT crawl_host_gates_robots_source_sha256_check CHECK (((robots_source_sha256 IS NULL) OR (octet_length(robots_source_sha256) = 32))),
+    CONSTRAINT crawl_host_gates_robots_state_check CHECK ((robots_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text]))),
+    CONSTRAINT crawl_host_gates_robots_terminal_shape CHECK (((robots_state = ANY (ARRAY['rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text])) = (robots_terminal_at IS NOT NULL))),
+    CONSTRAINT crawl_host_gates_robots_unavailable_reason CHECK (((robots_state <> 'unavailable'::text) OR (robots_terminal_reason IS NOT NULL)))
+);
+
+ALTER TABLE ONLY public.crawl_host_gates FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawl_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3386,6 +3487,38 @@ ALTER TABLE ONLY public.crawl_frontier_occurrences
 
 
 --
+-- Name: crawl_host_gates crawl_host_gates_host_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_host_gates
+    ADD CONSTRAINT crawl_host_gates_host_unique UNIQUE (crawl_id, canonical_host_sha256);
+
+
+--
+-- Name: crawl_host_gates crawl_host_gates_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_host_gates
+    ADD CONSTRAINT crawl_host_gates_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_host_gates crawl_host_gates_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_host_gates
+    ADD CONSTRAINT crawl_host_gates_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawl_host_gates crawl_host_gates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_host_gates
+    ADD CONSTRAINT crawl_host_gates_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawl_policies crawl_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3950,6 +4083,13 @@ CREATE INDEX crawl_frontier_entries_preimage ON public.crawl_frontier_entries US
 
 
 --
+-- Name: crawl_host_gates_crawl; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_host_gates_crawl ON public.crawl_host_gates USING btree (organization_id, crawl_id);
+
+
+--
 -- Name: crawl_policies_active_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4251,6 +4391,13 @@ CREATE TRIGGER crawl_frontier_occurrences_guard BEFORE DELETE OR UPDATE ON publi
 
 
 --
+-- Name: crawl_host_gates crawl_host_gates_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_host_gates_guard BEFORE DELETE OR UPDATE ON public.crawl_host_gates FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_host_gates_guard();
+
+
+--
 -- Name: crawl_policies crawl_policies_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4491,6 +4638,14 @@ ALTER TABLE ONLY public.crawl_frontier_occurrences
 
 ALTER TABLE ONLY public.crawl_frontier_occurrences
     ADD CONSTRAINT crawl_frontier_occurrences_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_host_gates crawl_host_gates_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_host_gates
+    ADD CONSTRAINT crawl_host_gates_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
 
 
 --
@@ -4903,6 +5058,19 @@ ALTER TABLE public.crawl_frontier_occurrences ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY crawl_frontier_occurrences_context ON public.crawl_frontier_occurrences USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: crawl_host_gates; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_host_gates ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_host_gates crawl_host_gates_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_host_gates_context ON public.crawl_host_gates USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -5340,6 +5508,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120190'),
 ('20260727120180'),
 ('20260727120170'),
 ('20260727120160'),

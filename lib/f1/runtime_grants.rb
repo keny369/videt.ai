@@ -97,6 +97,11 @@ module F1
       # preserved.
       "crawl_frontier_entries"            => "SELECT, INSERT, UPDATE",
       "crawl_frontier_occurrences"        => "SELECT, INSERT",
+      # S-07-005 per-host gate. T-MUT: the rate/concurrency counters change on every claim and
+      # release and the robots record transitions to its write-once terminal decision, so
+      # SELECT/INSERT/UPDATE — never DELETE (a gate is never removed within a run). Additive
+      # new-table grant (ADR-029); no existing grant changes and FORCE RLS is preserved.
+      "crawl_host_gates"                  => "SELECT, INSERT, UPDATE",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter
