@@ -267,7 +267,33 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
                 ["2", "https://alpha.acme.example/aaa"]])
     end
 
-    it "orders root before sitemap before link within one depth" do
+    it "refuses to hand out a candidate whose Source was disabled AFTER the start" do
+      # The owner's requirement is "no longer active AT EXECUTION TIME", and the dequeue is execution
+      # time. Seeding excludes Sources inactive at the START commit; this covers a Source the
+      # customer disables mid-run, which seeding alone cannot.
+      q = queued(%w[https://alpha.acme.example https://beta.acme.example])
+      expect(start(q[:crawl_id]).success?).to be(true)
+      expect(entries(q[:crawl_id]).size).to eq(2)
+
+      # Disable the Source whose root sorts FIRST, so a dequeue that ignored Source state would
+      # hand it out before the other.
+      first_entry = entries(q[:crawl_id]).first
+      victim = DbInspector.one("SELECT id FROM sources WHERE id = $1::uuid", [first_entry["source_id"]])["id"]
+      expect(disable_source(q[:g], victim).success?).to be(true)
+
+      claimed = in_frontier(q[:g][:organization_id]) do |frontier, _s|
+        [frontier.claim_next(organization_id: q[:g][:organization_id], crawl_id: q[:crawl_id], now: start_now),
+         frontier.claim_next(organization_id: q[:g][:organization_id], crawl_id: q[:crawl_id], now: start_now)]
+      end
+      expect(claimed.compact.map { |c| c["source_id"] }).not_to include(victim)
+      expect(claimed.compact.size).to eq(1)
+      # The disabled Source's entry is left `queued`, never claimed — it is skipped, not destroyed.
+      expect(entries(q[:crawl_id]).find { |r| r["source_id"] == victim }["state"]).to eq("queued")
+    end
+
+    it "orders sitemap before link within one depth" do
+      # :440 — the Source root is depth 0; a sitemap-discovered content URL and a root-followed link
+      # are both depth 1, so that is where the origin rank actually decides order.
       q = queued(%w[https://alpha.acme.example])
       start(q[:crawl_id])
       org = q[:g][:organization_id]
@@ -276,13 +302,49 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
         %w[link sitemap].each_with_index do |origin, i|
           frontier.offer(organization_id: org, project_id: q[:g][:project_id], crawl_id: q[:crawl_id],
                          source_id: root["source_id"], canonical_url: "https://alpha.acme.example/p#{i}",
-                         origin:, depth: 0, now: start_now,
+                         origin:, depth: 1, now: start_now,
                          discovering_document_url: origin == "link" ? "https://alpha.acme.example/" : "",
                          link_position: origin == "link" ? 1 : 0, parent_entry_id: root["id"],
                          scope_policy_id: root["scope_policy_id"], scope_policy_version: root["scope_policy_version"])
         end
       end
       expect(entries(q[:crawl_id]).map { |r| r["origin"] }).to eq(%w[root sitemap link])
+    end
+
+    it "SEALS each depth: a deeper candidate is not selectable while a shallower one is in flight" do
+      # :454 "all depth d discoveries are SEALED before any depth d+1 candidate is SELECTED".
+      # Ordering alone does not deliver this — once the depth-1 entry is claimed (in_progress) and
+      # nothing at depth 1 remains `queued`, a naive dequeue would hand out the depth-2 candidate.
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+
+      claimed_root, next_claim = in_frontier(org) do |frontier, _s|
+        [1, 2].each do |d|
+          frontier.offer(organization_id: org, project_id: q[:g][:project_id], crawl_id: q[:crawl_id],
+                         source_id: root["source_id"], canonical_url: "https://alpha.acme.example/d#{d}",
+                         origin: "link", depth: d, now: start_now,
+                         discovering_document_url: "https://alpha.acme.example/", link_position: d,
+                         parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                         scope_policy_version: root["scope_policy_version"])
+        end
+        [frontier.claim_next(organization_id: org, crawl_id: q[:crawl_id], now: start_now),
+         frontier.claim_next(organization_id: org, crawl_id: q[:crawl_id], now: start_now)]
+      end
+
+      expect(claimed_root["depth"].to_i).to eq(0)
+      # The depth-1 candidate is `queued` and is the lowest-ordered queued row — a dequeue ordering
+      # by key ALONE would hand it out here. It is not selectable, because the depth-0 root is still
+      # `in_progress`: depth 0 is not yet SEALED.
+      expect(next_claim).to be_nil
+      states = entries(q[:crawl_id]).to_h { |r| [r["depth"].to_i, r["state"]] }
+      expect(states[0]).to eq("in_progress")
+      expect(states[1]).to eq("queued")
+      expect(states[2]).to eq("queued")
+      # The seal releases when a depth goes terminal. That edge (in_progress -> terminal) is
+      # S-07-009's and the guard still refuses it, so within THIS tranche a claimed depth holds the
+      # seal — conservative in the safe direction, never the reverse.
     end
   end
 
@@ -307,6 +369,9 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
       expect(first.admitted?).to be(true)
       expect(second.duplicate?).to be(true)
       expect(second.entry_id).to eq(first.entry_id)
+      # The second discovery sorts HIGHER (same URL and document, later link position), so the
+      # retained entry keeps its position and the newcomer is the occurrence.
+      expect(second.repositioned).to be(false)
       # One retained candidate, and the duplicate kept for audit "without becoming another candidate".
       expect(entries(q[:crawl_id]).count { |r| r["canonical_url"] == url }).to eq(1)
       occ = occurrences(q[:crawl_id])
@@ -335,6 +400,97 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
       expect(a.entry_id).not_to eq(b.entry_id)
       expect(entries(q[:crawl_id]).size).to eq(3)
       expect(occurrences(q[:crawl_id])).to be_empty
+    end
+
+    it "REPOSITIONS the retained entry when a later discovery of it sorts LOWER" do
+      # :454 "Deduplication retains the first candidate in THIS ORDER" — the lowest-ordered
+      # discovery, not the first offered. Reachable because :440 puts sitemap URLs and root-followed
+      # links both at depth 1, where origin rank (not the URL) decides parent order, so a sitemap
+      # page can be dequeued before a link page whose own URL sorts lower.
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+      url = "https://alpha.acme.example/shared"
+
+      def offer_from(frontier, q, root, url, discovering)
+        frontier.offer(organization_id: q[:g][:organization_id], project_id: q[:g][:project_id],
+                       crawl_id: q[:crawl_id], source_id: root["source_id"], canonical_url: url,
+                       origin: "link", depth: 2, now: Time.utc(2026, 7, 27, 10, 1, 30),
+                       discovering_document_url: discovering, link_position: 1,
+                       parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                       scope_policy_version: root["scope_policy_version"])
+      end
+
+      high, low = in_frontier(org) do |frontier, _s|
+        # Discovered first from the HIGHER-sorting parent, then from the LOWER-sorting one.
+        [offer_from(frontier, q, root, url, "https://alpha.acme.example/zzz"),
+         offer_from(frontier, q, root, url, "https://alpha.acme.example/aaa")]
+      end
+
+      expect(high.admitted?).to be(true)
+      expect(low.duplicate?).to be(true)
+      expect(low.repositioned).to be(true)
+      # Still exactly ONE retained candidate — it simply now sits at the lower position.
+      retained = entries(q[:crawl_id]).find { |r| r["canonical_url"] == url }
+      expect(retained["discovering_document_url"]).to eq("https://alpha.acme.example/aaa")
+      # ...and the SUPERSEDED position is what was recorded as the occurrence.
+      expect(occurrences(q[:crawl_id]).map { |o| o["discovering_document_url"] })
+        .to eq(["https://alpha.acme.example/zzz"])
+    end
+
+    it "keeps the lowest-ordered candidates at the discovered-queue bound, evicting a higher one" do
+      # :454 "retain the LOWEST 20,000 by this order and record all later candidates as
+      # queue_limit_discarded" — a selection over a SET, so a lower-ordered late arrival displaces a
+      # higher-ordered admitted candidate rather than being dropped itself.
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+
+      stub_const("Workflows::Wf005::Frontier::DISCOVERED_QUEUE_HARD", 3)
+      results = in_frontier(org) do |frontier, _s|
+        %w[m z a].map do |slug|   # admitted, admitted (at the bound), then a LOWER-sorting arrival
+          frontier.offer(organization_id: org, project_id: q[:g][:project_id], crawl_id: q[:crawl_id],
+                         source_id: root["source_id"], canonical_url: "https://alpha.acme.example/#{slug}",
+                         origin: "link", depth: 1, now: start_now,
+                         discovering_document_url: "https://alpha.acme.example/", link_position: 1,
+                         parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                         scope_policy_version: root["scope_policy_version"])
+        end
+      end
+
+      expect(results.map(&:disposition)).to eq(%i[admitted admitted admitted])
+      expect(results.last.evicted_entry_id).to be_present
+      by_url = entries(q[:crawl_id]).to_h { |r| [r["canonical_url"], r] }
+      # `/z` sorted highest, so it is the one evicted; `/a` and `/m` are retained.
+      expect(by_url["https://alpha.acme.example/z"]["state"]).to eq("discarded")
+      expect(by_url["https://alpha.acme.example/z"]["reason"]).to eq("queue_limit_discarded")
+      expect(by_url["https://alpha.acme.example/a"]["state"]).to eq("queued")
+      expect(by_url["https://alpha.acme.example/m"]["state"]).to eq("queued")
+    end
+
+    it "discards the newcomer when it sorts HIGHER than everything admitted at the bound" do
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+      stub_const("Workflows::Wf005::Frontier::DISCOVERED_QUEUE_HARD", 3)
+      results = in_frontier(org) do |frontier, _s|
+        %w[a m z].map do |slug|
+          frontier.offer(organization_id: org, project_id: q[:g][:project_id], crawl_id: q[:crawl_id],
+                         source_id: root["source_id"], canonical_url: "https://alpha.acme.example/#{slug}",
+                         origin: "link", depth: 1, now: start_now,
+                         discovering_document_url: "https://alpha.acme.example/", link_position: 1,
+                         parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                         scope_policy_version: root["scope_policy_version"])
+        end
+      end
+      expect(results.map(&:disposition)).to eq(%i[admitted admitted discarded])
+      expect(results.last.reason).to eq("queue_limit_discarded")
+      expect(results.last.evicted_entry_id).to be_nil
+      # The discarded candidate is RETAINED as a row, so the coverage denominator can account for it.
+      expect(entries(q[:crawl_id]).find { |r| r["canonical_url"].end_with?("/z") }["state"]).to eq("discarded")
     end
 
     it "retains the full canonical preimage beside the digest on every entry" do

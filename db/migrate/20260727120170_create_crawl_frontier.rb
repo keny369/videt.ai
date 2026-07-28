@@ -16,11 +16,17 @@
 #   * `crawl_frontier_occurrences` (T-IMM) — every DUPLICATE discovery with its referrer and
 #     position, "for audit, without becoming another candidate".
 #
-# Uniqueness allocation follows SEARCH_CRAWL_RETRIEVAL.md exactly: "All uniqueness allocations
-# retain both SHA-256 and full canonical preimage. Hash equality without byte-equal preimage
-# allocates a collision ordinal, never merges candidates." Hence the identity is
-# `(crawl_id, canonical_url_sha256, collision_ordinal)` WITH the preimage retained beside it, not
-# the digest alone.
+# Uniqueness allocation follows SEARCH_CRAWL_RETRIEVAL.md: "All uniqueness allocations retain both
+# SHA-256 and full canonical preimage. Hash equality without byte-equal preimage allocates a
+# collision ordinal, never merges candidates, emits restricted collision telemetry and follows the
+# Volume I integrity result." Hence the identity is `(crawl_id, canonical_url_sha256,
+# collision_ordinal)` WITH the preimage retained beside it, not the digest alone.
+#
+# THREE of those four clauses are implemented here — retention, ordinal allocation, never-merge. The
+# fourth, "emits restricted collision telemetry" (also AC-SM-006), is NOT: this tranche builds no
+# telemetry surface, and the frontier is a technical execution record with no ledger writer of its
+# own. Recorded as follow-up FU-6 rather than left as an implicit gap. A SHA-256 collision cannot
+# occur in practice, so nothing observable is at risk; the honesty of the record is the point.
 class CreateCrawlFrontier < ActiveRecord::Migration[8.1]
   def up
     create_entries
@@ -120,6 +126,9 @@ class CreateCrawlFrontier < ActiveRecord::Migration[8.1]
     SQL
   end
 
+  # NOTE (S-07-004 review): `Frontier#offer` inserts straight to `queued` or `discarded`, so the
+  # `discovered` staging state and its two edges are NOT on a live path in this tranche — they exist
+  # for the discovery tranches (S-07-006/007) that need to hold a candidate before deciding.
   # T-MUT with a tight lifecycle. Identity, the ordering tuple and the admitting policy decisions are
   # frozen for the life of the entry — the frontier's determinism depends on a committed candidate's
   # position never moving. S-07-004 owns exactly three edges: admission (discovered -> queued), the

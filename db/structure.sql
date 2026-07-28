@@ -221,10 +221,13 @@ CREATE FUNCTION public.f1_crawl_frontier_entries_guard() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path TO 'pg_catalog', 'public'
     AS $$
+DECLARE
+  unclaimed boolean := OLD.state IN ('discovered','queued');
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'crawl_frontier_entry_immutable' USING ERRCODE = 'raise_exception';
   END IF;
+  -- Identity and provenance: frozen for the life of the entry, in every state.
   IF NEW.id IS DISTINCT FROM OLD.id
      OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
@@ -234,22 +237,38 @@ BEGIN
      OR NEW.canonical_url_preimage IS DISTINCT FROM OLD.canonical_url_preimage
      OR NEW.canonical_url_sha256 IS DISTINCT FROM OLD.canonical_url_sha256
      OR NEW.collision_ordinal IS DISTINCT FROM OLD.collision_ordinal
-     OR NEW.origin IS DISTINCT FROM OLD.origin
-     OR NEW.depth IS DISTINCT FROM OLD.depth
-     OR NEW.discovering_document_url IS DISTINCT FROM OLD.discovering_document_url
-     OR NEW.link_position IS DISTINCT FROM OLD.link_position
-     OR NEW.dequeue_key IS DISTINCT FROM OLD.dequeue_key
-     OR NEW.parent_entry_id IS DISTINCT FROM OLD.parent_entry_id
      OR NEW.canonicalization_version IS DISTINCT FROM OLD.canonicalization_version
      OR NEW.scope_policy_id IS DISTINCT FROM OLD.scope_policy_id
      OR NEW.scope_policy_version IS DISTINCT FROM OLD.scope_policy_version
      OR NEW.enqueue_order IS DISTINCT FROM OLD.enqueue_order
+     OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'crawl_frontier_entry_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
+  -- `state_version` is the ONLY defence the admit/discard/reposition compare-and-swaps have,
+  -- so it may only ever advance by one. A free rewrite would let a stale-version guard succeed.
+  IF NEW.state_version IS DISTINCT FROM OLD.state_version + 1 THEN
+    RAISE EXCEPTION 'crawl_frontier_entry_version_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- A discard reason is written once, with the discard, and never rewritten: it is load-bearing
+  -- for coverage (:452 puts every limit-discarded in-scope candidate in the denominator).
+  IF OLD.reason IS NOT NULL AND NEW.reason IS DISTINCT FROM OLD.reason THEN
+    RAISE EXCEPTION 'crawl_frontier_entry_reason_frozen' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- Position: mutable only while unclaimed, so deduplication can keep the LOWEST-ordered
+  -- discovery of a candidate and the queue bound can evict a higher-ordered one (:454).
+  IF NOT unclaimed AND (
+       NEW.origin IS DISTINCT FROM OLD.origin
+       OR NEW.depth IS DISTINCT FROM OLD.depth
+       OR NEW.discovering_document_url IS DISTINCT FROM OLD.discovering_document_url
+       OR NEW.link_position IS DISTINCT FROM OLD.link_position
+       OR NEW.dequeue_key IS DISTINCT FROM OLD.dequeue_key
+       OR NEW.parent_entry_id IS DISTINCT FROM OLD.parent_entry_id) THEN
+    RAISE EXCEPTION 'crawl_frontier_entry_position_frozen' USING ERRCODE = 'raise_exception';
+  END IF;
   IF NEW.state IS DISTINCT FROM OLD.state THEN
     IF NOT ((OLD.state = 'discovered' AND NEW.state IN ('queued','discarded'))
-            OR (OLD.state = 'queued' AND NEW.state = 'in_progress')) THEN
+            OR (OLD.state = 'queued' AND NEW.state IN ('in_progress','discarded'))) THEN
       RAISE EXCEPTION 'crawl_frontier_transition_unavailable % -> %', OLD.state, NEW.state
         USING ERRCODE = 'raise_exception';
     END IF;
@@ -3807,6 +3826,14 @@ ALTER TABLE ONLY public.source_scope_policies
 
 
 --
+-- Name: source_scope_policies source_scope_policies_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_scope_policies
+    ADD CONSTRAINT source_scope_policies_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
 -- Name: source_scope_policies source_scope_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3895,10 +3922,24 @@ ALTER TABLE ONLY public.work_dispatch_bindings
 
 
 --
+-- Name: crawl_frontier_entries_crawl_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_frontier_entries_crawl_state ON public.crawl_frontier_entries USING btree (organization_id, crawl_id, state);
+
+
+--
 -- Name: crawl_frontier_entries_dequeue; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX crawl_frontier_entries_dequeue ON public.crawl_frontier_entries USING btree (crawl_id, dequeue_key) WHERE (state = 'queued'::text);
+
+
+--
+-- Name: crawl_frontier_entries_enqueue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_frontier_entries_enqueue ON public.crawl_frontier_entries USING btree (organization_id, crawl_id, enqueue_order DESC);
 
 
 --
@@ -4409,7 +4450,7 @@ ALTER TABLE ONLY public.crawl_frontier_entries
 --
 
 ALTER TABLE ONLY public.crawl_frontier_entries
-    ADD CONSTRAINT crawl_frontier_entries_scope_policy_fk FOREIGN KEY (organization_id, scope_policy_id) REFERENCES public.source_scope_policies(organization_id, id);
+    ADD CONSTRAINT crawl_frontier_entries_scope_policy_fk FOREIGN KEY (organization_id, project_id, scope_policy_id) REFERENCES public.source_scope_policies(organization_id, project_id, id);
 
 
 --
@@ -5299,6 +5340,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120180'),
 ('20260727120170'),
 ('20260727120160'),
 ('20260727120150'),

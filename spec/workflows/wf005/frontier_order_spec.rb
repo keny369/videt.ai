@@ -11,9 +11,9 @@ require "rails_helper"
 # orders and uniquely indexes `bytea` bytewise, so if that equivalence fails anywhere the database's
 # idea of "next candidate" silently diverges from the contract's.
 #
-# This is proved EXHAUSTIVELY over the space where an encoding realistically breaks — variable-length
-# string fields whose prefixes collide, including the NUL byte the framing has to escape — rather
-# than by sampling.
+# This is proved exhaustively over the space where an encoding realistically breaks — variable-length
+# string fields whose prefixes collide, the NUL byte the framing has to escape, and the CROSS-PRODUCT
+# of the two string fields (the only way a field-boundary defect shows) — rather than by sampling.
 RSpec.describe Workflows::Wf005::FrontierOrder, type: :model do
   subject(:order) { described_class }
 
@@ -31,9 +31,15 @@ RSpec.describe Workflows::Wf005::FrontierOrder, type: :model do
   def sign(n) = n.negative? ? -1 : (n.positive? ? 1 : 0)
 
   describe "the encoding agrees with the reference tuple comparator" do
-    # An alphabet chosen for the ways a composite key breaks: the NUL byte the framing escapes,
-    # the 0xFF the escape uses, an ASCII boundary pair, and a multi-byte character.
-    ALPHABET = ["\x00", "\xff".b.force_encoding("BINARY"), "a", "b", "/", "é"].freeze
+    # An alphabet chosen for the ways a composite key breaks: the NUL byte the framing escapes, an
+    # ASCII boundary pair that exposes a length-prefix inversion, a path separator, and a multi-byte
+    # character whose bytes are all high.
+    #
+    # A raw 0xFF byte is deliberately ABSENT and cannot be tested: `field` and `tuple` both call
+    # `unicode_normalize(:nfc)`, which raises on invalid UTF-8, so such input can never reach the
+    # encoder. The escape byte's role is exercised instead by the multi-byte character, whose
+    # continuation bytes are >= 0x80 and sort above the terminator.
+    ALPHABET = ["\x00", "a", "b", "/", "é"].freeze
 
     def strings_up_to(length)
       out = [""]
@@ -69,6 +75,21 @@ RSpec.describe Workflows::Wf005::FrontierOrder, type: :model do
       end
     end
 
+    # Varying ONE field at a time cannot see a field-boundary defect: the bug shape is a URL whose
+    # bytes bleed into the next field, which only shows when both vary together. This is the
+    # cross-product, so the boundary between the two variable-length fields is genuinely covered
+    # rather than sampled by one hand-picked example.
+    it "orders every pair over the CROSS-PRODUCT of both variable-length fields" do
+      corpus = strings_up_to(1)
+      candidates = corpus.product(corpus).map { |u, d| candidate(origin: "link", url: u, discovering: d) }
+      mismatches = 0
+      candidates.combination(2) do |a, b|
+        mismatches += 1 unless sign(key(a) <=> key(b)) == sign(order.compare(a, b))
+      end
+      expect(mismatches).to eq(0)
+      expect(candidates.size).to be >= 36
+    end
+
     it "keeps the shorter string first when it is a prefix of the longer one" do
       short = candidate(url: "https://a.example/shop")
       long  = candidate(url: "https://a.example/shopping")
@@ -84,6 +105,11 @@ RSpec.describe Workflows::Wf005::FrontierOrder, type: :model do
       expect(sign(order.compare(ab, b))).to eq(-1)
     end
 
+    it "refuses input the encoder cannot normalize, rather than encoding it inconsistently" do
+      invalid = candidate(url: "a\xffb".b)
+      expect { key(invalid) }.to raise_error(StandardError)
+    end
+
     it "cannot confuse an embedded NUL with the field boundary" do
       # Without escaping, "a\x00b" would terminate the URL field early and leak into the next one.
       embedded = candidate(url: "a\x00b")
@@ -94,7 +120,9 @@ RSpec.describe Workflows::Wf005::FrontierOrder, type: :model do
   end
 
   describe "field precedence" do
-    it "orders by depth first (breadth-first falls out of the tuple)" do
+    # Ordering by depth is necessary for breadth-first but NOT sufficient: the SEAL is enforced at
+    # selection by CrawlFrontierStore#claim_next, exercised in spec/acceptance/wf005_crawl_frontier_spec.rb.
+    it "orders by depth first" do
       shallow = candidate(depth: 1, url: "https://z.example/zzz")
       deep    = candidate(depth: 2, url: "https://a.example/aaa")
       expect(key(shallow) <=> key(deep)).to eq(-1)

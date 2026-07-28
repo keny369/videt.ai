@@ -10,8 +10,16 @@ module Workflows
     #     (depth, origin_rank, canonical_url, discovering_document_url, link_position)
     #
     # where `root < sitemap < link`, strings compare by UTF-8 bytes, and a root or sitemap candidate
-    # uses an empty discovering-document URL and link position zero. Breadth-first falls out of the
-    # tuple: `depth` leads, so every depth-`d` discovery is sealed before any depth-`d+1` candidate.
+    # uses an empty discovering-document URL and link position zero.
+    #
+    # `depth` leading the tuple ORDERS shallower candidates first, which is necessary for
+    # breadth-first but NOT sufficient for it. ":454 all depth `d` discoveries are SEALED before any
+    # depth `d+1` candidate is selected" is a stronger property that ordering alone cannot deliver:
+    # once every depth-`d` row has been claimed, an order-only dequeue would hand out a depth-`d+1`
+    # row while depth `d` is still in flight and its outgoing links are undiscovered. The seal is
+    # enforced at the point the contract binds it to — SELECTION — by
+    # `CrawlFrontierStore#claim_next`, which confines selection to the lowest depth still holding a
+    # non-terminal entry. This module is only the ordering half.
     #
     # SEARCH_CRAWL_RETRIEVAL.md § Frontier And Deterministic Selection requires that order to be
     # MATERIALIZED into `crawl_frontier_entries.dequeue_key bytea` so PostgreSQL can order and
@@ -95,10 +103,18 @@ module Workflows
         value.to_s.unicode_normalize(:nfc).b.gsub(NUL, ESCAPE) + TERMINATOR
       end
 
-      def uint32(value)
-        raise ArgumentError, "negative value #{value}" if value.to_i.negative?
+      # Fixed-width unsigned big-endian, so bytewise comparison equals numeric comparison. Both
+      # bounds are checked: `pack("N")` would silently WRAP above 2**32, which would reorder the
+      # frontier rather than fail, and a wrapped depth is exactly the kind of defect that must not be
+      # able to hide.
+      UINT32_MAX = (2**32) - 1
 
-        [value.to_i].pack("N")
+      def uint32(value)
+        int = value.to_i
+        raise ArgumentError, "negative value #{value}" if int.negative?
+        raise ArgumentError, "value #{value} exceeds uint32" if int > UINT32_MAX
+
+        [int].pack("N")
       end
 
       def uint8(value) = [value.to_i].pack("C")

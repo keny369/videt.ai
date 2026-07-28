@@ -198,10 +198,10 @@ RSpec.describe "Crawl-frontier invariants", type: :model do
     it "permits admission, the dequeue claim, and the queue-limit discard" do
       c = context
       a = insert_entry(c, url: "https://x.example/a", state: "discovered")
-      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state='queued' WHERE id=$1::uuid", [a]) }.not_to raise_error
-      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state='in_progress' WHERE id=$1::uuid", [a]) }.not_to raise_error
+      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state='queued' WHERE id=$1::uuid", [a]) }.not_to raise_error
+      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state='in_progress' WHERE id=$1::uuid", [a]) }.not_to raise_error
       b = insert_entry(c, url: "https://x.example/b", state: "discovered")
-      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state='discarded', reason='queue_limit_discarded' WHERE id=$1::uuid", [b]) }
+      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state='discarded', reason='queue_limit_discarded' WHERE id=$1::uuid", [b]) }
         .not_to raise_error
     end
 
@@ -209,24 +209,54 @@ RSpec.describe "Crawl-frontier invariants", type: :model do
       c = context
       a = insert_entry(c, url: "https://x.example/a", state: "in_progress")
       %w[fetched_pending_commit terminal queued].each do |target|
-        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state=$2 WHERE id=$1::uuid", [a, target]) }
+        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state=$2 WHERE id=$1::uuid", [a, target]) }
           .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable in_progress -> #{target}/)
       end
     end
 
-    it "freezes identity, the ordering tuple and the admitting policy, and refuses DELETE" do
+    it "freezes candidate IDENTITY and provenance in every state, and refuses DELETE" do
       c = context
       a = insert_entry(c, url: "https://x.example/a")
       {
-        "canonical_url" => "'https://x.example/z'", "depth" => "5", "link_position" => "9",
-        "origin" => "'link'", "collision_ordinal" => "7", "enqueue_order" => "42",
-        "scope_policy_version" => "'other'", "dequeue_key" => "'\\x00'::bytea"
+        "canonical_url" => "'https://x.example/z'", "collision_ordinal" => "7",
+        "enqueue_order" => "42", "scope_policy_version" => "'other'",
+        "canonicalization_version" => "'other'", "source_id" => "gen_random_uuid()"
       }.each do |column, value|
-        expect { conn.exec_params("UPDATE crawl_frontier_entries SET #{column} = #{value} WHERE id = $1::uuid", [a]) }
+        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, #{column} = #{value} WHERE id = $1::uuid", [a]) }
           .to raise_error(PG::RaiseException, /crawl_frontier_entry_facts_immutable/), "#{column} was mutable"
       end
       expect { conn.exec_params("DELETE FROM crawl_frontier_entries WHERE id = $1::uuid", [a]) }
         .to raise_error(PG::RaiseException, /crawl_frontier_entry_immutable/)
+    end
+
+    # S-07-004 review hardening: :454 requires deduplication to retain the LOWEST-ordered discovery
+    # and the queue bound to retain the LOWEST 20,000, both of which need a candidate's POSITION to
+    # improve after it is committed. The window closes at the claim.
+    it "lets an UNCLAIMED entry's position change, and freezes it from the claim onward" do
+      c = context
+      a = insert_entry(c, url: "https://x.example/a", origin: "link", depth: 1,
+                       discovering: "https://x.example/z", position: 2)
+      %w[discovered queued].each do |state|
+        conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state = $2 WHERE id = $1::uuid AND state <> $2", [a, state]) if state == "queued"
+        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, discovering_document_url = 'https://x.example/a' WHERE id = $1::uuid", [a]) }
+          .not_to raise_error
+      end
+      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, dequeue_key = '\\x0102'::bytea WHERE id = $1::uuid", [a]) }
+        .not_to raise_error
+
+      conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state = 'in_progress' WHERE id = $1::uuid", [a])
+      { "depth" => "5", "link_position" => "9", "origin" => "'sitemap'",
+        "discovering_document_url" => "'https://x.example/q'", "dequeue_key" => "'\\x00'::bytea" }.each do |column, value|
+        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, #{column} = #{value} WHERE id = $1::uuid", [a]) }
+          .to raise_error(PG::RaiseException, /crawl_frontier_entry_position_frozen/), "#{column} was mutable after the claim"
+      end
+    end
+
+    it "permits evicting an ADMITTED but unclaimed candidate at the queue bound" do
+      c = context
+      a = insert_entry(c, url: "https://x.example/a", state: "queued")
+      expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state='discarded', reason='queue_limit_discarded' WHERE id=$1::uuid", [a]) }
+        .not_to raise_error
     end
   end
 

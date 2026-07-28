@@ -12,12 +12,6 @@ module IdentityAccess
     # through `claim_next`, which orders by the materialized `dequeue_key` — never by an application
     # sort, and never by `created_at`.
     class CrawlFrontierStore
-      # WORKFLOW_SPECIFICATIONS.md :454 — "If more than 20,000 distinct candidates are discovered,
-      # retain the lowest 20,000 by this order and record all later candidates as
-      # `queue_limit_discarded`." The hard discovered-queue bound of `crawl-policy-v1`.
-      QUEUE_LIMIT_DISCARDED = "queue_limit_discarded"
-      DUPLICATE_DISCOVERY = "duplicate_discovery"
-
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -26,10 +20,11 @@ module IdentityAccess
         exec("SELECT f1_enter_org_context($1::uuid, $2::uuid)", [org, correlation_id]).values.dig(0, 0)
       end
 
-      # Serialize all frontier admission and dequeue for ONE Crawl. Admission has to be serialized
-      # because both the deduplication decision and the 20,000-candidate retention bound are
-      # order-dependent: two concurrent admissions that each read "19,999 admitted" would both
-      # admit. The key is per-Crawl, so different Crawls never contend.
+      # Serialize frontier ADMISSION for ONE Crawl (not the dequeue, which uses SKIP LOCKED and must
+      # not block). Admission has to be serialized because both the deduplication decision and the
+      # 20,000-candidate retention bound are order-dependent reads-then-writes: two concurrent
+      # admissions that each read "19,999 admitted" would both admit. The key is per-Crawl, so
+      # different Crawls never contend.
       def lock_frontier(crawl_id)
         exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["crawl-frontier:#{crawl_id}"])
       end
@@ -59,21 +54,6 @@ module IdentityAccess
         exec(<<~SQL, [organization_id, crawl_id]).to_a.first["n"].to_i
           SELECT COUNT(*) AS n FROM crawl_sources
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-        SQL
-      end
-
-      # The Source's CURRENT Source Scope Policy, as the S-06 predicate's Policy value object needs
-      # it. `source_scope_policies` is a T-IMM version table with no lifecycle column — the current
-      # version is whichever one `sources.current_scope_policy_id` points at (the same resolution
-      # `CrawlStore#active_sources` uses). Read at EXECUTION time, so the CURRENT restrictive scope
-      # governs (MTX-030: "every URL is validated against the pinned AND current restrictive scope").
-      def current_scope_policy(organization_id, source_id)
-        exec(<<~SQL, [organization_id, source_id]).to_a.first
-          SELECT p.id, p.policy_version, p.canonical_host, p.allowed_schemes, p.allowed_ports,
-                 p.include_prefixes, p.exclude_prefixes, p.query_handling
-          FROM sources s
-          JOIN source_scope_policies p ON p.id = s.current_scope_policy_id
-          WHERE s.organization_id = $1::uuid AND s.id = $2::uuid
         SQL
       end
 
@@ -152,20 +132,51 @@ module IdentityAccess
           VALUES ($1::uuid,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7::uuid,
                   $8::uuid,$9::uuid,$10,$11,
                   $12,$13,$14,$2::timestamptz,$15)
+          -- A re-offer of the same (document, position) is the SAME observation, not a second one.
+          -- S-07-007's fetch retries re-parse a document and re-offer its links, so this must be an
+          -- idempotent no-op rather than a unique violation that aborts the caller's transaction.
+          ON CONFLICT (crawl_id, frontier_entry_id, discovering_document_url, link_position) DO NOTHING
         SQL
       end
 
-      # The DEQUEUE. The next candidate is the lowest `dequeue_key` among this Crawl's `queued`
-      # entries — the materialized Volume I tuple, ordered by PostgreSQL bytewise, never by an
-      # application sort. `FOR UPDATE SKIP LOCKED` lets concurrent workers take DISTINCT candidates
-      # without either of them reordering the frontier or blocking. Returns the claimed row or nil.
+      # The DEQUEUE, with the breadth-first SEAL.
+      #
+      # The next candidate is the lowest `dequeue_key` among this Crawl's `queued` entries — the
+      # materialized Volume I tuple, ordered by PostgreSQL bytewise, never by an application sort.
+      #
+      # Ordering alone does NOT deliver ":454 all depth `d` discoveries are sealed before any depth
+      # `d+1` candidate is SELECTED". Sealing is the stronger property, and it binds to selection,
+      # which is this statement. Without the barrier, once every remaining depth-`d` row is
+      # `in_progress` (or row-locked) `SKIP LOCKED` would hand the next worker a depth-`d+1` row
+      # while depth `d` is still in flight and its outgoing links are still undiscovered. The
+      # `sealed_depth` CTE is the barrier: selection is confined to the LOWEST depth that still has
+      # any non-terminal entry, so a deeper candidate becomes selectable only once every shallower
+      # one has left the frontier.
+      #
+      # `FOR UPDATE SKIP LOCKED` then lets concurrent workers take DISTINCT candidates within that
+      # depth without blocking. It is the CLAIM that may interleave; the ordered COMMIT of results
+      # is a separate obligation belonging to S-07-007's coordinator. Returns the claimed row or nil.
       def claim_next(organization_id, crawl_id, now)
         exec(<<~SQL, [organization_id, crawl_id, iso(now)]).to_a.first
-          WITH next_entry AS (
-            SELECT id FROM crawl_frontier_entries
-            WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND state = 'queued'
-            ORDER BY dequeue_key
-            FOR UPDATE SKIP LOCKED
+          WITH sealed_depth AS (
+            SELECT MIN(depth) AS d FROM crawl_frontier_entries
+            WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+              AND state IN ('queued','in_progress','fetched_pending_commit')
+          ), next_entry AS (
+            SELECT e.id FROM crawl_frontier_entries e, sealed_depth
+            WHERE e.organization_id = $1::uuid AND e.crawl_id = $2::uuid AND e.state = 'queued'
+              AND e.depth = sealed_depth.d
+              -- The owner's requirement is "no longer active AT EXECUTION TIME", and the dequeue IS
+              -- execution time. Seeding excludes Sources inactive at the START commit; this excludes
+              -- a Source deactivated at any point AFTER it, so a candidate whose Source the customer
+              -- has since disabled or removed is never handed to a worker. Re-read every claim
+              -- rather than cached, because the whole point is that the answer changes mid-run.
+              AND EXISTS (
+                SELECT 1 FROM sources s
+                WHERE s.organization_id = e.organization_id AND s.project_id = e.project_id
+                  AND s.id = e.source_id AND s.state = 'active')
+            ORDER BY e.dequeue_key
+            FOR UPDATE OF e SKIP LOCKED
             LIMIT 1
           )
           UPDATE crawl_frontier_entries e
@@ -178,8 +189,10 @@ module IdentityAccess
         SQL
       end
 
-      # Admit a `discovered` candidate, or discard it at the queue bound. Guarded on the expected
-      # state so a lost race can never double-admit. Returns the affected row count.
+      # Admit a candidate that was staged as `discovered`. NOT reachable yet: `Frontier#offer`
+      # inserts straight to `queued` or `discarded`, so the two-phase stage-then-admit path exists
+      # for the discovery tranches (S-07-006/007) that need to hold a candidate before deciding.
+      # Guarded on the expected state so a lost race can never double-admit. Returns the row count.
       def admit(id, expected_version, now)
         exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
           UPDATE crawl_frontier_entries
@@ -192,15 +205,44 @@ module IdentityAccess
         exec(<<~SQL, [id, expected_version, iso(now), reason]).cmd_tuples
           UPDATE crawl_frontier_entries
           SET state = 'discarded', reason = $4, state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE id = $1::uuid AND state = 'discovered' AND state_version = $2
+          WHERE id = $1::uuid AND state IN ('discovered','queued') AND state_version = $2
         SQL
       end
 
-      def entries(organization_id, crawl_id)
-        exec(<<~SQL, [organization_id, crawl_id]).to_a
-          SELECT * FROM crawl_frontier_entries
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-          ORDER BY dequeue_key
+      # Move an UNCLAIMED entry to a lower frontier position. ":454 Deduplication retains the first
+      # candidate in this order" — the retained candidate is the LOWEST-ordered discovery of that
+      # canonical URL, so a later discovery that sorts lower promotes the entry rather than being
+      # dropped. Guarded on the state and version, and the guard refuses this once claimed.
+      def reposition(id, expected_version, now, row)
+        params = [id, expected_version, iso(now), row[:origin], row[:depth],
+                  row[:discovering_document_url], row[:link_position],
+                  bytea(row[:dequeue_key]), row[:parent_entry_id]]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE crawl_frontier_entries
+          SET origin = $4, depth = $5, discovering_document_url = $6, link_position = $7,
+              dequeue_key = $8, parent_entry_id = $9::uuid,
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND state IN ('discovered','queued') AND state_version = $2
+        SQL
+      end
+
+      # The HIGHEST-ordered admitted-but-unclaimed candidate — the eviction victim when a
+      # lower-ordered candidate arrives at the discovered-queue bound (":454 retain the LOWEST
+      # 20,000 by this order"). A claimed entry is never evicted: it has already been acted on.
+      def highest_unclaimed(organization_id, crawl_id)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
+          SELECT id, state_version, dequeue_key FROM crawl_frontier_entries
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND state IN ('discovered','queued')
+          ORDER BY dequeue_key DESC
+          LIMIT 1
+        SQL
+      end
+
+      def entry(organization_id, id)
+        exec(<<~SQL, [organization_id, id]).to_a.first
+          SELECT id, state, state_version, dequeue_key, depth, origin,
+                 discovering_document_url, link_position, parent_entry_id
+          FROM crawl_frontier_entries WHERE organization_id = $1::uuid AND id = $2::uuid
         SQL
       end
 

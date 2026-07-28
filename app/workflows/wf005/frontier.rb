@@ -29,16 +29,29 @@ module Workflows
       # (PRULE-021); S-07 consumes it and records which version admitted each candidate.
       CANONICALIZATION_VERSION = "source-scope-interim-v1"
 
+      # Volume I reason vocabulary (:454 "record all later candidates as `queue_limit_discarded`";
+      # SEARCH_CRAWL_RETRIEVAL "every duplicate discovery"). These are DOMAIN constants, so they live
+      # on the domain surface and the persistence adapter reads them from here, not the reverse.
+      QUEUE_LIMIT_DISCARDED = "queue_limit_discarded"
+      DUPLICATE_DISCOVERY = "duplicate_discovery"
+
       Seeded = Data.define(:admitted, :pinned_total, :excluded_inactive) do
         # True when the pinned set has shrunk since queue time — the customer disabled or removed a
         # Source between queueing and execution.
         def excluded_any? = excluded_inactive.positive?
       end
 
-      Offered = Data.define(:disposition, :entry_id, :reason) do
+      # `evicted_entry_id` names the previously-admitted candidate this one displaced at the queue
+      # bound, and `repositioned` is true when a duplicate discovery moved the retained entry to a
+      # lower frontier position. Both are nil/false on the ordinary path.
+      Offered = Data.define(:disposition, :entry_id, :reason, :evicted_entry_id, :repositioned) do
         def admitted? = disposition == :admitted
         def duplicate? = disposition == :duplicate
         def discarded? = disposition == :discarded
+      end
+
+      def self.offered(disposition:, entry_id:, reason: nil, evicted_entry_id: nil, repositioned: false)
+        Offered.new(disposition:, entry_id:, reason:, evicted_entry_id:, repositioned:)
       end
 
       def initialize(store, ids:, correlation_id:)
@@ -84,34 +97,62 @@ module Workflows
         digest = Digest::SHA256.digest(preimage)
 
         existing = @store.entries_for_digest(organization_id, crawl_id, digest)
-        # Byte-equal preimage => the SAME candidate. Deduplication "retains the first candidate in
-        # this order" (:454), so the later discovery becomes an occurrence and never a second entry.
+        # Byte-equal preimage => the SAME candidate: one retained entry, and the other discovery
+        # recorded as an occurrence "without becoming another candidate".
+        #
+        # WHICH one is retained is fixed by :454 — "Deduplication retains the first candidate in
+        # THIS ORDER", i.e. the LOWEST-ordered discovery, not the first offered. The two genuinely
+        # diverge: :440 puts sitemap-discovered URLs and root-followed links both at depth 1, where
+        # `origin_rank` rather than the URL decides parent order, so a sitemap page can be dequeued
+        # before a link page whose own URL sorts lower, and their children then arrive in the wrong
+        # relative order. Committing in dequeue sequence does not repair that, because parent order
+        # is not child order. So a lower-ordered later discovery REPOSITIONS the retained entry (the
+        # schema permits that only while it is still unclaimed) and the superseded position is
+        # recorded as the occurrence.
         same = existing.find { |row| unhex(row["preimage"]) == preimage }
         if same
-          return record_occurrence(organization_id:, project_id:, crawl_id:, source_id:, now:,
-                                   frontier_entry_id: same["id"], canonical_url:, digest:,
-                                   discovering_document_url:, link_position:,
-                                   referrer_entry_id: parent_entry_id)
+          return deduplicate(organization_id:, project_id:, crawl_id:, source_id:, now:, existing: same,
+                             canonical_url:, digest:, origin:, depth:, discovering_document_url:,
+                             link_position:, parent_entry_id:)
         end
 
         # Digest match with a DIFFERENT preimage is a SHA-256 collision. It must never merge two
         # candidates: allocate the next ordinal and retain both, each with its own full preimage.
         collision_ordinal = existing.empty? ? 0 : existing.map { |r| r["collision_ordinal"].to_i }.max + 1
 
-        # The retention bound. Admitted candidates beyond the hard discovered-queue limit are
-        # recorded as `queue_limit_discarded` rather than dropped, so the coverage denominator can
-        # still account for them (:452 "plus every in-scope candidate discarded by a Crawl limit").
-        over_limit = @store.admitted_count(organization_id, crawl_id) >= DISCOVERED_QUEUE_HARD
-        state = over_limit ? "discarded" : "queued"
-        reason = over_limit ? IdentityAccess::Infrastructure::CrawlFrontierStore::QUEUE_LIMIT_DISCARDED : nil
+        # The retention bound is a selection over a SET, not over an arrival sequence: ":454 retain
+        # the LOWEST 20,000 by this order and record all later candidates as `queue_limit_discarded`".
+        # So at the bound the new candidate is compared against the highest-ordered UNCLAIMED entry;
+        # if the newcomer sorts lower, that entry is EVICTED to make room and the newcomer is
+        # admitted. Only when the newcomer is the higher of the two is it the one discarded. Either
+        # way the loser is retained as a `discarded` row rather than dropped, so the coverage
+        # denominator can still account for it (:452 "plus every in-scope candidate discarded by a
+        # Crawl limit"). A CLAIMED entry is never evicted — it has already been acted on.
+        id = @ids.generate
+        key = FrontierOrder.dequeue_key(depth:, origin:, canonical_url:,
+                                        discovering_document_url:, link_position:, entry_id: id)
+        evicted = nil
+        state = "queued"
+        reason = nil
+        if @store.admitted_count(organization_id, crawl_id) >= DISCOVERED_QUEUE_HARD
+          victim = @store.highest_unclaimed(organization_id, crawl_id)
+          if victim && unhex(victim["dequeue_key"]) > key
+            @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED)
+            evicted = victim["id"]
+          else
+            state = "discarded"
+            reason = QUEUE_LIMIT_DISCARDED
+          end
+        end
 
-        id = insert(organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,
-                    origin:, depth:, discovering_document_url:, link_position:, parent_entry_id:,
-                    scope_policy_id:, scope_policy_version:,
-                    enqueue_order: @store.next_enqueue_order(organization_id, crawl_id),
-                    collision_ordinal:, reason:, preimage:, digest:)
+        insert(id:, organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,
+               origin:, depth:, discovering_document_url:, link_position:, parent_entry_id:,
+               scope_policy_id:, scope_policy_version:,
+               enqueue_order: @store.next_enqueue_order(organization_id, crawl_id),
+               collision_ordinal:, reason:, preimage:, digest:, dequeue_key: key)
 
-        Offered.new(disposition: over_limit ? :discarded : :admitted, entry_id: id, reason:)
+        self.class.offered(disposition: reason ? :discarded : :admitted, entry_id: id, reason:,
+                           evicted_entry_id: evicted)
       end
 
       # Claim the next candidate in canonical dequeue order, or nil when the frontier is drained.
@@ -121,36 +162,63 @@ module Workflows
 
       private
 
-      def record_occurrence(organization_id:, project_id:, crawl_id:, source_id:, now:,
-                            frontier_entry_id:, canonical_url:, digest:, discovering_document_url:,
-                            link_position:, referrer_entry_id:)
+      # One retained entry at the LOWEST-ordered position, and the superseded discovery recorded as
+      # an occurrence. When the newcomer sorts lower AND the entry is still unclaimed, the entry is
+      # repositioned onto it and the OLD position becomes the occurrence; otherwise the newcomer is
+      # the occurrence. A claimed entry keeps its position — it has already been acted on.
+      def deduplicate(organization_id:, project_id:, crawl_id:, source_id:, now:, existing:,
+                      canonical_url:, digest:, origin:, depth:, discovering_document_url:,
+                      link_position:, parent_entry_id:)
+        entry = @store.entry(organization_id, existing["id"])
+        incoming = FrontierOrder.dequeue_key(depth:, origin:, canonical_url:,
+                                             discovering_document_url:, link_position:,
+                                             entry_id: existing["id"])
+        promote = %w[discovered queued].include?(entry["state"]) && incoming < unhex(entry["dequeue_key"])
+
+        superseded = if promote
+                       moved = @store.reposition(existing["id"], entry["state_version"].to_i, now,
+                                                 { origin:, depth:, discovering_document_url:,
+                                                   link_position:, dequeue_key: incoming, parent_entry_id: })
+                       raise Platform::InvariantViolation, "frontier reposition lost" if moved.to_i.zero?
+
+                       { url: entry_url(entry, canonical_url), discovering: entry["discovering_document_url"],
+                         position: entry["link_position"].to_i, referrer: entry["parent_entry_id"] }
+                     else
+                       { url: canonical_url, discovering: discovering_document_url,
+                         position: link_position, referrer: parent_entry_id }
+                     end
+
         @store.insert_occurrence(
           id: @ids.generate, now:, correlation_id: @correlation_id, organization_id:, project_id:,
-          crawl_id:, frontier_entry_id:, source_id:, referrer_entry_id:,
-          occurrence_url: canonical_url, digest:, discovering_document_url:, link_position:,
+          crawl_id:, frontier_entry_id: existing["id"], source_id:, referrer_entry_id: superseded[:referrer],
+          occurrence_url: superseded[:url], digest:, discovering_document_url: superseded[:discovering],
+          link_position: superseded[:position],
           occurrence_order: @store.next_occurrence_order(organization_id, crawl_id),
-          duplicate_reason: IdentityAccess::Infrastructure::CrawlFrontierStore::DUPLICATE_DISCOVERY
+          duplicate_reason: DUPLICATE_DISCOVERY
         )
-        Offered.new(disposition: :duplicate, entry_id: frontier_entry_id, reason: nil)
+        self.class.offered(disposition: :duplicate, entry_id: existing["id"], repositioned: promote)
       end
+
+      # The canonical URL is identical for both discoveries by construction (byte-equal preimage).
+      def entry_url(_entry, canonical_url) = canonical_url
 
       # rubocop:disable Metrics/ParameterLists
       def insert(organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,
                  origin:, depth:, discovering_document_url:, link_position:, parent_entry_id:,
                  scope_policy_id:, scope_policy_version:, enqueue_order:, collision_ordinal:, reason:,
-                 preimage: nil, digest: nil)
-        id = @ids.generate
-        preimage ||= canonical_url.to_s.unicode_normalize(:nfc).b
+                 id: nil, preimage: nil, digest: nil, dequeue_key: nil)
+        id ||= @ids.generate
+        canonical_url = canonical_url.to_s.unicode_normalize(:nfc)
+        preimage ||= canonical_url.b
         digest ||= Digest::SHA256.digest(preimage)
+        dequeue_key ||= FrontierOrder.dequeue_key(depth:, origin:, canonical_url:,
+                                                  discovering_document_url:, link_position:, entry_id: id)
         @store.insert_entry(
           id:, now:, correlation_id: @correlation_id, organization_id:, project_id:, crawl_id:,
           source_id:, canonical_url:, preimage:, digest:, collision_ordinal:, origin:, depth:,
           discovering_document_url:, link_position:, parent_entry_id:,
           canonicalization_version: CANONICALIZATION_VERSION, scope_policy_id:, scope_policy_version:,
-          enqueue_order:, state:, reason:,
-          dequeue_key: FrontierOrder.dequeue_key(
-            depth:, origin:, canonical_url:, discovering_document_url:, link_position:, entry_id: id
-          )
+          enqueue_order:, state:, reason:, dequeue_key:
         )
         id
       end
