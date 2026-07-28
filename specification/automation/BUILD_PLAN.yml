@@ -804,7 +804,7 @@ blocks:
   - id: S-07-003
     name: Crawl Execution — StartCrawl + initial Evaluation (OD-018) [consumes F-05]
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061 standing delegation); 5-lens review, 5 CB fixed + hardening (ADR-076). First F-05 consumer.
     depends_on:
       - S-07-002
       - F-05
