@@ -159,6 +159,7 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
   def evaluations_for(pid) = DbInspector.all("SELECT * FROM evaluations WHERE project_id = $1::uuid ORDER BY created_at", [pid])
   def contexts_for(pid) = DbInspector.all("SELECT * FROM evaluation_orchestration_contexts WHERE project_id = $1::uuid", [pid])
   def events(type, aggregate_id) = DbInspector.all("SELECT * FROM event_registry WHERE event_type = $1 AND aggregate_id = $2::uuid", [type, aggregate_id])
+  def event_body(id) = JSON.parse(DbInspector.one("SELECT convert_from(event_bytes,'UTF8') AS b FROM event_registry WHERE id = $1::uuid", [id])["b"])
   def decisions(org) = DbInspector.all("SELECT * FROM entitlement_decisions WHERE organization_id = $1::uuid ORDER BY created_at", [org])
   def reservations(org) = DbInspector.all("SELECT * FROM entitlement_reservations WHERE organization_id = $1::uuid ORDER BY created_at", [org])
   def audits(org) = DbInspector.all("SELECT * FROM audit_record_registry WHERE organization_id = $1::uuid ORDER BY occurred_at", [org])
@@ -175,6 +176,17 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
                         idempotency_key_digest: Digest::SHA256.digest(SecureRandom.hex(8)))
       end
     end
+  end
+
+  # Suspend the Organization through the real WF-013 command (no fabricated status update).
+  def suspend_organization(g)
+    org = DbInspector.one("SELECT state_version, authorization_epoch FROM organizations WHERE id = $1::uuid", [g[:organization_id]])
+    Workflows::Wf013::Handlers::SuspendOrganization.new.call(
+      command: Workflows::Wf013::Commands::SuspendOrganization.new(
+        command_id: SecureRandom.uuid_v7, idempotency_key: "sus-#{SecureRandom.hex(6)}", schema_version: "1.0",
+        session_id: g[:session_id], expected_state_version: org["state_version"].to_i,
+        expected_authorization_epoch: org["authorization_epoch"].to_i,
+        reason: "billing_hold", requested_at_utc: act_now), request_context: act_ctx)
   end
 
   def deactivate_entitlement(g)
@@ -347,14 +359,23 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       expect(result.failure.reason_code).to eq(reason)
       crawl = crawl_row(q[:crawl_id])
       expect(crawl["state"]).to eq("failed")
-      expect(crawl["completion_reason"]).to eq(reason)
+      # WORKFLOW_SPECIFICATIONS.md :456 closes CompletionReason to five values, so a pre-execution
+      # failure records exactly `failed`; the exact machine reason is retained in the restricted
+      # audit record and on the CrawlFailed envelope, never in this column.
+      expect(crawl["completion_reason"]).to eq("failed")
       expect(crawl["terminal_at"]).to be_present
       expect(crawl["coverage_status"]).to be_nil
       expect(crawl["started_at"]).to be_nil
+      # POSTGRESQL_SCHEMA.md :338 — both entitlement columns are "NULL until start", and this Crawl
+      # never started.
+      expect(crawl["entitlement_decision_id"]).to be_nil
       expect(crawl["entitlement_reservation_id"]).to be_nil
       expect(evaluations_for(q[:g][:project_id])).to be_empty
       expect(contexts_for(q[:g][:project_id])).to be_empty
-      expect(events("CrawlFailed", q[:crawl_id]).size).to eq(1)
+      failed = events("CrawlFailed", q[:crawl_id])
+      expect(failed.size).to eq(1)
+      expect(event_body(failed.first["id"])["reason_code"]).to eq(reason)
+      expect(audits(q[:g][:organization_id]).last["reason_code"]).to eq(reason)
       expect(events("CrawlStarted", q[:crawl_id])).to be_empty
       result
     end
@@ -384,13 +405,16 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       q = queued
       deactivate_entitlement(q[:g])
       result = expect_pre_execution_failure(q, "entitlement_inactive")
-      expect(result.failure.recovery_action).to eq("restore_policy")
+      # WORKFLOW_SPECIFICATIONS.md :541 fixes the mapping: "inactive entitlement -> upgrade_plan".
+      expect(result.failure.recovery_action).to eq("upgrade_plan")
       expect(result.failure.retryable).to be(false)
       # WORKFLOW :734 — the Block leaves a durable Decision but NO reservation.
       expect(decisions(q[:g][:organization_id]).size).to eq(1)
       expect(decisions(q[:g][:organization_id]).first["decision"]).to eq("block")
       expect(reservations(q[:g][:organization_id])).to be_empty
-      expect(crawl_row(q[:crawl_id])["entitlement_decision_id"]).to be_present
+      # The blocked Decision is recorded in the audit record, not on a Crawl that never started.
+      expect(JSON.parse(audits(q[:g][:organization_id]).last["payload"])["entitlement_decision_id"])
+        .to eq(decisions(q[:g][:organization_id]).first["id"])
     end
 
     it "fails the queued Crawl when the hard crawl.start limit is already consumed" do
@@ -405,6 +429,40 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       # The blocked request adds a Decision but no fifth reservation.
       expect(reservations(org).size).to eq(4)
       expect(decisions(org).map { |r| r["decision"] }).to eq(%w[allow allow allow_with_warning allow_with_warning block])
+      # The blocked Decision is named in the restricted audit record, not on the Crawl row.
+      expect(JSON.parse(audits(org).last["payload"])["entitlement_decision_id"]).to eq(decisions(org).last["id"])
+    end
+
+    it "fails the queued Crawl when the Organization has been suspended since queueing" do
+      # MTX-030 authorization_entry_point: "an authorization ... established at queue time is never
+      # trusted at execution time"; SEARCH_CRAWL_RETRIEVAL.md step 1 reauthorizes current
+      # ORGANIZATION state first. Without this a suspended tenant — every Session revoked — would
+      # still start protected work and burn a metered crawl.start unit.
+      q = queued
+      expect(suspend_organization(q[:g]).success?).to be(true)
+      result = expect_pre_execution_failure(q, "crawl_organization_not_active")
+      # WORKFLOW_SPECIFICATIONS.md :541: "Organization -> reactivate_organization".
+      expect(result.failure.recovery_action).to eq("reactivate_organization")
+      # Checked before the entitlement limb, so a suspended tenant consumes nothing.
+      expect(decisions(q[:g][:organization_id])).to be_empty
+      expect(reservations(q[:g][:organization_id])).to be_empty
+    end
+
+    it "refuses a start whose (crawl_id, kind=initial) key is already taken as evaluation_creation_conflict" do
+      q = queued
+      # The key taken out of band while the Crawl is still queued — the only way to reach the
+      # contract's concurrent-altered-creation reason, since the handler otherwise creates the
+      # Evaluation in the same commit that leaves `queued`.
+      DbInspector.connection.exec_params(<<~SQL, [SecureRandom.uuid_v7, q[:g][:organization_id], q[:g][:project_id], q[:crawl_id]])
+        INSERT INTO evaluations (id, created_at, updated_at, correlation_id, organization_id, project_id, kind, crawl_id, state)
+        VALUES ($1::uuid, now(), now(), gen_random_uuid(), $2::uuid, $3::uuid, 'initial', $4::uuid, 'completed')
+      SQL
+      result = start(q[:crawl_id])
+      expect(result.failure.reason_code).to eq("evaluation_creation_conflict")
+      # A request rejection: no state change, no reservation, no second Evaluation.
+      expect(crawl_row(q[:crawl_id])["state"]).to eq("queued")
+      expect(evaluations_for(q[:g][:project_id]).size).to eq(1)
+      expect(reservations(q[:g][:organization_id])).to be_empty
     end
 
     it "fails the losing Crawl under the OD-018 guard when another initial Evaluation is in flight" do
@@ -419,7 +477,9 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       expect(result.failure.reason_code).to eq("initial_evaluation_already_running")
       expect(result.failure.recovery_action).to eq("await_running_initial_evaluation_or_submit_new_command")
       expect(crawl_row(second_id)["state"]).to eq("failed")
-      expect(crawl_row(second_id)["completion_reason"]).to eq("initial_evaluation_already_running")
+      expect(crawl_row(second_id)["completion_reason"]).to eq("failed")
+      expect(event_body(events("CrawlFailed", second_id).first["id"])["reason_code"])
+        .to eq("initial_evaluation_already_running")
       # Exactly one initial Evaluation, one reservation, one orchestration context for the Project.
       expect(evaluations_for(q[:g][:project_id]).size).to eq(1)
       expect(contexts_for(q[:g][:project_id]).size).to eq(1)

@@ -40,6 +40,14 @@ module IdentityAccess
         SQL
       end
 
+      # The Organization re-authorized at the start commit (SEARCH_CRAWL_RETRIEVAL.md § Crawl
+      # Admission And Snapshot step 1; WORKFLOW_SPECIFICATIONS.md :541 puts `organization_inactive`
+      # first in the entitlement precedence). Read under the entered context, so a nonexistent or
+      # foreign Organization returns nothing.
+      def organization(organization_id)
+        exec("SELECT id, status, authorization_epoch FROM organizations WHERE id = $1::uuid", [organization_id]).to_a.first
+      end
+
       def project(organization_id, project_id)
         exec("SELECT id, state, state_version, source_set_version FROM projects WHERE organization_id=$1::uuid AND id=$2::uuid",
              [organization_id, project_id]).to_a.first
@@ -65,11 +73,14 @@ module IdentityAccess
         SQL
       end
 
-      def active_entitlement_policy(organization_id)
-        exec(<<~SQL, [organization_id]).to_a.first
-          SELECT id, semantic_version FROM entitlement_policies
-          WHERE organization_id = $1::uuid AND status = 'active'
-          LIMIT 1
+      # The MTX-030 Evaluation key `(crawl_id, kind=initial)` already taken for THIS Crawl — the
+      # `evaluation_creation_conflict` predicate. (The entitlement-policy version is NOT read here:
+      # it is taken from the Decision that resolved it, so no second read can disagree with it.)
+      def initial_evaluation_for_crawl?(organization_id, project_id, crawl_id)
+        exec(<<~SQL, [organization_id, project_id, crawl_id]).to_a.first["n"].to_i.positive?
+          SELECT COUNT(*) AS n FROM evaluations
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND kind = 'initial'
+            AND crawl_id = $3::uuid
         SQL
       end
 
@@ -98,15 +109,24 @@ module IdentityAccess
         SQL
       end
 
-      # queued -> failed at the exact pre-execution gate (WORKFLOW_SPECIFICATIONS.md :734): no
-      # fetch, no provider side effect, no reservation and no Evaluation. `coverage_status` stays
-      # NULL — nothing was covered. Returns the affected row count.
-      def fail(id, expected_version, now, reason, decision_id)
-        params = [id, expected_version, iso(now), reason, decision_id]
+      # queued -> failed before execution: no fetch, no provider side effect, no reservation and no
+      # Evaluation. `coverage_status` stays NULL — nothing was covered.
+      #
+      # `completion_reason` is the CLOSED five-value CompletionReason enum
+      # (WORKFLOW_SPECIFICATIONS.md :456; API_CONTRACTS.md :956/:1005), so a pre-execution failure
+      # records exactly `failed`. The exact machine reason is retained where the contract puts it —
+      # the restricted audit record's `reason_code` and the `CrawlFailed` envelope — never in this
+      # column. `entitlement_decision_id` stays NULL: POSTGRESQL_SCHEMA.md :338 defines it as
+      # "entitlement Decision/reservation NULL until start", and this Crawl never started; the
+      # blocked Decision is carried in the audit record (MTX-030 audit_record "entitlement
+      # outcome"). Returns the affected row count.
+      COMPLETION_REASON_FAILED = "failed"
+
+      def fail(id, expected_version, now)
+        params = [id, expected_version, iso(now), COMPLETION_REASON_FAILED]
         exec(<<~SQL, params).cmd_tuples
           UPDATE crawls
           SET state = 'failed', terminal_at = $3::timestamptz, completion_reason = $4,
-              entitlement_decision_id = $5::uuid,
               state_version = state_version + 1, updated_at = $3::timestamptz
           WHERE id = $1::uuid AND state = 'queued' AND state_version = $2
         SQL

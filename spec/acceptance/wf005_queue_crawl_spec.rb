@@ -135,6 +135,20 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
   def crawl_sources_for(cid) = DbInspector.all("SELECT * FROM crawl_sources WHERE crawl_id = $1::uuid ORDER BY source_order", [cid])
   def events(type, aggregate_id) = DbInspector.all("SELECT * FROM event_registry WHERE event_type = $1 AND aggregate_id = $2::uuid", [type, aggregate_id])
 
+  # Drive the real S-07-003 StartCrawl from the persisted `crawl_dispatch` action QueueCrawl created.
+  def start_crawl(crawl_id, at: act_now + 30)
+    a = DbInspector.one("SELECT * FROM scheduled_actions WHERE action_kind = 'crawl_dispatch' AND target_id = $1::uuid", [crawl_id])
+    Workflows::Wf005::Handlers::StartCrawl.new.call(
+      command: Workflows::Wf005::Commands::StartCrawl.new(
+        command_id: SecureRandom.uuid_v7, schema_version: a["action_schema_version"],
+        organization_id: a["organization_id"], target_type: a["target_type"], crawl_id: a["target_id"],
+        due_at: Time.parse(a["due_at"]).getutc, action_id: a["id"],
+        action_identity_sha256: [a["identity_sha256"].sub(/\A\\x/, "")].pack("H*"), requested_at_utc: at),
+      request_context: Platform::RequestContext.for_service(
+        service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+        clock: Platform::Clock.fixed(at), ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7))
+  end
+
   def queue_crawl(g, project_id: nil, session: nil, key: "qc-#{SecureRandom.hex(6)}")
     Workflows::Wf005::Handlers::QueueCrawl.new.call(
       command: Workflows::Wf005::Commands::QueueCrawl.new(command_id: SecureRandom.uuid_v7, idempotency_key: key, schema_version: "1.0",
@@ -249,19 +263,20 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
   describe "OD-018 single-initial-orchestration guard" do
     it "refuses a second root request while an initial Evaluation is pending/running" do
       g = org_with_active_project
-      # StartCrawl (S-07-003) is the real producer of Evaluations; here we insert a pending initial
-      # Evaluation directly (BYPASSRLS) to exercise the queue-time OD-018 guard in isolation.
-      DbInspector.connection.exec_params(<<~SQL, [SecureRandom.uuid_v7, g[:organization_id], g[:project_id], SecureRandom.uuid_v7])
-        INSERT INTO evaluations (id, created_at, updated_at, correlation_id, organization_id, project_id, kind, crawl_id, state)
-        VALUES ($1::uuid, now(), now(), gen_random_uuid(), $2::uuid, $3::uuid, 'initial', $4::uuid, 'pending')
-      SQL
+      # S-07-003 built the real producer, so the in-flight Evaluation is now created by the real
+      # chain (QueueCrawl -> StartCrawl) rather than inserted by hand.
+      first = queue_crawl(g)
+      expect(first.success?).to be(true)
+      expect(start_crawl(first.payload[:crawl_id]).success?).to be(true)
+
       result = queue_crawl(g)
       expect(result.failure.reason_code).to eq("initial_evaluation_already_running")
       # MTX-030 error_contract / WORKFLOW_SPECIFICATIONS.md :734: this OD-018 warning carries the
       # await-the-running-Evaluation recovery, not the generic F1-DOMAIN-409 re-read default.
       expect(result.failure.recovery_action).to eq("await_running_initial_evaluation_or_submit_new_command")
       expect(result.failure.retryable).to be(false)
-      expect(crawls_for(g[:project_id])).to be_empty
+      # Only the first Crawl exists; the refused request created none.
+      expect(crawls_for(g[:project_id]).size).to eq(1)
     end
   end
 

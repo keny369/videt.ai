@@ -29,8 +29,23 @@ RSpec.describe "Crawl-queue invariants", type: :model do
     id
   end
 
-  def insert_evaluation(pid, kind: "initial", state: "pending", crawl_id: SecureRandom.uuid_v7, slot: false, organization_id: org)
+  # A real queued Crawl. S-07-003 added `evaluations_crawl_fk`, the three-column same-Project FK
+  # POSTGRESQL_SCHEMA.md :128 requires, so an Evaluation can no longer name a fabricated Crawl id.
+  def insert_crawl(pid, organization_id: org)
     id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, organization_id, pid])
+      INSERT INTO crawls
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+         requested_entitlement_policy_id, requested_entitlement_policy_version, trigger_kind, queued_at, state)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'root',
+              gen_random_uuid(),'entitlement-interim-v1','manual',now(),'queued')
+    SQL
+    id
+  end
+
+  def insert_evaluation(pid, kind: "initial", state: "pending", crawl_id: :fresh, slot: false, organization_id: org)
+    id = SecureRandom.uuid_v7
+    crawl_id = insert_crawl(pid, organization_id:) if crawl_id == :fresh
     conn.exec_params(<<~SQL, [id, organization_id, pid, kind, crawl_id, state, slot])
       INSERT INTO evaluations
         (id, created_at, updated_at, correlation_id, organization_id, project_id, kind, crawl_id, state, orchestration_slot_active)
@@ -67,7 +82,7 @@ RSpec.describe "Crawl-queue invariants", type: :model do
     it "permits at most one active orchestration slot per Project" do
       pid = draft_project
       insert_evaluation(pid, kind: "reassessment", slot: true)
-      expect { insert_evaluation(pid, kind: "retry", slot: true, crawl_id: SecureRandom.uuid_v7) }
+      expect { insert_evaluation(pid, kind: "retry", slot: true, crawl_id: :fresh) }
         .to raise_error(PG::UniqueViolation, /evaluations_orchestration_slot_unique/)
     end
 
@@ -78,7 +93,7 @@ RSpec.describe "Crawl-queue invariants", type: :model do
 
     it "permits at most one initial Evaluation per Crawl" do
       pid = draft_project
-      cid = SecureRandom.uuid_v7
+      cid = insert_crawl(pid)
       insert_evaluation(pid, kind: "initial", crawl_id: cid)
       expect { insert_evaluation(pid, kind: "initial", crawl_id: cid) }
         .to raise_error(PG::UniqueViolation, /evaluations_initial_per_crawl_unique/)
@@ -90,20 +105,20 @@ RSpec.describe "Crawl-queue invariants", type: :model do
     # admissible (WORKFLOW_SPECIFICATIONS.md :725).
     it "permits at most one pending-or-running initial Evaluation per Project, across Crawls" do
       pid = draft_project
-      insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "pending")
-      expect { insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "running") }
+      insert_evaluation(pid, kind: "initial", crawl_id: :fresh, state: "pending")
+      expect { insert_evaluation(pid, kind: "initial", crawl_id: :fresh, state: "running") }
         .to raise_error(PG::UniqueViolation, /evaluations_initial_single_flight_unique/)
     end
 
     it "allows a new initial Evaluation once the prior one is terminal (a root recovery stays admissible)" do
       pid = draft_project
-      insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "failed")
-      expect { insert_evaluation(pid, kind: "initial", crawl_id: SecureRandom.uuid_v7, state: "pending") }.not_to raise_error
+      insert_evaluation(pid, kind: "initial", crawl_id: :fresh, state: "failed")
+      expect { insert_evaluation(pid, kind: "initial", crawl_id: :fresh, state: "pending") }.not_to raise_error
     end
 
     it "does not constrain initial Evaluations across different Projects" do
-      insert_evaluation(draft_project, kind: "initial", crawl_id: SecureRandom.uuid_v7)
-      expect { insert_evaluation(draft_project, kind: "initial", crawl_id: SecureRandom.uuid_v7) }.not_to raise_error
+      insert_evaluation(draft_project, kind: "initial", crawl_id: :fresh)
+      expect { insert_evaluation(draft_project, kind: "initial", crawl_id: :fresh) }.not_to raise_error
     end
 
     it "requires an initial Evaluation to carry its crawl_id (closes the NULL-crawl_id backstop hole)" do

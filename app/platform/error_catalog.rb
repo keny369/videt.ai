@@ -283,10 +283,19 @@ module Platform
       # crawl_policy_unavailable above and the three Entitlement Block reasons below, each of which
       # becomes the failed Crawl's `completion_reason` (WORKFLOW_SPECIFICATIONS.md :734).
       "crawl_not_queued"                  => "F1-DOMAIN-409",
-      # The `entitlement-interim-v1` Block reasons (WORKFLOW_SPECIFICATIONS.md :519/:541), returned
-      # verbatim by Platform::Entitlement::InterimPolicy. `operation_unknown` is unreachable for the
-      # constant `crawl.start`, and is mapped so no Block reason the F-05 surface can return is
-      # unmapped. Their recovery actions are the ratified entitlement ones, not the class default.
+      # The Organization re-authorized at the start commit. A distinct code from the WF-001 sign-in
+      # `organization_inactive` above, so the entitlement recovery mandated for this condition
+      # (:541 "Organization -> reactivate_organization") does not disturb the sign-in mapping.
+      "crawl_organization_not_active"     => "F1-DOMAIN-409",
+      # MTX-030 idempotency/error_contract: concurrent altered creation of the pending Evaluation
+      # keyed by (crawl_id, kind=initial). A request rejection — it changes no state.
+      "evaluation_creation_conflict"      => "F1-DOMAIN-409",
+      # The `entitlement-interim-v1` Block reasons (WORKFLOW_SPECIFICATIONS.md :519/:541). Only
+      # `hard_limit_exceeded` comes from `InterimPolicy.classify`; `entitlement_inactive` and
+      # `operation_unknown` are the short-circuit reasons in `Entitlement::Service#reserve`.
+      # `operation_unknown` is unreachable for the constant `crawl.start`, and is mapped so no Block
+      # reason the F-05 surface can return is unmapped. Their recovery actions are the ratified
+      # entitlement ones, not the class default.
       "hard_limit_exceeded"               => "F1-DOMAIN-409",
       "entitlement_inactive"              => "F1-DOMAIN-409",
       "operation_unknown"                 => "F1-DOMAIN-409",
@@ -314,8 +323,9 @@ module Platform
     REASON_RECOVERY = {
       "initial_evaluation_already_running" => "await_running_initial_evaluation_or_submit_new_command",
       "hard_limit_exceeded"                => "wait_for_window",
-      "entitlement_inactive"               => "restore_policy",
-      "operation_unknown"                  => "contact_support"
+      "entitlement_inactive"               => "upgrade_plan",
+      "operation_unknown"                  => "contact_support",
+      "crawl_organization_not_active"      => "reactivate_organization"
     }.freeze
 
     def failure(reason_code, support_reference:)

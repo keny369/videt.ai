@@ -79,18 +79,28 @@ module Workflows
             org = command.organization_id
 
             store.enter_org_context(org:, correlation_id: ctx.correlation_id)
-            process(store:, entitlement: Platform::Entitlement::Service.new(pg),
+            # An action naming an Organization that does not exist is a transport-integrity
+            # deviation, not a domain outcome: fail closed BEFORE any ledger row is written, so a
+            # forged/ghost organization_id cannot mint audit, execution or result records under it.
+            organization = store.organization(org)
+            next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if organization.nil?
+
+            process(store:, entitlement: Platform::Entitlement::Service.new(pg), organization:,
                     command:, ctx:, org:, now:, key_digest:)
           end
         end
 
         private
 
-        def process(store:, entitlement:, command:, ctx:, org:, now:, key_digest:)
+        def process(store:, entitlement:, organization:, command:, ctx:, org:, now:, key_digest:)
           request_sha256 = request_hash(command, ctx)
           d = { store:, entitlement:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
 
-          # First read resolves the Project for the lock; then lock and re-read authoritatively.
+          # First read resolves the Project for the lock; then lock and re-read authoritatively. This
+          # pre-lock read decides only `mismatch`, which cannot go stale: `f1_crawls_guard` refuses
+          # DELETE and freezes `project_id`/`kind`, and the `crawl_dispatch` action commits in the
+          # SAME transaction as its Crawl, so a dispatch can never be delivered before its Crawl row
+          # is visible. Every outcome-bearing read below is taken again under the lock.
           crawl = store.crawl(org, command.crawl_id)
           return mismatch(d) if crawl.nil? || crawl["kind"] != "root"
 
@@ -106,6 +116,10 @@ module Workflows
           if existing
             return rebuild(store, existing, command) if existing["request_hex"] == hex(request_sha256)
 
+            # Not replayable, and safe to be so: `request_hash` is a pure function of the action
+            # identity that keys the record, so a digest mismatch under the same key cannot arise
+            # from this handler. The two transport denials below are likewise non-replayable because
+            # `Worker::QUARANTINE_REASONS` makes them terminal — they are never redelivered.
             return deny(**d, crawl:, outward: "idempotency_conflict", internal: "idempotency_conflict", replayable: false)
           end
 
@@ -120,15 +134,32 @@ module Workflows
             return deny(**d, crawl:, outward: "crawl_not_queued", internal: "crawl_not_queued")
           end
 
-          gate(d, crawl)
+          gate(d, crawl, organization)
         end
 
         # The pre-execution gate in first-match order. Each failure transitions the queued Crawl to
-        # `failed` with its exact reason (WORKFLOW_SPECIFICATIONS.md :734) and reserves nothing.
-        def gate(d, crawl)
+        # `failed` and reserves nothing. Authority for that disposition is MTX-030 `terminal_failure`
+        # ("a nonrecoverable policy or integrity error ... before useful output") and CAP-007, EXCEPT
+        # for the entitlement limb, which is :734's "current-policy or Entitlement Block before
+        # start". :736 closes the transition set to Running / Failed / Canceled, and `Canceled`
+        # requires a `CancelCrawl` command holding `crawl.cancel`, so it is unavailable to a service
+        # dispatch; leaving the Crawl `queued` would strand it (its one `crawl_dispatch` action is
+        # consumed). `crawl.recover` then creates a NEW linked attempt (:735), which is the correct
+        # customer affordance for every reason below.
+        #
+        # Organization first: WORKFLOW_SPECIFICATIONS.md :541 fixes `organization_inactive` as the
+        # highest-precedence entitlement short circuit, and SEARCH_CRAWL_RETRIEVAL.md § Crawl
+        # Admission And Snapshot step 1 names the Organization first in "reauthorizes current
+        # Organization/Project/Source state". Without it a suspended tenant — every Session revoked —
+        # would still start protected work and burn a metered `crawl.start` unit on queue-time
+        # authority, which MTX-030 `authorization_entry_point` forbids in terms ("an authorization
+        # ... established at queue time is never trusted at execution time").
+        def gate(d, crawl, organization)
           store = d[:store]
           org = d[:org]
           pid = crawl["project_id"]
+
+          return fail_crawl(d, crawl, "crawl_organization_not_active") unless organization["status"] == "active"
 
           project = store.project(org, pid)
           return fail_crawl(d, crawl, "crawl_project_not_active") unless project && project["state"] == "active"
@@ -136,30 +167,56 @@ module Workflows
           if store.initial_evaluation_elsewhere?(org, pid, crawl["id"])
             return fail_crawl(d, crawl, "initial_evaluation_already_running")
           end
+          # MTX-030 idempotency/error_contract: the pending Evaluation is keyed by
+          # `(crawl_id, kind=initial)` and a concurrent ALTERED creation is
+          # `evaluation_creation_conflict` — a REQUEST REJECTION, so it changes no state and is
+          # checked here, before anything is reserved or transitioned. Unreachable through the
+          # per-Project lock plus the `crawl_not_queued` guard (this handler creates the Evaluation
+          # in the same commit that leaves `queued`), and doubly backstopped by
+          # `evaluations_initial_per_crawl_unique`; checked explicitly so the contract's reason is
+          # returned cleanly rather than the transaction aborting on a raw unique violation.
+          if store.initial_evaluation_for_crawl?(org, pid, crawl["id"])
+            return deny(**d, crawl:, outward: "evaluation_creation_conflict",
+                        internal: "evaluation_creation_conflict")
+          end
 
           policy = resolve_crawl_policy(store, org, pid)
           return fail_crawl(d, crawl, "crawl_policy_unavailable") if policy.nil?
 
           decision = reserve(d, crawl)
-          return fail_crawl(d, crawl, decision.reason_code, decision_id: decision.decision_id) if decision.blocked?
+          if decision.blocked?
+            return fail_crawl(d, crawl, decision.reason_code, decision_id: decision.decision_id)
+          end
 
-          # The reservation proves an active Entitlement Policy resolved (a missing one is the
-          # `entitlement_inactive` Block above), so this read cannot be nil.
-          accept(d, crawl, policy, decision, store.active_entitlement_policy(org))
+          accept(d, crawl, policy, decision)
         end
 
         # The CURRENT effective bounds: the most restrictive of the frozen global ceiling and every
-        # active Organization/Project crawl policy. Returns { version:, bounds: } or nil when a
-        # stored policy is malformed (a current-policy Block — nothing is guessed at).
+        # active Organization/Project crawl policy. Returns { version:, versions:, bounds: }, or nil
+        # when a stored policy is malformed — the ":734 current-policy Block". That is defence in
+        # depth, not a live path: the sole writer (ActivateCrawlPolicy) already refuses an
+        # incomplete or soft-above-hard candidate (`crawl_policy_incomplete` /
+        # `crawl_policy_soft_exceeds_hard`), so nothing here is ever guessed at.
+        #
+        # `version` labels the run with the MOST SPECIFIC active policy (Project else Organization
+        # else the frozen ceiling) — `crawl_policies_active_unique` admits at most one active row per
+        # scope, so `rows` is at most [organization, project] and `last` is deterministic. The
+        # effective bounds can nevertheless be a per-dimension MIX of both, which no single version
+        # names, so `versions` carries every contributing version and the caller records the resolved
+        # bounds themselves in the audit record (WF-005 Audit: "all policy versions and effective
+        # limits").
         def resolve_crawl_policy(store, org, project_id)
           rows = store.active_crawl_policies(org, project_id)
           sets = rows.map { |r| JSON.parse(r["normalized_bounds"]) }
           return nil unless sets.all? { |s| Wf005::CrawlPolicy.complete?(s) }
 
           bounds = Wf005::CrawlPolicy.most_restrictive(Wf005::CrawlPolicy::GLOBAL_CEILING, *sets)
-          return nil unless Wf005::CrawlPolicy.complete?(bounds) && Wf005::CrawlPolicy.soft_le_hard?(bounds)
+          # `complete?` is guaranteed by construction from complete inputs; soft <= hard is not
+          # (a stored set may carry soft > hard on a dimension), so it is the load-bearing check.
+          return nil unless Wf005::CrawlPolicy.soft_le_hard?(bounds)
 
-          { version: rows.last&.fetch("policy_version") || Wf005::CrawlPolicy::GLOBAL_VERSION, bounds: }
+          versions = [Wf005::CrawlPolicy::GLOBAL_VERSION] + rows.map { |r| r["policy_version"] }
+          { version: versions.last, versions:, bounds: }
         end
 
         # The atomic root `crawl.start` Decision + reservation (F-05, entitlement-interim-v1).
@@ -176,7 +233,7 @@ module Workflows
 
         # ---- accepted start ------------------------------------------------------
 
-        def accept(d, crawl, policy, decision, entitlement_policy)
+        def accept(d, crawl, policy, decision)
           store = d[:store]
           ctx = d[:ctx]
           org = d[:org]
@@ -201,7 +258,9 @@ module Workflows
           store.insert_orchestration_context(
             id: ids[:context], now:, correlation_id: ctx.correlation_id, organization_id: org, project_id: pid,
             evaluation_id: ids[:evaluation], crawl_id: crawl["id"], crawl_policy_version: policy[:version],
-            entitlement_policy_version: entitlement_policy && entitlement_policy["semantic_version"],
+            # The version the Decision itself resolved and stamped — never a second read, so the
+            # Decision row, this context and the event can never name different resolutions.
+            entitlement_policy_version: decision.policy_version,
             root_entitlement_decision_id: decision.decision_id,
             root_entitlement_reservation_id: decision.reservation_id,
             publication_preconditions: {}
@@ -215,13 +274,19 @@ module Workflows
             "entitlement_reservation_id" => decision.reservation_id,
             "entitlement_decision" => decision.decision
           }
+          # WF-005 Audit and Observability requires "all policy versions AND effective limits". The
+          # resolved bounds are a per-dimension minimum that no single policy version labels, so the
+          # audit record carries the contributing versions and the effective limits themselves.
           write_audit(store, ids[:audit], org, ctx, command, crawl["id"], to_state: "running", outcome: "success",
-                      reason_code: decision.warning? ? decision.reason_code : nil, payload:, now:)
+                      reason_code: decision.warning? ? decision.reason_code : nil, now:,
+                      payload: payload.merge("entitlement_policy_version" => decision.policy_version,
+                                             "contributing_crawl_policy_versions" => policy[:versions],
+                                             "effective_crawl_policy_bounds" => policy[:bounds]))
           write_event(store, ids[:crawl_event], ids[:audit], org, ctx, command, now, new_version, pid,
                       d[:request_sha256], d[:key_digest], "CrawlStarted", "state_transition", TARGET_TYPE, crawl["id"],
                       { "from_state" => "queued", "to_state" => "running", "crawl_id" => crawl["id"],
                         "crawl_policy_version" => policy[:version],
-                        "entitlement_policy_version" => crawl["requested_entitlement_policy_version"],
+                        "entitlement_policy_version" => decision.policy_version,
                         "deadline_at_utc" => deadline.iso8601(6) })
           write_event(store, ids[:evaluation_event], ids[:audit], org, ctx, command, now, 0, pid,
                       d[:request_sha256], d[:key_digest], "EvaluationPending", "created", "evaluation", ids[:evaluation],
@@ -240,8 +305,13 @@ module Workflows
 
         # ---- the pre-execution gate failure --------------------------------------
 
-        # queued -> failed with its exact reason, no side effect. A blocked Entitlement Decision is
-        # already durable (F-05 wrote it) and is bound to the Crawl here; no reservation exists.
+        # queued -> failed, no side effect. `completion_reason` is the closed CompletionReason enum
+        # member `failed` (WORKFLOW_SPECIFICATIONS.md :456); the exact machine reason is retained in
+        # the restricted audit record and on the `CrawlFailed` envelope, which is where :734's "its
+        # exact reason" and MTX-030 `audit_record` put it. A blocked Entitlement Decision is already
+        # durable (F-05 wrote it) and is named in the audit payload — not on the Crawl row, whose
+        # entitlement columns are "NULL until start" (POSTGRESQL_SCHEMA.md :338) and this Crawl
+        # never started. No reservation exists.
         def fail_crawl(d, crawl, reason, decision_id: nil)
           store = d[:store]
           ctx = d[:ctx]
@@ -252,10 +322,11 @@ module Workflows
           new_version = crawl["state_version"].to_i + 1
 
           write_execution(store, command, ctx, org, ids[:execution], d[:request_sha256], d[:key_digest], now)
-          raise LostRace if store.fail(crawl["id"], crawl["state_version"].to_i, now, reason, decision_id).to_i.zero?
+          raise LostRace if store.fail(crawl["id"], crawl["state_version"].to_i, now).to_i.zero?
 
           payload = { "crawl_id" => crawl["id"], "organization_id" => org, "project_id" => crawl["project_id"],
-                      "state" => "failed", "completion_reason" => reason,
+                      "state" => "failed", "reason_code" => reason,
+                      "completion_reason" => IdentityAccess::Infrastructure::CrawlStartStore::COMPLETION_REASON_FAILED,
                       "entitlement_decision_id" => decision_id }
           write_audit(store, ids[:audit], org, ctx, command, crawl["id"], to_state: "failed", outcome: "failure",
                       reason_code: reason, payload:, now:)
@@ -281,8 +352,10 @@ module Workflows
                internal: "scheduled_action_target_mismatch", replayable: false)
         end
 
-        def deny(store:, entitlement:, command:, ctx:, org:, now:, key_digest:, request_sha256:, crawl:,
-                 outward:, internal:, replayable: true)
+        # `**_rest` absorbs the context keys the callers splat in (`entitlement:`) that an audited
+        # no-state outcome has no use for, so no parameter is declared and left dead.
+        def deny(store:, command:, ctx:, org:, now:, key_digest:, request_sha256:, crawl:,
+                 outward:, internal:, replayable: true, **_rest)
           ids = %i[execution audit result idem].to_h { |k| [k, ctx.generate_id] }
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
           write_audit(store, ids[:audit], org, ctx, command, command.crawl_id, to_state: nil, outcome: "failure",

@@ -160,6 +160,54 @@ RSpec.describe "Crawl-start invariants", type: :model do
     end
   end
 
+  # S-07-003 review hardening (migration 20260727120160). POSTGRESQL_SCHEMA.md :128 requires every
+  # Project-owned child-to-parent FK to carry all three of (organization_id, project_id, id) —
+  # "these constraints, rather than a separate Project lookup or application assertion, prevent a
+  # same-Organization cross-Project child link". The 1/n migration made the Evaluation limb
+  # two-column, which admitted exactly that link.
+  describe "the composite Project foreign keys" do
+    it "rejects an orchestration context naming an Evaluation from another Project of the SAME Organization" do
+      p1 = draft_project
+      p2 = draft_project
+      c1 = insert_crawl(p1)
+      e2 = insert_evaluation(p2, insert_crawl(p2))
+      expect { insert_context(p1, c1, e2, insert_decision) }
+        .to raise_error(PG::ForeignKeyViolation, /evaluation_orchestration_contexts_evaluation_fk/)
+    end
+
+    it "rejects an Evaluation naming a Crawl from another Project of the same Organization" do
+      p1 = draft_project
+      foreign_crawl = insert_crawl(draft_project)
+      expect { insert_evaluation(p1, foreign_crawl) }
+        .to raise_error(PG::ForeignKeyViolation, /evaluations_crawl_fk/)
+    end
+
+    it "rejects a Crawl naming another Organization's entitlement Decision or reservation" do
+      rival = TenantSeeder.create_organization(display_name: "Rival")
+      their_decision = insert_decision(organization_id: rival)
+      cid = insert_crawl(draft_project)
+      expect { conn.exec_params("UPDATE crawls SET state='running', started_at=now(), entitlement_decision_id=$2::uuid WHERE id=$1::uuid", [cid, their_decision]) }
+        .to raise_error(PG::ForeignKeyViolation, /crawls_entitlement_decision_fk/)
+      expect { conn.exec_params("UPDATE crawls SET state='running', started_at=now(), entitlement_reservation_id=$2::uuid WHERE id=$1::uuid", [cid, SecureRandom.uuid_v7]) }
+        .to raise_error(PG::ForeignKeyViolation, /crawls_entitlement_reservation_fk/)
+    end
+  end
+
+  describe "the closed CompletionReason enum" do
+    # WORKFLOW_SPECIFICATIONS.md :456; API_CONTRACTS.md :956/:1005 repeat it for the crawl_terminal
+    # event schema and the WF-014 notification context.
+    it "admits exactly the five ratified values and refuses a machine reason code" do
+      %w[completed limit_reached partial_source_failure canceled failed].each do |reason|
+        cid = insert_crawl(draft_project)
+        expect { conn.exec_params("UPDATE crawls SET state='failed', terminal_at=now(), completion_reason=$2 WHERE id=$1::uuid", [cid, reason]) }
+          .not_to raise_error
+      end
+      cid = insert_crawl(draft_project)
+      expect { conn.exec_params("UPDATE crawls SET state='failed', terminal_at=now(), completion_reason='hard_limit_exceeded' WHERE id=$1::uuid", [cid]) }
+        .to raise_error(PG::CheckViolation, /crawls_completion_reason_check/)
+    end
+  end
+
   describe "the exact Crawl state edges the guard permits after S-07-003" do
     it "permits queued -> running and queued -> failed" do
       pid = draft_project
@@ -167,7 +215,7 @@ RSpec.describe "Crawl-start invariants", type: :model do
       expect { conn.exec_params("UPDATE crawls SET state = 'running', started_at = now() WHERE id = $1::uuid", [running]) }
         .not_to raise_error
       failed = insert_crawl(pid)
-      expect { conn.exec_params("UPDATE crawls SET state = 'failed', terminal_at = now(), completion_reason = 'hard_limit_exceeded' WHERE id = $1::uuid", [failed]) }
+      expect { conn.exec_params("UPDATE crawls SET state = 'failed', terminal_at = now(), completion_reason = 'failed' WHERE id = $1::uuid", [failed]) }
         .not_to raise_error
     end
 

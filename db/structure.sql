@@ -1883,6 +1883,7 @@ CREATE TABLE public.crawls (
     recovery_generation bigint DEFAULT 0 NOT NULL,
     recovery_of_id uuid,
     idempotency_key_digest bytea,
+    CONSTRAINT crawls_completion_reason_check CHECK (((completion_reason IS NULL) OR (completion_reason = ANY (ARRAY['completed'::text, 'limit_reached'::text, 'partial_source_failure'::text, 'canceled'::text, 'failed'::text])))),
     CONSTRAINT crawls_coverage_status_check CHECK ((coverage_status = ANY (ARRAY['full'::text, 'partial'::text]))),
     CONSTRAINT crawls_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
     CONSTRAINT crawls_kind_check CHECK ((kind = ANY (ARRAY['root'::text, 'reassessment_child'::text]))),
@@ -3311,6 +3312,14 @@ ALTER TABLE ONLY public.evaluations
 
 
 --
+-- Name: evaluations evaluations_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluations
+    ADD CONSTRAINT evaluations_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
 -- Name: evaluations evaluations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4177,6 +4186,22 @@ ALTER TABLE ONLY public.crawl_sources
 
 
 --
+-- Name: crawls crawls_entitlement_decision_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawls
+    ADD CONSTRAINT crawls_entitlement_decision_fk FOREIGN KEY (organization_id, entitlement_decision_id) REFERENCES public.entitlement_decisions(organization_id, id);
+
+
+--
+-- Name: crawls crawls_entitlement_reservation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawls
+    ADD CONSTRAINT crawls_entitlement_reservation_fk FOREIGN KEY (organization_id, entitlement_reservation_id) REFERENCES public.entitlement_reservations(organization_id, id);
+
+
+--
 -- Name: crawls crawls_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4277,7 +4302,15 @@ ALTER TABLE ONLY public.evaluation_orchestration_contexts
 --
 
 ALTER TABLE ONLY public.evaluation_orchestration_contexts
-    ADD CONSTRAINT evaluation_orchestration_contexts_evaluation_fk FOREIGN KEY (organization_id, evaluation_id) REFERENCES public.evaluations(organization_id, id);
+    ADD CONSTRAINT evaluation_orchestration_contexts_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_prior_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_prior_evaluation_fk FOREIGN KEY (organization_id, project_id, prior_evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
 
 
 --
@@ -4286,6 +4319,22 @@ ALTER TABLE ONLY public.evaluation_orchestration_contexts
 
 ALTER TABLE ONLY public.evaluation_orchestration_contexts
     ADD CONSTRAINT evaluation_orchestration_contexts_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_reservation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_orchestration_contexts
+    ADD CONSTRAINT evaluation_orchestration_contexts_reservation_fk FOREIGN KEY (organization_id, root_entitlement_reservation_id) REFERENCES public.entitlement_reservations(organization_id, id);
+
+
+--
+-- Name: evaluations evaluations_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluations
+    ADD CONSTRAINT evaluations_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
 
 
 --
@@ -4933,6 +4982,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120160'),
 ('20260727120150'),
 ('20260727120140'),
 ('20260727120130'),

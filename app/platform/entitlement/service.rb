@@ -13,12 +13,25 @@ module Platform
     # allow/warn/block decision is `Platform::Entitlement::InterimPolicy.classify`; concurrent decisions
     # serialize on the counter window (:549); a reservation lives reserved -> executing ->
     # committed/released, or reserved -> expired at prestart, or executing -> released at lease expiry.
+    #
+    # LOCK ORDER (binding on every consumer). This surface takes the per-(Organization, counter
+    # group, UTC day) window lock, and then the per-reservation row lock. A consumer MUST acquire its
+    # own aggregate lock BEFORE calling in — never the reverse — so that two consumers of the shared
+    # counter can never form an ABBA cycle. S-07-003 StartCrawl holds the per-Project
+    # `crawl-queue:<org>:<project>` lock across its `reserve`, which is the reference ordering.
+    # A consequence worth knowing: every high-cost start for one Organization and operation
+    # serializes for the duration of the caller's transaction. That is the contract's intent (:549)
+    # and it fails closed — a contended lock hitting `statement_timeout` rolls the whole transaction
+    # back, so no partial reservation survives.
     class Service
       # Immutable result of a decision: whether the action is allowed, the reason/recovery, and the
       # durable Decision/reservation/window ids + post-decision counters the consumer records/emits.
+      # `policy_version` is the entitlement-policy version THIS decision resolved and stamped on the
+      # durable Decision row. The consumer records that value rather than re-reading the policy, so
+      # its own records can never name a different resolution than the Decision does.
       Decision = Data.define(:decision, :reason_code, :recovery_action, :decision_id, :reservation_id,
                              :counter_window_id, :soft_limit, :hard_limit, :committed_after,
-                             :active_reserved_after, :lease_due) do
+                             :active_reserved_after, :lease_due, :policy_version) do
         def allowed? = %w[allow allow_with_warning].include?(decision)
         def blocked? = decision == "block"
         def warning? = decision == "allow_with_warning"
@@ -45,7 +58,11 @@ module Platform
           return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
                                ids:, idempotency_key_digest:, retry_of_decision_id:,
                                usage_unit: rule ? rule[:usage_unit] : "unknown",
-                               reason: "entitlement_inactive", recovery: "restore_policy")
+                               # WORKFLOW :541 fixes the mapping: "inactive entitlement -> upgrade_plan"
+                               # (`restore_policy` is :541's recovery for policy/cached-policy, a
+                               # different reason code). Corrected under the S-07-003 ADR-026 review,
+                               # which is where the pairing first reaches an outward command result.
+                               reason: "entitlement_inactive", recovery: "upgrade_plan")
         end
         if rule.nil?
           return short_circuit(operation:, organization_id:, subject:, requested_units:, correlation_id:, now:,
@@ -86,7 +103,7 @@ module Platform
                      decision_id: ids[:decision], reservation_id:, counter_window_id: win["id"],
                      soft_limit: rule[:soft], hard_limit: rule[:hard], committed_after: committed,
                      active_reserved_after: allowed ? reserved + requested_units : reserved,
-                     lease_due: allowed ? lease_due : nil)
+                     lease_due: allowed ? lease_due : nil, policy_version: policy["semantic_version"])
       end
 
       # reserved -> executing at the first side effect. At/after prestart expiry, start loses to expiry.
@@ -222,7 +239,8 @@ module Platform
           decision: "block", reason_code: reason, recovery_action: recovery)
         Decision.new(decision: "block", reason_code: reason, recovery_action: recovery, decision_id: ids[:decision],
                      reservation_id: nil, counter_window_id: nil, soft_limit: nil, hard_limit: nil,
-                     committed_after: nil, active_reserved_after: nil, lease_due: nil)
+                     committed_after: nil, active_reserved_after: nil, lease_due: nil,
+                     policy_version: InterimPolicy::VERSION)
       end
     end
   end
