@@ -243,15 +243,19 @@ RSpec.describe "WF-002 create project", type: :acceptance,
   end
 
   describe "no activation and no Source subsystem in this tranche" do
-    it "leaves the created Project draft and refuses any state transition at the database" do
+    it "leaves the created Project draft; pause/archive remain refused at the database (OD-014)" do
       g = genesis
       pid = create(session_id: g[:session_id], organization_id: g[:organization_id],
                    profile: reason_profile).payload[:project_id]
       expect(project(pid)["state"]).to eq("draft")
 
-      expect do
-        DbInspector.connection.exec_params("UPDATE projects SET state = 'active' WHERE id = $1::uuid", [pid])
-      end.to raise_error(PG::RaiseException, /project_lifecycle_transition_unavailable/)
+      # S-03 permits the draft->active edge (gated by the ActivateProject handler on an active
+      # Source); CreateProject itself performs no transition, and pause/archive stay refused.
+      %w[paused archived].each do |state|
+        expect do
+          DbInspector.connection.exec_params("UPDATE projects SET state = $2 WHERE id = $1::uuid", [pid, state])
+        end.to raise_error(PG::RaiseException, /project_lifecycle_transition_unavailable/)
+      end
       expect(project(pid)["state"]).to eq("draft")
     end
 

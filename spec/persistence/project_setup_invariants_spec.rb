@@ -50,13 +50,20 @@ RSpec.describe "Project setup invariants", type: :model do
   end
 
   describe "the projects lifecycle guard" do
-    it "refuses any state transition while activation is unavailable (OD-014 / no Source subsystem)" do
+    it "permits the draft -> active edge (S-03) and still refuses pause/archive (OD-014)" do
       id = insert_draft
-      %w[active paused archived].each do |state|
-        expect { conn.exec_params("UPDATE projects SET state = $2 WHERE id = $1::uuid", [id, state]) }
+      expect { conn.exec_params("UPDATE projects SET state = 'active' WHERE id = $1::uuid", [id]) }
+        .not_to raise_error
+      expect(DbInspector.one("SELECT state FROM projects WHERE id = $1::uuid", [id])["state"]).to eq("active")
+
+      other = insert_draft
+      %w[paused archived].each do |state|
+        expect { conn.exec_params("UPDATE projects SET state = $2 WHERE id = $1::uuid", [other, state]) }
           .to raise_error(PG::RaiseException, /project_lifecycle_transition_unavailable/)
       end
-      expect(DbInspector.one("SELECT state FROM projects WHERE id = $1::uuid", [id])["state"]).to eq("draft")
+      # And no reverse/other edge from active (e.g. active -> draft) is permitted.
+      expect { conn.exec_params("UPDATE projects SET state = 'draft' WHERE id = $1::uuid", [id]) }
+        .to raise_error(PG::RaiseException, /project_lifecycle_transition_unavailable/)
     end
 
     it "keeps the Project's Organization identity immutable" do

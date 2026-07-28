@@ -35,6 +35,38 @@ module IdentityAccess
         exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["organization:#{organization_id}"])
       end
 
+      # Serialize ActivateProject for one Project so the draft->active transition and its
+      # active-Source/version reads are consistent (S-03).
+      def lock_project(organization_id, project_id)
+        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["project-activate:#{organization_id}:#{project_id}"])
+      end
+
+      # The Project in the proved Organization context (a not-found Project is invisible under
+      # RLS and is a tenant boundary failure for the handler).
+      def project(organization_id, project_id)
+        exec("SELECT id, state, state_version, source_set_version FROM projects WHERE organization_id=$1::uuid AND id=$2::uuid",
+             [organization_id, project_id]).to_a.first
+      end
+
+      # The count of active (lifecycle state 'active') Sources belonging to the Project — the
+      # activation prerequisite (>=1 active same-Project Source; CAP-003/PRULE-004).
+      def active_source_count(organization_id, project_id)
+        exec(<<~SQL, [organization_id, project_id]).to_a.first["n"].to_i
+          SELECT COUNT(*) AS n FROM sources
+          WHERE organization_id=$1::uuid AND project_id=$2::uuid AND state='active'
+        SQL
+      end
+
+      # Transition the Project draft -> active exactly once, guarded on the expected state
+      # version AND state='draft'; returns the row count.
+      def activate_project(organization_id, project_id, expected_state_version, now)
+        exec(<<~SQL, [organization_id, project_id, expected_state_version, iso(now)]).cmd_tuples
+          UPDATE projects
+          SET state='active', state_version=state_version+1, updated_at=$4::timestamptz
+          WHERE organization_id=$1::uuid AND id=$2::uuid AND state='draft' AND state_version=$3
+        SQL
+      end
+
       # The exact normalized Organization display name, read in the proved context
       # for the Local Business Profile business-name cross-check.
       def organization_display_name(organization_id)

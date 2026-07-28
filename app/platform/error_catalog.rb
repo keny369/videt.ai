@@ -156,6 +156,14 @@ module Platform
       "project_local_profile_invalid"     => "F1-VALIDATION-400",
       "project_objective_unsupported"     => "F1-VALIDATION-400",
       "project_create_unauthorized"       => "F1-AUTH-403",
+      # S-03 ActivateProject (WF-002 / contracts/S-03.json MTX-027 activation limb). Authority ->
+      # F1-AUTH-403; state/race -> F1-DOMAIN-409; transaction dependency -> F1-DEPENDENCY-503.
+      # `stale_state_version`, `tenant_mismatch`, `idempotency_conflict` reused from above.
+      "project_activate_unauthorized"     => "F1-AUTH-403",
+      "project_not_draft"                 => "F1-DOMAIN-409",
+      "active_source_required"            => "F1-DOMAIN-409",
+      "source_membership_changed"         => "F1-DOMAIN-409",
+      "activation_transaction_unavailable" => "F1-DEPENDENCY-503",
       "tenant_mismatch"                   => "F1-AUTH-403",
       # S-04 Source registration (WF-004 / CAP-004, contracts/S-04.json MTX-004
       # error_contract). Class mapping: schema/URI/host reasons -> F1-VALIDATION-400;

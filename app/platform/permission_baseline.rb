@@ -42,12 +42,17 @@ module Platform
       # ":140 `project.create` | allow | allow | deny | deny |" (WF-002 actors are
       # Organization Administrator and Marketing Operator). It is NOT a protected
       # permission (:333 omits it), so the baseline allow is sufficient and no
-      # protected-allowlist gate applies. `project.activate` is the ONLY other
-      # Project permission Volume I defines; it is deliberately absent here because
-      # the WF-002 activation limb (S-03 activate) is not built in this slice — its
-      # draft->active transition is gated on an active same-Project Source owned by
-      # S-04/S-05/S-06 — and this table carries only rows a build consumes.
+      # protected-allowlist gate applies. `project.activate` (materialized below) is the ONLY
+      # other Project permission Volume I defines, and holding `project.create` never implies it
+      # (S-03.json MTX-027 actor / WF-002 Security Notes).
       "project.create" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # CAP-003 / WF-002 Project activation (S-03; contracts/S-03.json MTX-027; owner D3,
+      # DECISIONS ADR-072). `project.activate` (WORKFLOW_SPECIFICATIONS.md § Permission Baseline
+      # :143 "allow | allow | deny | deny | deny | deny | deny"): an OrganizationAdmin or
+      # MarketingOperator may activate a draft Project (draft->active, gated on >=1 active
+      # same-Project Source). Every other role denies. NOT a protected permission; holding
+      # project.create never implies it.
+      "project.activate" => %w[OrganizationAdmin MarketingOperator].freeze,
       # ":140 `source.register` | allow | allow | deny | allow |" — the CAP-004
       # actors are Organization Administrator, Marketing Operator and Technical
       # Implementer. It is NOT a protected permission (:333 omits it). The later

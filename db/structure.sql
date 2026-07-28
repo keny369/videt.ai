@@ -868,27 +868,20 @@ CREATE FUNCTION public.f1_projects_lifecycle_guard() RETURNS trigger
     SET search_path TO 'pg_catalog', 'public'
     AS $$
 BEGIN
-  -- DM-REQ (011 DOMAIN_MODEL.md :118) "Project MUST belong to exactly one
-  -- Organization": a Project's Organization and identity are fixed for life.
   IF NEW.organization_id IS DISTINCT FROM OLD.organization_id THEN
     RAISE EXCEPTION 'project_organization_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- WF-002 State Transitions define Project.Draft -> Project.Active only, and
-  -- that transition is gated on >=1 active same-Project Source (CAP-003,
-  -- PRULE-004). The Source aggregate is owned by S-04/S-05/S-06 and is not
-  -- built, so activation is not implementable in this baseline; Project
-  -- pause/resume/archive are withheld under OD-014. No path may change a
-  -- Project's state here. The activation slice will relax this guard to
-  -- permit the single draft->active edge under its ratified prerequisites.
+  -- S-03 permits exactly Project.Draft -> Project.Active (gated by the ActivateProject
+  -- handler on >=1 active same-Project Source); pause/resume/archive remain refused
+  -- (OD-014 pending).
   IF NEW.state IS DISTINCT FROM OLD.state THEN
+  IF NOT (OLD.state = 'draft' AND NEW.state = 'active') THEN
     RAISE EXCEPTION 'project_lifecycle_transition_unavailable % -> %', OLD.state, NEW.state
       USING ERRCODE = 'raise_exception';
   END IF;
+END IF;
 
-  -- ":671 The baseline Local Business Profile is immutable with the Project
-  -- creation profile ... requires a new Project." The whole creation profile
-  -- is frozen at creation.
   IF NEW.display_name IS DISTINCT FROM OLD.display_name
      OR NEW.locale IS DISTINCT FROM OLD.locale
      OR NEW.time_zone IS DISTINCT FROM OLD.time_zone
@@ -4238,6 +4231,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120100'),
 ('20260727120090'),
 ('20260727120080'),
 ('20260727120070'),
