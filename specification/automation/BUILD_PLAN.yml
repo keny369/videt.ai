@@ -686,6 +686,48 @@ blocks:
       - the Source lifecycle slice + specs; S-06 completion summary
 
   # ---------------------------------------------------------------------------
+  # S-03 "Project Activation" (WF-002 ActivateProject) — a ratified-sequence
+  # prerequisite (S-06 -> S-03 -> S-07; PROJECT_STATE.md) built now on owner
+  # decision D3 (DECISIONS ADR-071/ADR-072) so S-07 QueueCrawl consumes a REAL
+  # active Project rather than a fabricated fixture.
+  # ---------------------------------------------------------------------------
+  - id: S-03
+    name: Project Activation — WF-002 ActivateProject (canonical Draft->Active, gated on >=1 active Source)
+    type: product
+    status: completed   # 2026-07-27: owner D3/D5; accepted on a deterministic green baseline (ADR-061); 5-lens review: B1 (first-match order) fixed, B2/N1 deferred as FU-3 (unbuilt source-set sealing subsystem) per D5 (ADR-073)
+    depends_on:
+      - S-06   # >=1 active Source now producible (S-06-006 ActivateSource)
+    authoritative_sources:
+      - specification/volume-ii/contracts/S-03.json   # MTX-027 activation limb, error_contract
+      - specification/volume-i/WORKFLOW_SPECIFICATIONS.md   # WF-002 Draft->Active :651-666
+    scope:
+      - the projects_lifecycle_guard relaxation permitting EXACTLY draft->active (pause/archive still refused, OD-014);
+        ActivateProject (authenticate -> tenant -> authorize project.activate -> per-Project lock -> idempotency ->
+        first-match project_not_draft/stale_state_version/source_membership_changed/active_source_required ->
+        guarded draft->active -> ProjectActivated); ProjectStore reads/writes; the project.activate permission
+        (Admin/Marketing, distinct from project.create); the activation ErrorCatalog reasons
+    out_of_scope:
+      - Project pause/resume/archive (withheld, OD-014); any Source or Crawl behaviour
+      - the immutable source-set SEALING subsystem (source_set_versions/source_set_memberships) that would make
+        source_membership_changed fully enforceable and record the sealed selected-Source set (MTX-055) — unbuilt
+        pre-existing shared infrastructure, deferred as follow-up FU-3 per owner D5 (ADR-073); also consumed by WF-011
+    acceptance_criteria:
+      - draft->active succeeds exactly once gated on >=1 active same-Project Source; verified-not-activated Source does not satisfy it
+      - first-match error order per MTX-027; idempotent replay; cross-tenant refused; a TechnicalImplementer denied
+      - full suite + DB permissions/RLS + architecture fitness green; no structure.sql drift
+    required_verification:
+      - complete_test_suite
+      - migration_safety_no_drift
+      - runtime_role_and_rls
+      - architecture_fitness
+      - repository_security
+    human_gate_before: false   # owner HD-S07-D3-PROJECT-ACTIVATION authorised S-03 under ADR-061
+    human_gate_after: false    # objective mandatory gates + the ADR-026 five-lens review are the acceptance mechanism (ADR-061)
+    risk_level: high
+    expected_outputs:
+      - the Project activation slice + specs; S-03 completion report
+
+  # ---------------------------------------------------------------------------
   # S-07 "Crawl Execution and Recovery" — authorised by owner HD-S07-AUTHORISE
   # under standing delegation ADR-061. Decomposition ratified by DECISIONS
   # ADR-067 (recon) as adjusted by ADR-068 (D1: dedicated crawl_policies table)
