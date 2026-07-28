@@ -30,9 +30,23 @@ module Workflows
     class EnsureRobots
       ROBOTS_PATH = "/robots.txt"
 
-      # :448 — "under the same request timeout/retry bounds with a 1 MiB response maximum".
+      # :448 — "under the same request timeout/retry bounds with a 1 MiB response maximum". F-01
+      # already reads one byte past the cap to tell an exact-maximum body from an over-limit one
+      # (:440's single nonretained sentinel), so the cap passed here is the maximum itself.
       MAX_BODY_BYTES = RobotsPolicy::MAX_BODY_BYTES
       TIMEOUT_S = CrawlPolicy::GLOBAL_CEILING.fetch("request_timeout_seconds").fetch("hard")
+
+      # Robots REDIRECTS are followed, under the ratified per-URL redirect budget. Refusing to follow
+      # them would fail-close every host that serves `robots.txt` from an apex->www or http->https
+      # redirect — one of the commonest configurations on the web — and :452 makes that a FAILED
+      # Source root and partial coverage, which is a customer-visible penalty for a perfectly
+      # crawlable host. :448 contemplates the case directly ("Redirects are rechecked against robots
+      # and Source Scope Policy before following") and :446 applies destination safety "to robots,
+      # sitemap, content, and every redirect connection", which only has meaning if a robots fetch
+      # may redirect. F-01's guarded client performs a NEW full resolution and destination check on
+      # every hop, so following here inherits the same egress guarantees as the first connection.
+      # Exhausting the budget is a named non-retryable failure and still fails closed.
+      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("soft")
       # :444 — one initial attempt plus at most two retries, with EXACTLY these delays after the
       # first and second failed attempts. A `Retry-After` of 1..120 seconds replaces that retry's
       # delay; every other value is ignored.
@@ -115,8 +129,8 @@ module Workflows
 
       def fetch(canonical_host)
         @outbound.fetch("https://#{canonical_host}#{ROBOTS_PATH}",
-                        timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES + 1,
-                        max_redirects: 0, user_agent: USER_AGENT)
+                        timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
+                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)
       rescue StandardError
         # An adapter defect must not leave the host unresolved and the run wedged: treat it as a
         # retryable transport failure and let the attempt bound turn exhaustion into fail-closed.

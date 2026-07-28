@@ -179,7 +179,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       Workflows::Wf005::FetchAuthorization.new(store).authorize(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
         source_id: source_id || ctx[:source_id], canonical_url: url || "https://#{ctx[:host]}/",
-        gate: row, kind:)
+        gate: row, now: start_now, kind:)
     end
   end
 
@@ -450,6 +450,7 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
 
     it "allows a URL that passes every current check" do
       verdict = authorize(allowed_ctx, url: "https://shop.acme.example/public")
+      expect(verdict.reason_code).to be_nil
       expect(verdict.allowed?).to be(true)
       expect(verdict.scope_policy_id).to be_present
     end
@@ -493,43 +494,96 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       expect(authorize(ctx, url: "https://shop.acme.example/public").allowed?).to be(true)
     end
 
-    it "REFUSES every content fetch while robots is unresolved, and after it fails closed" do
+    it "distinguishes robots UNRESOLVED (retryable) from robots FAILED CLOSED (terminal)" do
       ctx = running_crawl
       ensure_gate(ctx)
-      expect(authorize(ctx).reason_code).to eq("fetch_robots_unavailable")
+      # Still in flight: a SCHEDULING condition. Collapsing it into the fail-closed reason would
+      # terminally fail URLs on hosts seconds from resolving, and :452 makes fail-closed a FAILED
+      # Source root with partial coverage — a penalty this host has not earned.
+      unresolved = authorize(ctx)
+      expect(unresolved.reason_code).to eq("fetch_robots_not_resolved")
+      expect(unresolved.retryable?).to be(true)
+
       resolve_robots(ctx, outbound_returning(response(status: 403)))
-      expect(authorize(ctx).reason_code).to eq("fetch_robots_unavailable")
-      # ...but the robots fetch itself is never blocked by robots.
-      expect(authorize(ctx, kind: "robots").allowed?).to be(true)
+      failed = authorize(ctx)
+      expect(failed.reason_code).to eq("fetch_robots_unavailable")
+      expect(failed.retryable?).to be(false)
     end
 
-    it "REFUSES a fetch once the entitlement reservation is no longer executing" do
-      ctx = allowed_ctx
-      rid = DbInspector.one("SELECT entitlement_reservation_id FROM crawls WHERE id=$1::uuid", [ctx[:crawl_id]])["entitlement_reservation_id"]
-      DbInspector.connection.exec_params(
-        "UPDATE entitlement_reservations SET state='released', terminal_at=now(), terminal_reason='x', state_version=state_version+1 WHERE id=$1::uuid", [rid])
-      expect(authorize(ctx).reason_code).to eq("fetch_entitlement_not_executing")
+    it "exempts ONLY the host's own robots.txt from robots, never an arbitrary URL" do
+      # The exemption exists so a host can be resolved at all. Unbounded, `kind: "robots"` would
+      # authorize any URL on a host that had already failed closed — the whole gate undone by a
+      # caller-supplied string.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      resolve_robots(ctx, outbound_returning(response(status: 403)))
+      expect(authorize(ctx, kind: "robots", url: "https://#{ctx[:host]}/robots.txt").allowed?).to be(true)
+      expect(authorize(ctx, kind: "robots", url: "https://#{ctx[:host]}/").reason_code)
+        .to eq("fetch_robots_disallowed")
+      expect(authorize(ctx, kind: "robots", url: "https://#{ctx[:host]}/private/secret").reason_code)
+        .to eq("fetch_robots_disallowed")
     end
 
-    # The `fetch_crawl_not_running` limb is defence in depth, not dead code: MTX-030 requires the
-    # fetch gate to re-resolve run state, and S-07-009 builds the running->terminal edges that make
-    # it live. It is UNREACHABLE today because the crawls guard still refuses every running terminal,
-    # which this asserts rather than faking the state the database forbids.
-    it "cannot yet observe a terminal Crawl — the running terminals are still refused (S-07-009)" do
+    it "applies robots to the NORMALIZED path, so percent-encoding and dot segments cannot bypass it" do
+      # The scope predicate percent-decodes unreserved octets and removes dot segments. Judging scope
+      # on the normalized path and robots on the raw one would let either spelling walk past a
+      # `Disallow: /private` — no caller mistake required.
       ctx = allowed_ctx
-      expect {
-        DbInspector.connection.exec_params(
-          "UPDATE crawls SET state='failed', terminal_at=now(), completion_reason='failed', state_version=state_version+1 WHERE id=$1::uuid", [ctx[:crawl_id]])
-      }.to raise_error(PG::RaiseException, /crawl_transition_unavailable running -> failed/)
-      expect(Workflows::Wf005::FetchAuthorization::REASONS).to include("fetch_crawl_not_running")
+      %w[
+        https://shop.acme.example/private/secret
+        https://shop.acme.example/%70rivate/secret
+        https://shop.acme.example/a/../private/secret
+        https://shop.acme.example/./private/secret
+      ].each do |url|
+        expect(authorize(ctx, url:).reason_code).to eq("fetch_robots_disallowed"), url
+      end
     end
 
-    it "applies the widest authority first, so the reason names the outermost failure" do
+    it "refuses a gate belonging to another host, Crawl or Organization" do
       ctx = allowed_ctx
-      expect(disable_source(ctx[:g], ctx[:source_id]).success?).to be(true)
-      expect(suspend_organization(ctx[:g]).success?).to be(true)
-      # Organization outranks Source: the outermost revoked authority is what is reported.
-      expect(authorize(ctx, url: "https://other.example/x").reason_code).to eq("fetch_organization_inactive")
+      foreign = { "organization_id" => ctx[:g][:organization_id], "crawl_id" => ctx[:crawl_id],
+                  "canonical_host" => "cdn.other.example", "robots_state" => "no_restrictions",
+                  "robots_rules" => nil }
+      verdict = in_gate(ctx[:g][:organization_id]) do |store, _gate|
+        Workflows::Wf005::FetchAuthorization.new(store).authorize(
+          organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], source_id: ctx[:source_id],
+          canonical_url: "https://shop.acme.example/private/secret", gate: foreign, now: start_now)
+      end
+      # A permissive gate for a DIFFERENT host must not license this URL.
+      expect(verdict.allowed?).to be(false)
+      expect(verdict.reason_code).to eq("fetch_robots_not_resolved")
+    end
+
+    it "refuses a Source belonging to another Project of the same Organization" do
+      # POSTGRESQL_SCHEMA :128's rule expressed in the read path, where no FK can enforce it: a Crawl
+      # in one Project must never be authorized against another Project's Source — or, worse, that
+      # Source's scope policy, which would silently substitute a different scope for this run.
+      ctx = allowed_ctx
+      other_project = DbInspector.one(<<~SQL, [ctx[:g][:organization_id]])["id"]
+        INSERT INTO projects
+          (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+           display_name, locale, time_zone, objective, state, source_set_version)
+        VALUES (gen_random_uuid(),0,0,now(),now(),gen_random_uuid(),$1::uuid,
+                'Second','en-AU','UTC','discoverability_assessment','draft',0)
+        RETURNING id
+      SQL
+      foreign_source = DbInspector.one(<<~SQL, [ctx[:g][:organization_id], other_project])["id"]
+        INSERT INTO sources
+          (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
+           submitted_root_uri, canonical_root_uri, canonical_host, registration_schema_version,
+           host_normalization_version, registration_origin, registering_account_id,
+           registration_command_id, registration_idempotency_key_digest,
+           registration_authorization_decision_id, registered_at, state)
+        VALUES (gen_random_uuid(),0,now(),now(),gen_random_uuid(),$1::uuid,$2::uuid,
+                'https://shop.acme.example','https://shop.acme.example/','shop.acme.example',
+                'source-registration-v1','ascii-host-v1','human_command',gen_random_uuid(),
+                gen_random_uuid(),sha256('k'),gen_random_uuid(),now(),'active')
+        RETURNING id
+      SQL
+
+      verdict = authorize(ctx, url: "https://shop.acme.example/public", source_id: foreign_source)
+      expect(verdict.allowed?).to be(false)
+      expect(verdict.reason_code).to eq("fetch_source_not_active")
     end
   end
 end

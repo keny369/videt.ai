@@ -286,14 +286,9 @@ module Workflows
           due && now >= (due.respond_to?(:getutc) ? due.getutc : Time.parse(due).getutc)
         end
 
-        def pg_array(literal)
-          return literal if literal.is_a?(::Array)
-          return [] if literal.nil? || literal == "{}"
-
-          literal.to_s.gsub(/\A\{|\}\z/, "").scan(/"(?:[^"\\]|\\.)*"|[^,]+/).map do |element|
-            element.start_with?('"') ? element[1..-2].gsub(/\\(.)/, '\1') : element
-          end
-        end
+        # The single shared parser (Platform::PgArray). Kept as a private delegate so the two WF-004
+        # call sites read unchanged; the S-07-005 review showed a hand-rolled fourth copy fails open.
+        def pg_array(literal) = Platform::PgArray.parse(literal)
 
         def unhex_bytea(value)
           return value unless value.is_a?(::String) && value.start_with?("\\x")

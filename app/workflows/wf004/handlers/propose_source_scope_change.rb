@@ -416,14 +416,9 @@ module Workflows
         def supported_schema?(version) = version.to_s.split(".").first == SUPPORTED_SCHEMA_MAJOR
 
         # Parse a PostgreSQL text/int array literal (e.g. "{https}", "{443}", "{/a,/b}").
-        def pg_array(literal)
-          return literal if literal.is_a?(::Array)
-          return [] if literal.nil? || literal == "{}"
-
-          literal.to_s.gsub(/\A\{|\}\z/, "").scan(/"(?:[^"\\]|\\.)*"|[^,]+/).map do |element|
-            element.start_with?('"') ? element[1..-2].gsub(/\\(.)/, '\1') : element
-          end
-        end
+        # The single shared parser (Platform::PgArray). Kept as a private delegate so the two WF-004
+        # call sites read unchanged; the S-07-005 review showed a hand-rolled fourth copy fails open.
+        def pg_array(literal) = Platform::PgArray.parse(literal)
 
         # content_sha256 arrives from PG as a hex-escaped bytea string ("\\x…"); the store
         # writes bytea, so convert back to raw bytes for re-insert on the request row.

@@ -57,12 +57,20 @@ module Workflows
       # Does the rule set permit fetching `path`? The longest matching rule wins and ALLOW wins an
       # equal-length tie. No matching rule means allowed — a robots file that says nothing about a
       # path does not forbid it.
+      #
+      # WILDCARDS. :448 fixes the longest-match algorithm but is silent on `*` and `$` inside path
+      # rules. Treating them as literal characters is the FAIL-OPEN reading: `Disallow: *` would
+      # match nothing and the whole site would be crawled, and `Disallow: /*.pdf` would protect
+      # nothing. That inverts the owner's standing tie-breaker for exactly this situation — "fail
+      # closed whenever robots semantics are uncertain" — so they are honoured with RFC 9309
+      # semantics: `*` matches any sequence, a trailing `$` anchors the end, and precedence is still
+      # the pattern's own length, so a longer (more specific) pattern still wins.
       def allowed?(rules, path)
         candidate = normalize_path(path)
         best = nil
         Array(rules).each do |rule|
           pattern = rule[:path].to_s
-          next unless candidate.start_with?(pattern)
+          next unless matches?(candidate, pattern)
           # Longest wins; on an exact length tie, allow beats disallow.
           next if best && (pattern.length < best[:path].to_s.length ||
                            (pattern.length == best[:path].to_s.length && !rule[:allow]))
@@ -70,6 +78,17 @@ module Workflows
           best = rule
         end
         best.nil? || best[:allow]
+      end
+
+      # RFC 9309 path matching: a rule is a PREFIX pattern in which `*` stands for any sequence of
+      # characters and a trailing `$` anchors the end of the path.
+      def matches?(candidate, pattern)
+        return candidate.start_with?(pattern) unless pattern.include?("*") || pattern.end_with?("$")
+
+        anchored = pattern.end_with?("$")
+        body = anchored ? pattern[0..-2] : pattern
+        source = body.split("*", -1).map { |segment| ::Regexp.escape(segment) }.join(".*")
+        ::Regexp.new("\\A#{source}#{anchored ? '\\z' : ''}").match?(candidate)
       end
 
       # The effective per-host minimum interval between request starts, in milliseconds: the policy

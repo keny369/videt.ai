@@ -314,12 +314,10 @@ BEGIN
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'crawl_host_gate_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
-  -- The robots terminal decision is WRITE-ONCE (schema :296). Once a host has failed closed it
-  -- can never become fetchable within the run, and once rules are applied they cannot be
-  -- swapped for different ones.
   IF OLD.robots_state IN ('rules_applied','no_restrictions','unavailable') THEN
     IF NEW.robots_state IS DISTINCT FROM OLD.robots_state
        OR NEW.robots_rules IS DISTINCT FROM OLD.robots_rules
+       OR NEW.robots_rules_schema IS DISTINCT FROM OLD.robots_rules_schema
        OR NEW.robots_agent_group IS DISTINCT FROM OLD.robots_agent_group
        OR NEW.robots_crawl_delay_ms IS DISTINCT FROM OLD.robots_crawl_delay_ms
        OR NEW.robots_sitemap_candidates IS DISTINCT FROM OLD.robots_sitemap_candidates
@@ -333,13 +331,11 @@ BEGIN
   IF NEW.robots_state IS DISTINCT FROM OLD.robots_state THEN
     IF NOT ((OLD.robots_state = 'pending' AND NEW.robots_state = 'in_progress')
             OR (OLD.robots_state = 'in_progress' AND NEW.robots_state IN ('rules_applied','no_restrictions','unavailable'))
-            -- a retryable attempt returns to pending for the next attempt (:444 schedule)
             OR (OLD.robots_state = 'in_progress' AND NEW.robots_state = 'pending')) THEN
       RAISE EXCEPTION 'crawl_host_gate_robots_transition_unavailable % -> %',
         OLD.robots_state, NEW.robots_state USING ERRCODE = 'raise_exception';
     END IF;
   END IF;
-  -- Every mutation advances the version by exactly one: it is the CAS defence for the claim.
   IF NEW.state_version IS DISTINCT FROM OLD.state_version + 1 THEN
     RAISE EXCEPTION 'crawl_host_gate_version_invalid' USING ERRCODE = 'raise_exception';
   END IF;
@@ -2033,11 +2029,12 @@ CREATE TABLE public.crawl_host_gates (
     recent_start_instants timestamp(6) with time zone[] DEFAULT (ARRAY[]::timestamp with time zone[])::timestamp(6) with time zone[] NOT NULL,
     active_connection_count integer DEFAULT 0 NOT NULL,
     lease_version bigint DEFAULT 0 NOT NULL,
+    robots_attempt_started_at timestamp(6) with time zone,
     CONSTRAINT crawl_host_gates_active_connection_count_check CHECK ((active_connection_count >= 0)),
     CONSTRAINT crawl_host_gates_canonical_host_sha256_check CHECK ((octet_length(canonical_host_sha256) = 32)),
     CONSTRAINT crawl_host_gates_robots_attempt_count_check CHECK ((robots_attempt_count >= 0)),
     CONSTRAINT crawl_host_gates_robots_crawl_delay_ms_check CHECK (((robots_crawl_delay_ms IS NULL) OR (robots_crawl_delay_ms >= 0))),
-    CONSTRAINT crawl_host_gates_robots_rules_shape CHECK (((robots_rules IS NULL) OR (robots_state = 'rules_applied'::text))),
+    CONSTRAINT crawl_host_gates_robots_rules_shape CHECK (((robots_state = 'rules_applied'::text) = ((robots_rules IS NOT NULL) AND (robots_rules_schema IS NOT NULL)))),
     CONSTRAINT crawl_host_gates_robots_source_sha256_check CHECK (((robots_source_sha256 IS NULL) OR (octet_length(robots_source_sha256) = 32))),
     CONSTRAINT crawl_host_gates_robots_state_check CHECK ((robots_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text]))),
     CONSTRAINT crawl_host_gates_robots_terminal_shape CHECK (((robots_state = ANY (ARRAY['rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text])) = (robots_terminal_at IS NOT NULL))),
@@ -5508,6 +5505,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120200'),
 ('20260727120190'),
 ('20260727120180'),
 ('20260727120170'),

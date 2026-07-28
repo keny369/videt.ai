@@ -37,17 +37,17 @@ RSpec.describe "Crawl host-gate invariants", type: :model do
   end
 
   def insert_gate(ctx, host: "h#{SecureRandom.hex(3)}.example", state: "pending", terminal_at: nil,
-                  reason: nil, rules: nil)
+                  reason: nil, rules: nil, schema: nil)
     id = SecureRandom.uuid_v7
     params = [id, ctx[:org], ctx[:project], ctx[:crawl], host,
-              { value: Digest::SHA256.digest(host), format: 1 }, state, terminal_at, reason, rules]
+              { value: Digest::SHA256.digest(host), format: 1 }, state, terminal_at, reason, rules, schema]
     conn.exec_params(<<~SQL, params)
       INSERT INTO crawl_host_gates
         (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
          crawl_id, canonical_host, canonical_host_sha256, robots_state, robots_terminal_at,
-         robots_terminal_reason, robots_rules)
+         robots_terminal_reason, robots_rules, robots_rules_schema)
       VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,
-              $4::uuid,$5,$6,$7,$8::timestamptz,$9,$10::jsonb)
+              $4::uuid,$5,$6,$7,$8::timestamptz,$9,$10::jsonb,$11)
     SQL
     id
   end
@@ -161,10 +161,27 @@ RSpec.describe "Crawl host-gate invariants", type: :model do
         .to raise_error(PG::CheckViolation, /crawl_host_gates_robots_unavailable_reason/)
     end
 
-    it "permits rules only on the rules_applied state" do
+    # S-07-005 review hardening: an EQUIVALENCE, not a one-way implication. The original
+    # one-directional CHECK permitted `rules_applied` with NULL rules — a shape that reads as
+    # "robots resolved, nothing disallowed" and therefore fails OPEN.
+    it "binds rules and their schema to the rules_applied state in BOTH directions" do
       c = context
-      expect { insert_gate(c, state: "no_restrictions", terminal_at: Time.now.utc, rules: "{}") }
+      expect { insert_gate(c, state: "no_restrictions", terminal_at: Time.now.utc, rules: "{}", schema: "robots-rules-v1") }
         .to raise_error(PG::CheckViolation, /crawl_host_gates_robots_rules_shape/)
+      expect { insert_gate(c, state: "rules_applied", terminal_at: Time.now.utc, rules: nil) }
+        .to raise_error(PG::CheckViolation, /crawl_host_gates_robots_rules_shape/)
+      expect { insert_gate(c, state: "rules_applied", terminal_at: Time.now.utc, rules: "{}", schema: nil) }
+        .to raise_error(PG::CheckViolation, /crawl_host_gates_robots_rules_shape/)
+      expect { insert_gate(c, state: "rules_applied", terminal_at: Time.now.utc, rules: "{}", schema: "robots-rules-v1") }
+        .not_to raise_error
+    end
+
+    it "freezes robots_rules_schema with the rest of the terminal decision" do
+      c = context
+      a = insert_gate(c, state: "in_progress")
+      update_gate(a, "robots_state='rules_applied', robots_terminal_at=now(), robots_rules='{}'::jsonb, robots_rules_schema='robots-rules-v1'")
+      expect { update_gate(a, "robots_rules_schema = 'forged-v2'") }
+        .to raise_error(PG::RaiseException, /crawl_host_gate_robots_decision_frozen/)
     end
 
     it "refuses an unknown robots state" do

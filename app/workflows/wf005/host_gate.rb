@@ -26,7 +26,14 @@ module Workflows
         def granted? = granted
       end
 
-      # `crawl-policy-v1` (:425-438). Soft is the scheduling target, hard the nonexceedable ceiling.
+      # The GLOBAL ceiling is only ever the outermost clamp. WORKFLOW_SPECIFICATIONS.md :390 —
+      # "Global safety bounds cannot be weakened. EFFECTIVE crawl and capacity limits are the most
+      # restrictive of global safety, approved entitlement, Organization, and Project limits" — so
+      # the operative numbers are resolved PER CRAWL at the claim, from the currently active
+      # Organization and Project policies. Binding the class to the global row would silently ignore
+      # a Project that had narrowed its per-host rate or concurrency, which is the exact inversion of
+      # :390, and MTX-030 requires a new restriction to bind "running work at the next checkpoint" —
+      # the per-host claim IS that checkpoint.
       RATE_TARGET = CrawlPolicy::GLOBAL_CEILING.fetch("request_rate_per_host").fetch("soft")
       RATE_CEILING = CrawlPolicy::GLOBAL_CEILING.fetch("request_rate_per_host").fetch("hard")
       CONCURRENCY_TARGET = CrawlPolicy::GLOBAL_CEILING.fetch("concurrency_per_host").fetch("soft")
@@ -36,6 +43,23 @@ module Workflows
       # window divided by the per-second target.
       WINDOW_MS = 1000
       BASE_INTERVAL_MS = WINDOW_MS / RATE_TARGET
+
+      # The effective per-host limits for one Crawl: the most restrictive of the frozen global
+      # ceiling and every active Organization/Project crawl policy.
+      Limits = Data.define(:rate_target, :rate_ceiling, :concurrency_target, :concurrency_ceiling,
+                           :base_interval_ms)
+
+      def self.limits_from(bounds)
+        rate = bounds.fetch("request_rate_per_host")
+        concurrency = bounds.fetch("concurrency_per_host")
+        target = [rate["soft"].to_i, 1].max
+        Limits.new(rate_target: target, rate_ceiling: rate["hard"].to_i,
+                   concurrency_target: [concurrency["soft"].to_i, 1].max,
+                   concurrency_ceiling: concurrency["hard"].to_i,
+                   base_interval_ms: WINDOW_MS / target)
+      end
+
+      GLOBAL_LIMITS = limits_from(CrawlPolicy::GLOBAL_CEILING)
 
       REFUSAL_RETRY_MS = 250
 
@@ -65,18 +89,22 @@ module Workflows
         blocked = robots_block(locked, kind)
         return refuse(blocked, gate_id) if blocked
 
+        limits = effective_limits(organization_id, locked)
         starts = locked["window_starts"].to_i
         active = locked["active_connection_count"].to_i
         # Both ceilings are asserted before the targets, so a defect in the target logic still cannot
         # exceed the nonexceedable bound.
-        return refuse("host_rate_ceiling", gate_id) if starts >= RATE_CEILING
-        return refuse("host_concurrency_ceiling", gate_id) if active >= CONCURRENCY_CEILING
-        return refuse("host_rate_limited", gate_id) if starts >= RATE_TARGET
-        return refuse("host_concurrency_limited", gate_id) if active >= CONCURRENCY_TARGET
+        return refuse("host_rate_ceiling", gate_id) if starts >= limits.rate_ceiling
+        return refuse("host_concurrency_ceiling", gate_id) if active >= limits.concurrency_ceiling
+        return refuse("host_rate_limited", gate_id) if starts >= limits.rate_target
+        return refuse("host_concurrency_limited", gate_id) if active >= limits.concurrency_target
         return refuse("host_delay_pending", gate_id) unless truthy?(locked["delay_elapsed"])
 
-        interval = RobotsPolicy.effective_interval_ms(BASE_INTERVAL_MS,
-                                                      crawl_delay_ms || locked["robots_crawl_delay_ms"].to_i)
+        # A stored crawl-delay and a caller-supplied one may only ever make the interval LONGER
+        # (:448 "never increases rate"), so the maximum is taken over all three rather than letting
+        # either override the other — a caller passing 0 must not discard a stored delay.
+        interval = [limits.base_interval_ms, crawl_delay_ms.to_i,
+                    locked["robots_crawl_delay_ms"].to_i].max
         claimed = @store.claim_slot(gate_id, locked["state_version"].to_i, interval)
         return refuse("host_gate_contended", gate_id) if claimed.nil?
 
@@ -91,6 +119,19 @@ module Workflows
       end
 
       private
+
+      # The most restrictive of the frozen global ceiling and every active Organization/Project
+      # crawl policy, resolved at the claim from the gate's own Crawl (:390). A malformed stored
+      # policy is ignored rather than guessed at — its own activation command already refuses one,
+      # so falling back to the global clamp is strictly safe.
+      def effective_limits(organization_id, locked)
+        rows = @store.active_crawl_policies(organization_id, locked["project_id"])
+        sets = rows.map { |r| JSON.parse(r["normalized_bounds"]) }.select { |s| CrawlPolicy.complete?(s) }
+        bounds = CrawlPolicy.most_restrictive(CrawlPolicy::GLOBAL_CEILING, *sets)
+        self.class.limits_from(bounds)
+      rescue JSON::ParserError, KeyError
+        GLOBAL_LIMITS
+      end
 
       # Content and sitemap dispatch is blocked until the robots record is TERMINAL, and permanently
       # once it is `unavailable` (:448 fail-closed denies ALL content fetching for the host for the

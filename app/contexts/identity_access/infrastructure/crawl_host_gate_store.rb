@@ -99,14 +99,29 @@ module IdentityAccess
         SQL
       end
 
-      # pending -> in_progress for one robots attempt, guarded on the version.
+      # An `in_progress` attempt older than this is presumed lost with its worker and may be
+      # reclaimed. It is generously longer than the request timeout plus the retry schedule, so a
+      # slow-but-live attempt is never stolen from underneath itself.
+      ATTEMPT_STALE_SECONDS = 300
+
+      # pending -> in_progress for one robots attempt, guarded on the version. Also RECLAIMS a stale
+      # `in_progress` attempt: the claim commits in its own transaction (no external call may sit
+      # inside one), so a process lost between the claim and the outcome would otherwise leave the
+      # host wedged — never resolved, never failed closed, and every content fetch on it refused for
+      # the life of the run. Reclaiming is safe because the terminal decision is write-once: a
+      # reclaimed attempt can only ever reach the same terminal states, never reopen one.
       def begin_robots(id, expected_version, now)
-        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+        params = [id, expected_version, iso(now), ATTEMPT_STALE_SECONDS]
+        exec(<<~SQL, params).cmd_tuples
           UPDATE crawl_host_gates
           SET robots_state = 'in_progress', robots_attempt_count = robots_attempt_count + 1,
-              robots_generation = robots_generation + 1,
+              robots_generation = robots_generation + 1, robots_attempt_started_at = $3::timestamptz,
               state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE id = $1::uuid AND robots_state = 'pending' AND state_version = $2
+          WHERE id = $1::uuid AND state_version = $2
+            AND (robots_state = 'pending'
+                 OR (robots_state = 'in_progress'
+                     AND robots_attempt_started_at IS NOT NULL
+                     AND robots_attempt_started_at < $3::timestamptz - ($4 || ' seconds')::interval))
         SQL
       end
 
@@ -141,6 +156,20 @@ module IdentityAccess
       # Every one of these is read FRESH immediately before a connection. None is cached and none is
       # carried from queue time — that is the whole point of the gate they serve.
 
+      # Every active crawl policy applying to the Project, most specific last — the same resolution
+      # StartCrawl uses. The gate needs it because WORKFLOW_SPECIFICATIONS.md :390 makes the
+      # operative limits "the most restrictive of global safety, approved entitlement, Organization,
+      # and Project limits", so a Project that has narrowed its per-host rate or concurrency must
+      # bind at the claim — not merely at the start commit.
+      def active_crawl_policies(organization_id, project_id)
+        exec(<<~SQL, [organization_id, project_id]).to_a
+          SELECT id, policy_version, scope, normalized_bounds FROM crawl_policies
+          WHERE organization_id = $1::uuid AND state = 'active'
+            AND ((scope = 'project' AND project_id = $2::uuid) OR scope = 'organization')
+          ORDER BY (scope = 'project') ASC
+        SQL
+      end
+
       def organization(organization_id)
         exec("SELECT id, status FROM organizations WHERE id = $1::uuid", [organization_id]).to_a.first
       end
@@ -157,31 +186,51 @@ module IdentityAccess
              [organization_id, project_id]).to_a.first
       end
 
-      def source(organization_id, source_id)
-        exec("SELECT id, state, canonical_host FROM sources WHERE organization_id=$1::uuid AND id=$2::uuid",
-             [organization_id, source_id]).to_a.first
+      # Keyed on (organization, PROJECT, source). The project predicate is what stops a Crawl in one
+      # Project being authorized against another Project's Source of the same Organization —
+      # POSTGRESQL_SCHEMA :128's rule expressed in the read path, where no FK can enforce it.
+      def source(organization_id, project_id, source_id)
+        exec(<<~SQL, [organization_id, project_id, source_id]).to_a.first
+          SELECT id, state, canonical_host FROM sources
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND id = $3::uuid
+        SQL
       end
 
       # The reservation admitting this run must still be EXECUTING. A committed, released or expired
       # reservation means the run is no longer metered.
-      def reservation_executing?(organization_id, reservation_id)
+      # `executing` AND still within its effective deadline. F-05 has no `executing -> expired` edge,
+      # so a dead worker's reservation stays `executing` until something reclaims it; state alone
+      # would therefore keep authorizing fetches for a run whose lease and maximum-execution ceiling
+      # had both passed. The deadline is the same one `Entitlement::Service#effective_deadline`
+      # applies: the renewable lease, capped by started_at + the operation's maximum execution.
+      # The deadline is compared against the CALLER'S `now`, not `clock_timestamp()`. F-05 owns the
+      # reservation lifecycle and is `now:`-driven throughout (`Service#effective_deadline` takes the
+      # instant from its caller), so this must agree with it — two surfaces judging one reservation
+      # against two different clocks would disagree about whether a run is still metered. The rate
+      # window is the opposite case and correctly uses `clock_timestamp()`: it measures REAL elapsed
+      # time against a remote host, which no injected clock may compress.
+      def reservation_executing?(organization_id, reservation_id, max_execution_seconds, now)
         return false if reservation_id.nil?
 
-        exec(<<~SQL, [organization_id, reservation_id]).to_a.first["n"].to_i.positive?
+        params = [organization_id, reservation_id, max_execution_seconds.to_i, iso(now)]
+        exec(<<~SQL, params).to_a.first["n"].to_i.positive?
           SELECT COUNT(*) AS n FROM entitlement_reservations
           WHERE organization_id = $1::uuid AND id = $2::uuid AND state = 'executing'
+            AND lease_due > $4::timestamptz
+            AND (started_at IS NULL
+                 OR started_at + ($3 || ' seconds')::interval > $4::timestamptz)
         SQL
       end
 
       # The Source's CURRENT scope policy — whichever version `sources.current_scope_policy_id`
       # names right now, never the version pinned onto the Crawl at queue time.
-      def current_scope_policy(organization_id, source_id)
-        exec(<<~SQL, [organization_id, source_id]).to_a.first
+      def current_scope_policy(organization_id, project_id, source_id)
+        exec(<<~SQL, [organization_id, project_id, source_id]).to_a.first
           SELECT p.id, p.policy_version, p.canonical_host, p.allowed_schemes, p.allowed_ports,
                  p.include_prefixes, p.exclude_prefixes, p.query_handling
           FROM sources s
           JOIN source_scope_policies p ON p.id = s.current_scope_policy_id
-          WHERE s.organization_id = $1::uuid AND s.id = $2::uuid
+          WHERE s.organization_id = $1::uuid AND s.project_id = $2::uuid AND s.id = $3::uuid
         SQL
       end
 
