@@ -873,15 +873,16 @@ blocks:
 
   - id: S-07-008
     name: Crawl Execution — limits, soft/hard events, wall clock
-    # IMPLEMENTATION COMPLETE 2026-07-29 (827c39a, 508edde, f9c6488, 96440b7, b1dcea9); AWAITING the
-    # five ADR-026 lenses. Not accepted and no ADR allocated until every lens has reported (ADR-080).
-    # FU-9 and FU-10 are both DELIVERED and marked delivered_pending_review in BUILD_STATE.
-    # MUST provide scheduler re-entry for a host deferred by sustained gate contention (FU-9,
-    # ADR-081). Without it, sitemap discovery can terminalize `sitemap_unavailable` with zero
-    # network attempts, which reopens S-07-006.
-    # MUST provide :456's ordered-admission coordinator (FU-10, ADR-082). S-07-007 enforces the
-    # run-wide SUM and records dequeue_key on every attempt; the ORDER is this tranche's. Without
-    # it, admission at the byte/page boundary is nondeterministic, which :456 forbids.
+    # IMPLEMENTATION COMPLETE and REVIEWED; NOT ACCEPTED, no ADR allocated (ADR-080).
+    #
+    # FU-10 (:456's ordered admission) is DELIVERED here — `delivered_pending_review` in BUILD_STATE.
+    #
+    # FU-9 is MITIGATED here, NOT delivered. This tranche removed the write-once FALSE
+    # `sitemap_unavailable` a contended host used to produce, and the budget leak that made it
+    # inevitable. It did NOT provide scheduler re-entry, because nothing in production drives crawl
+    # execution at all. That obligation moved to S-07-012 and FU-9 closes when S-07-012 lands.
+    # The earlier "S-07-008 MUST provide the re-entry / else S-07-006 reopens" text is superseded:
+    # S-07-006 is not reopened, because the defect it feared (a false terminal outcome) is gone.
     type: product
     status: pending
     depends_on:
@@ -926,11 +927,22 @@ blocks:
 
   - id: S-07-009
     name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
+    # BLOCKING PRECONDITION (found by the S-07-008 schema lens): `crawls_coverage_status_check` is
+    # `CHECK (coverage_status = ANY (...))` on a NULLABLE column, so a CHECK that evaluates to NULL
+    # is ADMITTED — a terminal Crawl with NULL coverage_status and NULL completion_reason passes
+    # today. This tranche writes exactly those two columns. Repair the constraint NULL-safely
+    # (`IS NOT DISTINCT FROM`, or an explicit `IS NOT NULL` conjunct) BEFORE writing them, or the
+    # known hole becomes operational debt at the moment it starts mattering. See FU-11.
     type: product
     status: pending
     depends_on:
       - S-07-007
       - S-07-008
+      # The terminal checkpoint has nothing to check until something advances the run. Encoded as a
+      # dependency, not as file position: BUILD_PLAN is a machine-readable graph and the controller
+      # reads `depends_on`, so without this S-07 could close at S-07-011 with the driver never built
+      # and FU-9 permanently open.
+      - S-07-012
     human_gate_before: false
     human_gate_after: false
     risk_level: high

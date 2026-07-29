@@ -484,6 +484,20 @@ $$;
 
 
 --
+-- Name: f1_crawl_sitemap_document_charges_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_sitemap_document_charges_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'crawl_sitemap_document_charge_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_sources_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2374,6 +2388,28 @@ ALTER TABLE ONLY public.crawl_policies FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_sitemap_document_charges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_sitemap_document_charges (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    canonical_url_sha256 bytea NOT NULL,
+    charged_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT crawl_sitemap_document_charges_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT crawl_sitemap_document_charges_canonical_url_sha256_check CHECK ((octet_length(canonical_url_sha256) = 32))
+);
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawl_sources; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3971,6 +4007,30 @@ ALTER TABLE ONLY public.crawl_policies
 
 
 --
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_once; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges
+    ADD CONSTRAINT crawl_sitemap_document_charges_once UNIQUE (crawl_id, canonical_url_sha256);
+
+
+--
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges
+    ADD CONSTRAINT crawl_sitemap_document_charges_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges
+    ADD CONSTRAINT crawl_sitemap_document_charges_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawl_sources crawl_sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4594,6 +4654,13 @@ CREATE UNIQUE INDEX crawl_policies_version_unique ON public.crawl_policies USING
 
 
 --
+-- Name: crawl_sitemap_document_charges_crawl; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_sitemap_document_charges_crawl ON public.crawl_sitemap_document_charges USING btree (organization_id, crawl_id, charged_at);
+
+
+--
 -- Name: crawl_sources_crawl_order_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4930,6 +4997,13 @@ CREATE TRIGGER crawl_policies_guard BEFORE DELETE OR UPDATE ON public.crawl_poli
 
 
 --
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_sitemap_document_charges_guard BEFORE DELETE OR UPDATE ON public.crawl_sitemap_document_charges FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_sitemap_document_charges_guard();
+
+
+--
 -- Name: crawl_sources crawl_sources_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5202,6 +5276,14 @@ ALTER TABLE ONLY public.crawl_limit_decisions
 
 ALTER TABLE ONLY public.crawl_policies
     ADD CONSTRAINT crawl_policies_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges
+    ADD CONSTRAINT crawl_sitemap_document_charges_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
 
 
 --
@@ -5693,6 +5775,19 @@ CREATE POLICY crawl_policies_context ON public.crawl_policies USING ((organizati
 
 
 --
+-- Name: crawl_sitemap_document_charges; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_sitemap_document_charges ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_sitemap_document_charges_context ON public.crawl_sitemap_document_charges USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: crawl_sources; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -6127,6 +6222,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120290'),
 ('20260727120280'),
 ('20260727120270'),
 ('20260727120260'),

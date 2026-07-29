@@ -44,7 +44,13 @@ module Workflows
       # having no budget. A DIFFERENT outcome, and deliberately not a limit: the caller should come
       # back, and no customer is told a limit was reached.
       CONTENDED = "run_byte_budget_contended"
-      NOT_RUNNING = "crawl_not_running"
+      # The admission-safe subset of `FetchAuthorization`'s execution-time gate, in its order.
+      DENIALS = {
+        organization: "admission_organization_inactive",
+        crawl: "admission_crawl_not_running",
+        project: "admission_project_not_active",
+        entitlement: "admission_entitlement_not_executing"
+      }.freeze
 
       # The same bound `FetchContent` uses. Another worker committing between the read and the
       # write is normal on this counter, not exceptional.
@@ -56,11 +62,17 @@ module Workflows
       BYTES = "accounted_response_body_bytes_per_run"
       WALL_CLOCK_DIMENSION = "wall_clock_run_duration"
 
-      # `pacer` is the same seam `FetchContent` and `DiscoverSitemaps` carry: a no-op in production,
-      # and the only way to place another writer's COMMIT between this class's read of the byte
-      # counter and its write to it. That window is where the defect lived, and a test that cannot
-      # open it deterministically can only hope the scheduler opens it — which is the failure mode
-      # this codebase has already shipped twice.
+      # `pacer` is a NAMED PROBE POINT, and it is a new kind of seam in this codebase — not the
+      # millisecond-sleep collaborator `FetchContent` and `DiscoverSitemaps` carry, whose default is
+      # real production behaviour (:444's retry backoff). This one defaults to a no-op and has no
+      # production role. An earlier version of this comment claimed it was the same pattern; it is
+      # not, and the claim is withdrawn.
+      #
+      # It earns its place on its own merits: the defect repaired here lived in the window between
+      # this class's READ of the byte counter and its WRITE to it, and that window cannot be opened
+      # reliably by racing threads — a test that tries can only hope the scheduler cooperates, which
+      # is the failure mode this codebase has already shipped twice. The alternative was to leave the
+      # repair unproved.
       def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil,
                      pacer: ->(_stage) {})
         @ids = ids
@@ -78,11 +90,23 @@ module Workflows
           crawl = gates.crawl(organization_id, crawl_id)
           next idle if crawl.nil?
 
-          # EXECUTION-TIME STATE, not queue-time. A terminal Crawl's `deadline_at` is by then in the
-          # past, so without this the wall-clock limb would write a permanent
-          # `wall_clock_run_duration` hard decision and emit `CrawlLimitReached` for a run that
-          # completed normally — and a canceled run would have byte budget reserved against it.
-          next limited(NOT_RUNNING) unless crawl["state"] == "running"
+          # EXECUTION-TIME AUTHORIZATION, BEFORE ANY EFFECT.
+          #
+          # Admission reserves run-wide byte budget, claims a frontier entry, and can write an
+          # IMMUTABLE limit decision with a customer-visible `CrawlLimitReached`. All three are
+          # effects, so they need the same execution-time authority `FetchAuthorization` requires
+          # before bytes leave — checking only "does the Crawl exist" meant a suspended tenant, an
+          # inactive Project or an unmetered run still got budget reserved and a permanent event
+          # written. Nothing cascades a suspension to `crawls.state`, so the Crawl limb alone does
+          # not cover it.
+          #
+          # This is the ADMISSION-SAFE SUBSET of that gate, deliberately not the whole of it: the
+          # Source and Source-Scope limbs are PER-URL and belong at the fetch, where the URL is
+          # known and where the frontier's own dequeue already re-checks the Source. Every limb here
+          # is run-scoped, and every one denies BEFORE the peek, the reservation, the claim and any
+          # observation.
+          denial = authorize(gates, organization_id, crawl, now)
+          next limited(denial) if denial
 
           bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
 
@@ -108,6 +132,24 @@ module Workflows
       private
 
       def idle = Decision.new(entry: nil, reserved_bytes: nil, reserved_total: nil, reason_code: nil)
+
+      # Returns a denial reason, or nil when the run may be admitted. Order matches
+      # `FetchAuthorization#authorize` so the two surfaces refuse in the same sequence.
+      def authorize(gates, organization_id, crawl, now)
+        org = gates.organization(organization_id)
+        return DENIALS[:organization] unless org && org["status"] == "active"
+        return DENIALS[:crawl] unless crawl["state"] == "running"
+
+        project = gates.project(organization_id, crawl["project_id"])
+        return DENIALS[:project] unless project && project["state"] == "active"
+
+        unless gates.reservation_executing?(organization_id, crawl["entitlement_reservation_id"],
+                                            FetchAuthorization::MAX_EXECUTION_SECONDS, now)
+          return DENIALS[:entitlement]
+        end
+
+        nil
+      end
 
       def limited(reason, entry: nil)
         Decision.new(entry:, reserved_bytes: nil, reserved_total: nil, reason_code: reason)

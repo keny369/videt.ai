@@ -381,32 +381,45 @@ module Workflows
       # The counter lives on `crawl_budget_counters`, which schema :298 assigns run-wide accounting
       # to. S-07-006 had to use `crawls.limit_counters` because that table did not yet exist; when
       # S-07-007 created it, the writer moved here rather than leaving the bound with two homes.
-      def reserve_document(organization_id:, project_id:, crawl_id:, now:)
+      # Charge one distinct canonical sitemap URL against the run-wide budget. Returns true when the
+      # run may attempt it — either because this call paid for it, or because an earlier pass
+      # already did.
+      #
+      # The identity is DURABLE (`crawl_sitemap_document_charges`, `UNIQUE (crawl_id,
+      # canonical_url_sha256)`), not a hash on this object. An in-memory memo can only mean "once
+      # per traversal", and a `Traversal` is rebuilt on every `call`, so scheduler re-entry
+      # re-charged every URL that had already reached the network — a host with one failing
+      # candidate and one paced candidate spent the whole run-wide 50 on two distinct URLs and then
+      # emitted the false `CrawlLimitReached` that FU-9 exists to prevent. :437's unit is DISTINCT
+      # URLs, so the database adjudicates it.
+      def reserve_document(organization_id:, project_id:, crawl_id:, canonical_url:, now:)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           store.ensure_counters(id: @ids.generate, now:, correlation_id: @correlation_id,
                                 organization_id:, project_id:, crawl_id:)
-          granted = store.reserve_sitemap_document(organization_id, crawl_id, documents_hard, now)
-          # The limit decision is written on the SAME transaction as the reservation that produced
-          # it. A separate one would leave a window in which the counter sits at its ceiling with no
-          # record of why — and the terminal checkpoint reads the decision table, not the counter.
-          observe_documents(raw, organization_id, project_id, crawl_id, granted, now)
-          !granted.nil?
+          outcome = store.charge_sitemap_document(
+            organization_id:, project_id:, crawl_id:, canonical_url:, ceiling: documents_hard,
+            id: @ids.generate, correlation_id: @correlation_id, now:
+          )
+          # The limit decision is written on the SAME transaction as the charge that produced it.
+          observe_documents(raw, organization_id, project_id, crawl_id, outcome, now)
+          outcome != :exhausted
         end
       end
 
       # :437's run-wide sitemap-document SOFT crossing, taken from the reservation that produced
       # it. The hard limb is recorded at terminalization instead, from the traversal's limit
       # reasons, because the bound is reachable by ordered retention as well as by this refusal.
-      def observe_documents(pg, organization_id, project_id, crawl_id, granted, now)
-        return if granted.nil?
+      def observe_documents(pg, organization_id, project_id, crawl_id, outcome, now)
+        return unless outcome == :granted
 
         observer = observer_for(pg, organization_id, project_id, crawl_id)
         return if observer.nil?
 
-        used = granted["sitemap_documents"].to_i
+        used = IdentityAccess::Infrastructure::CrawlBudgetStore.new(pg)
+                                                               .counters(organization_id, crawl_id)["sitemap_documents"].to_i
         observer.soft(DOCUMENTS_DIMENSION, used, now:) if used >= observer.soft_bound(DOCUMENTS_DIMENSION)
       end
 
@@ -640,10 +653,8 @@ module Workflows
           @succeeded = false
           @skipped = []
           @limit_reasons = []
-          # Candidates charged against the run-wide document budget, and candidates the gate never
-          # released. A candidate is charged AT MOST ONCE however many times :444 retries it — the
-          # unit is distinct URLs, not attempts.
-          @charged = {}
+          # Candidates the gate never released, so they stay candidates across re-entry. (The
+          # charge ledger is durable and lives in the database — see `charge_for`.)
           @deferred = {}
           @default_url = service.default_url(canonical_host)
           # nil until the default has been attempted; then true only if it answered 404/410.
@@ -734,17 +745,14 @@ module Workflows
           DiscoverSitemaps::DEFERRED
         end
 
-        # One reservation per DISTINCT candidate, taken at the moment its first real attempt begins.
-        # Memoized so :444's retries of the same URL do not each cost a document.
+        # One charge per DISTINCT candidate URL, taken at the moment its first real attempt begins
+        # and adjudicated by `UNIQUE (crawl_id, canonical_url_sha256)`. :444's retries of the same
+        # URL, and any later scheduler re-entry, resolve to `:already` in the database rather than to
+        # a hash on this object that a fresh `Traversal` throws away.
         def charge_for(candidate)
-          url = candidate.canonical_url
           lambda do
-            next true if @charged.key?(url)
-
-            granted = @service.reserve_document(**@context.slice(:organization_id, :project_id,
-                                                                 :crawl_id, :now))
-            @charged[url] = true if granted
-            granted
+            @service.reserve_document(**@context.slice(:organization_id, :project_id, :crawl_id, :now),
+                                      canonical_url: candidate.canonical_url)
           end
         end
 

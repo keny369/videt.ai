@@ -15,6 +15,11 @@ require "rails_helper"
 # on both policy limbs, the least-privilege runtime matrix, the three-column FK that rejects a
 # same-Organization cross-Project Crawl, :442's once-per-dimension-and-run unique, the soft/hard
 # biconditional, and T-IMM on both UPDATE and DELETE.
+#
+# HONEST LIMIT: `DbInspector` connects as a BYPASSRLS superuser, so the inserts here exercise the
+# CONSTRAINTS, and the RLS assertions read the catalog rather than proving a policy blocks. That
+# matches all sixteen sibling specs and `f1:db:verify_runtime` proves the runtime role's behaviour
+# separately, but "forced RLS on both limbs" below means "declared", not "demonstrated".
 RSpec.describe "Crawl limit-decision invariants", type: :model do
   self.use_transactional_tests = false
   after { ReceiptMinter.truncate_all }
@@ -161,8 +166,21 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
         .to raise_error(PG::CheckViolation, /definition_versions_shape/)
     end
 
-    it "refuses a negative configured or observed value" do
-      expect { insert_decision(context, configured: -1) }.to raise_error(PG::CheckViolation)
+    it "refuses a negative configured value" do
+      expect { insert_decision(context, configured: -1) }
+        .to raise_error(PG::CheckViolation, /configured_value/)
+    end
+
+    it "refuses a negative observed value" do
+      expect { insert_decision(context, observed: -1) }
+        .to raise_error(PG::CheckViolation, /observed_value/)
+    end
+
+    it "refuses a hard decision carrying the WRONG reason" do
+      # The converse of the NULL-reason hole: `IS NOT DISTINCT FROM` must reject a non-null value
+      # that is not `limit_reached`, not merely reject NULL.
+      expect { insert_decision(context, reason: "something_else") }
+        .to raise_error(PG::CheckViolation, /threshold_agreement/)
     end
   end
 
@@ -180,5 +198,90 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
       expect { conn.exec_params("DELETE FROM crawl_limit_decisions WHERE id = $1::uuid", [id]) }
         .to raise_error(PG::RaiseException, /crawl_limit_decision_immutable/)
     end
+  end
+end
+
+# The S-07-008 sitemap-document charge ledger. `UNIQUE (crawl_id, canonical_url_sha256)` is :437's
+# "distinct canonical sitemap URLs" made durable across scheduler re-entry, which an in-memory memo
+# could not be. Same discipline as the decisions table, so the same proof.
+RSpec.describe "Crawl sitemap-document charge invariants", type: :model do
+  self.use_transactional_tests = false
+  after { ReceiptMinter.truncate_all }
+
+  let(:org) { TenantSeeder.create_organization(display_name: "Acme Org") }
+  def conn = DbInspector.connection
+
+  def context
+    pid = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [pid, org])
+      INSERT INTO projects
+        (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+         display_name, locale, time_zone, objective, state, source_set_version)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,'P','en-AU','UTC','discoverability_assessment','draft',0)
+    SQL
+    cid = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [cid, org, pid])
+      INSERT INTO crawls
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+         requested_entitlement_policy_id, requested_entitlement_policy_version, trigger_kind, queued_at, state)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'root',
+              gen_random_uuid(),'entitlement-interim-v1','manual',now(),'queued')
+    SQL
+    { org:, project: pid, crawl: cid }
+  end
+
+  def insert_charge(ctx, url: "https://h.example/s.xml")
+    params = [SecureRandom.uuid_v7, ctx[:org], ctx[:project], ctx[:crawl], url,
+              { value: Digest::SHA256.digest(url), format: 1 }]
+    conn.exec_params(<<~SQL, params)
+      INSERT INTO crawl_sitemap_document_charges
+        (id, schema_version, created_at, correlation_id, organization_id, project_id, crawl_id,
+         canonical_url, canonical_url_sha256, charged_at)
+      VALUES ($1,'1.0',now(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,$5,$6,now())
+    SQL
+  end
+
+  it "forces row level security with the tenant-context policy on both limbs" do
+    rel = DbInspector.one("SELECT relrowsecurity AS e, relforcerowsecurity AS f FROM pg_class WHERE relname=$1",
+                          ["crawl_sitemap_document_charges"])
+    expect([rel["e"], rel["f"]]).to eq(%w[t t])
+    policy = DbInspector.one("SELECT qual, with_check FROM pg_policies WHERE tablename=$1", ["crawl_sitemap_document_charges"])
+    expect(policy["qual"]).to include("f1_current_context_org")
+    expect(policy["with_check"]).to include("f1_current_context_org")
+  end
+
+  it "grants the runtime role exactly SELECT/INSERT — a charge is never released" do
+    privs = DbInspector.all(<<~SQL, ["crawl_sitemap_document_charges"]).map { |r| r["privilege_type"] }.sort
+      SELECT privilege_type FROM information_schema.role_table_grants
+      WHERE table_name = $1 AND grantee = 'f1_runtime'
+    SQL
+    expect(privs).to eq(%w[INSERT SELECT])
+  end
+
+  it "charges one canonical URL at most once per Crawl (:437's distinct-URL unit)" do
+    c = context
+    insert_charge(c)
+    expect { insert_charge(c) }.to raise_error(PG::UniqueViolation, /crawl_sitemap_document_charges_once/)
+  end
+
+  it "scopes that to the RUN — another Crawl may charge the same URL" do
+    insert_charge(context)
+    expect { insert_charge(context) }.not_to raise_error
+  end
+
+  it "rejects a charge naming a Crawl from another Project of the same Organization" do
+    c = context
+    other = context
+    expect { insert_charge(c.merge(crawl: other[:crawl])) }
+      .to raise_error(PG::ForeignKeyViolation, /crawl_sitemap_document_charges_crawl_fk/)
+  end
+
+  it "is never updatable or deletable — releasing a charge would let one URL be charged twice" do
+    c = context
+    insert_charge(c)
+    expect { conn.exec_params("UPDATE crawl_sitemap_document_charges SET canonical_url='x' WHERE crawl_id=$1::uuid", [c[:crawl]]) }
+      .to raise_error(PG::RaiseException, /crawl_sitemap_document_charge_immutable/)
+    expect { conn.exec_params("DELETE FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid", [c[:crawl]]) }
+      .to raise_error(PG::RaiseException, /crawl_sitemap_document_charge_immutable/)
   end
 end

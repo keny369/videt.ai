@@ -113,6 +113,10 @@ module F1
       # SELECT/INSERT only — the missing UPDATE is defence in depth behind the trigger, not a
       # substitute for it. Additive new-table grant (ADR-029); FORCE RLS preserved.
       "crawl_limit_decisions"             => "SELECT, INSERT",
+      # S-07-008 sitemap-document charge ledger. `UNIQUE (crawl_id, canonical_url_sha256)` is
+      # :437's "distinct canonical sitemap URLs" made durable across scheduler re-entry. T-IMM for
+      # the same reason as the decisions: releasing a charge would let one URL be charged twice.
+      "crawl_sitemap_document_charges"    => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "json"
 
 module IdentityAccess
@@ -133,19 +134,67 @@ module IdentityAccess
       # the Document it counts is created by S-07-010. The counters exist; the reservation belongs
       # with the Document.
 
-      # :437's run-wide sitemap-document budget. Schema :298 assigns "sitemap documents" to THIS
-      # table, so this is its one home; `DiscoverSitemaps` was repointed here and the duplicate on
-      # `CrawlHostGateStore` (which wrote `crawls.limit_counters`) is deleted. The first draft added
-      # this method and left the workflow calling the old one, which created the second home the
-      # migration claimed to eliminate.
-      def reserve_sitemap_document(organization_id, crawl_id, ceiling, now)
-        params = [organization_id, crawl_id, ceiling.to_i, iso(now)]
-        query(<<~SQL, params).to_a.first
+      # :437's run-wide sitemap-document budget, charged ONCE PER DISTINCT CANONICAL URL for the
+      # life of the Crawl. Returns `:granted`, `:already` (this URL is paid for) or `:exhausted`.
+      #
+      # THE LEDGER ROW IS THE CHARGE; the counter is a read-side total kept in step in the same
+      # transaction. An in-memory memo could only ever mean "once per traversal", and a `Traversal`
+      # is rebuilt on every `DiscoverSitemaps#call`, so scheduler re-entry re-charged every URL that
+      # had already reached the network. `UNIQUE (crawl_id, canonical_url_sha256)` is what makes
+      # ":437's distinct canonical sitemap URLs" true across passes, processes and crashes.
+      #
+      # WHAT ENFORCES WHAT, stated precisely because a mutation check caught an earlier version of
+      # this comment claiming the wrong thing:
+      #   - the BOUND is enforced by `sitemap_documents < $3` in the UPDATE's own predicate. Under
+      #     READ COMMITTED a second writer blocks on the row and EPQ re-evaluates that predicate
+      #     against the new version, so it refuses. Mutation-proved: delete the predicate and six
+      #     workers racing on six URLs all charge against a ceiling of one.
+      #   - the IDENTITY is enforced by `UNIQUE (crawl_id, canonical_url_sha256)`. No interleaving
+      #     can charge one URL twice, whatever this method does.
+      #   - the `FOR UPDATE` adds neither of those. It serialises charges for one Crawl so a
+      #     concurrent same-URL charge resolves to `:already` rather than reaching the ledger INSERT
+      #     and taking a unique violation — a correct outcome either way, but a decision rather than
+      #     an exception. That property is asserted, not proved: six threads did not reliably
+      #     overlap, and no cheap harness forced them to.
+      #
+      # The claim is written AFTER the counter moves, in the same transaction, so the two can never
+      # disagree: if the bound refuses, no identity is consumed; if the caller's transaction rolls
+      # back, neither is.
+      def charge_sitemap_document(organization_id:, project_id:, crawl_id:, canonical_url:, ceiling:,
+                                  id:, correlation_id:, now:)
+        digest = Digest::SHA256.digest(canonical_url)
+        query(<<~SQL, [organization_id, crawl_id])
+          SELECT 1 FROM crawl_budget_counters
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid FOR UPDATE
+        SQL
+
+        return :already unless charge_for(crawl_id, digest).nil?
+
+        moved = query(<<~SQL, [organization_id, crawl_id, ceiling.to_i, iso(now)]).to_a.first
           UPDATE crawl_budget_counters
           SET sitemap_documents = sitemap_documents + 1,
               state_version = state_version + 1, updated_at = $4::timestamptz
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND sitemap_documents < $3
           RETURNING sitemap_documents
+        SQL
+        return :exhausted if moved.nil?
+
+        claim = [id, iso(now), correlation_id, organization_id, project_id, crawl_id,
+                 canonical_url, bytea(digest)]
+        query(<<~SQL, claim)
+          INSERT INTO crawl_sitemap_document_charges
+            (id, schema_version, created_at, correlation_id, organization_id, project_id, crawl_id,
+             canonical_url, canonical_url_sha256, charged_at)
+          VALUES ($1::uuid,'1.0',$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6::uuid,
+                  $7,$8,$2::timestamptz)
+        SQL
+        :granted
+      end
+
+      def charge_for(crawl_id, digest)
+        query(<<~SQL, [crawl_id, bytea(digest)]).to_a.first
+          SELECT id FROM crawl_sitemap_document_charges
+          WHERE crawl_id = $1::uuid AND canonical_url_sha256 = $2
         SQL
       end
 
@@ -166,6 +215,8 @@ module IdentityAccess
       # `exec` shadows `Kernel#exec` and makes every fragment-interpolating statement read as command
       # execution to a static analyser. Every parameter here is bound, never interpolated.
       def query(sql, params = []) = @pg.exec_params(sql, params)
+
+      def bytea(value) = { value:, format: 1, type: 17 }
 
       def iso(time) = time.utc.iso8601(6)
     end

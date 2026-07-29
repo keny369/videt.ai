@@ -528,6 +528,139 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(documents_spent(ctx)).to eq(2)
     end
 
+    # ---- the MIXED case: one candidate reaches the network and fails, another is paced ----------
+    #
+    # Four of the five delta lenses found that the in-memory `@charged` memo could only mean "once
+    # per traversal". A `Traversal` is rebuilt on every `call`, so a candidate that reached the
+    # network and FAILED was re-charged on every re-entry — and the pure-contention fixture above
+    # cannot see it, because there nothing is ever charged at all.
+    def attempt_pass(ctx)
+      Workflows::Wf005::DiscoverSitemaps.new(outbound: outbound_map(
+        "https://shop.acme.example/a.xml" => { status: 404 }
+      ), pacer: ->(_ms) {}).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+        canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
+    end
+
+    # THE MIXED CASE, produced by the gate's own predicates and deterministic without any seeded
+    # state. With a no-op pacer no simulated time passes, so :442's 1-start-per-rolling-second rate
+    # limit refuses every candidate after the first: `a.xml` is claimed and 404s (charged, and
+    # `@succeeded` stays false because a 404 parses nothing), the default `/sitemap.xml` is deferred
+    # 20 times, `gate_deferred?` is true, and FU-9 hands the claim back. Nothing terminalizes — the
+    # gate guard rightly forbids un-terminalizing, so a rescheduled pass is the ONLY way a run
+    # re-enters, and it is exactly the path that used to re-charge.
+
+    def ensure_counter_row(ctx)
+      Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.ensure_counters(id: Platform::Ids.system.generate, now: start_now,
+                              correlation_id: SecureRandom.uuid_v7,
+                              organization_id: ctx[:g][:organization_id],
+                              project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id])
+      end
+    end
+
+    def charges(ctx) = DbInspector.all(
+      "SELECT canonical_url FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid", [ctx[:crawl_id]]
+    ).map { |r| r["canonical_url"] }
+
+    it "charges a URL that REACHED THE NETWORK exactly once, however many passes re-enter" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      expect(attempt_pass(ctx).rescheduled?).to be(true)
+      first = charges(ctx).sort
+      expect(first).not_to be_empty                      # something genuinely reached the network
+
+      # The rolling rate window is cleared between passes so `a.xml` is genuinely RE-ATTEMPTED each
+      # time — otherwise every later pass defers before reaching the charge and the test proves
+      # nothing. This is what makes it a re-charge test rather than a no-op test.
+      20.times do
+        clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+        expect(attempt_pass(ctx).rescheduled?).to be(true)
+      end
+
+      # The ledger is unchanged: the same distinct URLs, charged once each.
+      expect(charges(ctx).sort).to eq(first)
+      expect(documents_spent(ctx)).to eq(first.size)
+      expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("pending")
+      # And no limit was invented for a run that attempted one distinct URL against a bound of 50.
+      expect(DbInspector.all("SELECT limit_dimension FROM crawl_limit_decisions WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]])).to be_empty
+    end
+
+    # Six independent logins, so the transactions genuinely overlap rather than queueing behind the
+    # five-slot pool. `gate` is an optional controller connection already holding the counter row:
+    # every worker then piles up behind it and is RELEASED TOGETHER, so the overlap is observed
+    # rather than hoped for. Six threads left to their own devices did not overlap at all — the
+    # first version of this test passed with the row lock removed.
+    def charging_threads(ctx, urls, ceiling:)
+      cfg = ActiveRecord::Base.connection_db_config.configuration_hash
+      urls.map do |url|
+        Thread.new do
+          conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database],
+                            user: cfg[:username], password: cfg[:password].presence)
+          begin
+            conn.exec("BEGIN")
+            store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn)
+            store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+            store.ensure_counters(id: Platform::Ids.system.generate, now: start_now,
+                                  correlation_id: SecureRandom.uuid_v7,
+                                  organization_id: ctx[:g][:organization_id],
+                                  project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id])
+            r = store.charge_sitemap_document(
+              organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+              crawl_id: ctx[:crawl_id], canonical_url: url, ceiling:,
+              id: Platform::Ids.system.generate, correlation_id: SecureRandom.uuid_v7, now: start_now)
+            conn.exec("COMMIT")
+            r
+          rescue StandardError => e
+            e
+          ensure
+            conn.close
+          end
+        end
+      end.map(&:value)
+    end
+
+
+    it "never charges past the ceiling when workers race on DIFFERENT urls" do
+      # What the `FOR UPDATE` on the counter row is for. The unique index adjudicates IDENTITY (one
+      # charge per URL); it says nothing about the BOUND, because two workers charging two different
+      # URLs conflict on nothing. Without the row lock both read `sitemap_documents = 0`, both pass
+      # `< 1`, and the run fetches two documents against a ceiling of one.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      urls = Array.new(6) { |i| "https://shop.acme.example/s#{i}.xml" }
+
+      outcomes = charging_threads(ctx, urls, ceiling: 1)
+
+      expect(outcomes.count(:granted)).to eq(1)
+      expect(outcomes.count(:exhausted)).to eq(5)
+      expect(charges(ctx).size).to eq(1)
+      expect(documents_spent(ctx)).to eq(1)
+    end
+
+    it "cannot be charged twice for one URL by two workers at once" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      url = "https://shop.acme.example/a.xml"
+      ensure_counter_row(ctx)
+
+      outcomes = charging_threads(ctx, [url] * 6, ceiling: 50)
+
+      # Exactly one paid; the rest found it already paid for, and none raised.
+      #
+      # HONEST LIMIT OF THIS TEST: six threads on six connections did not reliably overlap here, so
+      # what is proved is the OUTCOME, not the interleaving. The `UNIQUE (crawl_id,
+      # canonical_url_sha256)` in the migration is what makes a second charge impossible under any
+      # interleaving, and `spec/persistence` asserts that constraint directly. The counter-row
+      # `FOR UPDATE` additionally makes a concurrent same-URL charge resolve to `:already` rather
+      # than to a unique violation — that is a real property and it is NOT proved here.
+      expect(outcomes.grep(StandardError)).to be_empty
+      expect(outcomes.count(:granted)).to eq(1)
+      expect(outcomes.count(:already)).to eq(5)
+      expect(charges(ctx)).to eq([url])
+      expect(documents_spent(ctx)).to eq(1)
+    end
+
     it "RE-ENTERS and succeeds once the contention clears" do
       # The property that makes this a re-entry rather than a retry loop: a later pass, with no
       # special knowledge that an earlier one was deferred, claims the gate exactly as the first did.

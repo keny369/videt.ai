@@ -9,8 +9,8 @@ module Workflows
     # restrictive of global safety, approved entitlement, Organization, and Project limits").
     #
     # WHY THIS IS ONE PLACE. Three execution-time call sites had grown their own copy of the same
-    # resolution — `HostGate`, `FetchContent` and, at S-07-008, the new `Admission` — two of them
-    # with their own rescue. They agreed, but nothing made them agree, and S-07-008 adds consumers
+    # resolution — `HostGate`, `FetchContent` and, at S-07-008, the new `Admission` — each with its
+    # own `rescue JSON::ParserError, KeyError`. They agreed, but nothing made them agree, and S-07-008 adds consumers
     # that must not merely agree: a limit decision records the CONFIGURED VALUE it was judged
     # against (:442), so if the number in the event and the bound the scheduler enforced come from
     # two resolutions, a customer can be told they hit a limit that was never applied. Resolving

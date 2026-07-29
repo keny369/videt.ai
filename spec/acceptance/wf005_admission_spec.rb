@@ -53,23 +53,6 @@ RSpec.describe "WF-005 admission", type: :acceptance,
   end
 
 
-  # Observed, not timed: the rival commits because admission was SEEN waiting on the counter row.
-  def blocked_on_counter?(ctx)
-    DbInspector.one(
-      "SELECT 1 AS waiting FROM pg_stat_activity a
-       JOIN pg_locks l ON l.pid = a.pid AND NOT l.granted
-       WHERE a.wait_event_type = 'Lock' AND a.query ILIKE '%crawl_budget_counters%'
-       LIMIT 1", []) ? true : false
-  end
-
-  def sleep_until(description, seconds: 10.0)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
-    until yield
-      raise "timed out waiting for: #{description}" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
-
-      Kernel.sleep(0.002)
-    end
-  end
 
   def set_remaining(ctx, bytes)
     Platform::UnitOfWork.run do |conn|
@@ -184,16 +167,26 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       seed_entries(ctx, 2)
       set_remaining(ctx, Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
 
-      rival = DbInspector.connection
+      # The rival reserves through the PRODUCTION store on its own connection, which is exactly the
+      # `FetchContent` relationship: a writer of `crawl_budget_counters` that never takes the
+      # frontier advisory lock. A raw UPDATE would have tested the test rather than the predicate.
+      cfg = ActiveRecord::Base.connection_db_config.configuration_hash
       paced = lambda do |stage|
         next unless stage == :before_reserve
 
-        # Another worker takes the last of the budget, exactly as the fetch path does, and COMMITS.
-        rival.exec_params(
-          "UPDATE crawl_budget_counters
-           SET reserved_response_bytes = reserved_response_bytes + $2, state_version = state_version + 1
-           WHERE crawl_id = $1::uuid",
-          [ctx[:crawl_id], Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2])
+        conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database],
+                          user: cfg[:username], password: cfg[:password].presence)
+        begin
+          conn.exec("BEGIN")
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn)
+          store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+          store.reserve_bytes(ctx[:g][:organization_id], ctx[:crawl_id],
+                              Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2,
+                              Workflows::Wf005::ByteAccounting::RUN_CEILING, start_now)
+          conn.exec("COMMIT")
+        ensure
+          conn.close
+        end
         paced_once
       end
 
@@ -212,6 +205,70 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       expect(row).not_to be_nil
       expect(row["observed_value"].to_i).to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
       expect(decision.reason_code).to eq("run_byte_budget_exhausted")
+
+      # AND the property :442 actually states: "concurrent reservations MUST NOT sum above the
+      # run-wide maximum." This is the assertion the bound predicate carries — the rival does not
+      # take the frontier lock, so nothing but `reserved + want <= ceiling` in the statement's own
+      # WHERE stops admission adding its reservation on top. Mutation-proved: delete that predicate
+      # and this exceeds the ceiling.
+      expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i)
+        .to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
+    end
+  end
+
+  describe "execution-time authorization, before any effect" do
+    # Admission reserves budget, claims an entry and can write an IMMUTABLE customer-visible
+    # decision. Checking only "does the Crawl exist" let a suspended tenant or an unmetered run get
+    # all three. Each of these deletes its guard line to prove the test is load-bearing.
+    def effects(ctx)
+      { decisions: DbInspector.all("SELECT id FROM crawl_limit_decisions WHERE crawl_id=$1::uuid", [ctx[:crawl_id]]).size,
+        events: DbInspector.all("SELECT id FROM event_registry WHERE aggregate_id=$1::uuid AND event_type LIKE 'Crawl%Limit%'", [ctx[:crawl_id]]).size,
+        reserved: counters(ctx[:crawl_id])&.fetch("reserved_response_bytes").to_i,
+        claimed: DbInspector.all("SELECT id FROM crawl_frontier_entries WHERE crawl_id=$1::uuid AND state='in_progress'", [ctx[:crawl_id]]).size }
+    end
+
+    it "refuses a SUSPENDED Organization without reserving, claiming or recording anything" do
+      ctx = running_crawl
+      suspend_organization(ctx[:g])
+
+      decision = claim(ctx)
+
+      expect(decision.reason_code).to eq("admission_organization_inactive")
+      expect(effects(ctx)).to eq({ decisions: 0, events: 0, reserved: 0, claimed: 0 })
+    end
+
+    it "refuses a Crawl that is not running, and emits no wall-clock limit for it" do
+      # A Crawl that has not started has no `deadline_at`; a terminal one's is in the past. Either
+      # way the wall-clock limb must never fire for a run the scheduler may not advance. Exercised
+      # through the real chain by queueing WITHOUT starting — the `crawls` guard rightly refuses to
+      # let a test fabricate a terminal state, so the pre-start state is the honest one to use.
+      g = bootstrap
+      sid = register_source(g, "https://shop.acme.example")
+      verify(g, sid)
+      activate_source(g, sid)
+      activate_project(g)
+      crawl_id = Workflows::Wf005::Handlers::QueueCrawl.new.call(
+        command: Workflows::Wf005::Commands::QueueCrawl.new(
+          command_id: SecureRandom.uuid_v7, idempotency_key: "qc-#{SecureRandom.hex(6)}",
+          schema_version: "1.0", session_id: g[:session_id], organization_id: g[:organization_id],
+          project_id: g[:project_id], requested_at_utc: act_now), request_context: act_ctx).payload[:crawl_id]
+      ctx = { g:, crawl_id:, source_id: sid, host: "shop.acme.example" }
+
+      decision = claim(ctx)
+
+      expect(decision.reason_code).to eq("admission_crawl_not_running")
+      expect(effects(ctx)).to eq({ decisions: 0, events: 0, reserved: 0, claimed: 0 })
+    end
+
+    it "refuses a run whose entitlement reservation is no longer executing (PRULE-007)" do
+      ctx = running_crawl
+      DbInspector.connection.exec_params(
+        "UPDATE entitlement_reservations SET state='released', terminal_at=now(),
+           state_version=state_version+1
+         WHERE id=(SELECT entitlement_reservation_id FROM crawls WHERE id=$1::uuid)", [ctx[:crawl_id]])
+
+      expect(claim(ctx).reason_code).to eq("admission_entitlement_not_executing")
+      expect(effects(ctx)).to eq({ decisions: 0, events: 0, reserved: 0, claimed: 0 })
     end
   end
 

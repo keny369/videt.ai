@@ -153,12 +153,28 @@ module Workflows
         state = "queued"
         reason = nil
 
-        # DEPTH IS CHECKED BEFORE THE QUEUE BOUND, and the order is not arbitrary. A URL deeper than
-        # the bound is inadmissible on its own terms — it would not become admissible if the queue
-        # had room — whereas a queue discard is positional and would reverse if a lower-ordered
-        # candidate arrived. Deciding the intrinsic reason first is what makes the recorded limit
-        # reason the true one; deciding positionally first would label a too-deep URL
-        # `queue_limit_discarded` purely because the run happened to be full.
+        # AN OBSERVATION IS NOT A DISPOSITION, and this chain decides dispositions.
+        #
+        # The depth SOFT limb was briefly written as an `elsif` here, between the depth-hard limb and
+        # the queue limb. It set neither `state` nor `reason` — it only recorded — but it still
+        # consumed the branch, so every candidate whose depth fell in [soft, hard] skipped the
+        # 20,000-candidate retention bound entirely: no eviction, no `queue_limit_discarded`, no
+        # `discovered_url_queue` decision, permanently. All five ADR-026 lenses found it
+        # independently. Under a legal `crawl_depth.soft = 1` policy that is EVERY sitemap-discovered
+        # candidate (:440 puts them at depth 1), and under the frozen ceiling it becomes unconditional
+        # the moment link extraction reaches depth 8, because breadth-first sealing means every
+        # subsequent offer is at least that deep.
+        #
+        # So the soft observation is taken FIRST and unconditionally, outside the chain, and control
+        # continues into the ordinary disposition path. A candidate over the hard bound records both:
+        # the run genuinely did reach the soft value on its way past it, and the decision table
+        # dedupes each to one row.
+        observe_depth_soft(observer, depth, now)
+
+        # DEPTH IS DECIDED BEFORE THE QUEUE BOUND. A URL past the depth bound is inadmissible on its
+        # own terms — it would not become admissible if the queue had room — whereas a queue discard
+        # is positional and would reverse if a lower-ordered candidate arrived. Deciding positionally
+        # first would label a too-deep URL `queue_limit_discarded` purely because the run was full.
         #
         # The row is written either way: ":456 the discovered queue counts distinct content-candidate
         # URLs after Source Scope canonicalization, INCLUDING an in-scope URL EVEN WHEN IT IS LATER
@@ -168,12 +184,6 @@ module Workflows
           state = "discarded"
           reason = DEPTH_LIMIT_DISCARDED
           observer&.hard(DEPTH_DIMENSION, depth.to_i, now:, affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
-        elsif observer && depth.to_i >= observer.soft_bound(DEPTH_DIMENSION)
-          # ":442 — a soft event fires when the observed value first equals the soft limit." The
-          # depth dimension had a hard limb and no soft one at all. Latent until link extraction
-          # produces a candidate past depth 8, which is precisely why it had to be written down now
-          # rather than left for S-07-010 to inherit silently.
-          observer.soft(DEPTH_DIMENSION, depth.to_i, now:)
         elsif (retained = @store.admitted_count(organization_id, crawl_id)) >= queue_hard(observer)
           victim = @store.highest_unclaimed(organization_id, crawl_id)
           if victim && unhex(victim["dequeue_key"]) > key
@@ -226,6 +236,15 @@ module Workflows
       # the number the decision records are the same number.
       def depth_hard(observer) = observer ? observer.hard_bound(DEPTH_DIMENSION) : CRAWL_DEPTH_HARD
       def queue_hard(observer) = observer ? observer.hard_bound(QUEUE_DIMENSION) : DISCOVERED_QUEUE_HARD
+
+      # ":442 — a soft event fires when the observed value first equals the soft limit." Recorded
+      # unconditionally, never as a branch of the disposition chain — see the note at the top of
+      # `offer` for what happened when it was.
+      def observe_depth_soft(observer, depth, now)
+        return if observer.nil? || depth.to_i < observer.soft_bound(DEPTH_DIMENSION)
+
+        observer.soft(DEPTH_DIMENSION, depth.to_i, now:)
+      end
 
       # ":442 — a soft event fires when the observed value first equals the soft limit." The
       # observed value for this dimension is the retained candidate count, which the unique key on

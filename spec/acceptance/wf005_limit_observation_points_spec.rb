@@ -184,6 +184,46 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       expect(limit_events(ctx[:crawl_id]).count("CrawlLimitReached")).to eq(1)
     end
 
+    it "still enforces the RETENTION BOUND for a candidate at or above the depth soft bound" do
+      # The regression all five delta lenses found: the depth-soft observation was written as an
+      # `elsif` in the disposition chain, so a candidate in [soft, hard] skipped the queue check
+      # entirely — no eviction, no discard, no decision, permanently. An observation must never
+      # consume a disposition branch. Mutation: make `observe_depth_soft` an `elsif` again and this
+      # fails on every assertion below.
+      ctx = running_crawl
+      narrow(ctx, "crawl_depth" => { "soft" => 1, "hard" => 9 },
+                  "discovered_queue" => { "soft" => 2, "hard" => 2 })
+
+      # Depth 1 is at the soft bound AND the run is at its retention bound.
+      offer(ctx, url: "https://shop.acme.example/a", depth: 1)
+      result = offer(ctx, url: "https://shop.acme.example/z", depth: 1)
+
+      # The soft depth observation still happens...
+      expect(decision(ctx[:crawl_id], "crawl_depth_from_source_root", "soft")).not_to be_nil
+      # ...and the retention bound is STILL enforced.
+      expect(result.discarded?).to be(true)
+      expect(result.reason).to eq("queue_limit_discarded")
+      row = decision(ctx[:crawl_id], "discovered_url_queue", "hard")
+      expect(row).not_to be_nil
+      expect(row["configured_value"].to_i).to eq(2)
+      expect(DbInspector.all(
+        "SELECT id FROM crawl_frontier_entries WHERE crawl_id=$1::uuid AND state <> 'discarded'",
+        [ctx[:crawl_id]]).size).to eq(2)
+    end
+
+    it "EVICTS at the retention bound even when the newcomer is at the depth soft bound" do
+      ctx = running_crawl
+      narrow(ctx, "crawl_depth" => { "soft" => 1, "hard" => 9 },
+                  "discovered_queue" => { "soft" => 2, "hard" => 2 })
+      offer(ctx, url: "https://shop.acme.example/zzz", depth: 1)
+
+      result = offer(ctx, url: "https://shop.acme.example/aaa", depth: 1)
+
+      expect(result.admitted?).to be(true)
+      expect(result.evicted_entry_id).not_to be_nil
+      expect(decision(ctx[:crawl_id], "discovered_url_queue", "hard")["observed_value"].to_i).to eq(2)
+    end
+
     it "prefers the DEPTH reason over the queue reason when a candidate breaches both" do
       # Depth is intrinsic to the candidate; a queue discard is positional and would reverse if a
       # lower-ordered candidate arrived. Recording the positional reason for a URL that could never

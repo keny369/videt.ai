@@ -11,19 +11,7 @@ repair is reverted. The gate was not ceremony: it stopped a materially incorrect
 production calls `DiscoverSitemaps#call` at all. The driver is now owned by **BUILD_PLAN S-07-012**,
 and FU-9 closes when that lands.
 
-Built under standing delegation ADR-061, across seven commits:
-
-| Commit | What |
-| --- | --- |
-| `827c39a` (1/n) | `LimitDimensions`, the `crawl_limit_decisions` table, the once-per-run event claim |
-| `508edde` (2/n) | FU-10 ordered admission; the wall clock; the shared spec chain harness |
-| `f9c6488` (3/n) | The decision row as the outbox; `EffectiveLimits`; byte + wall-clock observation |
-| `96440b7` (4/n) | The remaining observation points; two `:390` defects; `ActiveCrawlPolicies` |
-| `b1dcea9` (5/n) | FU-9: sustained contention no longer terminalizes |
-| `87fe1d5` (6/n) | Completion report, BUILD_STATE, BUILD_PLAN |
-| _this_ (7/n) | The five-lens repairs |
-
----
+Built under standing delegation ADR-061. The tranche is reviewed BY PATH over a commit range, not by commit — see "The acceptance diff" below.
 
 ## The shape that matters
 
@@ -51,8 +39,9 @@ Two consequences that were designed for rather than discovered:
 - **The event is built from the `RETURNING` columns**, not from the caller's arguments. A CHECK that
   rejects a value stops the event as well as the row, and the stream cannot describe a decision the
   database does not hold.
-- **`crawl_budget_counters`' event bits are a pre-filter, not the authority.** Nothing reads them to
-  decide whether to emit.
+- **There is no pre-filter.** The insert *is* the check, so no second mechanism can disagree with
+  it. The counter-bit claim written alongside this table in 1/n was superseded in 3/n and deleted;
+  `crawl_budget_counters.soft_limit_events` / `hard_limit_events` are written and read by nothing.
 
 ## What the review found, and what it changed
 
@@ -67,12 +56,35 @@ Two consequences that were designed for rather than discovered:
 | 7 | No persistence-invariants spec, while the report implied `verify_runtime` covered the table | security | `spec/persistence/crawl_limit_decision_invariants_spec.rb` |
 | 8 | FU-9 had no driver and no build-plan block owned one | architecture | S-07-012 added; FU-9 downgraded to `mitigated` |
 
+### The delta re-review found the repairs had their own defects
+
+Owner-directed scope: the five lenses ran again over the repair delta, in the context of their own
+original findings. **All five returned BLOCK.**
+
+| # | Finding | Lenses | Repair |
+| --- | --- | --- | --- |
+| 10 | The depth-soft observation was written as an `elsif` in the disposition chain, so a candidate in `[soft, hard]` skipped the 20,000 retention bound entirely — no eviction, no discard, no decision | **all five** | Observation hoisted out of the chain; regression test combining depth ≥ soft with the retention bound |
+| 11 | The sitemap charge was memoized in memory, so re-entry re-charged any URL that had reached the network and failed — converging on the same false `CrawlLimitReached` | 4 of 5 | `crawl_sitemap_document_charges`, `UNIQUE (crawl_id, canonical_url_sha256)` — :437's distinct-URL unit made durable |
+| 12 | The replacement run-wide-maximum test was still not a bound test: the frontier lock serialised every thread, so the counter predicate was never exercised | concurrency | The rival now reserves through the production store on its own connection — the real `FetchContent` relationship |
+| 13 | `crawl_not_running` had no test at all, and the residual gap was wider than the fix | security | The admission-safe subset of `FetchAuthorization` (Organization, Crawl, Project, entitlement), every limb denying before any effect |
+| 14 | Governance contradicted itself: BUILD_PLAN still claimed FU-9 delivered, nothing depended on S-07-012, and the report carried stale figures and a claim it disowned elsewhere | architecture | One truth across all three; S-07-012 added to S-07-009's `depends_on` |
+
+Two claims of mine were withdrawn rather than defended: the `pacer` is **not** the seam the sibling
+services carry, and `EffectiveLimits` unified **three** copies, not four. Both were caught by lenses
+reading the code against the prose.
+
 **A ninth defect was found by writing repair 7.** The threshold biconditional read
 `decision_reason_code = 'limit_reached'`, so a hard decision with a NULL reason evaluated to
 `FALSE OR NULL` = NULL — and SQL admits a CHECK whose result is unknown. The row `:300` exists to
 forbid was accepted. Repaired NULL-safely in its own migration
 (`20260727120280`) rather than by amending the original, so the hole and its repair both stay
 visible. No lens found this one; the spec written to close a lens's finding did.
+
+A tenth was found by mutation-checking repair 11: my own comment claimed the counter-row `FOR UPDATE`
+was what made the sitemap bound exact. It is not — the UPDATE's own `sitemap_documents < ceiling`
+predicate is, under EPQ re-evaluation. Removing the lock changed nothing; removing the predicate let
+six workers charge past a ceiling of one. The comment now states what each mechanism actually
+protects, and marks the one property that is asserted rather than proved.
 
 Also removed: `claim_limit_event` and the three comments describing it as a live pre-filter (it had
 no caller); the `EffectiveLimits` rationale claiming it replaced four copies including `Admission`
@@ -84,7 +96,7 @@ Ruby against the live PL/pgSQL over fixed digests.
 
 | Dimension | Observation point | Notes |
 | --- | --- | --- |
-| `accounted_response_body_bytes_per_run` | `Admission#reserve` | soft on the **reserved peak** the statement returns; hard before the budget is exceeded |
+| `accounted_response_body_bytes_per_run` | `Admission#admit` | soft on the **reserved peak** the statement returns; hard before the budget is exceeded |
 | `wall_clock_run_duration` | `Admission` | soft from `started_at`; hard from `crawls.deadline_at`; only while `state='running'` |
 | `discovered_url_queue` | `Frontier#offer` | soft on the retained count; hard when a candidate is discarded at the retention bound |
 | `crawl_depth_from_source_root` | `Frontier#offer` | decided **before** the queue bound; soft and hard |
@@ -208,7 +220,7 @@ commit range, never by treating any single commit as a tranche slice.**
 
 | | |
 | --- | --- |
-| Range | `09277e7..eae1192` |
+| Range | `09277e7..HEAD` of this branch |
 | Acceptance paths | `app/`, `db/`, `spec/`, `lib/`, `specification/`, `S-07-008_COMPLETION_REPORT.md` |
 | Excluded | the twelve files listed in `BUILD_STATE.acceptance_evidence.excluded_contamination` |
 
@@ -222,7 +234,7 @@ and rewriting would create more risk than it removes.
 
 | Gate | Result |
 | --- | --- |
-| RSpec | **1806 examples / 0 failures** (1741 at tranche start) |
+| RSpec | see `BUILD_STATE.reconciliation_note` for the figure at the last gate run (1741 at tranche start) |
 | Zeitwerk | clean |
 | Packwerk | clean, no stale violations |
 | Brakeman | 0 security warnings |
@@ -253,11 +265,11 @@ and rewriting would create more risk than it removes.
 | Admission PEEKS before it claims | Autonomous (defect repair) | `in_progress` has no way back under the frontier guard, and a stranded entry pins `sealed_depth` for the run |
 | Admission refuses a Crawl that is not `running` | Autonomous (security default) | A terminal run's `deadline_at` is past, so the wall-clock limb would emit `CrawlLimitReached` for a run that finished normally |
 | The request-time hard limb fires on exhaustion, not per attempt | Autonomous (defect repair) | `:444` allows two retries; `:452` fails the URL only when they are exhausted |
-| `Admission` gains a no-op `pacer` seam | Autonomous | The only way to place another writer's COMMIT inside the read-to-write window deterministically; the same seam `FetchContent` and `DiscoverSitemaps` already carry |
+| `Admission` gains a no-op `pacer` probe point | Autonomous | A NEW kind of seam here, not the millisecond-sleep collaborator the sibling services carry — an earlier claim that it was the same pattern is withdrawn. It earns its place because the repaired window cannot be opened reliably by racing threads, and the alternative was to leave the repair unproved |
 | The NULL-reason CHECK hole repaired in its own migration | Autonomous (defect repair) | The hole and its repair both stay visible; amending the original would erase the lesson |
 | FU-9 downgraded to `mitigated`; S-07-012 added | **Owner-directed** | A hand-back method is not scheduler re-entry, and no block owned the driver |
 | The decision row is the outbox trigger; events derive from `RETURNING` columns | Autonomous | The unique key is the only cross-process adjudicator of "first"; deriving the event from the row removes the drift window |
-| `EffectiveLimits` replaces four copies of the `:390` resolution | Platform Authority | The configured value in an event and the bound the scheduler enforced must come from one resolution |
+| `EffectiveLimits` unifies the THREE execution-time copies of the `:390` resolution; `StartCrawl` keeps its own | Platform Authority | The configured value in an event and the bound the scheduler enforced must come from one resolution — but a start GATE and a running scheduler are entitled to different answers about an unreadable policy, so collapsing them would have loosened the gate |
 | `KeyError` deliberately not carried into the new rescue | Autonomous (defect avoidance) | It would silently discard every Organization/Project policy whenever a reader forgot `content_sha256` |
 | `Platform::DerivedUuid` for the global ceiling's `artifact_id` | Assumption (OD-013 precedent) | `EventGoverningVersion` needs a uuid; a constant artifact has none; a derived one is stable and adoptable by the deferred release artifact |
 | `global_crawl_safety` as the ceiling's artifact type | Autonomous | The ratified enum already distinguishes it from `crawl_policy` |
