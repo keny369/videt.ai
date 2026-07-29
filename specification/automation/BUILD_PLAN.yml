@@ -918,6 +918,47 @@ blocks:
     #     not a limit.
     # Until it exists FU-9 is MITIGATED, not delivered: the write-once false `sitemap_unavailable`
     # is gone, but nothing re-enters.
+    #
+    # ENTRY ANALYSIS, recorded at S-07-008 acceptance so it is not re-derived. Everything below is
+    # read from ratified sources; none of it is a new decision, and the topology is NOT open.
+    #
+    # 1. THE ORCHESTRATOR CANNOT RUN THE LOOP. BACKGROUND_PROCESSING :377 fixes `crawl_orchestrate`
+    #    to `StartCrawl`, `CompleteCrawl`, `FailCrawl` or `CancelCrawl` "selected solely from
+    #    persisted Crawl/deadline state", and both `crawl_dispatch` and `crawl_terminal_deadline`
+    #    map to it (:197, :199). The loop is therefore a CHAIN, not a driver: :378 gives
+    #    `crawl_fetch` -> `RecordFetchAttempt`, "its terminal transaction creates the exact
+    #    ingestion or next-frontier action", and :138 makes the first link StartCrawl's
+    #    ("one selected persisted fetch attempt, INCLUDING AN IMMEDIATE FIRST ATTEMPT").
+    #
+    # 2. `crawl_fetch_due` TARGETS A PERSISTED FETCH ATTEMPT — :138's "selected persisted fetch
+    #    attempt" and :198's durable idempotency authority, "Fetch Attempt". The attempt row is
+    #    created by the admitting transaction, BEFORE its action exists. `target_type` carries no
+    #    database vocabulary constraint, so this is a naming choice, but the identity is not.
+    #
+    # 3. CONCURRENCY IS SPECIFIED, NOT OPEN. SEARCH_CRAWL_RETRIEVAL § Frontier And Deterministic
+    #    Selection: "Workers may fetch concurrently, but one coordinator commits discoveries and
+    #    budget effects in increasing dequeue key. A completion with a later key waits in
+    #    `fetched_pending_commit`; it cannot change selection." That state ALREADY EXISTS in
+    #    `crawl_frontier_entries.state` and nothing writes it yet. WORKFLOW_SPECIFICATIONS :454
+    #    says the same for accounting: "All run-wide byte, page, and queue admission accounting is
+    #    also applied in dequeue sequence."
+    #
+    # 4. THE RESERVATION RECONCILIATION HAS A DETERMINATE ANSWER, and it is the first thing this
+    #    block must do. S-07-008 recorded it: `Admission` reserves run-wide bytes and `FetchContent`
+    #    reserves AGAIN for itself, so calling both on one entry double-reserves. :454 requires byte
+    #    admission in dequeue sequence; `Admission` is the only surface that holds the frontier
+    #    advisory lock across peek -> reserve -> claim, which is exactly what makes its reservation
+    #    ordered, and `FetchContent`'s per-attempt reservation is not ordered at all. So ADMISSION
+    #    OWNS THE RESERVATION AND FETCHCONTENT MUST CONSUME IT. The care is in :444's retries: three
+    #    attempts may run under one admission, and `commit_bytes` releases the unused remainder at
+    #    settle, so the reservation must survive the attempt loop and be released once at the
+    #    terminal outcome rather than re-taken per attempt. This changes accepted S-07-007 code and
+    #    its three spec files; it is a reconciliation the accepted record already assigns here, not
+    #    a scope expansion.
+    #
+    # 5. INGESTION IS NOT THIS BLOCK'S. :378's "exact ingestion ... action" is `ingestion_attempt_due`
+    #    and body staging needs S3; both are S-07-010. This block creates the next-frontier link and
+    #    leaves the ingestion link to the tranche that owns Documents.
     type: product
     status: pending
     depends_on:
