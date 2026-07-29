@@ -183,6 +183,7 @@ Phase-1 variant: architecture facts only — deny-by-default, tenant isolation, 
 
 ## 5. Voice And Copy Rules
 
+- **We are the diagnosis, not the treatment.** The category reflex is "oh, that's AEO/SEO" — and the moment a reader files us there, we are a commodity next to a vendor they may already pay. Every page must pre-empt that before it is thought: anyone can sell fixes; we show what is actually broken, with counts and screenshots, then re-measure to prove it changed. Default plain-language description is the mystery-shopper handle; "measure / evidence / audit" is the *differentiator*, never the description. Full scripts: `008 EXPLAINING_VIDET.md`.
 - **It is about them.** Every section is written from the owner's side of the screen and must pass the test: *does this sentence make the reader see their own business?* Sell the dream — being seen, chosen and certain — never the feature. "You" outnumbers "Videt" on every page; a feature may appear only as the proof beneath an outcome the reader already wants.
 - Short declaratives. One idea per sentence. No stacked adjectives.
 - Plain English over category jargon; the category label appears once per page at most.

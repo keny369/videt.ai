@@ -27,14 +27,16 @@ Repositioning note (28 Jul): v1.0 read like a consultancy. v1.1 sells the observ
 
 *(Alternate, 45: "The customer you never met asked an AI first.")*
 
-*Deal overview (limit 200 — this is 195):*
-> VIDET measures whether AI assistants recommend your business — and what to fix when they don't. Platform in development; 20 founding places for the first measured cohort this August. A$990–1,490.
+*Deal overview (limit 200 — this is 199):*
+> Anyone can sell you AI fixes. We show you what's actually broken: what ChatGPT, Gemini, Claude and Perplexity really say about your business — counted, screenshotted, then fixed and measured again. 20 places.
+
+*(This wording exists to kill the "oh, that's AEO, I've already got a guy" reflex in the first eight words. Do not replace it with a description of the method — lead with the difference.)*
 
 *Partnership looking for (limit 50 — this is 43):*
 > 20 founding businesses for the first cohort
 
-*Highlights (limit 100 — this is 94):*
-> Measure · fix · re-measure — counts not scores · founding price locked · first platform access
+*Highlights (limit 100 — this is 97):*
+> The diagnosis, not the treatment · counted, never guessed · screenshots · re-measured at 90 days
 
 *Long body (if a longer "About the deal" field exists):*
 > Your business now exists twice: what's true, and what the machines believe. When a customer asks ChatGPT who to use, the machines' version wins — and you can't see it.
@@ -57,9 +59,9 @@ Repositioning note (28 Jul): v1.0 read like a consultancy. v1.1 sells the observ
 **About the deal:**
 > Here's the test. Open ChatGPT and type: "Who should I use for [what you do] in [your suburb]?" Read the answer the way a customer would — someone with a job to book and no idea you exist.
 >
-> If your name came up, good — ask again tomorrow; the answers move. If it didn't: the customer you never met asked an AI first. I know, because I checked — on my own business, and on my clients'.
+> If your name came up, good — ask again tomorrow; the answers move. If it didn't: the customer you never met asked an AI first. A search engine would have given them a list to choose from. This gave them one name, and there's no page two.
 >
-> The assessment: around 22 real buyer questions, put to ChatGPT, Gemini, Claude and Perplexity again and again over several days. Every answer counted — where you came up, where you didn't, what they got wrong (screenshots included), and who was named instead. Ten fixes in plain English, in priority order, and a 45-minute walkthrough. Not a junior. Not a call centre. Me.
+> **Now, plenty of people will sell you AI fixes — blog posts, keywords, promises. That's surgery without an X-ray.** Nobody checked what the machines actually say about you first, and nobody goes back to prove it changed. That's what I do. Think of it as a mystery shopper for AI: around 22 real buyer questions, put to ChatGPT, Gemini, Claude and Perplexity again and again over several days. Every answer counted — where you came up, where you didn't, what they got wrong (screenshots included), and who was named instead. Then ten fixes in plain English that come out of the evidence, not out of a template, and a 45-minute walkthrough. Not a junior. Not a call centre. Me.
 >
 > Founding cohort, this August: twenty places, each delivered personally within five business days of payment — that's why twenty is the cap, not a marketing trick. Founding price A$990 (standard A$1,490). Or A$1,490 with the 90-day re-measure — your before-and-after on paper. That's the one I'd take.
 >
@@ -96,10 +98,10 @@ Repositioning note (28 Jul): v1.0 read like a consultancy. v1.1 sells the observ
 
 The highest-converting asset on the page is you running the test live. Shot list (all claims true and worded as such — own business = Lumen & Lever; flooring = client work):
 
-1. **(0–10 s)** Face or voice over a blank ChatGPT tab: "I'm Lee. I built Scrivener for Windows for thirteen years — a million-plus writers. Now I'm building VIDET: it shows you whether AI recommends your business. Watch this."
-2. **(10–40 s)** Screen: type a real buyer question live — "Who should I use for an AI consultant in Melbourne?" Let the answer render in full. Say nothing while it types. Then: "That's what a buyer just read. My own firm wasn't in it. I checked — properly, with counts — and that's how VIDET started."
-3. **(40–70 s)** Cut to 3 pages of a real report — your own Lumen & Lever run, or a client's flooring report with their permission, said as such: "I ran the same measurement for a flooring client of mine — around 22 buyer questions, four AIs, every answer counted. Screenshots, not stories. Fix, then measure again — before and after, on paper."
-4. **(70–90 s)** Card 3 as the closer (it's in the folder): "Twenty founding places this August. I deliver every one personally. Founding members keep the founding price and get the platform first. If the machines already know you — I'll tell you that too, and you keep your money."
+1. **(0–12 s)** Face or voice over a blank ChatGPT tab: "I'm Lee. I built Scrivener for Windows for thirteen years — a million-plus writers. Now I do something simple: **I'm a mystery shopper for AI.** Retailers pay people to walk in as customers and report what really gets said. I do that with the machines your buyers ask. Watch."
+2. **(12–40 s)** Screen: type a real buyer question live — "Who should I use for an AI consultant in Melbourne?" Let the answer render in full. Say nothing while it types. Then: "That's what a buyer just read. A search engine would have given them a list. This gave them one name — **there's no page two** — and it wasn't mine. That's how VIDET started."
+3. **(40–70 s)** Cut to 3 pages of a real report — your own Lumen & Lever run, or a client's flooring report with their permission, said as such. **This is where you kill the AEO objection, out loud:** "Now, plenty of people will sell you AI fixes — blogs, keywords, promises. That's surgery without an X-ray. Nobody checked what the machines actually say about you first, and nobody goes back afterwards to prove it changed. That's my bit. Around 22 buyer questions, four assistants, every answer counted and screenshotted. Then ten fixes that come out of the evidence — not out of a template."
+4. **(70–90 s)** Card 3 as the closer (it's in the folder): "**The diagnosis, not the treatment.** Twenty founding places this August. I deliver every one personally. Founding members keep the founding price and get the platform first. And if the machines already know you — I'll tell you that too, and you keep your money."
 
 Rules: real screens only, no fabricated answers; client reports appear on screen only with written permission and are always introduced as client work; if the live answer happens to include you, keep it and pivot to "ask it again tomorrow — the answers move; that's why I count." QuickTime screen recording + phone mic is fine; authenticity beats polish in this feed.
 

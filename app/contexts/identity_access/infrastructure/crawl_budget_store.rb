@@ -56,6 +56,10 @@ module IdentityAccess
       # pre-update value, so a `LEAST(...)`-clamped UPDATE could not tell the caller how much it
       # actually got — and an attempt that does not know its own reservation cannot honour ":442 —
       # an attempt cannot add accounted bytes beyond its reservation".
+      # Returns the row AFTER the reservation, so the caller sees the RESERVED PEAK this call
+      # produced. That is what :442's "a soft event fires when the observed OR RESERVED value first
+      # equals the soft limit" needs: a peak that is later released is unobservable from the stored
+      # row, but it is visible right here, to the statement that caused it.
       def reserve_bytes(organization_id, crawl_id, want, ceiling, now)
         return nil if want.to_i <= 0
 
@@ -67,6 +71,27 @@ module IdentityAccess
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
             AND reserved_response_bytes + $3 <= $4
           RETURNING reserved_response_bytes, committed_response_bytes
+        SQL
+      end
+
+      # Claim the right to emit a limit event for one dimension and threshold, ONCE PER RUN. Returns
+      # the row when this call won the claim and nil when the bit was already set — so N workers
+      # crossing together produce exactly one emission, decided by the row lock rather than by who
+      # read first.
+      #
+      # ":442 — emit `CrawlLimitReached` EXACTLY ONCE per dimension and run." The bits are add-only
+      # (the guard enforces `@>`), so a claim cannot be released and re-won, and the decision table's
+      # `UNIQUE (crawl_id, limit_dimension, threshold_kind)` is the second, authoritative barrier.
+      def claim_limit_event(organization_id, crawl_id, dimension, threshold, now)
+        column = threshold.to_s == "soft" ? "soft_limit_events" : "hard_limit_events"
+        params = [organization_id, crawl_id, dimension.to_s, iso(now)]
+        query(<<~SQL, params).to_a.first
+          UPDATE crawl_budget_counters
+          SET #{column} = #{column} || jsonb_build_object($3, true),
+              state_version = state_version + 1, updated_at = $4::timestamptz
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+            AND NOT (#{column} ? $3)
+          RETURNING #{column}
         SQL
       end
 

@@ -426,6 +426,20 @@ $$;
 
 
 --
+-- Name: f1_crawl_limit_decisions_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_limit_decisions_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'crawl_limit_decision_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_policies_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2276,6 +2290,57 @@ ALTER TABLE ONLY public.crawl_host_gates FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_limit_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_limit_decisions (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    idempotency_key_digest bytea,
+    content_sha256 bytea,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    limit_dimension text NOT NULL,
+    threshold_kind text NOT NULL,
+    configured_value bigint NOT NULL,
+    observed_value bigint NOT NULL,
+    affected_source_count bigint NOT NULL,
+    affected_url_count bigint NOT NULL,
+    decision_type text NOT NULL,
+    decision_value text NOT NULL,
+    decision_status text NOT NULL,
+    decision_reason_code text,
+    decided_by_service_identity_id uuid NOT NULL,
+    definition_versions jsonb NOT NULL,
+    input_sha256 bytea NOT NULL,
+    output_sha256 bytea NOT NULL,
+    decided_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT crawl_limit_decisions_affected_source_count_check CHECK ((affected_source_count >= 0)),
+    CONSTRAINT crawl_limit_decisions_affected_url_count_check CHECK ((affected_url_count >= 0)),
+    CONSTRAINT crawl_limit_decisions_configured_value_check CHECK ((configured_value >= 0)),
+    CONSTRAINT crawl_limit_decisions_content_sha256_check CHECK (((content_sha256 IS NULL) OR (octet_length(content_sha256) = 32))),
+    CONSTRAINT crawl_limit_decisions_decision_status_check CHECK ((decision_status = 'final'::text)),
+    CONSTRAINT crawl_limit_decisions_decision_type_check CHECK ((decision_type = 'crawl_limit_observation'::text)),
+    CONSTRAINT crawl_limit_decisions_decision_value_check CHECK ((decision_value = ANY (ARRAY['soft_reached'::text, 'hard_reached'::text]))),
+    CONSTRAINT crawl_limit_decisions_definition_versions_shape CHECK (((jsonb_typeof(definition_versions) = 'array'::text) AND (jsonb_array_length(definition_versions) > 0))),
+    CONSTRAINT crawl_limit_decisions_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
+    CONSTRAINT crawl_limit_decisions_input_sha256_check CHECK ((octet_length(input_sha256) = 32)),
+    CONSTRAINT crawl_limit_decisions_limit_dimension_check CHECK ((limit_dimension = ANY (ARRAY['accepted_pages_per_run'::text, 'discovered_url_queue'::text, 'crawl_depth_from_source_root'::text, 'accounted_response_body_bytes_per_run'::text, 'response_body_per_url'::text, 'wall_clock_run_duration'::text, 'redirects_per_url'::text, 'request_rate_per_canonical_host'::text, 'concurrent_requests_per_canonical_host'::text, 'connection_plus_response_time_per_request'::text, 'sitemap_documents_per_run'::text, 'sitemap_index_nesting_depth'::text]))),
+    CONSTRAINT crawl_limit_decisions_observed_value_check CHECK ((observed_value >= 0)),
+    CONSTRAINT crawl_limit_decisions_output_sha256_check CHECK ((octet_length(output_sha256) = 32)),
+    CONSTRAINT crawl_limit_decisions_threshold_agreement CHECK ((((threshold_kind = 'soft'::text) AND (decision_value = 'soft_reached'::text) AND (decision_reason_code IS NULL)) OR ((threshold_kind = 'hard'::text) AND (decision_value = 'hard_reached'::text) AND (decision_reason_code = 'limit_reached'::text)))),
+    CONSTRAINT crawl_limit_decisions_threshold_kind_check CHECK ((threshold_kind = ANY (ARRAY['soft'::text, 'hard'::text])))
+);
+
+ALTER TABLE ONLY public.crawl_limit_decisions FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawl_policies; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3866,6 +3931,38 @@ ALTER TABLE ONLY public.crawl_host_gates
 
 
 --
+-- Name: crawl_limit_decisions crawl_limit_decisions_once; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_once UNIQUE (crawl_id, limit_dimension, threshold_kind);
+
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawl_policies crawl_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4469,6 +4566,13 @@ CREATE INDEX crawl_host_gates_crawl ON public.crawl_host_gates USING btree (orga
 
 
 --
+-- Name: crawl_limit_decisions_crawl; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_limit_decisions_crawl ON public.crawl_limit_decisions USING btree (organization_id, crawl_id, decided_at);
+
+
+--
 -- Name: crawl_policies_active_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4812,6 +4916,13 @@ CREATE TRIGGER crawl_host_gates_sitemap_guard BEFORE UPDATE ON public.crawl_host
 
 
 --
+-- Name: crawl_limit_decisions crawl_limit_decisions_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_limit_decisions_guard BEFORE DELETE OR UPDATE ON public.crawl_limit_decisions FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_limit_decisions_guard();
+
+
+--
 -- Name: crawl_policies crawl_policies_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5075,6 +5186,14 @@ ALTER TABLE ONLY public.crawl_frontier_occurrences
 
 ALTER TABLE ONLY public.crawl_host_gates
     ADD CONSTRAINT crawl_host_gates_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
 
 
 --
@@ -5548,6 +5667,19 @@ CREATE POLICY crawl_host_gates_context ON public.crawl_host_gates USING ((organi
 
 
 --
+-- Name: crawl_limit_decisions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_limit_decisions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_limit_decisions_context ON public.crawl_limit_decisions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: crawl_policies; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -5995,6 +6127,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120270'),
 ('20260727120260'),
 ('20260727120250'),
 ('20260727120240'),

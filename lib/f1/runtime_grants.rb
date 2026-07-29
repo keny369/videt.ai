@@ -109,6 +109,10 @@ module F1
       # Additive new-table grants (ADR-029); no existing grant changes and FORCE RLS is preserved.
       "crawl_budget_counters"             => "SELECT, INSERT, UPDATE",
       "fetch_attempts"                    => "SELECT, INSERT, UPDATE",
+      # S-07-008 limit decisions. T-IMM: an observation is written once and never revised, so
+      # SELECT/INSERT only — the missing UPDATE is defence in depth behind the trigger, not a
+      # substitute for it. Additive new-table grant (ADR-029); FORCE RLS preserved.
+      "crawl_limit_decisions"             => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

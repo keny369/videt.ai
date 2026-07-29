@@ -183,7 +183,7 @@ Payment: 100% up front, invoice on the spot. Delivery within 5 business days of 
 1. **No platform work. None.** The product this month is the concierge assessment; the build track resumes in September.
 2. **Counts, not scores.** "You appeared in 2 of 20 sampled answers; cited once; address wrong in 4; [competitor] named 11 times." Attributable observations only — no composite scores until the methodology earns them.
 3. Practice-run businesses are **disclosed case studies, never customers**. Lee's own: Lumen & Lever and leepowell.com only. SprungFloors, JA Floors and Whollistica are CLIENT businesses — used as examples only with their permission and always worded as client work, never as "our own companies", never as independent testimonials.
-4. Never say SEO, GEO, or "AI visibility platform" in a pitch — the demo does the category education.
+4. Never say SEO, GEO, or "AI visibility platform" in a pitch — the demo does the category education. **When someone else says it** ("that's AEO, I've got a guy"), never answer "no it isn't" — concede and reframe: *"AEO is the treatment. I'm the diagnosis — and the proof it worked."* Then: *"what did they show you it was like before they started, and what does it look like now?"* Scripts: `branding/008 EXPLAINING_VIDET.md`. Default description is the mystery-shopper handle, never "we measure/audit/collect evidence" — that's the differentiator, not the description.
 5. Nothing sold that can't be delivered: no monitoring subscriptions, no dashboard promises. Re-measure bundles only.
 6. **Sizzle, not machinery:** nobody outside the company sees methodology internals, the spec, the vision documents, or the architecture — including Aaron and the guru.
 7. No paid ads this month; warm, direct and community only.
