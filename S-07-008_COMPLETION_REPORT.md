@@ -1,6 +1,7 @@
 # S-07-008 — Crawl Limits, Soft/Hard Decision Events, The Wall Clock, Ordered Admission
 
-**Acceptance status: NOT ACCEPTED. No ADR allocated.**
+**Acceptance status: ACCEPTED (DECISIONS.md ADR-083, 2026-07-29), under standing delegation
+ADR-061 and review discipline ADR-080.**
 
 This record describes HEAD. It does not narrate how HEAD was reached — git holds that, and a
 narrative acceptance record accumulates stale counts and superseded mechanisms faster than it can be
@@ -14,7 +15,7 @@ corrected. Every claim below is either mechanically checked by
 | Block | S-07-008, BUILD_PLAN `Crawl Execution — limits, soft/hard events, wall clock` |
 | Range | from `09277e7` (S-07-007 acceptance) to the branch head |
 | Authority | standing delegation ADR-061; review discipline ADR-080 |
-| Accepted paths | `app/`, `db/`, `schemas/`, `spec/`, `lib/`, `specification/`, `S-07-008_COMPLETION_REPORT.md` |
+| Accepted paths | `app/`, `db/`, `schemas/`, `spec/`, `lib/`, `specification/`, `S-07-008_COMPLETION_REPORT.md`, `DECISIONS.md` |
 | Excluded | 12 `branding/`, `investor/` and `operations/` files listed in `BUILD_STATE.acceptance_evidence` |
 
 The excluded files are unrelated work swept in by two early commits made with `git add -A`. Owner
@@ -109,14 +110,30 @@ not currently receive.
 
 Run from the repository root. Outputs are those observed at this commit.
 
+The commands are `specification/automation/VERIFICATION_MANIFEST.yml`'s, not a hand-picked subset.
+
 | Command | Output |
 | --- | --- |
 | `bundle exec rspec` | `1882 examples, 0 failures` |
-| `bundle exec packwerk check` | `No offenses detected` |
-| `bundle exec brakeman -q --no-pager` | `No warnings found` |
+| `bundle exec brakeman -q --no-pager -z` | `No warnings found` |
+| `bin/packwerk check` | `No offenses detected` |
+| `bundle exec bundle-audit check --update` | `No vulnerabilities found` |
 | `bin/rails zeitwerk:check` | `All is good!` |
-| `RAILS_ENV=test bin/rails f1:db:verify_runtime` | `OK as f1_web — 15 checks passed (RLS intact)` |
-| `bin/f1db db:migrate && git status --short db/structure.sql` | no drift |
+| `bin/f1db db:schema:dump && git diff --exit-code db/structure.sql` | no drift |
+| `bin/f1db f1:db:verify_runtime` | `OK as f1_web — 15 checks passed (RLS intact)` |
+| `bundle exec rspec spec/architecture` | `45 examples, 0 failures` |
+| `bundle exec rspec spec/automation/{unit,integration,policy,end_to_end}` | `33/0, 20/0, 21/0, 10/0` |
+| `git status --porcelain` | NOT empty — see below |
+
+Two manifest checks could not run. `controller_locking` and `controller_crash_recovery` name spec
+directories that have never existed in this repository — `git log --all` over both paths is empty —
+so under `fail_on_missing_required_check: true` they have never run, for any tranche. Pre-existing,
+unrelated to this work, registered as FU-14. They are named here without the path-citation form
+deliberately: this record's citations are checked for existence, and these paths do not exist.
+
+`git status --porcelain` is not empty. Nine `branding/` and `operations/` files carry the owner's own
+in-flight parallel work. They lie outside the acceptance path partition and were deliberately left
+untouched; no commit in this tranche contains them.
 
 `f1:db:verify_runtime` is a fixed 15-check list over `sessions`, `accounts`, `scheduled_actions` and
 the transport functions. **It says nothing about this tranche's tables.** Their invariants are
@@ -158,10 +175,11 @@ counter would carry the disagreement forward silently as spent budget nobody cha
 | Id | Status | Owner |
 | --- | --- | --- |
 | FU-9 | mitigated | S-07-012 (the run driver) |
-| FU-10 | delivered, pending review | this tranche |
+| FU-10 | delivered and accepted | this tranche |
 | FU-11 | open, **blocking S-07-009** | `crawls_terminal_shape` lacks a terminal-completeness conjunct |
 | FU-12 | open backlog | recorded, not scheduled |
 | FU-13 | open backlog | two pre-existing catalogue gaps |
+| FU-14 | open backlog | `VERIFICATION_MANIFEST.yml` names two check paths that have never existed |
 
 ## Unresolved observations
 

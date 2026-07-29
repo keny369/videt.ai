@@ -2,15 +2,15 @@
   "schema_version": 1,
   "controller_version": "1.0.0",
   "current_block": "S-07",
-  "current_tranche": "S-07-008",
-  "status": "ready_for_review",
+  "current_tranche": "S-07-012",
+  "status": "completed",
   "attempt_number": 3,
   "base_commit": "pending",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
   "implementation_commit": "c6b8fc05c46e60842fab5571eed96075c57cec61",
   "review_commit": "8148812878664db459f1e6145a3e814c9a5e37bd",
-  "last_verified_commit": "c6b8fc05c46e60842fab5571eed96075c57cec61",
+  "last_verified_commit": "a53c405b986812de52ccf30daffc2d34eacbfd13",
   "verification_run_id": "",
   "open_decisions": [
     {
@@ -109,14 +109,14 @@
       "title": "Sitemap discovery has no scheduler re-entry after sustained host-gate contention",
       "status": "mitigated",
       "authority": "DECISIONS ADR-081 (ADR-026 concurrency lens, non-blocking with a named trigger)",
-      "note": "A host under sustained contention can exhaust MAX_DEFERRALS_PER_CANDIDATE and terminalize `sitemap_unavailable` with zero network attempts — write-once, coverage partial. Mitigated (the gate now reports the REAL remaining wait, so pacing no longer expires on a legitimate Crawl-delay) but not closed. S-07-008 owns run scheduling and MUST provide the re-entry; if it does not, this becomes a coverage defect and reopens S-07-006. MITIGATED, NOT DELIVERED, by S-07-008 (b1dcea9), and NOT closed. The ADR-026 architecture and concurrency lenses were right that a hand-back method is not scheduler re-entry: nothing in production calls `DiscoverSitemaps#call` at all, so 'the next pass claims it exactly as the first did' presupposes a pass that does not exist. What S-07-008 genuinely removed is the write-once FALSE outcome: sustained contention no longer terminalizes. :450 conditions `sitemap_unavailable` on 'no candidate succeeds AFTER retries/validation'; a candidate the rate limiter never released has had neither, so nothing is recorded - the claim is handed back (`release_sitemaps`, token-bound), the gate returns to `pending`, and the next pass claims it exactly as the first did. NO new scheduled-action kind: the catalogue is closed and a `pending` gate IS the re-entry. Bounded by the run's wall clock, past which discovery terminalizes `unavailable` once, honestly. NOT closed until the five ADR-026 lenses report (ADR-080). The DRIVER is now owned by BUILD_PLAN S-07-012 (Crawl Execution - the run driver), which must honour the `retry_after` instant the release reports and must also re-enter `Admission`'s `run_byte_budget_contended` outcome. FU-9 closes when S-07-012 lands, not before. A SECOND defect found by the same review and repaired here: the run-wide sitemap-document budget was charged BEFORE the gate was consulted and had no release path, so every deferred pass shrank the budget and the re-entry converged on the very `sitemap_unavailable` outcome FU-9 exists to prevent; the charge now happens once per distinct URL at the moment an attempt genuinely begins."
+      "note": "A host under sustained contention can exhaust MAX_DEFERRALS_PER_CANDIDATE and terminalize `sitemap_unavailable` with zero network attempts — write-once, coverage partial. Mitigated (the gate now reports the REAL remaining wait, so pacing no longer expires on a legitimate Crawl-delay) but not closed. S-07-008 owns run scheduling and MUST provide the re-entry; if it does not, this becomes a coverage defect and reopens S-07-006. MITIGATED, NOT DELIVERED, by S-07-008 (b1dcea9), and NOT closed. The ADR-026 architecture and concurrency lenses were right that a hand-back method is not scheduler re-entry: nothing in production calls `DiscoverSitemaps#call` at all, so 'the next pass claims it exactly as the first did' presupposes a pass that does not exist. What S-07-008 genuinely removed is the write-once FALSE outcome: sustained contention no longer terminalizes. :450 conditions `sitemap_unavailable` on 'no candidate succeeds AFTER retries/validation'; a candidate the rate limiter never released has had neither, so nothing is recorded - the claim is handed back (`release_sitemaps`, token-bound), the gate returns to `pending`, and the next pass claims it exactly as the first did. NO new scheduled-action kind: the catalogue is closed and a `pending` gate IS the re-entry. Bounded by the run's wall clock, past which discovery terminalizes `unavailable` once, honestly. NOT closed until the five ADR-026 lenses report (ADR-080). The DRIVER is now owned by BUILD_PLAN S-07-012 (Crawl Execution - the run driver), which must honour the `retry_after` instant the release reports and must also re-enter `Admission`'s `run_byte_budget_contended` outcome. FU-9 closes when S-07-012 lands, not before. A SECOND defect found by the same review and repaired here: the run-wide sitemap-document budget was charged BEFORE the gate was consulted and had no release path, so every deferred pass shrank the budget and the re-entry converged on the very `sitemap_unavailable` outcome FU-9 exists to prevent; the charge now happens once per distinct URL at the moment an attempt genuinely begins. S-07-008 IS ACCEPTED (ADR-083) with FU-9 MITIGATED, not closed: nothing in production drives crawl execution, so a hand-back method is not scheduler re-entry. The obligation is now S-07-012's, which is the next eligible block and depends on S-07-008."
     },
     {
       "id": "FU-10",
       "title": "Ordered budget admission (:456's coordinator) is owed by S-07-008",
-      "status": "delivered_pending_review",
+      "status": "closed",
       "authority": "DECISIONS ADR-082 (ADR-026 contract lens, confirmed-blocking, scoped to S-07-008)",
-      "note": ":456 — 'one coordinator commits discoveries and budget effects in increasing dequeue key. A completion with a later key waits in fetched_pending_commit.' S-07-007 enforces the SUM (verified under eight simultaneous workers) and materializes dequeue_key on every fetch_attempts row so the order can be applied without re-deriving it. S-07-008 owns the coordinator. Until it exists, byte admission at the run boundary is nondeterministic, which :456 forbids ('Selection under every finite bound is deterministic'). DELIVERED S-07-008 (508edde): `Wf005::Admission` claims the frontier entry AND its byte reservation in ONE transaction under the frontier's own advisory lock, so admission order equals dequeue order by construction - no coordinator, no pending queue. The `fetched_pending_commit` limb of :456 concerns committing a fetched document's DISCOVERIES in dequeue order; link extraction is S-07-010's and that limb belongs with it. The lock is proved load-bearing by BLOCKING, not by racing. NOT closed until the five ADR-026 lenses report (ADR-080)."
+      "note": "DELIVERED AND ACCEPTED by S-07-008 (DECISIONS ADR-083). `Wf005::Admission` claims the frontier entry and its byte reservation in ONE transaction under the frontier's own advisory lock, so admission order equals dequeue order by construction rather than by a coordinator re-deriving it. It peeks before claiming, because the frontier guard has no `in_progress -> queued` edge and a stranded claim would pin `sealed_depth` for the run."
     },
     {
       "id": "FU-11",
@@ -138,6 +138,13 @@
       "status": "open",
       "authority": "ADR-026 schema lens at S-07-008, fourth pass; now enforced by spec/architecture/repository_truth_spec.rb",
       "note": "`role_expiry_block_decisions` (WF-013, T-IMM, forced RLS) has no row in schemas/POSTGRESQL_SCHEMA.md. `evidence` is catalogued under the name `evidences`, which no table carries - so the real table appears under no name and the catalogue names one that does not exist. BOTH PRE-EXISTING at 09277e7, neither introduced by S-07-008, and both are explicitly allowlisted in the repository-truth check rather than silently absorbed: the check now fails on any NEW omission. Resolving `evidence`/`evidences` requires deciding which name is ratified - the migration's or the catalogue's - which is an owner call, not an implementer's."
+    },
+    {
+      "id": "FU-14",
+      "title": "VERIFICATION_MANIFEST names two mandatory check paths that have never existed",
+      "status": "open",
+      "authority": "DECISIONS ADR-083 (found running the authoritative gate set at S-07-008 acceptance)",
+      "note": "`specification/automation/VERIFICATION_MANIFEST.yml` declares `controller_locking` -> `bundle exec rspec spec/automation/locking` and `controller_crash_recovery` -> `bundle exec rspec spec/automation/crash_recovery`, both `mandatory: true` under `fail_on_missing_required_check: true`. NEITHER DIRECTORY HAS EVER EXISTED: `git log --all -- spec/automation/locking spec/automation/crash_recovery` is empty. Every prior accepted tranche touched `specification/automation/**` and so matched the `controller_code` check set, which means these two checks have never run and their absence was never recorded. Related coverage exists under other paths (`spec/automation/integration/git_lock_record_spec.rb` for locking; `spec/automation/unit/state_machine_spec.rb` and `build_state_spec.rb` for resumption), so the repair is either to write the two suites at the declared paths or to reconcile the manifest onto the paths that hold the coverage. NOT caused by and NOT blocking S-07-008, which changed controller DATA and no controller code. A manifest that names a check nobody runs is the same class of defect as prose that names a mechanism nobody built."
     }
   ],
   "completed_blocks": [
@@ -165,12 +172,13 @@
     "F-05",
     "S-07-003",
     "S-07-004",
-    "S-07-005"
+    "S-07-005",
+    "S-07-008"
   ],
   "failed_attempts": [],
   "updated_at": "2026-07-29T22:19:05+10:00",
   "reconciliation_note": "NOTE ON THE COMMIT FIELDS: they name the commit they DESCRIBE, which is necessarily the one before the commit that records them - writing a SHA into a file changes that file's own commit SHA. Amending to close the loop orphans the recorded object, which the repository-truth spec now catches as unreachable. 2026-07-29 (S-07-008: NOT ACCEPTED, blocked). Four independent ADR-026 five-lens passes have run. The implementation converged; the REPOSITORY RECORD did not - each pass found false claims in artefacts the previous pass had rewritten, and the fourth found a status token invented for this file that the controller's own validator rejects. Owner decision: reduce the claim surface rather than re-review a growing account of it. In flight: three runtime repairs (the queue/depth population must be ONE definition shared by count, eviction eligibility and observation; the wall-clock soft observation must be independent of hard exhaustion; the ledger must reproduce its own identity from its stored bytes), four proof gaps, a mechanically bounded acceptance record, and automated repository-truth checks. FU-11 is MISDIAGNOSED and being corrected: the admission is `crawls_terminal_shape` lacking a terminal-completeness conjunct, not a three-valued-logic hole, and its prescribed `IS NULL OR` repair is a proven no-op. FU-12(e) is being corrected: the index it calls dead is load-bearing for the ledger bound. Verified at this commit: rspec 1882/0; brakeman, packwerk, zeitwerk clean; verify_runtime 15 checks; no structure drift.",
-  "next_action": "S-07-008 (Crawl Execution - limits, soft/hard events, wall clock) is IMPLEMENTATION COMPLETE and has been through FIVE independent ADR-026 review passes: four full five-lens passes and a fifth scoped to mutation testing of the reduced acceptance surface. It is NOT ACCEPTED and no ADR is allocated. The remaining work is the owner's acceptance decision, not further review. FU-10 (:456 ordered admission) is delivered here. FU-9 is MITIGATED, not delivered: this tranche removed the write-once false `sitemap_unavailable` and the budget leak behind it, but scheduler re-entry needs a DRIVER, which is BUILD_PLAN S-07-012 and is encoded in S-07-009's depends_on. The once-per-run event mechanism is `crawl_limit_decisions` UNIQUE (crawl_id, limit_dimension, threshold_kind); the counter-bit claim on `crawl_budget_counters` was superseded and DELETED, and nothing reads `soft_limit_events`/`hard_limit_events`. FU-11 gates S-07-009 and its diagnosis has been corrected twice - the fault is `crawls_terminal_shape`, not `crawls_coverage_status_check`, and the repair is a terminal-completeness conjunct scoped by state. Repository claims that were previously carried by prose are now asserted by spec/architecture/repository_truth_spec.rb.",
+  "next_action": "S-07-008 (Crawl Execution - limits, soft/hard events, wall clock) is ACCEPTED on DECISIONS ADR-083 under standing delegation ADR-061, after four ADR-026 five-lens passes and a fifth scoped to mutation verification. FU-10 is delivered and closed. THE NEXT ELIGIBLE BLOCK IS S-07-012 (the run driver: scheduler re-entry for dequeue, fetch and discovery), whose only dependency is now satisfied. S-07-009 remains BLOCKED on S-07-012 and on FU-11, whose repair is a terminal-completeness conjunct on `crawls_terminal_shape` SCOPED BY STATE - every terminal state requires completion_reason, and only state='completed' additionally requires coverage_status, because requiring both on every terminal state breaks CrawlStartStore#fail. FU-9 stays MITIGATED and closes when S-07-012 lands: nothing in production drives crawl execution, so every WF-005 execution service is exercised only by acceptance specs driving it directly. FU-14 is newly open: VERIFICATION_MANIFEST declares two mandatory controller checks whose spec directories have never existed, so they have never run.",
   "acceptance_evidence": {
     "block": "S-07-008",
     "commit_range": "09277e7..c6b8fc05c46e60842fab5571eed96075c57cec61",
@@ -182,7 +190,8 @@
       "spec/",
       "lib/",
       "specification/",
-      "S-07-008_COMPLETION_REPORT.md"
+      "S-07-008_COMPLETION_REPORT.md",
+      "DECISIONS.md"
     ],
     "excluded_contamination": {
       "owner_ruling": "2026-07-29. Published history is NOT rewritten to make the tranche cosmetically clean. The unrelated files are explicitly EXCLUDED from the S-07-008 acceptance diff and the contamination is recorded here. History surgery would only be justified if the branch were private, nothing were based on it, governance permitted rewriting, and separation materially improved release/audit/cherry-pick integrity - which is not established.",
@@ -209,6 +218,8 @@
     },
     "verified": "The path-scoped diff plus the excluded set together account for every file changed in the range; nothing falls outside both.",
     "note_on_range": "Stated as a path-scoped range against the branch head rather than a fixed SHA: the record of the exclusion necessarily lives in a commit AFTER any SHA it could name, so a fixed endpoint would exclude its own declaration. The invariant that matters is the one verified below, and it is re-checkable at any head.",
-    "note_on_paths": "`schemas/` was missing from the first declaration, which made a table existing in the database but not in the canonical catalogue structurally invisible to the declared review procedure. Found by the third-pass schema and architecture lenses."
+    "note_on_paths": "`schemas/` was missing from the first declaration, which made a table existing in the database but not in the canonical catalogue structurally invisible to the declared review procedure. Found by the third-pass schema and architecture lenses.",
+    "adr": "ADR-083",
+    "accepted": true
   }
 }

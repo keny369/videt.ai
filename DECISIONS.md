@@ -2205,3 +2205,46 @@ The hardening in this tranche was large — two tables rewritten and a reclamati
 
 Authority And Precedence:
 Under standing delegation ADR-061. Follows ADR-080. Allocated the next unused number after ADR-081.
+
+## ADR-083: S-07-008 Limits, Soft/Hard Events And The Wall Clock — Accepted After Five Review Passes, On A Mutation-Verified Acceptance Surface
+
+Status: Accepted (standing delegation ADR-061; review discipline per ADR-080)
+Date: 2026-07-29
+Owner: implementation agent
+Reversibility: Integration branch only; `main` untouched. Three migrations, all additive; the schema builds from empty and `db/structure.sql` shows no drift.
+
+What was built:
+:442's limit decisions as a durable record rather than runtime state — `crawl_limit_decisions`, whose `UNIQUE (crawl_id, limit_dimension, threshold_kind)` IS "exactly once per dimension and run" and is the only participant that can adjudicate "first" across processes. Nine of the twelve ratified dimensions are observed, each on the transaction that caused the effect it describes. FU-10's ordered admission (:456), the wall clock, the run-wide sitemap-document ledger, and the repository-truth spec. Full detail is in `S-07-008_COMPLETION_REPORT.md`, which describes HEAD rather than narrating how HEAD was reached.
+
+WHAT THIS TRANCHE IS ACTUALLY A RECORD OF, and the reason it took five passes.
+
+The owner's instruction after the fourth pass named the second-order defect exactly: *the implementation was becoming trustworthy faster than the repository's claims about it.* Each pass found the implementation converging and the prose diverging — a status token invented rather than read from its owning enum, commit fields naming a parent commit, a reconciliation note left byte-identical while everything around it moved, a table present in the database and absent from the canonical catalogue, and a backlog item directing the deletion of a load-bearing index. Every one was found by a human-equivalent reader comparing two files.
+
+The response was to REDUCE the record surface and MECHANISE what remained. `spec/architecture/repository_truth_spec.rb` now asserts the state file's status vocabulary against `AutonomousBuild::StateMachine::STATES`, its commit fields against reachability from HEAD, `updated_at` against the committer date of the commit it names, `next_action` against the open-decision record it summarises, the acceptance-path partition against the actual diff, and every cited path, identifier and migration in the completion record against the repository. The completion record was cut to HEAD-only description. Prose that cannot be checked was deleted rather than corrected.
+
+THE FIFTH PASS WAS MUTATION TESTING, NOT PROSE REVIEW, and it is the reason this acceptance is worth more than the previous four would have been. A green suite proves nothing about a control the suite never reaches. Seven controls survived reversion with 1,871 examples green, and each now fails under a named mutation:
+
+- **The run-wide sitemap-document ceiling was structurally unreachable by every fixture in the repository.** Within one pass `SitemapCandidates.retain` already caps the attempted set at `documents_hard` — the same number the charge ceiling uses — and `crawl_host_gate_robots_decision_frozen` means a gate can never offer a second, different declared set, so re-entry always re-offers the same candidates. `ceiling: 10_000` therefore passed the entire suite. :437's unit is the RUN and a Crawl covers every active Source in its Project, so the bound binds ACROSS HOSTS. The owner asked for a re-entry fixture with changed declared sets; that shape is unreachable and the reason is recorded here rather than worked around.
+- The charge, its projection and its limit decision are one unit of work. Rollback coverage cannot see the second half, because both commit on the happy path; transaction identity is asserted by comparing `xmin`.
+- A missing budget-counter row raises rather than reporting `:exhausted`, which is the false `CrawlLimitReached` this subsystem keeps having to remove.
+- The projection is DERIVED from the ledger, not incremented. The two agree for every run starting at zero, so the distinguishing state is a counter that does not already equal its ledger: derived recomputes and `crawl_budget_counters_not_monotonic` rejects the correction loudly, where an increment carries the disagreement forward as spent budget nobody charged for.
+- The byte predicate is exact at its boundary. An off-by-one in the loosening direction is the difference between a ceiling and a suggestion.
+- Forced RLS on both new tables is proved BEHAVIOURALLY, by reading and writing across a tenant boundary as `f1_web`. A catalog assertion cannot fail on `USING (true)`, which is the entire class of defect RLS exists to prevent.
+
+A defect worth naming separately: the repository-truth spec's own path-citation check named six directories, so citations under `automation/` and `architecture/` were silently unchecked. A hardcoded vocabulary inside the spec that exists to catch hardcoded vocabularies is the same defect twice; the directory list is now read from the repository.
+
+FU-11's diagnosis was corrected twice and both corrections are recorded. The third pass prescribed a NULL-safe rewrite of `crawls_coverage_status_check`; that prescription is a proven no-op, since `NULL = ANY(...)` is UNKNOWN and therefore admitted and `IS NOT DISTINCT FROM` is admitted too. Applying it would have produced a diff, closed the item, and left the hole open. The fault is in `crawls_terminal_shape`, whose terminal limb requires only `terminal_at IS NOT NULL`. The fourth pass then corrected the repair itself: requiring both columns on every terminal state would break `IdentityAccess::Infrastructure::CrawlStartStore#fail`, because a failed run carries a completion reason and no coverage. The conjunct must be scoped by state. It remains BLOCKING for S-07-009 and is not repaired here.
+
+RECORDED HONESTLY, three things the owner should not have to discover.
+
+**No production caller exists** for `Admission`, `FetchContent`, `DiscoverSitemaps` or `EnsureRobots`. The only registered entry point is `crawl_dispatch -> StartCrawl`, which seeds the root frontier and schedules nothing further. Every observation point is exercised by acceptance specs driving these services directly. FU-9 is MITIGATED, not delivered, for the same reason: a hand-back method is not scheduler re-entry. S-07-012 owns the driver and is the next eligible item.
+
+**Two commits in this tranche were made with `git add -A`** and swept in twelve unrelated `branding/`, `investor/` and `operations/` files. Owner ruling: published history is not rewritten for cosmetic cleanliness. The consequence is procedural — this tranche is reviewed BY PATH over a commit range, never by treating any single commit as a slice — and the repository-truth spec asserts that the declared paths and the recorded exclusion list partition the range exactly.
+
+**Two mandatory checks in `VERIFICATION_MANIFEST.yml` name spec directories that have never existed** in this repository: `spec/automation/locking` and `spec/automation/crash_recovery`. This is pre-existing, predates every accepted tranche, and was not caused by this work, which changed controller DATA (`BUILD_STATE`, `BUILD_PLAN`) and no controller code. It is registered as FU-14 rather than passed over silently, because a manifest that names a check nobody runs is the same class of defect as prose that names a mechanism nobody built.
+
+Acceptance:
+Every mandatory gate green from the final state: whole-repo suite **1882/0**; Brakeman clean under `-z`; Packwerk, Zeitwerk and bundler-audit clean; architecture fitness **45/0**; `verify_runtime` OK, 15 checks, RLS intact; `db:schema:dump` produces no `structure.sql` drift; controller `unit` 33/0, `integration` 20/0, `policy` 21/0, `end_to_end` 10/0 — with `locking` and `crash_recovery` missing per FU-14. `repository_cleanliness` is NOT empty: nine `branding/` and `operations/` files carry the owner's own in-flight parallel work, outside the acceptance path partition and deliberately untouched. S-07-008 is ACCEPTED. `main` untouched. Next: **S-07-012** (the run driver), which closes FU-9.
+
+Authority And Precedence:
+Under standing delegation ADR-061. Follows ADR-080's rule that no acceptance is recorded until every lens has reported; five passes reported here, the fifth as mutation verification rather than prose review, on the owner's instruction. Allocated the next unused number after ADR-082.

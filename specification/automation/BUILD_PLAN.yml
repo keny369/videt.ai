@@ -873,9 +873,12 @@ blocks:
 
   - id: S-07-008
     name: Crawl Execution — limits, soft/hard events, wall clock
-    # IMPLEMENTATION COMPLETE and REVIEWED; NOT ACCEPTED, no ADR allocated (ADR-080).
+    # ACCEPTED 2026-07-29 on ADR-083, after FIVE review passes: four ADR-026 five-lens passes and a
+    # fifth scoped to MUTATION VERIFICATION of the reduced acceptance surface. Seven controls
+    # survived reversion with the suite green and now fail under a named mutation; the record is in
+    # the completion report's *Proof standard* section.
     #
-    # FU-10 (:456's ordered admission) is DELIVERED here — `delivered_pending_review` in BUILD_STATE.
+    # FU-10 (:456's ordered admission) is DELIVERED and accepted here.
     #
     # FU-9 is MITIGATED here, NOT delivered. This tranche removed the write-once FALSE
     # `sitemap_unavailable` a contended host used to produce, and the budget leak that made it
@@ -884,7 +887,7 @@ blocks:
     # The earlier "S-07-008 MUST provide the re-entry / else S-07-006 reopens" text is superseded:
     # S-07-006 is not reopened, because the defect it feared (a false terminal outcome) is gone.
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061); five review passes, the fifth mutation-verified (ADR-083).
     depends_on:
       - S-07-007
     human_gate_before: false
