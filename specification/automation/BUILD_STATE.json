@@ -8,9 +8,9 @@
   "base_commit": "pending",
   "worktree_path": "",
   "branch_name": "implementation/s01-registration-access",
-  "implementation_commit": "8148812878664db459f1e6145a3e814c9a5e37bd",
+  "implementation_commit": "c6b8fc05c46e60842fab5571eed96075c57cec61",
   "review_commit": "8148812878664db459f1e6145a3e814c9a5e37bd",
-  "last_verified_commit": "8148812878664db459f1e6145a3e814c9a5e37bd",
+  "last_verified_commit": "c6b8fc05c46e60842fab5571eed96075c57cec61",
   "verification_run_id": "",
   "open_decisions": [
     {
@@ -168,12 +168,12 @@
     "S-07-005"
   ],
   "failed_attempts": [],
-  "updated_at": "2026-07-29T20:29:46+10:00",
+  "updated_at": "2026-07-29T22:19:05+10:00",
   "reconciliation_note": "NOTE ON THE COMMIT FIELDS: they name the commit they DESCRIBE, which is necessarily the one before the commit that records them - writing a SHA into a file changes that file's own commit SHA. Amending to close the loop orphans the recorded object, which the repository-truth spec now catches as unreachable. 2026-07-29 (S-07-008: NOT ACCEPTED, blocked). Four independent ADR-026 five-lens passes have run. The implementation converged; the REPOSITORY RECORD did not - each pass found false claims in artefacts the previous pass had rewritten, and the fourth found a status token invented for this file that the controller's own validator rejects. Owner decision: reduce the claim surface rather than re-review a growing account of it. In flight: three runtime repairs (the queue/depth population must be ONE definition shared by count, eviction eligibility and observation; the wall-clock soft observation must be independent of hard exhaustion; the ledger must reproduce its own identity from its stored bytes), four proof gaps, a mechanically bounded acceptance record, and automated repository-truth checks. FU-11 is MISDIAGNOSED and being corrected: the admission is `crawls_terminal_shape` lacking a terminal-completeness conjunct, not a three-valued-logic hole, and its prescribed `IS NULL OR` repair is a proven no-op. FU-12(e) is being corrected: the index it calls dead is load-bearing for the ledger bound. Verified at this commit: rspec 1882/0; brakeman, packwerk, zeitwerk clean; verify_runtime 15 checks; no structure drift.",
   "next_action": "S-07-008 (Crawl Execution - limits, soft/hard events, wall clock) is IMPLEMENTATION COMPLETE and has been through FIVE independent ADR-026 review passes: four full five-lens passes and a fifth scoped to mutation testing of the reduced acceptance surface. It is NOT ACCEPTED and no ADR is allocated. The remaining work is the owner's acceptance decision, not further review. FU-10 (:456 ordered admission) is delivered here. FU-9 is MITIGATED, not delivered: this tranche removed the write-once false `sitemap_unavailable` and the budget leak behind it, but scheduler re-entry needs a DRIVER, which is BUILD_PLAN S-07-012 and is encoded in S-07-009's depends_on. The once-per-run event mechanism is `crawl_limit_decisions` UNIQUE (crawl_id, limit_dimension, threshold_kind); the counter-bit claim on `crawl_budget_counters` was superseded and DELETED, and nothing reads `soft_limit_events`/`hard_limit_events`. FU-11 gates S-07-009 and its diagnosis has been corrected twice - the fault is `crawls_terminal_shape`, not `crawls_coverage_status_check`, and the repair is a terminal-completeness conjunct scoped by state. Repository claims that were previously carried by prose are now asserted by spec/architecture/repository_truth_spec.rb.",
   "acceptance_evidence": {
     "block": "S-07-008",
-    "commit_range": "09277e7..HEAD of implementation/s01-registration-access",
+    "commit_range": "09277e7..c6b8fc05c46e60842fab5571eed96075c57cec61",
     "review_by_path_not_by_commit": true,
     "acceptance_diff_paths": [
       "app/",
