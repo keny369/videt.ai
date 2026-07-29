@@ -873,6 +873,9 @@ blocks:
 
   - id: S-07-008
     name: Crawl Execution — limits, soft/hard events, wall clock
+    # IMPLEMENTATION COMPLETE 2026-07-29 (827c39a, 508edde, f9c6488, 96440b7, b1dcea9); AWAITING the
+    # five ADR-026 lenses. Not accepted and no ADR allocated until every lens has reported (ADR-080).
+    # FU-9 and FU-10 are both DELIVERED and marked delivered_pending_review in BUILD_STATE.
     # MUST provide scheduler re-entry for a host deferred by sustained gate contention (FU-9,
     # ADR-081). Without it, sitemap discovery can terminalize `sitemap_unavailable` with zero
     # network attempts, which reopens S-07-006.
