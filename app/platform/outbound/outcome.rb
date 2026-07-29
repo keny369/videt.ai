@@ -16,13 +16,15 @@ module Platform
     #  :resolver_failure    — DNS resolution failed transiently (retryable).
     #  :rejected            — a nonretryable safety refusal; see `reason`:
     #       :destination_address_prohibited, :destination_host_invalid,
-    #       :redirect_rejected, :redirect_policy_denied, :unsupported_scheme,
-    #       :unsupported_port.
+    #       :redirect_rejected, :redirect_loop, :redirect_budget_exhausted,
+    #       :redirect_policy_denied, :unsupported_scheme, :unsupported_port.
     #
-    # `:redirect_rejected` is the PLATFORM refusing a hop (over budget, loop, non-HTTPS,
-    # userinfo, disallowed port, unsafe address); `:redirect_policy_denied` is the CALLER's
-    # redirect guard refusing one the platform would have allowed — :448's robots and Source
-    # Scope recheck. They are separate reasons because :452 classifies them differently.
+    # The redirect reasons are DISTINCT because :454 requires "its exact limit reason" and :452
+    # classifies them differently: `:redirect_budget_exhausted` and `:redirect_loop` are limit
+    # conditions on the URL, `:redirect_rejected` is the target failing the platform's own shape
+    # checks (non-HTTPS, userinfo, disallowed port, malformed Location), and
+    # `:redirect_policy_denied` is the CALLER's guard refusing a hop the platform would have
+    # allowed — :448's robots and Source Scope recheck.
     #
     # `body` holds the RAW received entity-body bytes (ASCII-8BIT), truncated at
     # byte_cap + 1; `truncated` is true exactly when the body reached that limit and is

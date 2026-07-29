@@ -74,13 +74,15 @@ module Platform
 
         loop do
           if visited.include?(target.key)
-            return reject(:redirect_rejected, target, redirects, started)
+            return reject(:redirect_loop, target, redirects, started)
           end
 
           visited << target.key
           result = attempt(target, policy, redirects, started)
           return result unless result.is_a?(Redirect)
-          return reject(:redirect_rejected, target, redirects, started) if redirects >= policy.max_redirects
+          if redirects >= policy.max_redirects
+            return reject(:redirect_budget_exhausted, target, redirects, started)
+          end
 
           nxt = resolve_redirect(target, result.location, policy, redirects, started)
           return nxt if nxt.is_a?(Outcome)
@@ -172,7 +174,12 @@ module Platform
 
       # Resolve and validate a redirect target against the current URL. Any problem —
       # relative-join failure, non-HTTPS, userinfo, disallowed port, invalid host — is a
-      # single nonretryable redirect_rejected; the prior host's decision is never inherited.
+      # nonretryable `redirect_rejected`; the prior host's decision is never inherited.
+      #
+      # A LOOP and an EXHAUSTED BUDGET carry their own reasons rather than sharing this one.
+      # WORKFLOW_SPECIFICATIONS.md :454 requires a limit to record "its EXACT limit reason", and
+      # :452 classifies them differently — a redirect to `http://` is a rejected target, not an
+      # eleventh-redirect limit hit, and a caller filing them together cannot tell the two apart.
       def resolve_redirect(current, location, policy, redirects, started)
         uri = URI.join(current.uri, location.to_s)
         bad = uri.scheme != "https" || uri.host.nil? || uri.host.empty? ||

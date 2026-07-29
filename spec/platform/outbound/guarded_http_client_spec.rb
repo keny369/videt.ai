@@ -241,8 +241,9 @@ RSpec.describe Platform::Outbound::GuardedHttpClient, type: :model do
     it "rejects any 3xx when the caller permits no redirects (S-05)" do
       connector.respond("r.example", redirect("https://r.example/next"))
       out = get("https://r.example/x", max_redirects: 0)
+      # A budget of zero, exhausted — distinct from a malformed target (:454's "exact limit reason").
       expect(out).to be_rejected
-      expect(out.reason).to eq(:redirect_rejected)
+      expect(out.reason).to eq(:redirect_budget_exhausted)
       expect(connector.opens.length).to eq(1)
     end
 
@@ -341,15 +342,17 @@ RSpec.describe Platform::Outbound::GuardedHttpClient, type: :model do
     end
 
     it "detects a redirect loop back to a visited target" do
+      # A loop carries its own reason: it is not a budget hit and not a bad target.
       connector.respond("loop.example", redirect("https://loop.example/x"))
-      expect(get("https://loop.example/x", max_redirects: 5).reason).to eq(:redirect_rejected)
+      expect(get("https://loop.example/x", max_redirects: 5).reason).to eq(:redirect_loop)
     end
 
     it "stops when the redirect budget is exhausted" do
+      # :454 — the budget is its own limit reason, separate from a rejected target.
       connector.respond("h1.example", redirect("https://h2.example/x"))
       connector.respond("h2.example", redirect("https://h3.example/x"))
       out = get("https://h1.example/x", max_redirects: 1)
-      expect(out.reason).to eq(:redirect_rejected)
+      expect(out.reason).to eq(:redirect_budget_exhausted)
       expect(resolver.hosts).to eq(%w[h1.example h2.example])
     end
 

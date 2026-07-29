@@ -54,6 +54,18 @@ module Workflows
 
       def self.retryable?(reason) = RETRYABLE_REASONS.include?(reason)
 
+      # The canonical host parser for WF-005. Deliberately hand-rolled rather than `URI.parse`: it
+      # drops userinfo (so `https://evil@real/` is `real`, not `evil`), keeps an IPv6 literal whole,
+      # and never raises on input a remote `Location` header chose. Every consumer in this workflow
+      # uses THIS one — a second, naive parser elsewhere produced a different host for the same URL
+      # and wrote it into an immutable record.
+      def self.host_of(canonical_url)
+        authority = canonical_url.to_s.sub(%r{\A[a-zA-Z][a-zA-Z0-9+.\-]*://}, "").split(%r{[/?#]}, 2).first.to_s
+        authority = authority.split("@", 2).last.to_s          # drop any userinfo
+        authority.start_with?("[") ? authority[0..authority.index("]").to_i].downcase
+                                   : authority.split(":", 2).first.to_s.downcase
+      end
+
       # The `crawl.start` maximum-execution ceiling (WORKFLOW :527/:551), enforced as part of "still
       # metered" rather than trusted from the reservation's state column alone.
       MAX_EXECUTION_SECONDS =
@@ -158,14 +170,7 @@ module Workflows
         return true if gate.nil?
 
         gate["organization_id"] == organization_id && gate["crawl_id"] == crawl_id &&
-          gate["canonical_host"].to_s.downcase == host_of(canonical_url)
-      end
-
-      def host_of(canonical_url)
-        authority = canonical_url.to_s.sub(%r{\A[a-zA-Z][a-zA-Z0-9+.\-]*://}, "").split(%r{[/?#]}, 2).first.to_s
-        authority = authority.split("@", 2).last.to_s          # drop any userinfo
-        authority.start_with?("[") ? authority[0..authority.index("]").to_i].downcase
-                                   : authority.split(":", 2).first.to_s.downcase
+          gate["canonical_host"].to_s.downcase == self.class.host_of(canonical_url)
       end
 
       def terminal?(state) = %w[rules_applied no_restrictions unavailable].include?(state)

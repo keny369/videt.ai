@@ -275,37 +275,10 @@ module IdentityAccess
         SQL
       end
 
-      # Reserve ONE sitemap-document slot from the RUN-WIDE budget (:437 — "sitemap documents per
-      # run | 40 | 50 | distinct canonical sitemap URLs"). The unit is per RUN, not per host: a Crawl
-      # with ten Sources on ten hosts would otherwise fetch ten times the ratified maximum, because
-      # `crawl_host_gates` holds one row per `(crawl, canonical_host)` and can only ever count its
-      # own host.
-      #
-      # `crawls.limit_counters` is the canonical home for run-wide limit accounting, so the counter
-      # lives there rather than in a table invented for it. The guard is IN THE PREDICATE, so two
-      # workers on different hosts cannot both read 49 and both proceed: the second's UPDATE matches
-      # no row. A nil return means the budget is exhausted and the candidate is recorded as
-      # `sitemap_documents_limit` (:442 — "fifty-first sitemap ... fails that URL").
-      #
-      # Reservation happens BEFORE the attempt because :437's unit is distinct canonical sitemap URLs
-      # ATTEMPTED, not successfully parsed. Counting successes would let one index naming ten thousand
-      # dead children fetch every one of them without the counter ever moving.
-      def reserve_sitemap_document(organization_id, crawl_id, limit, now)
-        params = [organization_id, crawl_id, limit.to_i, iso(now)]
-        query(<<~SQL, params).to_a.first
-          UPDATE crawls
-          SET limit_counters = jsonb_set(limit_counters, '{sitemap_documents}',
-                to_jsonb(COALESCE((limit_counters->>'sitemap_documents')::bigint, 0) + 1), true),
-              state_version = state_version + 1, updated_at = $4::timestamptz
-          WHERE organization_id = $1::uuid AND id = $2::uuid
-            AND COALESCE((limit_counters->>'sitemap_documents')::bigint, 0) < $3
-          RETURNING (limit_counters->>'sitemap_documents')::bigint AS reserved
-        SQL
-      end
-
       # :450 requires every skipped or failed candidate to be RECORDED, and the LIMIT subset to
       # produce `limit_reached` for the whole run. Both are written with the terminal decision, in one
       # statement, so the record can never be half-written.
+      #
       # BOUND TO THE CLAIM. Matching on `in_progress` alone let a worker that lost the claim write
       # the write-once outcome for a run another worker was still executing — and the executing
       # worker's own terminalize then matched zero rows silently.

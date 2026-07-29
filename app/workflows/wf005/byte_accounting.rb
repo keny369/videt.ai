@@ -79,7 +79,12 @@ module Workflows
       # global ceiling and every active Organization/Project crawl policy (:390 — "effective crawl
       # and capacity limits are the most restrictive of global safety, approved entitlement,
       # Organization, and Project limits").
-      Bounds = Data.define(:per_url, :per_url_target, :per_run, :per_run_target)
+      # Every per-fetch bound the request carries, resolved together. The timeout and redirect
+      # budget belong here rather than in a class constant for the same reason the byte bounds do:
+      # they are narrowable `crawl-policy-v1` dimensions, and :390 makes the operative value the most
+      # restrictive of global, entitlement, Organization and Project — which a constant cannot express.
+      Bounds = Data.define(:per_url, :per_url_target, :per_run, :per_run_target,
+                           :timeout_s, :max_redirects, :accepted_pages)
 
       def bounds_from(policy_bounds)
         per_url = policy_bounds.fetch("per_url_body_mib")
@@ -87,7 +92,10 @@ module Workflows
         Bounds.new(per_url: per_url.fetch("hard").to_i * MIB,
                    per_url_target: per_url.fetch("soft").to_i * MIB,
                    per_run: per_run.fetch("hard").to_i * MIB,
-                   per_run_target: per_run.fetch("soft").to_i * MIB)
+                   per_run_target: per_run.fetch("soft").to_i * MIB,
+                   timeout_s: policy_bounds.fetch("request_timeout_seconds").fetch("hard").to_i,
+                   max_redirects: policy_bounds.fetch("redirects_per_url").fetch("hard").to_i,
+                   accepted_pages: policy_bounds.fetch("accepted_pages").fetch("hard").to_i)
       end
 
       GLOBAL_BOUNDS = bounds_from(CrawlPolicy::GLOBAL_CEILING)

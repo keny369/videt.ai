@@ -226,21 +226,32 @@ BEGIN
     RAISE EXCEPTION 'crawl_budget_counters_immutable' USING ERRCODE = 'raise_exception';
   END IF;
   IF NEW.id IS DISTINCT FROM OLD.id
-     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
-     OR NEW.project_id IS DISTINCT FROM OLD.project_id
-     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+           OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+           OR NEW.project_id IS DISTINCT FROM OLD.project_id
+           OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+           OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+           OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'crawl_budget_counters_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
   IF NEW.state_version <> OLD.state_version + 1 THEN
     RAISE EXCEPTION 'crawl_budget_counters_version_invalid' USING ERRCODE = 'raise_exception';
   END IF;
   IF NEW.committed_response_bytes < OLD.committed_response_bytes
-     OR NEW.committed_pages < OLD.committed_pages
-     OR NEW.limit_probe_bytes < OLD.limit_probe_bytes
-     OR NEW.sitemap_documents < OLD.sitemap_documents
-     OR NEW.redirects_followed < OLD.redirects_followed THEN
+           OR NEW.received_response_bytes < OLD.received_response_bytes
+           OR NEW.expanded_response_bytes < OLD.expanded_response_bytes
+           OR NEW.limit_probe_bytes < OLD.limit_probe_bytes
+           OR NEW.committed_pages < OLD.committed_pages
+           OR NEW.queue_entries < OLD.queue_entries
+           OR NEW.sitemap_documents < OLD.sitemap_documents
+           OR NEW.redirects_followed < OLD.redirects_followed
+           OR NEW.requests_made < OLD.requests_made THEN
     RAISE EXCEPTION 'crawl_budget_counters_not_monotonic' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- ":442 — once per dimension and run". A bit that can be cleared cannot enforce once, so the
+  -- event maps are ADD-ONLY: every key already present must still be present and unchanged.
+  IF NOT (NEW.soft_limit_events @> OLD.soft_limit_events
+          AND NEW.hard_limit_events @> OLD.hard_limit_events) THEN
+    RAISE EXCEPTION 'crawl_budget_counters_limit_events_not_add_only' USING ERRCODE = 'raise_exception';
   END IF;
   RETURN NEW;
 END;
@@ -1144,34 +1155,47 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'fetch_attempt_immutable' USING ERRCODE = 'raise_exception';
   END IF;
-  -- The identity/input half is frozen from insert, not merely from terminalisation: it is
-  -- what the attempt WAS AUTHORIZED AS, and rewriting it would relabel a request that has
-  -- already been made.
+  -- The identity/input half is frozen from INSERT, not merely from terminalisation: it is what
+  -- the attempt was authorized as, and rewriting it would relabel a request already made.
   IF NEW.id IS DISTINCT FROM OLD.id
            OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
            OR NEW.project_id IS DISTINCT FROM OLD.project_id
            OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+           OR NEW.crawl_host_gate_id IS DISTINCT FROM OLD.crawl_host_gate_id
            OR NEW.source_id IS DISTINCT FROM OLD.source_id
-           OR NEW.frontier_entry_id IS DISTINCT FROM OLD.frontier_entry_id
-           OR NEW.kind IS DISTINCT FROM OLD.kind
+           OR NEW.crawl_frontier_entry_id IS DISTINCT FROM OLD.crawl_frontier_entry_id
+           OR NEW.request_kind IS DISTINCT FROM OLD.request_kind
            OR NEW.attempt_number IS DISTINCT FROM OLD.attempt_number
            OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
            OR NEW.canonical_url_preimage IS DISTINCT FROM OLD.canonical_url_preimage
            OR NEW.canonical_url_sha256 IS DISTINCT FROM OLD.canonical_url_sha256
            OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
            OR NEW.depth IS DISTINCT FROM OLD.depth
+           OR NEW.dequeue_key IS DISTINCT FROM OLD.dequeue_key
            OR NEW.scope_policy_id IS DISTINCT FROM OLD.scope_policy_id
            OR NEW.scope_policy_version IS DISTINCT FROM OLD.scope_policy_version
            OR NEW.crawl_policy_id IS DISTINCT FROM OLD.crawl_policy_id
            OR NEW.crawl_policy_version IS DISTINCT FROM OLD.crawl_policy_version
            OR NEW.reserved_bytes IS DISTINCT FROM OLD.reserved_bytes
-           OR NEW.started_at IS DISTINCT FROM OLD.started_at
+           OR NEW.prepared_at IS DISTINCT FROM OLD.prepared_at
+           OR NEW.deadline_at IS DISTINCT FROM OLD.deadline_at
+           OR NEW.schema_version IS DISTINCT FROM OLD.schema_version
            OR NEW.created_at IS DISTINCT FROM OLD.created_at
-           OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id THEN
+           OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id
+           OR NEW.causation_id IS DISTINCT FROM OLD.causation_id
+           OR NEW.command_id IS DISTINCT FROM OLD.command_id
+           OR NEW.idempotency_key_digest IS DISTINCT FROM OLD.idempotency_key_digest THEN
     RAISE EXCEPTION 'fetch_attempt_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
-  IF NEW.state_version <> OLD.state_version + 1 THEN
+  IF NEW.checkpoint_version <> OLD.checkpoint_version + 1 THEN
     RAISE EXCEPTION 'fetch_attempt_version_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- Checkpoints advance once and never move again (:298's "only declared checkpoint/result
+  -- columns may change MONOTONICALLY").
+  IF (OLD.submission_started_at IS NOT NULL
+      AND NEW.submission_started_at IS DISTINCT FROM OLD.submission_started_at)
+     OR (OLD.claim_generation > NEW.claim_generation) THEN
+    RAISE EXCEPTION 'fetch_attempt_checkpoint_not_monotonic' USING ERRCODE = 'raise_exception';
   END IF;
   -- The result half is write-once: once terminal, no column of it may change again.
   IF OLD.outcome IS NOT NULL THEN
@@ -1186,9 +1210,13 @@ BEGIN
              OR NEW.redirect_count IS DISTINCT FROM OLD.redirect_count
              OR NEW.final_url IS DISTINCT FROM OLD.final_url
              OR NEW.body_sha256 IS DISTINCT FROM OLD.body_sha256
+             OR NEW.robots_decision_sha256 IS DISTINCT FROM OLD.robots_decision_sha256
+             OR NEW.staging_object_id IS DISTINCT FROM OLD.staging_object_id
+             OR NEW.content_sha256 IS DISTINCT FROM OLD.content_sha256
              OR NEW.retryable IS DISTINCT FROM OLD.retryable
              OR NEW.latency_ms IS DISTINCT FROM OLD.latency_ms
-             OR NEW.terminal_at IS DISTINCT FROM OLD.terminal_at THEN
+             OR NEW.terminal_at IS DISTINCT FROM OLD.terminal_at
+             OR NEW.completed_at IS DISTINCT FROM OLD.completed_at THEN
       RAISE EXCEPTION 'fetch_attempt_result_frozen' USING ERRCODE = 'raise_exception';
     END IF;
   END IF;
@@ -2065,6 +2093,7 @@ ALTER TABLE ONLY public.command_results FORCE ROW LEVEL SECURITY;
 CREATE TABLE public.crawl_budget_counters (
     id uuid NOT NULL,
     state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
     created_at timestamp(6) with time zone NOT NULL,
     updated_at timestamp(6) with time zone NOT NULL,
     correlation_id uuid NOT NULL,
@@ -2073,21 +2102,27 @@ CREATE TABLE public.crawl_budget_counters (
     crawl_id uuid NOT NULL,
     reserved_response_bytes bigint DEFAULT 0 NOT NULL,
     committed_response_bytes bigint DEFAULT 0 NOT NULL,
+    received_response_bytes bigint DEFAULT 0 NOT NULL,
+    expanded_response_bytes bigint DEFAULT 0 NOT NULL,
     limit_probe_bytes bigint DEFAULT 0 NOT NULL,
     reserved_pages bigint DEFAULT 0 NOT NULL,
     committed_pages bigint DEFAULT 0 NOT NULL,
     queue_entries bigint DEFAULT 0 NOT NULL,
     sitemap_documents bigint DEFAULT 0 NOT NULL,
     redirects_followed bigint DEFAULT 0 NOT NULL,
+    requests_made bigint DEFAULT 0 NOT NULL,
     soft_limit_events jsonb DEFAULT '{}'::jsonb NOT NULL,
     hard_limit_events jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT crawl_budget_counters_bytes_committed_within_reserved CHECK ((committed_response_bytes <= reserved_response_bytes)),
     CONSTRAINT crawl_budget_counters_committed_pages_check CHECK ((committed_pages >= 0)),
     CONSTRAINT crawl_budget_counters_committed_response_bytes_check CHECK ((committed_response_bytes >= 0)),
+    CONSTRAINT crawl_budget_counters_expanded_response_bytes_check CHECK ((expanded_response_bytes >= 0)),
     CONSTRAINT crawl_budget_counters_limit_probe_bytes_check CHECK ((limit_probe_bytes >= 0)),
     CONSTRAINT crawl_budget_counters_pages_committed_within_reserved CHECK ((committed_pages <= reserved_pages)),
     CONSTRAINT crawl_budget_counters_queue_entries_check CHECK ((queue_entries >= 0)),
+    CONSTRAINT crawl_budget_counters_received_response_bytes_check CHECK ((received_response_bytes >= 0)),
     CONSTRAINT crawl_budget_counters_redirects_followed_check CHECK ((redirects_followed >= 0)),
+    CONSTRAINT crawl_budget_counters_requests_made_check CHECK ((requests_made >= 0)),
     CONSTRAINT crawl_budget_counters_reserved_pages_check CHECK ((reserved_pages >= 0)),
     CONSTRAINT crawl_budget_counters_reserved_response_bytes_check CHECK ((reserved_response_bytes >= 0)),
     CONSTRAINT crawl_budget_counters_sitemap_documents_check CHECK ((sitemap_documents >= 0))
@@ -2739,28 +2774,44 @@ CREATE TABLE public.f1_encryption_key_versions (
 
 CREATE TABLE public.fetch_attempts (
     id uuid NOT NULL,
-    state_version bigint DEFAULT 0 NOT NULL,
+    checkpoint_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    schema_version text NOT NULL,
     created_at timestamp(6) with time zone NOT NULL,
     updated_at timestamp(6) with time zone NOT NULL,
     correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    idempotency_key_digest bytea,
+    content_sha256 bytea,
     organization_id uuid NOT NULL,
     project_id uuid NOT NULL,
     crawl_id uuid NOT NULL,
+    crawl_host_gate_id uuid NOT NULL,
     source_id uuid NOT NULL,
-    frontier_entry_id uuid,
-    kind text NOT NULL,
+    crawl_frontier_entry_id uuid,
+    request_kind text NOT NULL,
     attempt_number integer NOT NULL,
     canonical_url text NOT NULL,
     canonical_url_preimage bytea NOT NULL,
     canonical_url_sha256 bytea NOT NULL,
     canonical_host text NOT NULL,
     depth integer NOT NULL,
+    dequeue_key bytea,
     scope_policy_id uuid,
     scope_policy_version text,
     crawl_policy_id uuid,
     crawl_policy_version text,
     reserved_bytes bigint NOT NULL,
-    started_at timestamp(6) with time zone NOT NULL,
+    claim_owner uuid,
+    claim_generation bigint DEFAULT 0 NOT NULL,
+    claimed_at timestamp(6) with time zone,
+    lease_expires_at timestamp(6) with time zone,
+    last_heartbeat_at timestamp(6) with time zone,
+    prepared_at timestamp(6) with time zone NOT NULL,
+    submission_started_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone NOT NULL,
     outcome text,
     reason_code text,
     http_status integer,
@@ -2772,23 +2823,31 @@ CREATE TABLE public.fetch_attempts (
     redirect_count integer,
     final_url text,
     body_sha256 bytea,
+    robots_decision_sha256 bytea,
+    staging_object_id uuid,
     retryable boolean,
     latency_ms integer,
     terminal_at timestamp(6) with time zone,
     CONSTRAINT fetch_attempts_accounted_response_bytes_check CHECK (((accounted_response_bytes IS NULL) OR (accounted_response_bytes >= 0))),
-    CONSTRAINT fetch_attempts_attempt_bound CHECK ((attempt_number <= 3)),
-    CONSTRAINT fetch_attempts_attempt_number_check CHECK ((attempt_number >= 1)),
+    CONSTRAINT fetch_attempts_attempt_number_check CHECK (((attempt_number >= 1) AND (attempt_number <= 3))),
     CONSTRAINT fetch_attempts_body_sha256_check CHECK (((body_sha256 IS NULL) OR (octet_length(body_sha256) = 32))),
     CONSTRAINT fetch_attempts_canonical_url_sha256_check CHECK ((octet_length(canonical_url_sha256) = 32)),
+    CONSTRAINT fetch_attempts_claim_shape CHECK ((((claim_owner IS NULL) = (claimed_at IS NULL)) AND ((claim_owner IS NULL) = (lease_expires_at IS NULL)) AND ((claim_owner IS NULL) OR (claim_generation > 0)))),
+    CONSTRAINT fetch_attempts_content_sha256_check CHECK (((content_sha256 IS NULL) OR (octet_length(content_sha256) = 32))),
     CONSTRAINT fetch_attempts_depth_check CHECK ((depth >= 0)),
     CONSTRAINT fetch_attempts_expanded_body_bytes_check CHECK (((expanded_body_bytes IS NULL) OR (expanded_body_bytes >= 0))),
-    CONSTRAINT fetch_attempts_kind_check CHECK ((kind = ANY (ARRAY['content'::text, 'robots'::text, 'sitemap'::text]))),
+    CONSTRAINT fetch_attempts_final_url_check CHECK (((final_url IS NULL) OR (length(final_url) <= 2048))),
+    CONSTRAINT fetch_attempts_frontier_entry_shape CHECK (((crawl_frontier_entry_id IS NULL) = (request_kind = 'robots'::text))),
+    CONSTRAINT fetch_attempts_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
     CONSTRAINT fetch_attempts_latency_ms_check CHECK (((latency_ms IS NULL) OR (latency_ms >= 0))),
     CONSTRAINT fetch_attempts_limit_probe_bytes_check CHECK (((limit_probe_bytes >= 0) AND (limit_probe_bytes <= 2))),
-    CONSTRAINT fetch_attempts_outcome_check CHECK (((outcome IS NULL) OR (outcome = ANY (ARRAY['document_created'::text, 'content_absent'::text, 'content_fetch_failed'::text, 'policy_excluded'::text, 'limit_discarded'::text])))),
+    CONSTRAINT fetch_attempts_media_type_check CHECK (((media_type IS NULL) OR (length(media_type) <= 255))),
+    CONSTRAINT fetch_attempts_outcome_check CHECK (((outcome IS NULL) OR (outcome = ANY (ARRAY['document_created'::text, 'content_absent'::text, 'content_fetch_failed'::text, 'policy_excluded'::text, 'limit_discarded'::text, 'timed_out'::text])))),
     CONSTRAINT fetch_attempts_received_body_bytes_check CHECK (((received_body_bytes IS NULL) OR (received_body_bytes >= 0))),
     CONSTRAINT fetch_attempts_redirect_count_check CHECK (((redirect_count IS NULL) OR (redirect_count >= 0))),
+    CONSTRAINT fetch_attempts_request_kind_check CHECK ((request_kind = ANY (ARRAY['robots'::text, 'sitemap'::text, 'content'::text]))),
     CONSTRAINT fetch_attempts_reserved_bytes_check CHECK ((reserved_bytes >= 0)),
+    CONSTRAINT fetch_attempts_robots_decision_sha256_check CHECK (((robots_decision_sha256 IS NULL) OR (octet_length(robots_decision_sha256) = 32))),
     CONSTRAINT fetch_attempts_terminal_shape CHECK (((outcome IS NULL) = (terminal_at IS NULL))),
     CONSTRAINT fetch_attempts_within_reservation CHECK (((accounted_response_bytes IS NULL) OR (accounted_response_bytes <= reserved_bytes)))
 );
@@ -4023,11 +4082,11 @@ ALTER TABLE ONLY public.f1_encryption_key_versions
 
 
 --
--- Name: fetch_attempts fetch_attempts_entry_attempt_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: fetch_attempts fetch_attempts_attempt_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.fetch_attempts
-    ADD CONSTRAINT fetch_attempts_entry_attempt_unique UNIQUE (crawl_id, frontier_entry_id, kind, attempt_number);
+    ADD CONSTRAINT fetch_attempts_attempt_unique UNIQUE NULLS NOT DISTINCT (crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number);
 
 
 --
@@ -4539,7 +4598,7 @@ CREATE UNIQUE INDEX f1_one_active_encryption_key_per_provider ON public.f1_encry
 -- Name: fetch_attempts_crawl_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX fetch_attempts_crawl_order ON public.fetch_attempts USING btree (crawl_id, started_at, id);
+CREATE INDEX fetch_attempts_crawl_order ON public.fetch_attempts USING btree (crawl_id, dequeue_key, attempt_number, id);
 
 
 --
@@ -4547,6 +4606,13 @@ CREATE INDEX fetch_attempts_crawl_order ON public.fetch_attempts USING btree (cr
 --
 
 CREATE INDEX fetch_attempts_crawl_outcome ON public.fetch_attempts USING btree (organization_id, crawl_id, outcome);
+
+
+--
+-- Name: fetch_attempts_expired_leases; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fetch_attempts_expired_leases ON public.fetch_attempts USING btree (organization_id, crawl_id, lease_expires_at) WHERE (outcome IS NULL);
 
 
 --
@@ -5224,7 +5290,15 @@ ALTER TABLE ONLY public.fetch_attempts
 --
 
 ALTER TABLE ONLY public.fetch_attempts
-    ADD CONSTRAINT fetch_attempts_frontier_entry_fk FOREIGN KEY (organization_id, project_id, frontier_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+    ADD CONSTRAINT fetch_attempts_frontier_entry_fk FOREIGN KEY (organization_id, project_id, crawl_frontier_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_host_gate_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_host_gate_fk FOREIGN KEY (organization_id, project_id, crawl_host_gate_id) REFERENCES public.crawl_host_gates(organization_id, project_id, id);
 
 
 --

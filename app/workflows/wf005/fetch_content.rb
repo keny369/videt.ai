@@ -23,12 +23,23 @@ module Workflows
     #   7. COMMIT the accounted bytes and RELEASE the unused remainder, in one statement.
     #   8. TERMINALISE the attempt write-once, and RELEASE the host slot however it ended.
     #
-    # Steps 1, 2, 3, 4, 7 and 8 are each their own transaction, and step 5 is inside NONE of them:
-    # MTX-030 requires that no external call sits inside a database transaction, and a fetch that
-    # held the gate row would serialise every other worker on that host behind a network round trip.
+    # NO TRANSACTION SPANS THE NETWORK CALL (MTX-030), which is the property that matters: a fetch
+    # holding the gate row would serialise every other worker on that host behind a round trip.
+    # Reviewed by instrumentation, and stated precisely rather than approximately: one fetch opens
+    # about a dozen short transactions, and the REDIRECT GUARD OPENS ONE PER HOP FROM INSIDE step 5.
+    # That guard transaction is the price of :448's per-hop recheck — the policies it evaluates live
+    # in the database and the connector cannot know them — and it is safe because it holds nothing
+    # while it waits, so it can only ever be a victim of contention, never a cause of deadlock.
+    #
+    # Step 7 and step 8 are ONE transaction. The run's byte counter and the attempt record describe
+    # the same event; committing them separately left the counter advanced and the record blank
+    # whenever the second failed, and nothing could reconcile them afterwards.
     class FetchContent
-      TIMEOUT_S = CrawlPolicy::GLOBAL_CEILING.fetch("request_timeout_seconds").fetch("hard")
-      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("hard")
+      # NOTE: no per-fetch bound is a class constant. :390 makes the operative limits "the most
+      # restrictive of global safety, approved entitlement, Organization, and Project limits", and a
+      # constant cannot vary per Crawl — a Project that narrowed `request_timeout_seconds` or
+      # `redirects_per_url` was silently ignored. They are resolved with the byte bounds, per Crawl,
+      # at the moment of the fetch.
       USER_AGENT = RobotsPolicy::AGENT_TOKEN
       MAX_ATTEMPTS = FetchRetryPolicy::MAX_ATTEMPTS
 
@@ -47,14 +58,29 @@ module Workflows
         gate_deferred: "host_gate_deferred",
         unauthorized: "fetch_not_authorized",
         budget_exhausted: "run_byte_budget_exhausted",
-        page_limit: "page_limit_discarded",
         over_limit: ByteAccounting::OVER_LIMIT,
         unsupported_media: "unsupported_media_type",
         redirect_policy: "redirect_policy_denied",
         redirect_limit: "redirect_limit_exhausted",
         unreachable: "content_unreachable",
         http_error: "content_http_error",
-        contended: "attempt_contended"
+        contended: "attempt_contended",
+        attempts_exhausted: "content_fetch_attempts_exhausted",
+        # :454 requires "its EXACT limit reason", and F-01 emits one rejection for six distinct
+        # conditions. A redirect to `http://` is not an eleventh-redirect limit hit, and :452
+        # classifies the two differently, so they carry different reasons.
+        redirect_loop: "redirect_loop_detected",
+        redirect_target: "redirect_target_invalid",
+        guard_error: "redirect_check_unavailable"
+      }.freeze
+
+      # F-01's rejection reasons, mapped to :454's exact limit reasons. `redirect_budget_exhausted`
+      # and `redirect_loop_detected` are LIMIT conditions on this URL; `redirect_target_invalid` is
+      # the target failing the platform's own shape checks (non-HTTPS, userinfo, port, malformed).
+      PLATFORM_REDIRECT_REASONS = {
+        redirect_budget_exhausted: :redirect_limit,
+        redirect_loop: :redirect_loop,
+        redirect_rejected: :redirect_target
       }.freeze
 
       Result = Data.define(:outcome, :reason_code, :attempt_id, :http_status, :accounted_bytes,
@@ -102,10 +128,22 @@ module Workflows
         last = nil
         MAX_ATTEMPTS.times do
           number = next_attempt_number(context)
-          return last || excluded(REASONS[:contended]) if number > MAX_ATTEMPTS
+          # :452 — "Exhausted timeout/408/429/5xx ... is `content_fetch_failed`, REMAINS IN THE
+          # DENOMINATOR, and makes coverage partial." Returning `policy_excluded` here made a URL
+          # that had been fetched three times and failed VANISH from the measure, so a run could
+          # report `full` coverage for a URL it never retrieved.
+          if number > MAX_ATTEMPTS
+            last ||= failed(REASONS[:attempts_exhausted])
+            break
+          end
 
           last = one_attempt(context, entry, number)
           return last unless last.retryable
+          # :444 gives "one initial attempt plus AT MOST TWO RETRIES" with delays "exactly 30 seconds
+          # after ... the first failed attempt and 120 seconds after ... the second". There is no
+          # delay after the last attempt: waiting one burned 120 s of the 60-minute wall clock ahead
+          # of a request that never comes.
+          break if number >= MAX_ATTEMPTS
 
           pace(FetchRetryPolicy.delay_ms(number, @last_outcome))
         end
@@ -119,11 +157,18 @@ module Workflows
         begin
           return excluded(REASONS[:unauthorized]) unless authorized?(context)
 
+          # SEARCH_CRAWL_RETRIEVAL :82 — "the same attempt identity is completed OR TIMED OUT, never
+          # replaced by an unaccounted request." Every claim sweeps the run's expired attempt leases
+          # first and hands their reservations back, so reclamation needs no separate scheduled job
+          # and cannot itself be lost. Without it a lost worker retired 10 MiB of the run's budget
+          # permanently and, after three losses, the frontier entry with it.
+          reclaim_expired(context)
+
           bounds = effective_bounds(context)
           reserved = reserve_bytes(context, bounds)
           return limit_discarded(REASONS[:budget_exhausted]) if reserved.nil?
 
-          attempt = claim_attempt(context, entry, number, reserved)
+          attempt = claim_attempt(context, entry, number, reserved, bounds)
           return release_and(context, reserved, excluded(REASONS[:contended])) if attempt.nil?
 
           perform(context, attempt, reserved, bounds)
@@ -133,13 +178,18 @@ module Workflows
       end
 
       # The network call, and everything that depends on its result. No transaction is open here.
+      #
+      # The byte commit and the terminal decision are ONE transaction. Splitting them left the run
+      # counter advanced and the attempt row blank whenever the second failed, so :442's "run-wide
+      # accounted response-body bytes are EXACTLY sum(accounted_response_bytes_i)" was not
+      # reproducible from the record and nothing could reconcile the two. They describe the same
+      # event; they commit together.
       def perform(context, attempt, reserved, bounds)
-        outcome = fetch(context, reserved)
+        outcome = fetch(context, reserved, bounds)
         @last_outcome = outcome
         measurement = measure(outcome, reserved)
-        commit_bytes(context, reserved, measurement)
         result = classify(outcome, measurement, context, reserved, bounds)
-        terminalize(context, attempt, result, outcome, measurement)
+        settle(context, attempt, reserved, result, outcome, measurement)
         result
       end
 
@@ -149,10 +199,11 @@ module Workflows
       # BEFORE FOLLOWING", expressed where the connector can act on it. Retrospective validation of
       # the final URL would not satisfy the sentence: the disallowed intermediate would already have
       # been requested, which is both a robots violation and a request the run cannot account for.
-      def fetch(context, reserved)
+      def fetch(context, reserved, bounds)
         guard = redirect_guard(context)
-        @outbound.fetch(context[:canonical_url], timeout_s: TIMEOUT_S, byte_cap: reserved,
-                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT, redirect_guard: guard)
+        @outbound.fetch(context[:canonical_url], timeout_s: bounds.timeout_s, byte_cap: reserved,
+                        max_redirects: bounds.max_redirects, user_agent: USER_AGENT,
+                        redirect_guard: guard)
       rescue StandardError
         Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true)
       end
@@ -170,7 +221,11 @@ module Workflows
             ).allowed?
           end
         rescue StandardError
-          # Fail closed. An error deciding whether a hop is permitted is not permission.
+          # Fail closed — an error deciding whether a hop is permitted is not permission — but
+          # RECORD that the guard failed rather than decided, so the outcome is classified as an
+          # infrastructure failure inside the coverage denominator rather than as a policy exclusion
+          # outside it.
+          @guard_failed = true
           false
         end
       end
@@ -223,7 +278,6 @@ module Workflows
         # :436 — the accepted page must also still be in scope at its FINAL url; a redirect that
         # stayed safe and passed every hop guard can still land somewhere current scope excludes.
         return excluded(REASONS[:redirect_policy], outcome:, measurement:, media:) unless final_in_scope?(context, outcome)
-        return limit_discarded(REASONS[:page_limit], outcome:, measurement:, media:) unless reserve_page(context)
 
         Result.new(outcome: DOCUMENT_CREATED, reason_code: nil, attempt_id: nil, http_status: status,
                    accounted_bytes: measurement&.accounted.to_i, probe_bytes: measurement&.probe_bytes.to_i,
@@ -236,8 +290,19 @@ module Workflows
       # target was excluded by policy, not by failure, so :452 puts it outside the denominator.
       def transport_outcome(outcome)
         if outcome.respond_to?(:rejected?) && outcome.rejected?
-          return excluded(REASONS[:redirect_policy], outcome:) if outcome.reason == :redirect_policy_denied
-          return failed(REASONS[:redirect_limit], outcome) if outcome.reason == :redirect_rejected
+          # A hop the CALLER refused is a policy exclusion (:452 puts scope-rejected redirect targets
+          # outside the denominator) — but only when the guard actually DECIDED. A guard that could
+          # not decide, because the database was unavailable to it, is not a policy fact: recording
+          # it as one removes the URL from the coverage measure and makes coverage read better than
+          # reality. It is a retryable failure, in the denominator.
+          if outcome.reason == :redirect_policy_denied
+            return failed(REASONS[:guard_error], outcome, retryable: true) if @guard_failed
+
+            return excluded(REASONS[:redirect_policy], outcome:)
+          end
+
+          mapped = PLATFORM_REDIRECT_REASONS[outcome.reason]
+          return failed(REASONS.fetch(mapped), outcome) if mapped
 
           return failed(outcome.reason.to_s, outcome)
         end
@@ -288,13 +353,11 @@ module Workflows
         raw.to_s.split(";").first.to_s.strip.downcase.presence
       end
 
-      # NOTE: an endless method cannot carry its own rescue; written out so the rescue binds to
-      # THIS method rather than to the class body, where it would silently swallow load errors.
-      def host_of(url)
-        URI.parse(url.to_s).host.to_s.downcase
-      rescue URI::InvalidURIError
-        ""
-      end
+      # The canonical parser, not a second one. A naive `URI.parse(...).host` DIVERGES from
+      # `FetchAuthorization`'s — it keeps userinfo, mishandles IPv6 brackets and raises on inputs the
+      # careful one absorbs — and the value it produced was written into the IMMUTABLE
+      # `fetch_attempts.canonical_host`. Two host parsers in one workflow is one too many.
+      def host_of(url) = FetchAuthorization.host_of(url)
 
       # ---- transactions ----------------------------------------------------------
 
@@ -378,22 +441,43 @@ module Workflows
         ByteAccounting::GLOBAL_BOUNDS
       end
 
+      # ---- honest boundaries -----------------------------------------------------
+      #
+      # `document_created` names the outcome :436 defines — a 2xx, within the response maximum, of a
+      # Document media type, in scope at its final URL. IT DOES NOT CREATE A DOCUMENT: `documents`
+      # and the ingestion transaction are S-07-010's, and this tranche must not pretend otherwise.
+      # `covered?` is therefore CANDIDATE coverage — the fetch did everything :452 asks of it — and
+      # S-07-009 confirms it against the artifact before computing `coverage_status`.
+
       # :442 — reserve BEFORE the body is read, sized from what the run has left. A shrinking
       # reservation is retried down to nothing rather than abandoned on the first loss, because
       # another worker committing between the read and the write is normal, not exceptional.
+      # RETURNS THE RESERVED AMOUNT, OR NIL. The `nil` is load-bearing and was the tranche's worst
+      # defect: `Integer#times` returns its RECEIVER when no `break` fires, so three consecutive lost
+      # races returned the integer 3 — truthy — and the caller's `if reserved.nil?` never fired. The
+      # run then made a real request with `byte_cap: 3` holding NO reservation, and `commit_bytes`
+      # violated `committed <= reserved` so a `PG::CheckViolation` escaped the workflow. Reviewed at
+      # 0/120 reproductions on a loopback database and 120/120 with 5 ms of added latency — the local
+      # suite could not have seen it, which is why the loop now says what it means.
+      RESERVE_ATTEMPTS = 3
+
       def reserve_bytes(context, bounds)
         budget_unit(context[:organization_id]) do |store|
           ensure_counters(store, context)
-          3.times do
+          reserved = nil
+          RESERVE_ATTEMPTS.times do
             row = store.counters(context[:organization_id], context[:crawl_id])
             remaining = bounds.per_run - row["reserved_response_bytes"].to_i
             want = ByteAccounting.reservation(remaining:, per_url: bounds.per_url)
-            break nil if want.zero?
+            break if want.zero?
 
-            granted = store.reserve_bytes(context[:organization_id], context[:crawl_id], want,
-                                          bounds.per_run, context[:now])
-            break want if granted
+            if store.reserve_bytes(context[:organization_id], context[:crawl_id], want,
+                                   bounds.per_run, context[:now])
+              reserved = want
+              break
+            end
           end
+          reserved
         end
       end
 
@@ -403,10 +487,55 @@ module Workflows
                               crawl_id: context[:crawl_id])
       end
 
-      def commit_bytes(context, reserved, measurement)
-        budget_unit(context[:organization_id]) do |store|
-          store.commit_bytes(context[:organization_id], context[:crawl_id], reserved,
-                             measurement&.accounted.to_i, measurement&.probe_bytes.to_i, context[:now])
+      # One transaction: the run counter and the attempt record describe the same event, so they
+      # commit together or neither does.
+      def settle(context, attempt, reserved, result, outcome, measurement)
+        Platform::UnitOfWork.run do |conn|
+          raw = conn.raw_connection
+          budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
+          budget.enter_org_context(org: context[:organization_id], correlation_id: @correlation_id)
+          budget.commit_bytes(context[:organization_id], context[:crawl_id],
+                              { reserved:, accounted: measurement&.accounted.to_i,
+                                probe_bytes: measurement&.probe_bytes.to_i,
+                                received: measurement&.received.to_i,
+                                expanded: measurement&.expanded.to_i }, context[:now])
+          budget.count_redirects(context[:organization_id], context[:crawl_id],
+                                 result.redirect_count.to_i, context[:now])
+
+          attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
+          moved = attempts.terminalize(attempt["id"], attempt["checkpoint_version"].to_i, context[:now],
+                                       outcome: result.outcome, reason_code: result.reason_code,
+                                       http_status: result.http_status,
+                                       accounted_response_bytes: measurement&.accounted,
+                                       received_body_bytes: measurement&.received,
+                                       expanded_body_bytes: measurement&.expanded,
+                                       limit_probe_bytes: measurement&.probe_bytes.to_i,
+                                       media_type: result.media_type,
+                                       redirect_count: result.redirect_count,
+                                       final_url: result.final_url,
+                                       body_sha256: result.body && Digest::SHA256.digest(result.body),
+                                       retryable: result.retryable,
+                                       latency_ms: outcome.respond_to?(:latency_ms) ? outcome.latency_ms : nil)
+          raise Platform::InvariantViolation, "fetch attempt terminal decision lost" if moved.to_i.zero?
+        end
+      end
+
+      # Reclaim the run's expired attempt leases and hand their reservations back. Every claim does
+      # this, so reclamation cannot itself be lost — the same construction the host gate uses.
+      def reclaim_expired(context)
+        Platform::UnitOfWork.run do |conn|
+          raw = conn.raw_connection
+          attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
+          attempts.enter_org_context(org: context[:organization_id], correlation_id: @correlation_id)
+          expired = attempts.sweep_expired(context[:organization_id], context[:crawl_id], context[:now])
+          next 0 if expired.empty?
+
+          budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
+          expired.each do |row|
+            budget.release_bytes(context[:organization_id], context[:crawl_id],
+                                 row["reserved_bytes"].to_i, context[:now])
+          end
+          expired.size
         end
       end
 
@@ -417,32 +546,35 @@ module Workflows
         result
       end
 
-      def reserve_page(context)
-        budget_unit(context[:organization_id]) do |store|
-          !store.reserve_page(context[:organization_id], context[:crawl_id],
-                              CrawlPolicy::GLOBAL_CEILING.fetch("accepted_pages").fetch("hard"),
-                              context[:now]).nil?
-        end
-      end
-
       def next_attempt_number(context)
         attempt_unit(context[:organization_id]) do |store|
           store.attempt_count(context[:organization_id], context[:crawl_id], context[:entry_id], "content") + 1
         end
       end
 
-      def claim_attempt(context, entry, number, reserved)
+      def claim_attempt(context, entry, number, reserved, bounds)
         attempt_unit(context[:organization_id]) do |store|
           store.claim(id: @ids.generate, now: context[:now], correlation_id: @correlation_id,
-                      organization_id: context[:organization_id], project_id: context[:project_id],
-                      crawl_id: context[:crawl_id], source_id: context[:source_id],
+                      causation_id: context[:crawl_id], organization_id: context[:organization_id],
+                      project_id: context[:project_id], crawl_id: context[:crawl_id],
+                      crawl_host_gate_id: context[:gate_id], source_id: context[:source_id],
                       frontier_entry_id: context[:entry_id], kind: "content", attempt_number: number,
                       canonical_url: context[:canonical_url], canonical_host: context[:canonical_host],
-                      depth: context[:depth], scope_policy_id: entry["scope_policy_id"],
+                      depth: context[:depth],
+                      # :456's ordering tuple, materialized so the S-07-008 coordinator can apply
+                      # budget effects "in increasing dequeue key" without re-deriving it.
+                      dequeue_key: entry["dequeue_key"] && unhex(entry["dequeue_key"]),
+                      scope_policy_id: entry["scope_policy_id"],
                       scope_policy_version: entry["scope_policy_version"],
-                      crawl_policy_id: nil, crawl_policy_version: nil, reserved_bytes: reserved)
+                      crawl_policy_id: context[:crawl_policy_id],
+                      crawl_policy_version: context[:crawl_policy_version],
+                      reserved_bytes: reserved, claim_owner: @ids.generate,
+                      # The attempt's own deadline: the per-request bound this Crawl is subject to.
+                      deadline_at: context[:now] + bounds.timeout_s)
         end
       end
+
+      def unhex(value) = value.to_s.sub(/\A\\x/, "").then { |h| [h].pack("H*") }
 
       def terminalize(context, attempt, result, outcome, measurement)
         attempt_unit(context[:organization_id]) do |store|

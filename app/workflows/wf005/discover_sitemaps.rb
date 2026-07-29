@@ -274,8 +274,16 @@ module Workflows
 
       # Reserve one slot from the RUN-WIDE sitemap-document budget (:437 — 50 distinct canonical
       # sitemap URLs PER RUN). Returns false when the run has spent it.
-      def reserve_document(organization_id, crawl_id, now)
-        in_unit(organization_id) do |store|
+      #
+      # The counter lives on `crawl_budget_counters`, which schema :298 assigns run-wide accounting
+      # to. S-07-006 had to use `crawls.limit_counters` because that table did not yet exist; when
+      # S-07-007 created it, the writer moved here rather than leaving the bound with two homes.
+      def reserve_document(organization_id:, project_id:, crawl_id:, now:)
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          store.ensure_counters(id: @ids.generate, now:, correlation_id: @correlation_id,
+                                organization_id:, project_id:, crawl_id:)
           !store.reserve_sitemap_document(organization_id, crawl_id,
                                           SitemapCandidates::DOCUMENT_LIMIT, now).nil?
         end
@@ -467,7 +475,7 @@ module Workflows
             # Reserved BEFORE the attempt, because the unit is distinct canonical URLs ATTEMPTED.
             # Counting successful parses instead would let one index naming ten thousand dead
             # children fetch every one of them without the counter ever moving.
-            unless @service.reserve_document(@context[:organization_id], @context[:crawl_id], @context[:now])
+            unless @service.reserve_document(**@context.slice(:organization_id, :project_id, :crawl_id, :now))
               skip(candidate.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT)
               next
             end

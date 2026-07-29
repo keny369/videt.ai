@@ -598,9 +598,13 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       (1..60).each { |i| map[format("https://shop.acme.example/s%03d.xml", i)] = { status: 404 } }
       discover(ctx, outbound_map(map))
 
-      spent = DbInspector.all("SELECT limit_counters FROM crawls WHERE id=$1::uuid", [ctx[:crawl_id]])
-                         .first["limit_counters"]
-      expect(JSON.parse(spent)["sitemap_documents"])
+      # The counter's one home is `crawl_budget_counters` (schema :298). This assertion used to read
+      # `crawls.limit_counters`, which is where S-07-006 had to put it before that table existed —
+      # and asserting the old location is what let S-07-007 create a SECOND home without any test
+      # noticing.
+      spent = DbInspector.one("SELECT sitemap_documents FROM crawl_budget_counters WHERE crawl_id=$1::uuid",
+                              [ctx[:crawl_id]])
+      expect(spent["sitemap_documents"].to_i)
         .to eq(Workflows::Wf005::SitemapCandidates::DOCUMENT_LIMIT)
     end
   end

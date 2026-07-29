@@ -77,14 +77,19 @@ module IdentityAccess
       #
       # `limit_probe_bytes` is added to its own counter, never to either byte total: :442 calls
       # probes "detection telemetry, not accepted/accounted capacity".
-      def commit_bytes(organization_id, crawl_id, reserved, accounted, probe_bytes, now)
-        params = [organization_id, crawl_id, reserved.to_i, accounted.to_i, probe_bytes.to_i, iso(now)]
+      def commit_bytes(organization_id, crawl_id, measurement, now)
+        params = [organization_id, crawl_id, measurement.fetch(:reserved).to_i,
+                  measurement.fetch(:accounted).to_i, measurement.fetch(:probe_bytes).to_i,
+                  measurement.fetch(:received).to_i, measurement.fetch(:expanded).to_i, iso(now)]
         query(<<~SQL, params).to_a.first
           UPDATE crawl_budget_counters
           SET committed_response_bytes = committed_response_bytes + $4,
+              received_response_bytes = received_response_bytes + $6,
+              expanded_response_bytes = expanded_response_bytes + $7,
               reserved_response_bytes = reserved_response_bytes - ($3 - $4),
               limit_probe_bytes = limit_probe_bytes + $5,
-              state_version = state_version + 1, updated_at = $6::timestamptz
+              requests_made = requests_made + 1,
+              state_version = state_version + 1, updated_at = $8::timestamptz
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
           RETURNING committed_response_bytes, reserved_response_bytes, limit_probe_bytes
         SQL
@@ -92,55 +97,33 @@ module IdentityAccess
 
       # Release a whole reservation — the attempt never read a body at all (refused, denied,
       # unreachable), so nothing was consumed.
+      # The floor is `committed_response_bytes`, not zero. `committed <= reserved` is a CHECK, so
+      # clamping to zero raised a `PG::CheckViolation` at the caller the moment a release outran what
+      # was still outstanding — which is exactly the shape the reclamation sweeper produces.
       def release_bytes(organization_id, crawl_id, reserved, now)
         params = [organization_id, crawl_id, reserved.to_i, iso(now)]
         query(<<~SQL, params).to_a.first
           UPDATE crawl_budget_counters
-          SET reserved_response_bytes = GREATEST(0, reserved_response_bytes - $3),
+          SET reserved_response_bytes =
+                GREATEST(committed_response_bytes, reserved_response_bytes - $3),
               state_version = state_version + 1, updated_at = $4::timestamptz
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
           RETURNING reserved_response_bytes
         SQL
       end
 
-      # :436 — "The accepted-page limit retains the FIRST 10,000 successful Documents in dequeue
-      # order; a later success is discarded as `page_limit_discarded` and cannot become Evidence."
-      # Reserved before the page is accepted, for the same reason bytes are.
-      def reserve_page(organization_id, crawl_id, ceiling, now)
-        params = [organization_id, crawl_id, ceiling.to_i, iso(now)]
-        query(<<~SQL, params).to_a.first
-          UPDATE crawl_budget_counters
-          SET reserved_pages = reserved_pages + 1,
-              state_version = state_version + 1, updated_at = $4::timestamptz
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND reserved_pages < $3
-          RETURNING reserved_pages
-        SQL
-      end
+      # NOTE: page reservation is deliberately NOT here. :436 retains "the first 10,000 successful
+      # DOCUMENTS in dequeue order", and :456 says "concurrent fetch completion does not change
+      # discovery order" — so admitting a page at fetch completion, as the first draft did, decides
+      # the bound in completion order rather than dequeue order and can never be committed, because
+      # the Document it counts is created by S-07-010. The counters exist; the reservation belongs
+      # with the Document.
 
-      def commit_page(organization_id, crawl_id, now)
-        params = [organization_id, crawl_id, iso(now)]
-        query(<<~SQL, params).to_a.first
-          UPDATE crawl_budget_counters
-          SET committed_pages = committed_pages + 1,
-              state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND committed_pages < reserved_pages
-          RETURNING committed_pages
-        SQL
-      end
-
-      def release_page(organization_id, crawl_id, now)
-        params = [organization_id, crawl_id, iso(now)]
-        query(<<~SQL, params).to_a.first
-          UPDATE crawl_budget_counters
-          SET reserved_pages = GREATEST(committed_pages, reserved_pages - 1),
-              state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-          RETURNING reserved_pages
-        SQL
-      end
-
-      # :437's run-wide sitemap-document budget, moved here from `crawls.limit_counters` now that
-      # schema :298's counter table exists, so there is ONE place a run-wide bound is read.
+      # :437's run-wide sitemap-document budget. Schema :298 assigns "sitemap documents" to THIS
+      # table, so this is its one home; `DiscoverSitemaps` was repointed here and the duplicate on
+      # `CrawlHostGateStore` (which wrote `crawls.limit_counters`) is deleted. The first draft added
+      # this method and left the workflow calling the old one, which created the second home the
+      # migration claimed to eliminate.
       def reserve_sitemap_document(organization_id, crawl_id, ceiling, now)
         params = [organization_id, crawl_id, ceiling.to_i, iso(now)]
         query(<<~SQL, params).to_a.first
