@@ -214,12 +214,18 @@ module Workflows
         deadline = crawl["deadline_at"]
         expired = !deadline.nil? && Time.parse(deadline.to_s).utc <= now.utc
 
-        threshold = if expired
-                      LimitDimensions::HARD
-                    elsif elapsed && elapsed >= limits.configured(WALL_CLOCK_DIMENSION, LimitDimensions::SOFT)
-                      LimitDimensions::SOFT
-                    end
-        observe(raw, organization_id, crawl, crawl_id, WALL_CLOCK_DIMENSION, threshold, elapsed.to_i, limits, now) if threshold
+        # SOFT IS INDEPENDENT OF HARD, as at every other observation point. Gating it behind
+        # `elsif expired` lost the soft event permanently for any run whose first admission after
+        # the soft bound happened to land past the deadline — and after that `claim_next` returns
+        # early on every call, so the branch is never re-entered.
+        if elapsed && elapsed >= limits.configured(WALL_CLOCK_DIMENSION, LimitDimensions::SOFT)
+          observe(raw, organization_id, crawl, crawl_id, WALL_CLOCK_DIMENSION,
+                  LimitDimensions::SOFT, elapsed, limits, now)
+        end
+        if expired
+          observe(raw, organization_id, crawl, crawl_id, WALL_CLOCK_DIMENSION,
+                  LimitDimensions::HARD, elapsed.to_i, limits, now)
+        end
         expired
       end
 

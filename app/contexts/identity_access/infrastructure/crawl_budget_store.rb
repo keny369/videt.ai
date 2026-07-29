@@ -161,7 +161,13 @@ module IdentityAccess
       # race into `:already`.
       def charge_sitemap_document(organization_id:, project_id:, crawl_id:, canonical_url:, ceiling:,
                                   id:, correlation_id:, now:)
-        digest = Digest::SHA256.digest(canonical_url.to_s.unicode_normalize(:nfc).b)
+        # THE STORED BYTES ARE THE IDENTITY. Normalize once, store what was hashed, and hash what
+        # is stored — an immutable row must reproduce its own digest, and a reconciler or evidence
+        # export recomputing it must not conclude the ledger is corrupt. Hashing the NFC fold while
+        # storing the raw text made `SHA256(canonical_url) <> canonical_url_sha256` for every
+        # non-NFC URL, on a row that can never be corrected.
+        canonical = canonical_url.to_s.unicode_normalize(:nfc)
+        digest = Digest::SHA256.digest(canonical.b)
         locked = query(<<~SQL, [organization_id, crawl_id]).to_a.first
           SELECT 1 FROM crawl_budget_counters
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid FOR UPDATE
@@ -179,7 +185,7 @@ module IdentityAccess
         return :exhausted if charged_count(organization_id, project_id, crawl_id) >= ceiling.to_i
 
         claim = [id, iso(now), correlation_id, organization_id, project_id, crawl_id,
-                 canonical_url, bytea(digest)]
+                 canonical, bytea(digest)]
         query(<<~SQL, claim)
           INSERT INTO crawl_sitemap_document_charges
             (id, schema_version, created_at, correlation_id, organization_id, project_id, crawl_id,

@@ -276,6 +276,28 @@ RSpec.describe "Crawl sitemap-document charge invariants", type: :model do
       .to raise_error(PG::ForeignKeyViolation, /crawl_sitemap_document_charges_crawl_fk/)
   end
 
+  it "refuses an empty or over-length canonical URL" do
+    c = context
+    expect { insert_charge(c, url: "") }
+      .to raise_error(PG::CheckViolation, /canonical_url/)
+    expect { insert_charge(c, url: "https://h.example/#{'a' * 8200}") }
+      .to raise_error(PG::CheckViolation, /canonical_url/)
+  end
+
+  it "refuses a digest that is not 32 bytes" do
+    c = context
+    params = [SecureRandom.uuid_v7, c[:org], c[:project], c[:crawl], "https://h.example/s.xml",
+              { value: "short", format: 1 }]
+    expect do
+      conn.exec_params(<<~SQL, params)
+        INSERT INTO crawl_sitemap_document_charges
+          (id, schema_version, created_at, correlation_id, organization_id, project_id, crawl_id,
+           canonical_url, canonical_url_sha256, charged_at)
+        VALUES ($1,'1.0',now(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,$5,$6,now())
+      SQL
+    end.to raise_error(PG::CheckViolation, /canonical_url_sha256/)
+  end
+
   it "is never updatable or deletable — releasing a charge would let one URL be charged twice" do
     c = context
     insert_charge(c)

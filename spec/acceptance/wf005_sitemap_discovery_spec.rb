@@ -621,6 +621,50 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     end
 
 
+    it "stores the bytes it hashed even when handed an unnormalized URL" do
+      # The STORE's own invariant, exercised directly. Going through `normalize` cannot prove it —
+      # that now hands the store an already-NFC string, so raw and normalized are identical and the
+      # test passes whatever the store does. `charge_sitemap_document` is a public method and must
+      # hold this on its own.
+      ctx = with_robots(sitemaps: [])
+      ensure_counter_row(ctx)
+      nfd = "https://shop.acme.example/cafe\u0301.xml"
+      expect(nfd).not_to eq(nfd.unicode_normalize(:nfc))          # genuinely unnormalized
+
+      Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        expect(store.charge_sitemap_document(
+                 organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+                 crawl_id: ctx[:crawl_id], canonical_url: nfd, ceiling: 50,
+                 id: Platform::Ids.system.generate, correlation_id: SecureRandom.uuid_v7,
+                 now: start_now)).to eq(:granted)
+      end
+
+      row = DbInspector.one(
+        "SELECT canonical_url, encode(canonical_url_sha256,'hex') AS digest
+         FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+      expect(Digest::SHA256.hexdigest(row["canonical_url"])).to eq(row["digest"])
+      expect(row["canonical_url"]).to eq(nfd.unicode_normalize(:nfc))
+    end
+
+    it "stores the bytes it hashed, so an immutable row reproduces its own identity" do
+      # A reconciler or evidence export recomputing the digest from the stored text must not
+      # conclude the ledger is corrupt. Exercised with an NFD spelling, which canonicalization
+      # preserves — the host must be ASCII but the path is kept byte-for-byte.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/cafe\u0301.xml"])
+      attempt_pass(ctx)
+
+      rows = DbInspector.all(
+        "SELECT canonical_url, encode(canonical_url_sha256,'hex') AS digest
+         FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+      expect(rows).not_to be_empty
+      rows.each do |row|
+        expect(Digest::SHA256.hexdigest(row["canonical_url"])).to eq(row["digest"])
+        expect(row["canonical_url"]).to eq(row["canonical_url"].unicode_normalize(:nfc))
+      end
+    end
+
     it "never charges past the ceiling when workers race on DIFFERENT urls" do
       # The bound is `COUNT(*) < ceiling` over the LEDGER, which is the only authority for it, and
       # the `SELECT ... FOR UPDATE` on the counters row is what makes that count exact: without it
@@ -629,6 +673,12 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       # conflict on nothing.
       ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
       urls = Array.new(6) { |i| "https://shop.acme.example/s#{i}.xml" }
+
+      # The counters row must EXIST first, or all six threads serialise on `ensure_counters`'
+      # speculative-insertion wait and the ceiling is enforced by that funnel rather than by the
+      # lock under test — which is how an earlier version of this example passed with the row lock
+      # removed.
+      ensure_counter_row(ctx)
 
       outcomes = charging_threads(ctx, urls, ceiling: 1)
 

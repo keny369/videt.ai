@@ -277,9 +277,13 @@ module Workflows
 
         decision = Wf004::SourceScopePredicate.evaluate(url: raw,
                                                         policies: [identity_policy(canonical_host)])
-        canonical = decision.allowed? ? decision.canonical_url : nil
-        # Canonicalization can only shorten or preserve, but the bound is asserted on what will
-        # actually be stored rather than on what arrived.
+        # NFC here, so the traversal's dedup (`SitemapCandidates.distinct`, `@visited`) keys on the
+        # SAME identity the charge ledger does. Hashing the fold while comparing raw bytes made two
+        # spellings of one URL two candidates, two fetches and one charge.
+        canonical = decision.allowed? ? decision.canonical_url.unicode_normalize(:nfc) : nil
+        # The bound is asserted on what will actually be stored. Verified safe: no assigned code
+        # point has `nfc.length > raw.bytesize`, and the CHECK counts characters while this counts
+        # bytes, so passing here cannot fail there.
         canonical if canonical && canonical.bytesize <= MAX_SITEMAP_URL_BYTES
       rescue ArgumentError
         nil

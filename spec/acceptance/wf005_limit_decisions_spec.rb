@@ -377,6 +377,25 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
       expect(row["configured_value"].to_i).to eq(60)
     end
 
+    it "emits BOTH wall-clock crossings on the first admission past the deadline" do
+      # The soft limb used to be `elsif expired`, so a run whose first admission after 45 minutes
+      # landed past 60 never emitted `CrawlSoftLimitApproaching` at all — and `claim_next` returns
+      # early on every later call, so the branch was never re-entered.
+      ctx = running_crawl
+      DbInspector.connection.exec_params(
+        "UPDATE crawls SET started_at = $2::timestamptz, deadline_at = $3::timestamptz,
+           state_version = state_version + 1 WHERE id = $1::uuid",
+        [ctx[:crawl_id], start_now - (61 * 60), start_now - 60])
+
+      expect(claim(ctx).reason_code).to eq("wall_clock_exhausted")
+
+      rows = decisions(ctx[:crawl_id]).select { |d| d["limit_dimension"] == WALL_CLOCK }
+      expect(rows.map { |d| d["threshold_kind"] }.sort).to eq(%w[hard soft])
+      expect(rows.map { |d| d["observed_value"].to_i }.uniq).to eq([61])
+      expect(events(ctx[:crawl_id]).map { |e| e["event_type"] }.sort)
+        .to eq(%w[CrawlLimitReached CrawlSoftLimitApproaching])
+    end
+
     it "emits the wall-clock SOFT limit at the soft bound while the run is still admitting" do
       ctx = running_crawl
       DbInspector.connection.exec_params(

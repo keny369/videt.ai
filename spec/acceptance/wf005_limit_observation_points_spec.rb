@@ -224,16 +224,40 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       expect(decision(ctx[:crawl_id], "discovered_url_queue", "hard")["observed_value"].to_i).to eq(2)
     end
 
-    it "prefers the DEPTH reason over the queue reason when a candidate breaches both" do
-      # Depth is intrinsic to the candidate; a queue discard is positional and would reverse if a
-      # lower-ordered candidate arrived. Recording the positional reason for a URL that could never
-      # be admitted would name the wrong limit.
+    it "refuses ENTRY at the bound, so the queue reason wins over depth for a non-member" do
+      # ONE POPULATION, ONE BOUND. The queue bound governs ENTRY; depth describes what kind of
+      # MEMBER a candidate is. A candidate refused entry never becomes a member, so depth is not
+      # consulted and the queue reason is the true one. The inverse precedence let an over-depth
+      # candidate join a population it was exempt from and could never be evicted from.
       ctx = running_crawl
       narrow(ctx, "discovered_queue" => { "soft" => 1, "hard" => 1 }, "crawl_depth" => { "soft" => 1, "hard" => 2 })
 
       result = offer(ctx, url: "https://shop.acme.example/deep", depth: 5)
-      expect(result.reason).to eq("depth_limit_discarded")
-      expect(decision(ctx[:crawl_id], "crawl_depth_from_source_root", "hard")).not_to be_nil
+
+      expect(result.reason).to eq("queue_limit_discarded")
+      expect(decision(ctx[:crawl_id], "discovered_url_queue", "hard")).not_to be_nil
+      expect(decision(ctx[:crawl_id], "crawl_depth_from_source_root", "hard")).to be_nil
+    end
+
+    it "keeps the population BOUNDED under repeated depth-rejected candidates" do
+      # The defect this definition exists to prevent: depth-rejected rows count toward the ceiling,
+      # so if they were exempt from enforcement the run would sit N past its own inclusive maximum
+      # with only the first crossing ever recorded. Ten of them, a ceiling of two.
+      ctx = running_crawl                                    # one seeded root already a member
+      narrow(ctx, "discovered_queue" => { "soft" => 2, "hard" => 2 }, "crawl_depth" => { "soft" => 1, "hard" => 2 })
+
+      offer(ctx, url: "https://shop.acme.example/deep0", depth: 9)   # joins as a depth-rejected member
+      10.times { |i| offer(ctx, url: "https://shop.acme.example/deep#{i + 1}", depth: 9) }
+
+      population = DbInspector.all(
+        "SELECT id FROM crawl_frontier_entries WHERE crawl_id=$1::uuid
+           AND (state <> 'discarded' OR reason = 'depth_limit_discarded')", [ctx[:crawl_id]]).size
+      expect(population).to eq(2)
+      # And the run recorded that it reached its bound, exactly once.
+      expect(DbInspector.all(
+        "SELECT id FROM crawl_limit_decisions WHERE crawl_id=$1::uuid
+           AND limit_dimension='discovered_url_queue' AND threshold_kind='hard'",
+        [ctx[:crawl_id]]).size).to eq(1)
     end
   end
 

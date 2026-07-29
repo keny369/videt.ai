@@ -57,15 +57,20 @@ module IdentityAccess
         SQL
       end
 
-      # The DISCOVERED QUEUE, as :440 defines it: "the discovered queue counts distinct
-      # content-candidate URLs after Source Scope canonicalization, INCLUDING AN IN-SCOPE URL EVEN
-      # WHEN IT IS LATER REJECTED FOR DEPTH".
+      # THE DISCOVERED QUEUE — the ONE population the :438 bound is measured over, and the same
+      # population `Frontier#offer` enforces against and evicts from. Nothing may count toward the
+      # ceiling while being exempt from enforcement or invisible to eviction.
       #
-      # So a depth-rejected candidate COUNTS, even though it is stored `discarded`. It used to be
-      # excluded — writing the row was mistaken for counting it — which let a run admit 20,000
-      # retained candidates on top of any number of depth-rejected ones and never reach its own
-      # inclusive maximum. A queue-limit discard is a different matter and stays excluded: counting
-      # a candidate the bound itself refused would make the bound self-defeating.
+      # MEMBERSHIP: every candidate this run has discovered EXCEPT those the queue bound itself
+      # refused. :440 — "the discovered queue counts distinct content-candidate URLs after Source
+      # Scope canonicalization, INCLUDING AN IN-SCOPE URL EVEN WHEN IT IS LATER REJECTED FOR DEPTH".
+      # So a depth-rejected candidate is a member; a `queue_limit_discarded` one never joined, and
+      # counting it would make the bound self-defeating.
+      #
+      # The bound is therefore checked BEFORE a candidate joins (`Frontier#offer`), never after, so
+      # the population can never exceed it: a joiner at the bound either displaces a member or is
+      # refused entry. A depth-rejected member is not evictable — its reason is frozen and it can
+      # never be claimed — which is why entry, not disposition, is where the bound is enforced.
       def admitted_count(organization_id, crawl_id)
         exec(<<~SQL, [organization_id, crawl_id]).to_a.first["n"].to_i
           SELECT COUNT(*) AS n FROM crawl_frontier_entries

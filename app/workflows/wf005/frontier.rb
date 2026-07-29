@@ -180,46 +180,49 @@ module Workflows
         # URLs after Source Scope canonicalization, INCLUDING an in-scope URL EVEN WHEN IT IS LATER
         # REJECTED FOR DEPTH", and :452 puts every candidate "discarded by a Crawl limit" in the
         # coverage denominator. Dropping it would understate both.
-        # DEPTH FIRST, because a URL past the depth bound is inadmissible on its own terms, whereas
-        # a queue discard is positional and would reverse if a lower-ordered candidate arrived.
-        over_depth = depth.to_i > depth_hard(observer)
-        if over_depth
+        # ONE POPULATION, ONE BOUND. `admitted_count` is the discovered queue (see the store), and
+        # this is the only place a candidate joins it. The bound is therefore enforced AT ENTRY:
+        # a joiner at the ceiling either displaces a member or is refused entry.
+        #
+        # This ordering is load-bearing. Deciding depth first and exempting an over-depth candidate
+        # from the queue check let it join a population it was not enforced against and could never
+        # be evicted from, so N over-depth candidates put the run permanently N past its own
+        # inclusive maximum with only the first crossing recorded.
+        retained = @store.admitted_count(organization_id, crawl_id)
+        if retained >= queue_hard(observer)
+          victim = @store.highest_unclaimed(organization_id, crawl_id)
+          if victim && unhex(victim["dequeue_key"]) > key
+            # :454 — "retain the LOWEST 20,000 by this order". The newcomer sorts lower, so the
+            # highest member leaves the population and the newcomer joins in its place.
+            #
+            # The row count is checked: `discard` is guarded on `state IN ('discovered','queued')`
+            # AND the expected version, so a claim landing between `highest_unclaimed` and here
+            # matches nothing — and reporting an eviction that did not happen would leave the run
+            # one candidate above its nonexceedable bound.
+            raise Platform::InvariantViolation, "frontier eviction lost" if
+              @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED).to_i.zero?
+
+            evicted = victim["id"]
+          else
+            # Refused entry. It never joins the population, so it is not counted — and depth is not
+            # consulted, because depth describes what kind of MEMBER a candidate is and this one is
+            # not a member.
+            state = "discarded"
+            reason = QUEUE_LIMIT_DISCARDED
+          end
+          # One candidate was abandoned for the bound — the displaced member, or this one. The
+          # observed value is the count read BEFORE any eviction; re-reading after it reported
+          # `configured - 1`, because a discarded row leaves the population.
+          observer&.hard(QUEUE_DIMENSION, retained, now:,
+                         affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
+        end
+
+        # DEPTH describes a MEMBER. A candidate refused entry above is not one, so this is skipped
+        # for it — the queue bound is what kept it out, and that is the reason recorded.
+        if reason.nil? && depth.to_i > depth_hard(observer)
           state = "discarded"
           reason = DEPTH_LIMIT_DISCARDED
           observer&.hard(DEPTH_DIMENSION, depth.to_i, now:, affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
-        end
-
-        # THE QUEUE BOUND IS EVALUATED FOR EVERY CANDIDATE, including a depth-rejected one, because
-        # :440 counts it. It used to be an `elsif` on the depth limb, so an over-depth candidate
-        # arriving at the retention bound consumed the queue and produced no queue decision — the
-        # run passed its own inclusive maximum in silence. Only the EVICTION is skipped for a
-        # depth-rejected candidate: it is not retained, so there is nothing to make room for.
-        retained = @store.admitted_count(organization_id, crawl_id)
-        if retained >= queue_hard(observer)
-          unless over_depth
-            victim = @store.highest_unclaimed(organization_id, crawl_id)
-            if victim && unhex(victim["dequeue_key"]) > key
-              # The row count is checked: `discard` is guarded on `state IN ('discovered','queued')`
-              # AND the expected version, so a claim landing between `highest_unclaimed` and here
-              # matches nothing — and reporting an eviction that did not happen would leave the run
-              # one candidate ABOVE its nonexceedable retention bound.
-              raise Platform::InvariantViolation, "frontier eviction lost" if
-                @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED).to_i.zero?
-
-              evicted = victim["id"]
-            else
-              state = "discarded"
-              reason = QUEUE_LIMIT_DISCARDED
-            end
-          end
-          # The run is AT its retention bound and one candidate is abandoned for it — the evicted
-          # one, or this one. `affected` is 1/1, not the whole unselected frontier: the queue bound
-          # does NOT stop scheduling, the run drains everything it retained.
-          #
-          # The observed value is the count read BEFORE any eviction. Re-reading after it returned
-          # `configured - 1`, because a discarded row leaves the counted set.
-          observer&.hard(QUEUE_DIMENSION, retained, now:,
-                         affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
         end
 
         insert(id:, organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,
