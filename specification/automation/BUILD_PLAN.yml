@@ -862,7 +862,7 @@ blocks:
   - id: S-07-007
     name: Crawl Execution — content fetch + scope/redirect validation + byte accounting + retry
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061); complete 5-lens review, all CB fixed + 24 mutation-checked (ADR-082).
     depends_on:
       - S-07-006
     human_gate_before: false
@@ -876,6 +876,9 @@ blocks:
     # MUST provide scheduler re-entry for a host deferred by sustained gate contention (FU-9,
     # ADR-081). Without it, sitemap discovery can terminalize `sitemap_unavailable` with zero
     # network attempts, which reopens S-07-006.
+    # MUST provide :456's ordered-admission coordinator (FU-10, ADR-082). S-07-007 enforces the
+    # run-wide SUM and records dequeue_key on every attempt; the ORDER is this tranche's. Without
+    # it, admission at the byte/page boundary is nondeterministic, which :456 forbids.
     type: product
     status: pending
     depends_on:
