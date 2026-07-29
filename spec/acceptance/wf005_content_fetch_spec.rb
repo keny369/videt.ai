@@ -29,7 +29,6 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
   # Every request the stub saw, WITH its keyword arguments, so the ratified per-fetch bounds are
   # asserted on the REQUEST rather than assumed.
   def requests = (@requests ||= [])
-  def paces = (@paces ||= [])
 
   def content_outbound(*outcomes)
     queue = outcomes.dup
@@ -66,23 +65,6 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
                     [ctx[:crawl_id]])
   end
 
-  # The pacer advances simulated time so the gate's own predicates decide whether enough elapsed;
-  # clearing the columns outright would make every retry succeed regardless of the configured delay.
-  def pacer_for(ctx)
-    sink = paces
-    lambda do |ms|
-      sink << ms.to_i
-      DbInspector.connection.exec_params(
-        "UPDATE crawl_host_gates
-         SET recent_start_instants =
-               (SELECT COALESCE(array_agg(s - ($2 || \' milliseconds\')::interval),
-                                ARRAY[]::timestamptz(6)[])
-                FROM unnest(recent_start_instants) AS s),
-             next_allowed_start_at = next_allowed_start_at - ($2 || \' milliseconds\')::interval,
-             state_version = state_version + 1
-         WHERE crawl_id = $1::uuid", [ctx[:crawl_id], ms.to_i])
-    end
-  end
 
   def fetch_content(ctx, outbound, entry: nil)
     Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
@@ -90,10 +72,6 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       entry: entry || root_entry(ctx), gate_id: ctx[:gate_id], now: start_now)
   end
 
-  # The host gate paces starts at 1/second (:442). A test that fetches twice must let that second
-  # pass, and it does so by moving the recorded instants into the past — the same simulation the
-  # pacer uses, so the gate's own predicates still decide.
-  def advance_gate(ctx, ms = 2_000) = pacer_for(ctx).call(ms)
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
 

@@ -16,6 +16,8 @@ module IdentityAccess
     # single-initial-orchestration guard is re-checked at the start commit against a consistent
     # view and two concurrent starts for one Project serialize (WORKFLOW_SPECIFICATIONS.md :725).
     class CrawlStartStore
+      include ActiveCrawlPolicies
+
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -64,15 +66,6 @@ module IdentityAccess
       # scope), most specific last. The effective bounds are the most restrictive of these AND the
       # frozen global ceiling; a new restriction therefore "affects queued work immediately"
       # (WORKFLOW_SPECIFICATIONS.md :732) because this is re-resolved at start, not pinned.
-      def active_crawl_policies(organization_id, project_id)
-        exec(<<~SQL, [organization_id, project_id]).to_a
-          SELECT id, policy_version, scope, normalized_bounds, encode(content_sha256,'hex') AS content_sha256
-          FROM crawl_policies
-          WHERE organization_id = $1::uuid AND state = 'active'
-            AND ((scope = 'project' AND project_id = $2::uuid) OR scope = 'organization')
-          ORDER BY (scope = 'project') ASC
-        SQL
-      end
 
       # The MTX-030 Evaluation key `(crawl_id, kind=initial)` already taken for THIS Crawl — the
       # `evaluation_creation_conflict` predicate. (The entitlement-policy version is NOT read here:

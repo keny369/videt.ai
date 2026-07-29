@@ -97,11 +97,12 @@ module Workflows
       end
 
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
-                     pacer: ->(ms) { sleep(ms.to_i / 1000.0) })
+                     pacer: ->(ms) { sleep(ms.to_i / 1000.0) }, limit_decisions: nil)
         @outbound = outbound
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @pacer = pacer
+        @limit_decisions = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
       end
 
       def pace(milliseconds) = @pacer.call(milliseconds)
@@ -164,14 +165,17 @@ module Workflows
           # permanently and, after three losses, the frontier entry with it.
           reclaim_expired(context)
 
-          bounds = effective_bounds(context)
+          # Resolved ONCE per attempt and carried down, so the bound the fetch enforces and the
+          # `configured_value` a limit decision records are the same resolution (:390).
+          limits = effective_limits(context)
+          bounds = limits.byte_bounds
           reserved = reserve_bytes(context, bounds)
           return limit_discarded(REASONS[:budget_exhausted]) if reserved.nil?
 
           attempt = claim_attempt(context, entry, number, reserved, bounds)
           return release_and(context, reserved, excluded(REASONS[:contended])) if attempt.nil?
 
-          perform(context, attempt, reserved, bounds)
+          perform(context, attempt, reserved, limits)
         ensure
           release_slot(context, claim.lease_token)
         end
@@ -184,12 +188,13 @@ module Workflows
       # accounted response-body bytes are EXACTLY sum(accounted_response_bytes_i)" was not
       # reproducible from the record and nothing could reconcile the two. They describe the same
       # event; they commit together.
-      def perform(context, attempt, reserved, bounds)
+      def perform(context, attempt, reserved, limits)
+        bounds = limits.byte_bounds
         outcome = fetch(context, reserved, bounds)
         @last_outcome = outcome
         measurement = measure(outcome, reserved)
         result = classify(outcome, measurement, context, reserved, bounds)
-        settle(context, attempt, reserved, result, outcome, measurement)
+        settle(context, attempt, reserved, result, outcome, measurement, limits)
         result
       end
 
@@ -488,7 +493,7 @@ module Workflows
 
       # One transaction: the run counter and the attempt record describe the same event, so they
       # commit together or neither does.
-      def settle(context, attempt, reserved, result, outcome, measurement)
+      def settle(context, attempt, reserved, result, outcome, measurement, limits)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
@@ -516,6 +521,67 @@ module Workflows
                                        retryable: result.retryable,
                                        latency_ms: outcome.respond_to?(:latency_ms) ? outcome.latency_ms : nil)
           raise Platform::InvariantViolation, "fetch attempt terminal decision lost" if moved.to_i.zero?
+
+          # The per-URL bounds are observed on the SAME transaction as the attempt they describe.
+          observe_fetch_limits(raw, context, result, outcome, measurement, limits)
+        end
+      end
+
+      # The three per-fetch dimensions of the ratified twelve (:425-438).
+      BODY_DIMENSION = "response_body_per_url"
+      REQUEST_TIME_DIMENSION = "connection_plus_response_time_per_request"
+      REDIRECTS_DIMENSION = "redirects_per_url"
+
+      # WHY THESE ARE ONCE PER RUN AND NOT ONCE PER URL. :442 says `CrawlLimitReached` fires
+      # "exactly once per dimension and run", and these are per-URL BOUNDS observed run-wide: the
+      # hundredth oversized body on a run is the same fact as the first, and the decision table's
+      # unique key says so without this code counting anything.
+      #
+      # The affected counts are 1 and 1 because a per-URL bound costs exactly the URL that hit it —
+      # unlike a run-wide bound, which abandons everything still queued.
+      def observe_fetch_limits(pg, context, result, outcome, measurement, limits)
+        observer = @limit_decisions.for(pg, organization_id: context[:organization_id],
+                                        project_id: context[:project_id],
+                                        crawl_id: context[:crawl_id], limits:)
+        one = LimitDecisions::Affected.new(sources: 1, urls: 1)
+        now = context[:now]
+
+        observe_body(observer, result, measurement, one, now)
+        observe_request_time(observer, outcome, one, now)
+        observe_redirects(observer, result, one, now)
+      end
+
+      def observe_body(observer, result, measurement, one, now)
+        return if measurement.nil?
+
+        if result.reason_code == ByteAccounting::OVER_LIMIT
+          # The exact size is UNKNOWABLE: the reader stopped one sentinel byte past the maximum and
+          # never retained it (:442 "never parsed or retained"). What was genuinely observed is the
+          # bound plus the probes, and that is what is recorded — inventing a larger figure would be
+          # putting a number in a customer event that nothing measured.
+          observer.hard(BODY_DIMENSION, measurement.accounted + measurement.probe_bytes, now:, affected: one)
+        elsif measurement.accounted >= observer.soft_bound(BODY_DIMENSION)
+          observer.soft(BODY_DIMENSION, measurement.accounted, now:)
+        end
+      end
+
+      def observe_request_time(observer, outcome, one, now)
+        hard = observer.hard_bound(REQUEST_TIME_DIMENSION)
+        if outcome.respond_to?(:kind) && outcome.kind == :timeout
+          return observer.hard(REQUEST_TIME_DIMENSION, hard, now:, affected: one)
+        end
+
+        latency = outcome.respond_to?(:latency_ms) ? outcome.latency_ms.to_i : 0
+        seconds = latency / 1000
+        observer.soft(REQUEST_TIME_DIMENSION, seconds, now:) if seconds >= observer.soft_bound(REQUEST_TIME_DIMENSION)
+      end
+
+      def observe_redirects(observer, result, one, now)
+        followed = result.redirect_count.to_i
+        if result.reason_code == REASONS[:redirect_limit]
+          observer.hard(REDIRECTS_DIMENSION, observer.hard_bound(REDIRECTS_DIMENSION) + 1, now:, affected: one)
+        elsif followed >= observer.soft_bound(REDIRECTS_DIMENSION)
+          observer.soft(REDIRECTS_DIMENSION, followed, now:)
         end
       end
 

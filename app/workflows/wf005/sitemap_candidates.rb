@@ -57,7 +57,7 @@ module Workflows
 
       # :450 — "A sitemap index may nest through three edges from an initial sitemap." A child at a
       # depth beyond the bound is not followed; the caller records the limit rather than the child.
-      def within_index_depth?(index_depth) = index_depth.to_i <= MAX_INDEX_DEPTH
+      def within_index_depth?(index_depth, limit: MAX_INDEX_DEPTH) = index_depth.to_i <= limit
     end
   end
 end

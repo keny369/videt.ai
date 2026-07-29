@@ -19,6 +19,8 @@ module IdentityAccess
     # of a transaction), under `SELECT ... FOR UPDATE` on the gate row. No application clock and no
     # cached counter participates in the decision.
     class CrawlHostGateStore
+      include ActiveCrawlPolicies
+
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -306,15 +308,6 @@ module IdentityAccess
       # operative limits "the most restrictive of global safety, approved entitlement, Organization,
       # and Project limits", so a Project that has narrowed its per-host rate or concurrency must
       # bind at the claim — not merely at the start commit.
-      def active_crawl_policies(organization_id, project_id)
-        query(<<~SQL, [organization_id, project_id]).to_a
-          SELECT id, policy_version, scope, normalized_bounds, encode(content_sha256,'hex') AS content_sha256
-          FROM crawl_policies
-          WHERE organization_id = $1::uuid AND state = 'active'
-            AND ((scope = 'project' AND project_id = $2::uuid) OR scope = 'organization')
-          ORDER BY (scope = 'project') ASC
-        SQL
-      end
 
       def organization(organization_id)
         query("SELECT id, status FROM organizations WHERE id = $1::uuid", [organization_id]).to_a.first

@@ -21,9 +21,14 @@ module Workflows
     # `robots_*` columns. No fetch happens here and no network call exists on this path.
     class Frontier
       # `crawl-policy-v1` discovered-queue hard bound (WORKFLOW_SPECIFICATIONS.md :425-438, :454).
-      # The soft bound (16,000) is an observability threshold owned by S-07-008, which emits
-      # `CrawlSoftLimitApproaching`; the frontier enforces only the retention rule.
       DISCOVERED_QUEUE_HARD = Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("discovered_queue").fetch("hard")
+      # :438's depth bound. ":442 — a URL deeper than 10 fails that URL"; :456 keeps it in the
+      # coverage denominator as "an in-scope candidate discarded by a Crawl limit", which is why it
+      # is retained as a `discarded` row rather than dropped.
+      CRAWL_DEPTH_HARD = Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("crawl_depth").fetch("hard")
+
+      QUEUE_DIMENSION = "discovered_url_queue"
+      DEPTH_DIMENSION = "crawl_depth_from_source_root"
 
       # The normalization contract the canonical URL was produced under. S-06 owns the canonicalizer
       # (PRULE-021); S-07 consumes it and records which version admitted each candidate.
@@ -33,6 +38,7 @@ module Workflows
       # SEARCH_CRAWL_RETRIEVAL "every duplicate discovery"). These are DOMAIN constants, so they live
       # on the domain surface and the persistence adapter reads them from here, not the reverse.
       QUEUE_LIMIT_DISCARDED = "queue_limit_discarded"
+      DEPTH_LIMIT_DISCARDED = "depth_limit_discarded"
       DUPLICATE_DISCOVERY = "duplicate_discovery"
 
       Seeded = Data.define(:admitted, :pinned_total, :excluded_inactive) do
@@ -94,9 +100,15 @@ module Workflows
       # `discovering_document_url` to "" (the tuple has no room for it), so without this the URL of
       # the sitemap that named a candidate would be lost the moment the candidate was a duplicate —
       # which is exactly where provenance matters most. Defaults to the tuple's own value.
+      #
+      # `observer` is the S-07-008 limit observation point (`LimitDecisions::Observer`), already
+      # bound to this run and its RESOLVED bounds. It is optional because the frontier's own specs
+      # exercise admission without a Crawl policy resolution in hand; when it is absent the bounds
+      # fall back to the frozen global ceiling and nothing is recorded, which is the correct
+      # behaviour for a caller that is not executing a run.
       def offer(organization_id:, project_id:, crawl_id:, source_id:, canonical_url:, origin:,
                 depth:, now:, discovering_document_url: "", link_position: 0, parent_entry_id: nil,
-                occurrence_document_url: nil, scope_policy_id:, scope_policy_version:)
+                occurrence_document_url: nil, observer: nil, scope_policy_id:, scope_policy_version:)
         @store.lock_frontier(crawl_id)
         preimage = canonical_url.to_s.unicode_normalize(:nfc).b
         digest = Digest::SHA256.digest(preimage)
@@ -140,7 +152,23 @@ module Workflows
         evicted = nil
         state = "queued"
         reason = nil
-        if @store.admitted_count(organization_id, crawl_id) >= DISCOVERED_QUEUE_HARD
+
+        # DEPTH IS CHECKED BEFORE THE QUEUE BOUND, and the order is not arbitrary. A URL deeper than
+        # the bound is inadmissible on its own terms — it would not become admissible if the queue
+        # had room — whereas a queue discard is positional and would reverse if a lower-ordered
+        # candidate arrived. Deciding the intrinsic reason first is what makes the recorded limit
+        # reason the true one; deciding positionally first would label a too-deep URL
+        # `queue_limit_discarded` purely because the run happened to be full.
+        #
+        # The row is written either way: ":456 the discovered queue counts distinct content-candidate
+        # URLs after Source Scope canonicalization, INCLUDING an in-scope URL EVEN WHEN IT IS LATER
+        # REJECTED FOR DEPTH", and :452 puts every candidate "discarded by a Crawl limit" in the
+        # coverage denominator. Dropping it would understate both.
+        if depth.to_i > depth_hard(observer)
+          state = "discarded"
+          reason = DEPTH_LIMIT_DISCARDED
+          observer&.hard(DEPTH_DIMENSION, depth.to_i, now:, affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
+        elsif @store.admitted_count(organization_id, crawl_id) >= queue_hard(observer)
           victim = @store.highest_unclaimed(organization_id, crawl_id)
           if victim && unhex(victim["dequeue_key"]) > key
             @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED)
@@ -149,6 +177,9 @@ module Workflows
             state = "discarded"
             reason = QUEUE_LIMIT_DISCARDED
           end
+          # Either way the run is AT its retention bound and a candidate has been discarded for it —
+          # the evicted one or this one. That is the hard limit, once for the run.
+          observer&.hard(QUEUE_DIMENSION, @store.admitted_count(organization_id, crawl_id), now:)
         end
 
         insert(id:, organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,
@@ -156,6 +187,11 @@ module Workflows
                scope_policy_id:, scope_policy_version:,
                enqueue_order: @store.next_enqueue_order(organization_id, crawl_id),
                collision_ordinal:, reason:, preimage:, digest:, dequeue_key: key)
+
+        # AFTER the insert, so the count includes the candidate that produced the crossing. ":442 —
+        # a soft event fires when the observed value FIRST EQUALS the soft limit"; asking before the
+        # write would report the count one short and fire a candidate late.
+        observe_queue_soft(observer, organization_id, crawl_id, now)
 
         self.class.offered(disposition: reason ? :discarded : :admitted, entry_id: id, reason:,
                            evicted_entry_id: evicted)
@@ -167,6 +203,25 @@ module Workflows
       end
 
       private
+
+      # The bounds an observer is enforcing, or the frozen global ceiling when there is none. Read
+      # through the observer rather than resolved here so the number that discards a candidate and
+      # the number the decision records are the same number.
+      def depth_hard(observer) = observer ? observer.hard_bound(DEPTH_DIMENSION) : CRAWL_DEPTH_HARD
+      def queue_hard(observer) = observer ? observer.hard_bound(QUEUE_DIMENSION) : DISCOVERED_QUEUE_HARD
+
+      # ":442 — a soft event fires when the observed value first equals the soft limit." The
+      # observed value for this dimension is the retained candidate count, which the unique key on
+      # the decision table lets us test on every offer without any per-run bookkeeping: the first
+      # crossing writes the row, every later one collides and emits nothing.
+      def observe_queue_soft(observer, organization_id, crawl_id, now)
+        return if observer.nil?
+
+        admitted = @store.admitted_count(organization_id, crawl_id)
+        return if admitted < observer.soft_bound(QUEUE_DIMENSION)
+
+        observer.soft(QUEUE_DIMENSION, admitted, now:)
+      end
 
       # One retained entry at the LOWEST-ordered position, and the superseded discovery recorded as
       # an occurrence. When the newcomer sorts lower AND the entry is still unclaimed, the entry is

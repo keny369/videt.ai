@@ -12,6 +12,8 @@ module IdentityAccess
     # through `claim_next`, which orders by the materialized `dequeue_key` — never by an application
     # sort, and never by `created_at`.
     class CrawlFrontierStore
+      include ActiveCrawlPolicies
+
       def initialize(pg_connection)
         @pg = pg_connection
       end

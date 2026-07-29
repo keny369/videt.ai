@@ -60,6 +60,9 @@ module Workflows
       # `limit_reached`; everything else is telemetry once a candidate has succeeded.
       DOCUMENTS_LIMIT = "sitemap_documents_limit"
       INDEX_DEPTH_LIMIT = "sitemap_index_depth_limit"
+      # The two ratified `limit_dimension` members this service is the observation point for.
+      DOCUMENTS_DIMENSION = "sitemap_documents_per_run"
+      INDEX_DEPTH_DIMENSION = "sitemap_index_nesting_depth"
       LIMIT_REASONS = [SitemapParser::LIMIT, DOCUMENTS_LIMIT, INDEX_DEPTH_LIMIT].freeze
       CONTENDED = "sitemap_discovery_contended"
 
@@ -93,14 +96,21 @@ module Workflows
       end
 
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
-                     pacer: ->(ms) { sleep(ms.to_i / 1000.0) })
+                     pacer: ->(ms) { sleep(ms.to_i / 1000.0) }, limit_decisions: nil)
         @outbound = outbound
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @pacer = pacer
+        @limit_decisions = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
       end
 
       def pace(milliseconds) = @pacer.call(milliseconds)
+
+      # The resolved sitemap bounds, exposed for the traversal (an inner class, not a client). They
+      # default to the frozen ceiling until `call` has resolved them.
+      def bounds = @bounds || EffectiveLimits::GLOBAL
+      def documents_hard = bounds.configured(DOCUMENTS_DIMENSION, LimitDimensions::HARD)
+      def index_depth_hard = bounds.configured(INDEX_DEPTH_DIMENSION, LimitDimensions::HARD)
 
       # Resolve every sitemap for the host and admit the content URLs it names to the frontier.
       # Robots must already be terminal — :450's discovery reads the parsed robots file.
@@ -116,8 +126,15 @@ module Workflows
         crawl = load_crawl(organization_id, crawl_id)
         return pending("crawl_not_found") if crawl.nil?
 
+        # :390 — the operative sitemap bounds are the most restrictive of global safety and every
+        # active Organization/Project policy. They were class constants here, so a Project that
+        # narrowed `sitemap_documents` or `sitemap_index_depth` was silently ignored: the same
+        # defect S-07-007 found and fixed on the per-fetch bounds. Resolved ONCE per run so the
+        # bound that discards a candidate and the `configured_value` a decision records agree.
+        @bounds = resolution(organization_id, crawl["project_id"])
+
         declared = declared_candidates(gate, canonical_host)
-        retained, discarded = SitemapCandidates.retain(declared)
+        retained, discarded = SitemapCandidates.retain(declared, limit: documents_hard)
         # A zero row count means another worker won the pending -> in_progress transition. Standing
         # down is the point: both workers running the traversal would DOUBLE the request volume
         # against the host this whole subsystem exists to pace.
@@ -132,7 +149,7 @@ module Workflows
         state = Traversal.new(self, organization_id:, crawl_id:, canonical_host:, source_id:,
                               project_id: crawl["project_id"], gate_id: gate["id"], now:)
                          .run(retained, declared_any: declared_any?(gate), discarded:)
-        terminalize(organization_id, gate["id"], token, state, now)
+        terminalize(organization_id, crawl["project_id"], crawl_id, gate["id"], token, state, now)
         state
       end
 
@@ -280,13 +297,31 @@ module Workflows
       # S-07-007 created it, the writer moved here rather than leaving the bound with two homes.
       def reserve_document(organization_id:, project_id:, crawl_id:, now:)
         Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          raw = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           store.ensure_counters(id: @ids.generate, now:, correlation_id: @correlation_id,
                                 organization_id:, project_id:, crawl_id:)
-          !store.reserve_sitemap_document(organization_id, crawl_id,
-                                          SitemapCandidates::DOCUMENT_LIMIT, now).nil?
+          granted = store.reserve_sitemap_document(organization_id, crawl_id, documents_hard, now)
+          # The limit decision is written on the SAME transaction as the reservation that produced
+          # it. A separate one would leave a window in which the counter sits at its ceiling with no
+          # record of why — and the terminal checkpoint reads the decision table, not the counter.
+          observe_documents(raw, organization_id, project_id, crawl_id, granted, now)
+          !granted.nil?
         end
+      end
+
+      # :437's run-wide sitemap-document SOFT crossing, taken from the reservation that produced
+      # it. The hard limb is recorded at terminalization instead, from the traversal's limit
+      # reasons, because the bound is reachable by ordered retention as well as by this refusal.
+      def observe_documents(pg, organization_id, project_id, crawl_id, granted, now)
+        return if granted.nil?
+
+        observer = observer_for(pg, organization_id, project_id, crawl_id)
+        return if observer.nil?
+
+        used = granted["sitemap_documents"].to_i
+        observer.soft(DOCUMENTS_DIMENSION, used, now:) if used >= observer.soft_bound(DOCUMENTS_DIMENSION)
       end
 
       def claim_slot(organization_id, gate_id, now)
@@ -329,15 +364,67 @@ module Workflows
 
       # A zero-row terminalize would leave the gate permanently `in_progress`, so the :450 outcome
       # would never be recorded and nothing would notice. It is asserted, not assumed.
-      def terminalize(organization_id, gate_id, token, result, now)
-        moved = in_unit(organization_id) do |store|
-          store.terminalize_sitemaps(gate_id, token, now, state: result.state, reason: result.reason_code,
+      def terminalize(organization_id, project_id, crawl_id, gate_id, token, result, now)
+        moved = in_unit(organization_id) do |store, raw|
+          row = store.terminalize_sitemaps(gate_id, token, now, state: result.state, reason: result.reason_code,
                                                    documents: result.documents_fetched,
                                                    max_depth: result.max_index_depth,
                                                    skipped: bounded(result.skipped, "url"),
                                                    limit_reasons: result.limit_reasons)
+          # The sitemap bounds are observed HERE rather than where each candidate was skipped,
+          # because the traversal holds no transaction — and this is the transaction that makes the
+          # outcome durable, so the decisions and the outcome they explain commit together.
+          observe_sitemap_limits(raw, organization_id, project_id, crawl_id, result, now)
+          row
         end
         raise Platform::InvariantViolation, "sitemap terminal decision lost" if moved.to_i.zero?
+      end
+
+      # :437/:438's two sitemap bounds, recorded from the traversal's own `limit_reasons` — the
+      # same list :450 uses to force `limit_reached` for the run.
+      #
+      # WHY FROM THE REASONS RATHER THAN FROM THE COUNTERS. The document bound is reachable two
+      # ways: the run-wide reservation refusing, and the ORDERED RETENTION dropping candidates past
+      # the bound before any of them is attempted (":450 only the first 50 distinct candidates in
+      # that order are retained"). Watching only the reservation missed the second entirely — a run
+      # that discovered sixty sitemaps and kept fifty recorded no limit at all. The traversal already
+      # records the exact reason on both paths, so reading THAT is what makes the two agree.
+      #
+      # NOTE `sitemap_xml_limit` (the parser's 65-level / 50,001-element / 10 MiB decoded bounds)
+      # deliberately produces NO decision row: the ratified `limit_dimension` enum has no member for
+      # an XML structural limit. It still forces `limit_reached` through the sitemap outcome the
+      # terminal checkpoint reads, so nothing is lost — but inventing a dimension for it would put a
+      # value in a customer event that the contract does not admit.
+      def observe_sitemap_limits(pg, organization_id, project_id, crawl_id, result, now)
+        observer = observer_for(pg, organization_id, project_id, crawl_id)
+        return if observer.nil?
+
+        if result.limit_reasons.include?(DOCUMENTS_LIMIT)
+          observer.hard(DOCUMENTS_DIMENSION, observer.hard_bound(DOCUMENTS_DIMENSION), now:)
+        end
+        if result.limit_reasons.include?(INDEX_DEPTH_LIMIT)
+          observer.hard(INDEX_DEPTH_DIMENSION, observer.hard_bound(INDEX_DEPTH_DIMENSION) + 1, now:)
+        elsif result.max_index_depth >= observer.soft_bound(INDEX_DEPTH_DIMENSION)
+          observer.soft(INDEX_DEPTH_DIMENSION, result.max_index_depth, now:)
+        end
+      end
+
+      # The run's observation point, resolved ONCE per service instance: the bounds a decision
+      # records must be the bounds the traversal enforced, and re-reading the policy per candidate
+      # would allow an activation mid-traversal to split one run across two resolutions.
+      # Called from INSIDE the caller's transaction, so it never resolves: `call` has already read
+      # the policies on their own connection. Resolving here would open a nested unit of work, and
+      # would also mean two crossings in one run could be judged against two resolutions.
+      def observer_for(pg, organization_id, project_id, crawl_id)
+        return nil if project_id.nil?
+
+        @limit_decisions.for(pg, organization_id:, project_id:, crawl_id:, limits: bounds)
+      end
+
+      def resolution(organization_id, project_id)
+        return EffectiveLimits::GLOBAL if project_id.nil?
+
+        in_unit(organization_id) { |store| EffectiveLimits.resolve(store.active_crawl_policies(organization_id, project_id)) }
       end
 
       # Admit every content URL ONE PARSED DOCUMENT names, in one unit of work. Per-URL transactions
@@ -357,13 +444,17 @@ module Workflows
           policy = scope_policy(scope)
           frontier = Frontier.new(IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn),
                                   ids: @ids, correlation_id: @correlation_id)
+          # The frontier's own two bounds (discovered queue, depth) are observed inside `offer`, on
+          # this transaction, so an admitted candidate and the decision its admission produced
+          # commit together.
+          observer = observer_for(conn, organization_id, project_id, crawl_id)
           urls.count { |url| admit(frontier, policy, scope, url, discovering, organization_id,
-                                   project_id, crawl_id, source_id, now) }
+                                   project_id, crawl_id, source_id, now, observer) }
         end
       end
 
       def admit(frontier, policy, scope, url, discovering, organization_id, project_id, crawl_id,
-                source_id, now)
+                source_id, now, observer = nil)
         # :450 — "Content URLs still pass normal scope, destination safety, robots, queue, depth and
         # deduplication rules." Scope is checked here; the frontier owns dedup and queue admission.
         decision = Wf004::SourceScopePredicate.evaluate(url:, policies: [policy])
@@ -379,7 +470,7 @@ module Workflows
           depth: 1, now:, discovering_document_url: "", link_position: 0,
           # :454 forces the ENTRY tuple to ('',0) for a sitemap candidate, so the discovering
           # sitemap URL is carried on the OCCURRENCE, where the provenance survives.
-          occurrence_document_url: discovering,
+          occurrence_document_url: discovering, observer:,
           scope_policy_id: scope["id"], scope_policy_version: scope["policy_version"]
         ).admitted?
       rescue ArgumentError
@@ -499,7 +590,8 @@ module Workflows
         def admit(children)
           return if children.empty?
 
-          retained, overflow = SitemapCandidates.retain(@visited.values + @pending + children)
+          retained, overflow = SitemapCandidates.retain(@visited.values + @pending + children,
+                                                        limit: @service.documents_hard)
           overflow.each do |c|
             skip(c.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT) unless @visited.key?(c.canonical_url)
           end
@@ -587,7 +679,7 @@ module Workflows
 
             target
           end
-          unless SitemapCandidates.within_index_depth?(depth)
+          unless SitemapCandidates.within_index_depth?(depth, limit: @service.index_depth_hard)
             normalized.each { |url| skip(url, DiscoverSitemaps::INDEX_DEPTH_LIMIT) }
             return []
           end

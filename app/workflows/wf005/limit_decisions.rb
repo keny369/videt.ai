@@ -59,6 +59,46 @@ module Workflows
         @service_identity_id = service_identity_id || Platform::ServiceIdentity.scheduled_action_executor
       end
 
+      # One observation point's view of this surface: the run, its connection and its RESOLVED
+      # limits, fixed once. Every site that can hit a bound gets one of these rather than repeating
+      # six keyword arguments per crossing — and, more to the point, rather than re-resolving the
+      # policy per candidate, which is both a read per offer and a chance for two crossings in one
+      # traversal to be judged against different numbers.
+      class Observer
+        def initialize(service, pg, organization_id:, project_id:, crawl_id:, limits:)
+          @service = service
+          @pg = pg
+          @scope = { organization_id:, project_id:, crawl_id: }
+          @limits = limits
+        end
+
+        def limits = @limits
+
+        def soft(dimension, observed, now:)
+          observe(dimension, LimitDimensions::SOFT, observed, now:, affected: nil)
+        end
+
+        def hard(dimension, observed, now:, affected: nil)
+          observe(dimension, LimitDimensions::HARD, observed, now:, affected:)
+        end
+
+        # The soft bound for a dimension, so a call site can ask "have I reached it?" against the
+        # same resolution the decision will record.
+        def soft_bound(dimension) = @limits.configured(dimension, LimitDimensions::SOFT)
+        def hard_bound(dimension) = @limits.configured(dimension, LimitDimensions::HARD)
+
+        private
+
+        def observe(dimension, threshold, observed, now:, affected:)
+          @service.observe(@pg, **@scope, dimension:, threshold:, observed:, limits: @limits, now:,
+                           affected:)
+        end
+      end
+
+      def for(pg, organization_id:, project_id:, crawl_id:, limits:)
+        Observer.new(self, pg, organization_id:, project_id:, crawl_id:, limits:)
+      end
+
       # Record that `dimension` reached `threshold` at `observed`, and emit the event that follows
       # from it. `limits` is the `EffectiveLimits::Resolution` the caller ENFORCED — the configured
       # value recorded here is read from that same resolution, never re-resolved, so a customer is

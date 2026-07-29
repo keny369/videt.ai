@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require_relative "support/wf005_crawl_chain"
 
 # WF-005 sitemap discovery (S-07-006; WORKFLOW_SPECIFICATIONS.md :450/:454; SEARCH_CRAWL_RETRIEVAL.md
 # § Robots And Sitemap Processing — "A sitemap item only creates a frontier candidate after
@@ -19,189 +20,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
   self.use_transactional_tests = false
   after { ReceiptMinter.truncate_all }
 
-  def fixed_now = Time.utc(2026, 7, 27, 10, 0, 0)
-  def act_now = fixed_now + 60
-  def start_now = act_now + 30
-  def bc = Platform::BaselineContent
-
-  let(:identity) { { issuer_key: "https://id.example/oidc", subject: "founder-#{SecureRandom.hex(8)}" } }
-
-  def service_ctx(at)
-    Platform::RequestContext.for_service(service_identity_id: Platform::ServiceIdentity::IDENTITY_SERVICE,
-                                         clock: Platform::Clock.fixed(at), ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
-  end
-  def act_ctx = Platform::RequestContext.for_actor(clock: Platform::Clock.fixed(act_now), ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
-  def executor_ctx(at)
-    Platform::RequestContext.for_service(service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
-                                         clock: Platform::Clock.fixed(at), ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
-  end
-
-  # ---- the production-real chain ---------------------------------------------
-
-  def bootstrap
-    grant = ReceiptMinter.mint_bootstrap_grant_receipt(validated_at: fixed_now - 60, **identity)
-    Workflows::Wf001::Handlers::RequestBootstrapGrant.new.call(
-      command: Workflows::Wf001::Commands::RequestBootstrapGrant.new(command_id: SecureRandom.uuid_v7, idempotency_key: "grant-#{SecureRandom.hex(4)}",
-        schema_version: "1.0", receipt_digest: grant[:receipt_digest], requested_at_utc: fixed_now - 60), request_context: service_ctx(fixed_now - 60))
-    receipt = ReceiptMinter.mint_self_service_receipt(validated_at: fixed_now, **identity)
-    Workflows::Wf001::Handlers::BootstrapOrganization.new.call(
-      command: Workflows::Wf001::Commands::BootstrapOrganization.new(command_id: SecureRandom.uuid_v7, idempotency_key: "boot-#{SecureRandom.hex(4)}", schema_version: "1.0",
-        receipt_digest: receipt[:receipt_digest], expected_grant_version: 0, organization_display_name: "Acme", project_display_name: "Genesis",
-        project_objective: "discoverability_assessment", access_policy_content_sha256: bc.access_policy_sha256, entitlement_policy_content_sha256: bc.entitlement_policy_sha256,
-        plan_content_sha256: bc.plan_sha256, requested_at_utc: fixed_now), request_context: service_ctx(fixed_now)).payload
-  end
-
-  def register_source(g, uri)
-    Workflows::Wf004::Handlers::RegisterSource.new.call(
-      command: Workflows::Wf004::Commands::RegisterSource.new(command_id: SecureRandom.uuid_v7, idempotency_key: "rs-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id], registration_schema_version: "source-registration-v1",
-        submitted_root_uri: uri, expected_state_version: project_row(g[:project_id])["state_version"].to_i,
-        requested_at_utc: fixed_now), request_context: act_ctx).payload[:source_id]
-  end
-
-  def verify(g, sid)
-    r = Workflows::Wf003::Handlers::IssueVerificationChallenge.new.call(
-      command: Workflows::Wf003::Commands::IssueVerificationChallenge.new(command_id: SecureRandom.uuid_v7, idempotency_key: "vc-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id], source_id: sid, method: "dns_txt",
-        expected_state_version: 0, requested_at_utc: act_now), request_context: act_ctx)
-    aid = Workflows::Wf003::Handlers::ReserveVerificationAttempt.new.call(
-      command: Workflows::Wf003::Commands::ReserveVerificationAttempt.new(command_id: SecureRandom.uuid_v7, idempotency_key: "rv-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id], verification_request_id: r.payload[:verification_request_id],
-        expected_state_version: 0, requested_at_utc: act_now), request_context: act_ctx).payload[:verification_attempt_id]
-    outbound = Object.new.tap { |o| o.define_singleton_method(:fetch_dns_txt) { |*_a, **_k| Object.new.tap { |a| a.define_singleton_method(:refused?) { false }; a.define_singleton_method(:records) { [["f1-verification=#{r.payload[:challenge_token]}"]] } } } }
-    Workflows::Wf003::Handlers::CompleteVerificationAttempt.new.call(
-      command: Workflows::Wf003::Commands::CompleteVerificationAttempt.new(command_id: SecureRandom.uuid_v7, schema_version: "1.0", organization_id: g[:organization_id],
-        verification_request_id: r.payload[:verification_request_id], verification_attempt_id: aid, requested_at_utc: act_now),
-      request_context: executor_ctx(act_now), outbound:)
-  end
-
-  def activate_source(g, sid)
-    Workflows::Wf004::Handlers::ActivateSource.new.call(
-      command: Workflows::Wf004::Commands::ActivateSource.new(command_id: SecureRandom.uuid_v7, idempotency_key: "as-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id], source_id: sid,
-        expected_state_version: source_row(sid)["state_version"].to_i, requested_at_utc: act_now), request_context: act_ctx)
-  end
-
-  def disable_source(g, sid)
-    Workflows::Wf004::Handlers::DisableSource.new.call(
-      command: Workflows::Wf004::Commands::DisableSource.new(command_id: SecureRandom.uuid_v7, idempotency_key: "ds-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id], source_id: sid,
-        expected_state_version: source_row(sid)["state_version"].to_i, lifecycle_reason: "owner_requested_pause", requested_at_utc: act_now), request_context: act_ctx)
-  end
-
-  def activate_project(g)
-    proj = project_row(g[:project_id])
-    Workflows::Wf002::Handlers::ActivateProject.new.call(
-      command: Workflows::Wf002::Commands::ActivateProject.new(command_id: SecureRandom.uuid_v7, idempotency_key: "ap-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id],
-        expected_state_version: proj["state_version"].to_i, expected_source_membership_version: proj["source_set_version"].to_i,
-        requested_at_utc: act_now), request_context: act_ctx)
-  end
-
-  def suspend_organization(g)
-    org = DbInspector.one("SELECT state_version, authorization_epoch FROM organizations WHERE id = $1::uuid", [g[:organization_id]])
-    Workflows::Wf013::Handlers::SuspendOrganization.new.call(
-      command: Workflows::Wf013::Commands::SuspendOrganization.new(
-        command_id: SecureRandom.uuid_v7, idempotency_key: "sus-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], expected_state_version: org["state_version"].to_i,
-        expected_authorization_epoch: org["authorization_epoch"].to_i, reason: "billing_hold",
-        requested_at_utc: act_now), request_context: act_ctx)
-  end
-
-  def running_crawl(host: "shop.acme.example")
-    g = bootstrap
-    sid = register_source(g, "https://#{host}")
-    verify(g, sid)
-    activate_source(g, sid)
-    raise "activation failed" unless activate_project(g).success?
-
-    crawl_id = Workflows::Wf005::Handlers::QueueCrawl.new.call(
-      command: Workflows::Wf005::Commands::QueueCrawl.new(command_id: SecureRandom.uuid_v7, idempotency_key: "qc-#{SecureRandom.hex(6)}", schema_version: "1.0",
-        session_id: g[:session_id], organization_id: g[:organization_id], project_id: g[:project_id],
-        requested_at_utc: act_now), request_context: act_ctx).payload[:crawl_id]
-    a = DbInspector.one("SELECT * FROM scheduled_actions WHERE action_kind='crawl_dispatch' AND target_id=$1::uuid", [crawl_id])
-    Workflows::Wf005::Handlers::StartCrawl.new.call(
-      command: Workflows::Wf005::Commands::StartCrawl.new(
-        command_id: SecureRandom.uuid_v7, schema_version: a["action_schema_version"], organization_id: a["organization_id"],
-        target_type: a["target_type"], crawl_id: a["target_id"], due_at: Time.parse(a["due_at"]).getutc, action_id: a["id"],
-        action_identity_sha256: [a["identity_sha256"].sub(/\A\\x/, "")].pack("H*"), requested_at_utc: start_now),
-      request_context: executor_ctx(start_now))
-    { g:, crawl_id:, source_id: sid, host: }
-  end
-
-  # ---- harness ---------------------------------------------------------------
-
-  def project_row(pid) = DbInspector.one("SELECT * FROM projects WHERE id = $1::uuid", [pid])
-  def source_row(sid) = DbInspector.one("SELECT * FROM sources WHERE id = $1::uuid", [sid])
-  def gate_row(cid) = DbInspector.one("SELECT * FROM crawl_host_gates WHERE crawl_id = $1::uuid", [cid])
-
-  # A stub of the FROZEN F-01 façade — the service is never reached into.
-  def outbound_returning(*outcomes)
-    queue = outcomes.dup
-    Object.new.tap do |o|
-      o.define_singleton_method(:fetch) { |*_a, **_k| queue.length > 1 ? queue.shift : queue.first }
-    end
-  end
-
-  def response(status:, body: "", truncated: false, headers: {})
-    Platform::Outbound::Outcome.response(
-      status:, headers:, body:, byte_count: body.bytesize, truncated:,
-      canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
-      final_url: "https://shop.acme.example/robots.txt", redirect_count: 0, latency_ms: 5)
-  end
-
-  def timeout_outcome = Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
-
-  # Run a block against the real host-gate surface inside a proved-Organization unit of work.
-  def in_gate(org)
-    Platform::UnitOfWork.run do |conn|
-      pg = conn.raw_connection
-      store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
-      store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
-      yield store, Workflows::Wf005::HostGate.new(store, ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
-    end
-  end
-
-  # Seed `count` live leases, keeping the derived counter in agreement (the database now enforces
-  # that they match, so a test cannot fabricate one without the other).
-  def seed_leases(id, count, at: start_now)
-    leases = Array.new(count) { { token: SecureRandom.uuid_v7, claimed_at: at.utc.iso8601(6) } }
-    DbInspector.connection.exec_params(
-      "UPDATE crawl_host_gates SET active_leases = $2::jsonb, active_connection_count = $3,
-         state_version = state_version + 1 WHERE id = $1::uuid",
-      [id, JSON.generate(leases), count])
-  end
-
-  def clear_rate_window(id)
-    DbInspector.connection.exec_params(
-      "UPDATE crawl_host_gates SET recent_start_instants = ARRAY[]::timestamptz(6)[],
-         next_allowed_start_at = NULL, state_version = state_version + 1 WHERE id = $1::uuid", [id])
-  end
-
-  def ensure_gate(ctx)
-    in_gate(ctx[:g][:organization_id]) do |_s, gate|
-      gate.ensure_gate(organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
-                       crawl_id: ctx[:crawl_id], canonical_host: ctx[:host], now: start_now)
-    end
-  end
-
-  # EnsureRobots owns its own transactions (claim / fetch outside any transaction / record), so it
-  # is invoked WITHOUT a surrounding unit of work — which is itself part of what this asserts.
-  def resolve_robots(ctx, outbound)
-    Workflows::Wf005::EnsureRobots.new(outbound:).call(
-      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      canonical_host: ctx[:host], now: start_now)
-  end
-
-  def authorize(ctx, url: nil, kind: "content", source_id: nil)
-    in_gate(ctx[:g][:organization_id]) do |store, _gate|
-      row = store.gate(ctx[:g][:organization_id], ctx[:crawl_id], ctx[:host])
-      Workflows::Wf005::FetchAuthorization.new(store).authorize(
-        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-        source_id: source_id || ctx[:source_id], canonical_url: url || "https://#{ctx[:host]}/",
-        gate: row, now: start_now, kind:)
-    end
-  end
+  include Wf005CrawlChain
 
   # ---- sitemap harness --------------------------------------------------------
 
@@ -247,32 +66,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     %(<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">#{entries}</sitemapindex>)
   end
 
-  # The pacer simulates elapsed real time instead of spending it. It ADVANCES THE CLOCK BY THE
-  # REQUESTED INTERVAL rather than clearing the gate outright: `recent_start_instants` is a rolling
-  # one-second window and `next_allowed_start_at` is an arbitrary interval — `max(base, robots
-  # Crawl-delay, ...)` — so nulling the second one made the very first retry succeed whatever the
-  # configured delay, and no test could ever exhaust the deferral bound. Every pace is recorded, so
-  # a test can assert the traversal waited the length the HOST asked for.
-  def paces = (@paces ||= [])
 
-  def pacer_for(ctx)
-    sink = paces
-    lambda do |ms|
-      sink << ms.to_i
-      # `ms` of real time passing IS every recorded instant moving `ms` further into the past. Doing
-      # it that way — rather than clearing the columns — means the gate's own predicates decide
-      # whether enough time has elapsed, so a `Crawl-delay` longer than the pace still refuses.
-      DbInspector.connection.exec_params(
-        "UPDATE crawl_host_gates
-         SET recent_start_instants =
-               (SELECT COALESCE(array_agg(s - ($2 || ' milliseconds')::interval),
-                                ARRAY[]::timestamptz(6)[])
-                FROM unnest(recent_start_instants) AS s),
-             next_allowed_start_at = next_allowed_start_at - ($2 || ' milliseconds')::interval,
-             state_version = state_version + 1
-         WHERE crawl_id = $1::uuid", [ctx[:crawl_id], ms.to_i])
-    end
-  end
 
   def discover(ctx, outbound)
     Workflows::Wf005::DiscoverSitemaps.new(outbound:, pacer: pacer_for(ctx)).call(

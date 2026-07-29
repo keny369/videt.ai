@@ -202,4 +202,32 @@ module Wf005CrawlChain
     end
   end
 
+
+  # ---- simulated elapsed time -------------------------------------------------
+  #
+  # The host gate paces starts at 1/second (:442), so any spec that fetches more than once must let
+  # that second pass. It ADVANCES THE CLOCK by moving every recorded instant that far into the past
+  # rather than clearing the columns, so the gate's own predicates still decide whether enough time
+  # has elapsed — a `Crawl-delay` longer than the pace still refuses. Extracted here because three
+  # specs had grown their own copy, which is how the harness drift this file exists to end begins.
+  def paces = (@paces ||= [])
+
+  def pacer_for(ctx)
+    sink = paces
+    lambda do |ms|
+      sink << ms.to_i
+      DbInspector.connection.exec_params(
+        "UPDATE crawl_host_gates
+         SET recent_start_instants =
+               (SELECT COALESCE(array_agg(s - ($2 || ' milliseconds')::interval),
+                                ARRAY[]::timestamptz(6)[])
+                FROM unnest(recent_start_instants) AS s),
+             next_allowed_start_at = next_allowed_start_at - ($2 || ' milliseconds')::interval,
+             state_version = state_version + 1
+         WHERE crawl_id = $1::uuid", [ctx[:crawl_id], ms.to_i])
+    end
+  end
+
+  # Let the gate's rolling second elapse between two fetches in one example.
+  def advance_gate(ctx, ms = 2_000) = pacer_for(ctx).call(ms)
 end
