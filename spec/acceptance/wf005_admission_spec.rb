@@ -236,6 +236,40 @@ RSpec.describe "WF-005 admission", type: :acceptance,
     end
   end
 
+  describe "the run-wide byte bound is EXACT at its boundary" do
+    # `reserved + want <= ceiling` is the whole bound, and every existing test approaches it from far
+    # away — a run that wants twice the per-URL ceiling against a run ceiling orders of magnitude
+    # larger. Nothing sat ON the boundary, so `<= $4 + 1` passed the suite. An off-by-one in the
+    # loosening direction is the one direction a byte bound must never drift: it is the difference
+    # between a ceiling and a suggestion.
+    it "grants exactly the ceiling and refuses one byte more" do
+      ctx = running_crawl
+      ceiling = Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 4
+
+      Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.ensure_counters(id: Platform::Ids.system.generate, now: start_now,
+                              correlation_id: SecureRandom.uuid_v7,
+                              organization_id: ctx[:g][:organization_id],
+                              project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id])
+
+        args = [ctx[:g][:organization_id], ctx[:crawl_id]]
+        # One byte over, from empty. Refused.
+        expect(store.reserve_bytes(*args, ceiling + 1, ceiling, start_now)).to be_nil
+        # Exactly the ceiling, from empty. Granted, and it takes the whole budget.
+        expect(store.reserve_bytes(*args, ceiling, ceiling, start_now)
+                    &.fetch("reserved_response_bytes").to_i).to eq(ceiling)
+        # And now nothing at all is left — not even one byte.
+        expect(store.reserve_bytes(*args, 1, ceiling, start_now)).to be_nil
+        # And a zero-byte reservation is refused before the predicate is ever reached: an attempt
+        # that reserves nothing cannot honour ":442 — an attempt cannot add accounted bytes beyond
+        # its reservation", so it is a caller defect rather than a free pass at the boundary.
+        expect(store.reserve_bytes(*args, 0, ceiling, start_now)).to be_nil
+      end
+    end
+  end
+
   describe "execution-time authorization, before any effect" do
     # Admission reserves budget, claims an entry and can write an IMMUTABLE customer-visible
     # decision. Checking only "does the Crawl exist" let a suspended tenant or an unmetered run get

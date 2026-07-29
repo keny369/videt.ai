@@ -22,7 +22,7 @@ module Workflows
     class Frontier
       # `crawl-policy-v1` discovered-queue hard bound (WORKFLOW_SPECIFICATIONS.md :425-438, :454).
       DISCOVERED_QUEUE_HARD = Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("discovered_queue").fetch("hard")
-      # :438's depth bound. ":442 — a URL deeper than 10 fails that URL"; :456 keeps it in the
+      # :438's depth bound. ":442 — a URL deeper than 10 fails that URL"; :452 keeps it in the
       # coverage denominator as "an in-scope candidate discarded by a Crawl limit", which is why it
       # is retained as a `discarded` row rather than dropped.
       CRAWL_DEPTH_HARD = Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("crawl_depth").fetch("hard")
@@ -74,13 +74,28 @@ module Workflows
       # from it alone would crawl a Source the customer has since disabled or removed on queue-time
       # authority (owner decision HD-S07-FU4-FU5). Roots are seeded in the Volume I root order and
       # go straight to `queued` — a root is admitted by the accepted start itself.
-      def seed_roots(organization_id:, project_id:, crawl_id:, now:)
+      def seed_roots(organization_id:, project_id:, crawl_id:, now:, observer: nil)
         @store.lock_frontier(crawl_id)
         pinned_total = @store.pinned_source_count(organization_id, crawl_id)
         sources = @store.active_pinned_sources(organization_id, crawl_id)
         order = @store.next_enqueue_order(organization_id, crawl_id)
 
+        # THE SAME BOUND APPLIES HERE. Roots join the discovered queue exactly as offered candidates
+        # do, and this is the second entry point — the claim that `offer` was the only one was false,
+        # and a Project narrowing `discovered_queue` below its pinned Source count started the run
+        # ABOVE its own inclusive maximum, with the first `CrawlLimitReached` reporting an observed
+        # value greater than the configured one. Roots are admitted in the ratified root order, so a
+        # root past the bound is refused rather than evicting an earlier one.
+        ceiling = queue_hard(observer)
+        admitted = 0
         sources.each_with_index do |source, index|
+          if @store.admitted_count(organization_id, crawl_id) >= ceiling
+            observer&.hard(QUEUE_DIMENSION, ceiling, now:,
+                           affected: LimitDecisions::Affected.new(sources: sources.size - index, urls: sources.size - index))
+            break
+          end
+
+          admitted += 1
           insert(organization_id:, project_id:, crawl_id:, now:, state: "queued",
                  source_id: source["source_id"], canonical_url: source["canonical_root_uri"],
                  origin: "root", depth: 0, discovering_document_url: "", link_position: 0,
@@ -89,7 +104,7 @@ module Workflows
                  collision_ordinal: 0, reason: nil)
         end
 
-        Seeded.new(admitted: sources.size, pinned_total:, excluded_inactive: pinned_total - sources.size)
+        Seeded.new(admitted:, pinned_total:, excluded_inactive: pinned_total - sources.size)
       end
 
       # Offer a discovered candidate. Returns :admitted (a new retained entry), :duplicate (an
@@ -171,23 +186,21 @@ module Workflows
         # dedupes each to one row.
         observe_depth_soft(observer, depth, now)
 
-        # DEPTH IS DECIDED BEFORE THE QUEUE BOUND. A URL past the depth bound is inadmissible on its
-        # own terms — it would not become admissible if the queue had room — whereas a queue discard
-        # is positional and would reverse if a lower-ordered candidate arrived. Deciding positionally
-        # first would label a too-deep URL `queue_limit_discarded` purely because the run was full.
-        #
-        # The row is written either way: ":456 the discovered queue counts distinct content-candidate
-        # URLs after Source Scope canonicalization, INCLUDING an in-scope URL EVEN WHEN IT IS LATER
-        # REJECTED FOR DEPTH", and :452 puts every candidate "discarded by a Crawl limit" in the
-        # coverage denominator. Dropping it would understate both.
-        # ONE POPULATION, ONE BOUND. `admitted_count` is the discovered queue (see the store), and
-        # this is the only place a candidate joins it. The bound is therefore enforced AT ENTRY:
+        # ONE POPULATION, ONE BOUND. `admitted_count` is the discovered queue (see the store). The
+        # bound is enforced AT ENTRY, here and in `seed_roots`:
         # a joiner at the ceiling either displaces a member or is refused entry.
         #
-        # This ordering is load-bearing. Deciding depth first and exempting an over-depth candidate
-        # from the queue check let it join a population it was not enforced against and could never
-        # be evicted from, so N over-depth candidates put the run permanently N past its own
-        # inclusive maximum with only the first crossing recorded.
+        # The ORDER is load-bearing: the queue bound governs ENTRY, and depth describes what kind of
+        # member a candidate is. Deciding depth first and exempting an over-depth candidate from the
+        # queue check let it join a population it was not enforced against and could never be
+        # evicted from, so N over-depth candidates put the run permanently N past its own inclusive
+        # maximum with only the first crossing recorded.
+        #
+        # A candidate refused ENTRY is not a member, so `:440`'s "the discovered queue counts ...
+        # including an in-scope URL even when it is later rejected for depth" does not reach it, and
+        # the recorded reason is the queue's. A candidate that JOINS and is then depth-rejected is a
+        # member and is counted, which is what `:440` requires and why `:452` keeps it in the
+        # coverage denominator.
         retained = @store.admitted_count(organization_id, crawl_id)
         if retained >= queue_hard(observer)
           victim = @store.highest_unclaimed(organization_id, crawl_id)

@@ -25,13 +25,13 @@ spec asserts that partition.
 
 ## Delivered behaviour
 
-**Every limit event is a consequence of a durable record.** `Wf005::LimitDecisions#observe` inserts
+**Every limit event is a consequence of a durable record.** `Workflows::Wf005::LimitDecisions#observe` inserts
 into `crawl_limit_decisions` with `ON CONFLICT DO NOTHING RETURNING` and emits only when that
 statement created the row, so `UNIQUE (crawl_id, limit_dimension, threshold_kind)` is what
 adjudicates `:442`'s "exactly once per dimension and run" across processes. The event envelope is
 built from the returned columns, so a CHECK that rejects a value stops the event with the row.
 
-**Ten of the twelve ratified dimensions are observed**, each on the transaction that caused the
+**Nine of the twelve ratified dimensions are observed**, each on the transaction that caused the
 effect it describes.
 
 | Dimension | Observation point |
@@ -81,7 +81,7 @@ nothing. The stored URL is the NFC form that was hashed, so a row reproduces its
 
 **Not written here:** `coverage_status` and `completion_reason`. `crawls_terminal_shape` forbids them
 while running, and `:456`'s precedence belongs to the terminal checkpoint. S-07-009 derives both by
-reading `CrawlLimitDecisionStore#decisions`.
+reading `IdentityAccess::Infrastructure::CrawlLimitDecisionStore#decisions`.
 
 ## Schema changes
 
@@ -100,7 +100,7 @@ Both new tables are `SELECT, INSERT` only for `f1_runtime` and are catalogued in
 signal loses diagnostic value. Applied to per-host rate and concurrency, whose soft values are
 normal scheduling targets and whose hard limbs `:442` resolves by delaying rather than by stopping
 work. `:456`'s list of bounds that leave a candidate unevaluated excludes both. To change this, add
-the two dimensions to `HostGate#claim`, which would need a crawl, a project and a resolution it does
+the two dimensions to `Workflows::Wf005::HostGate#claim`, which would need a crawl, a project and a resolution it does
 not currently receive.
 
 **Published history is not rewritten** to make a tranche cosmetically clean. See *Identity*.
@@ -111,7 +111,7 @@ Run from the repository root. Outputs are those observed at this commit.
 
 | Command | Output |
 | --- | --- |
-| `bundle exec rspec` | `1871 examples, 0 failures` |
+| `bundle exec rspec` | `1882 examples, 0 failures` |
 | `bundle exec packwerk check` | `No offenses detected` |
 | `bundle exec brakeman -q --no-pager` | `No warnings found` |
 | `bin/rails zeitwerk:check` | `All is good!` |
@@ -123,8 +123,35 @@ the transport functions. **It says nothing about this tranche's tables.** Their 
 asserted against a live database in `spec/persistence/crawl_limit_decision_invariants_spec.rb`.
 
 Repository-truth facts — the state file's status vocabulary, its commit fields and timestamp, the
-acceptance-path partition, cited paths and identifiers, and canonical-catalogue completeness — are
-asserted by `spec/architecture/repository_truth_spec.rb` on every run.
+acceptance-path partition, cited paths and identifiers, cited migrations, and canonical-catalogue
+completeness — are asserted by `spec/architecture/repository_truth_spec.rb` on every run.
+
+## Proof standard
+
+A green suite proves nothing about a control the suite never reaches. Every control below was
+verified by REVERTING it and requiring a named test to fail; each was a survivor before the test
+named beside it existed.
+
+| Control | Mutation it now fails under | Test |
+| --- | --- | --- |
+| run-wide sitemap-document ceiling | `ceiling: documents_hard` → `10_000` | holds the RUN-WIDE document bound across hosts |
+| charge + projection atomicity | the two statements split across transactions | rolls the charge and its projection back together |
+| charge + decision atomicity | `observe_documents` moved to its own transaction | writes the limit decision on the SAME transaction |
+| missing-counter-row guard | `raise` → `return :exhausted` | refuses to charge without a budget counter row |
+| derived projection | `COUNT(*)` → `sitemap_documents + 1` | ANCHORS the projection to the ledger |
+| byte-budget predicate | `<= $4` → `<= $4 + 1` | grants exactly the ceiling and refuses one byte more |
+| ledger and decision RLS | `USING`/`WITH CHECK` → `true` | BLOCKS a cross-tenant read / write as the runtime role |
+
+The bound is only reachable across HOSTS. Within one pass `SitemapCandidates.retain` already caps
+the attempted set at `documents_hard`, and `crawl_host_gate_robots_decision_frozen` means a gate can
+never offer a second, different declared set — so the ceiling argument was unreachable by every
+single-host fixture in the suite. `:437`'s unit is the RUN, and a Crawl covers every active Source in
+its Project.
+
+Two behaviours are deliberately asserted through a database guard rather than a return value. A
+counter ahead of its ledger is rejected by `crawl_budget_counters_not_monotonic` when the projection
+recomputes, because the projection is anchored to the ledger rather than free-running; an incremented
+counter would carry the disagreement forward silently as spent budget nobody charged for.
 
 ## Ownership and follow-ups
 

@@ -41,7 +41,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
         sink << kwargs.merge(url:)
         entry = map[url]
         next Platform::Outbound::Outcome.response(status: 404, headers: {}, body: "", byte_count: 0,
-                                                  truncated: false, canonical_host: "shop.acme.example",
+                                                  truncated: false, canonical_host: URI(url).host,
                                                   port: 443, pinned_address: "198.51.100.7",
                                                   final_url: url, redirect_count: 0, latency_ms: 1) if entry.nil?
 
@@ -50,7 +50,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
           status: entry.fetch(:status, 200), headers:,
           body: entry.fetch(:body, ""), byte_count: entry.fetch(:body, "").bytesize,
           truncated: entry.fetch(:truncated, false),
-          canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
+          canonical_host: URI(url).host, port: 443, pinned_address: "198.51.100.7",
           final_url: url, redirect_count: 0, latency_ms: 1)
       end
     end
@@ -80,9 +80,9 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
   # Activate a Project policy narrowing the run-wide sitemap-document bound. `crawl_policies` rows
   # are immutable, so a narrower policy is ACTIVATED rather than edited, and :390 resolves it at
   # execution time — which is why this works on an already-running Crawl.
-  def narrow_documents(ctx, hard)
+  def narrow_documents(ctx, hard, soft: hard)
     bounds = JSON.parse(JSON.generate(Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING))
-                 .merge("sitemap_documents" => { "soft" => hard, "hard" => hard })
+                 .merge("sitemap_documents" => { "soft" => soft, "hard" => hard })
     DbInspector.connection.exec_params(
       "INSERT INTO crawl_policies (id, state_version, created_at, updated_at, correlation_id,
          schema_version, organization_id, project_id, scope, policy_version, state,
@@ -663,6 +663,187 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
         expect(Digest::SHA256.hexdigest(row["canonical_url"])).to eq(row["digest"])
         expect(row["canonical_url"]).to eq(row["canonical_url"].unicode_normalize(:nfc))
       end
+    end
+
+    # THE RUN-WIDE BOUND, WHERE IT ACTUALLY BINDS. Inside one pass over one host,
+    # `SitemapCandidates.retain` already caps the attempted set at `documents_hard` — the same
+    # number the charge ceiling uses — so the ceiling is strictly unreachable there, and
+    # `ceiling: 10_000` passed every test in the suite. Nor can a host offer a second, different
+    # declared set: `crawl_host_gate_robots_decision_frozen` freezes the robots decision for the
+    # life of the gate, so re-entry always re-offers the SAME candidates.
+    #
+    # What changes within a run is the HOST. :437's unit is "sitemap documents per RUN", and a Crawl
+    # covers every active Source in its Project — each with its own gate, its own robots, and its
+    # own declared sitemap set. Retention bounds each host independently; only the persisted ledger
+    # sees the run. That is the sentence the migration opens with, and until now nothing tested it.
+    def second_host(ctx, host)
+      g = ctx[:g]
+      sid = register_source(g, "https://#{host}")
+      verify(g, sid)
+      activate_source(g, sid)
+      in_gate(g[:organization_id]) do |_s, gate|
+        gate.ensure_gate(organization_id: g[:organization_id], project_id: g[:project_id],
+                         crawl_id: ctx[:crawl_id], canonical_host: host, now: start_now)
+      end
+      { g:, crawl_id: ctx[:crawl_id], source_id: sid, host: }
+    end
+
+    def host_gate(ctx) = DbInspector.one(
+      "SELECT * FROM crawl_host_gates WHERE crawl_id=$1::uuid AND canonical_host=$2",
+      [ctx[:crawl_id], ctx[:host]]
+    )
+
+    # Robots for a specific host's gate, and a discovery pass whose pacer models the passage of time
+    # by clearing that gate's rolling window — so every retained candidate is genuinely attempted
+    # rather than deferred, which is what puts the run-wide total above the bound.
+    def resolve_robots_for(ctx, sitemaps)
+      body = (["User-agent: *", "Disallow: /private"] + sitemaps.map { |s| "Sitemap: #{s}" }).join("\n") + "\n"
+      Workflows::Wf005::EnsureRobots.new(outbound: outbound_map(
+        "https://#{ctx[:host]}/robots.txt" => { body:, type: "text/plain" }
+      )).call(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+              canonical_host: ctx[:host], now: start_now)
+    end
+
+    def discover_paced(ctx, map)
+      gate_id = host_gate(ctx)["id"]
+      Workflows::Wf005::DiscoverSitemaps.new(
+        outbound: outbound_map(map), pacer: ->(_ms) { clear_rate_window(gate_id) }
+      ).call(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+             canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
+    end
+
+    it "holds the RUN-WIDE document bound across hosts with different declared sets (P8)" do
+      first = with_robots(sitemaps: ["https://shop.acme.example/a1.xml", "https://shop.acme.example/a2.xml"])
+      narrow_documents(first, 4)
+      second = second_host(first, "docs.acme.example")
+      resolve_robots_for(second, ["https://docs.acme.example/b1.xml", "https://docs.acme.example/b2.xml"])
+
+      discover_paced(first, {
+        "https://shop.acme.example/a1.xml" => { body: urlset("https://shop.acme.example/1") },
+        "https://shop.acme.example/a2.xml" => { body: urlset("https://shop.acme.example/2") },
+        "https://shop.acme.example/sitemap.xml" => { body: urlset("https://shop.acme.example/3") }
+      })
+      expect(charges(first).size).to eq(3)   # three distinct URLs on the first host, under the bound
+
+      discover_paced(second, {
+        "https://docs.acme.example/b1.xml" => { body: urlset("https://docs.acme.example/1") },
+        "https://docs.acme.example/b2.xml" => { body: urlset("https://docs.acme.example/2") },
+        "https://docs.acme.example/sitemap.xml" => { body: urlset("https://docs.acme.example/3") }
+      })
+
+      # The second host offered three more. The run's bound is four, not four per host.
+      expect(charges(first).size).to eq(4)
+      expect(documents_spent(first)).to eq(4)
+      expect(decision_row(first, "sitemap_documents_per_run", "hard")).not_to be_nil
+    end
+
+    def decision_row(ctx, dimension, kind)
+      DbInspector.one("SELECT * FROM crawl_limit_decisions
+                       WHERE crawl_id=$1::uuid AND limit_dimension=$2 AND threshold_kind=$3",
+                      [ctx[:crawl_id], dimension, kind])
+    end
+
+    it "rolls the charge and its projection back together (P9)" do
+      # `reserve_document` opens ONE unit of work over the ledger row and the counter projection.
+      # Split into two transactions and a charge can commit whose projection does not, or the
+      # reverse; nothing asserted that, so the split passed the whole suite.
+      ctx = with_robots(sitemaps: [])
+      ensure_counter_row(ctx)
+      before = documents_spent(ctx)
+
+      expect do
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+          expect(store.charge_sitemap_document(
+                   organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+                   crawl_id: ctx[:crawl_id], canonical_url: "https://shop.acme.example/rb.xml",
+                   ceiling: 50, id: Platform::Ids.system.generate,
+                   correlation_id: SecureRandom.uuid_v7, now: start_now)).to eq(:granted)
+          raise "caller aborted after charging"
+        end
+      end.to raise_error(/caller aborted after charging/)
+
+      # Neither half survived. A charge without its projection is a budget the run has spent and
+      # cannot see; a projection without its charge is one it can never reconcile.
+      expect(charges(ctx)).to be_empty
+      expect(documents_spent(ctx)).to eq(before)
+    end
+
+    it "writes the limit decision on the SAME transaction as the charge that caused it (P9)" do
+      # The other half of the unit of work. `reserve_document` wraps the charge AND its observation
+      # in one `UnitOfWork`; split them and a run can charge a document whose soft decision never
+      # lands, or record a decision for a charge that rolled back. Rollback coverage alone cannot
+      # see that — both halves commit on the happy path. `xmin` can: it is the transaction id that
+      # wrote the row, so two rows written by one transaction carry the same one.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a1.xml"])
+      narrow_documents(ctx, 4, soft: 1)
+
+      discover_paced(ctx, {
+        "https://shop.acme.example/a1.xml" => { body: urlset("https://shop.acme.example/1") },
+        "https://shop.acme.example/sitemap.xml" => { body: urlset("https://shop.acme.example/2") }
+      })
+
+      soft = decision_row(ctx, "sitemap_documents_per_run", "soft")
+      expect(soft).not_to be_nil, "the soft bound was never crossed — the fixture proves nothing"
+      first_charge = DbInspector.one(
+        "SELECT xmin::text AS txid FROM crawl_sitemap_document_charges
+         WHERE crawl_id=$1::uuid ORDER BY charged_at, id LIMIT 1", [ctx[:crawl_id]])
+      decision_tx = DbInspector.one(
+        "SELECT xmin::text AS txid FROM crawl_limit_decisions WHERE id=$1::uuid", [soft["id"]])
+
+      expect(decision_tx["txid"]).to eq(first_charge["txid"])
+    end
+
+    it "refuses to charge without a budget counter row, rather than reporting a limit (P5)" do
+      # The guard's own rationale says returning `:exhausted` here produced a false
+      # `CrawlLimitReached` for a run whose counters row merely did not exist. Nothing asserted it,
+      # so `return :exhausted` restored the defect with the suite green.
+      ctx = with_robots(sitemaps: [])
+      expect do
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+          store.charge_sitemap_document(
+            organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+            crawl_id: ctx[:crawl_id], canonical_url: "https://shop.acme.example/x.xml",
+            ceiling: 50, id: Platform::Ids.system.generate,
+            correlation_id: SecureRandom.uuid_v7, now: start_now)
+        end
+      end.to raise_error(Platform::InvariantViolation, /without a budget counter row/)
+
+      # And it invented no limit on the way out.
+      expect(DbInspector.all("SELECT id FROM crawl_limit_decisions WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]])).to be_empty
+    end
+
+    it "ANCHORS the projection to the ledger instead of free-running (P2)" do
+      # Derived and incremented agree for every run that starts from zero, which is every run in the
+      # suite — so `sitemap_documents + 1` survived. They diverge on the one state that matters: a
+      # counter that does not already equal its ledger. Derived RECOMPUTES, so it writes the
+      # cardinality and `crawl_budget_counters_not_monotonic` rejects the correction loudly.
+      # Incremented writes 8, silently carrying the disagreement forward as spent budget nobody
+      # charged for. Anchored-and-loud is the property; free-running is the defect.
+      ctx = with_robots(sitemaps: [])
+      ensure_counter_row(ctx)
+      DbInspector.connection.exec_params(
+        "UPDATE crawl_budget_counters SET sitemap_documents = 7, state_version = state_version + 1
+         WHERE crawl_id = $1::uuid", [ctx[:crawl_id]])
+
+      expect do
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+          store.charge_sitemap_document(
+            organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+            crawl_id: ctx[:crawl_id], canonical_url: "https://shop.acme.example/d.xml",
+            ceiling: 50, id: Platform::Ids.system.generate,
+            correlation_id: SecureRandom.uuid_v7, now: start_now)
+        end
+      end.to raise_error(/crawl_budget_counters_not_monotonic/)
+
+      expect(documents_spent(ctx)).to eq(7)
+      expect(charges(ctx)).to be_empty
     end
 
     it "never charges past the ceiling when workers race on DIFFERENT urls" do

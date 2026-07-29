@@ -87,7 +87,7 @@ module Workflows
 
             frontier_store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
             process(store:, entitlement: Platform::Entitlement::Service.new(pg), organization:,
-                    frontier_store:,
+                    frontier_store:, pg:,
                     frontier: Wf005::Frontier.new(frontier_store, ids: ctx.ids, correlation_id: ctx.correlation_id),
                     command:, ctx:, org:, now:, key_digest:)
           end
@@ -95,9 +95,9 @@ module Workflows
 
         private
 
-        def process(store:, entitlement:, organization:, frontier_store:, frontier:, command:, ctx:, org:, now:, key_digest:)
+        def process(store:, entitlement:, organization:, frontier_store:, frontier:, pg:, command:, ctx:, org:, now:, key_digest:)
           request_sha256 = request_hash(command, ctx)
-          d = { store:, entitlement:, frontier_store:, frontier:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
+          d = { store:, entitlement:, frontier_store:, frontier:, pg:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
 
           # First read resolves the Project for the lock; then lock and re-read authoritatively. This
           # pre-lock read decides only `mismatch`, which cannot go stale: `f1_crawls_guard` refuses
@@ -277,7 +277,16 @@ module Workflows
           # S-07-004, the last limb of the accepted-start commit (SEARCH_CRAWL_RETRIEVAL.md § Crawl
           # Admission And Snapshot step 6): the ordered ROOT frontier, seeded ONLY from pinned
           # Sources that are still active. The gate above guarantees at least one.
-          seeded = d[:frontier].seed_roots(organization_id: org, project_id: pid, crawl_id: crawl["id"], now:)
+          # The observer carries the run's RESOLVED bounds, so a root refused for the discovered-queue
+          # ceiling records the same decision an offered candidate would.
+          seeded = d[:frontier].seed_roots(
+            organization_id: org, project_id: pid, crawl_id: crawl["id"], now:,
+            observer: Wf005::LimitDecisions.new(ids: ctx.ids, correlation_id: ctx.correlation_id)
+                                           .for(d[:pg], organization_id: org, project_id: pid,
+                                                crawl_id: crawl["id"],
+                                                limits: Wf005::EffectiveLimits.resolve(
+                                                  store.active_crawl_policies(org, pid)))
+          )
           raise LostRace if seeded.admitted.zero?
 
           payload = {

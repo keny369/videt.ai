@@ -67,10 +67,21 @@ module IdentityAccess
       # So a depth-rejected candidate is a member; a `queue_limit_discarded` one never joined, and
       # counting it would make the bound self-defeating.
       #
-      # The bound is therefore checked BEFORE a candidate joins (`Frontier#offer`), never after, so
-      # the population can never exceed it: a joiner at the bound either displaces a member or is
-      # refused entry. A depth-rejected member is not evictable — its reason is frozen and it can
-      # never be claimed — which is why entry, not disposition, is where the bound is enforced.
+      # The bound is checked BEFORE a candidate joins — in `Frontier#offer` AND in `seed_roots`,
+      # which are the two entry points — so the population can never exceed it: a joiner at the
+      # bound either displaces a member or is refused entry.
+      #
+      # TWO SETS, DELIBERATELY. This count is `:440`'s DISCOVERY metric — what the bound is measured
+      # over — and it includes depth-rejected candidates because they were discovered. `:454`'s
+      # "retain the lowest 20,000 by this order" is a RETENTION selection among candidates still
+      # competing to be crawled, which is why `highest_unclaimed` sees only `('discovered','queued')`.
+      # A depth-rejected member has already been resolved: it is not competing, its reason is frozen,
+      # and it permanently occupies the discovery slot it genuinely used.
+      #
+      # The consequence is worth stating plainly rather than discovering later: a run that discovers
+      # its whole bound in too-deep URLs admits nothing further, and that is correct — it discovered
+      # 20,000 distinct in-scope candidates. What it must never do is exceed the bound, which is why
+      # entry is the enforcement point.
       def admitted_count(organization_id, crawl_id)
         exec(<<~SQL, [organization_id, crawl_id]).to_a.first["n"].to_i
           SELECT COUNT(*) AS n FROM crawl_frontier_entries

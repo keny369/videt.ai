@@ -3,6 +3,7 @@
 require "rails_helper"
 require "json"
 require "yaml"
+require "open3"
 
 # REPOSITORY TRUTH — facts that must never again depend on a reviewer noticing them.
 #
@@ -24,7 +25,24 @@ RSpec.describe "Repository truth", type: :model do
   ROOT = Rails.root
   BUILD_STATE = JSON.parse(ROOT.join("specification/automation/BUILD_STATE.json").read)
 
-  def git(*args) = `cd #{ROOT} && git #{args.join(' ')} 2>/dev/null`.strip
+  SHA = /\A[0-9a-f]{7,40}\z/
+
+  # NO SHELL. Values here come from a controller-written JSON file that this very spec exists to
+  # distrust, and the previous form interpolated them into backticks — a `commit_range` of
+  # `$(...)` executed and then emitted a valid SHA, so the payload ran and the assertion passed.
+  # argv form, explicit status, no `2>/dev/null` swallowing failure.
+  def git(*args)
+    out, status = Open3.capture2("git", "-C", ROOT.to_s, *args, err: File::NULL)
+    [out.strip, status.success?]
+  end
+
+  def git!(*args) = git(*args).first
+
+  # Every SHA-shaped value is validated before it reaches git at all.
+  def sha!(value, field)
+    expect(value).to match(SHA), "#{field} is #{value.inspect}, which is not a SHA"
+    value
+  end
 
   describe "BUILD_STATE is a document the controller can act on" do
     it "carries a status from the owning state machine, not an invented token" do
@@ -41,8 +59,9 @@ RSpec.describe "Repository truth", type: :model do
         sha = BUILD_STATE[field]
         next if sha.nil? || sha == "pending" || sha.empty?
 
-        expect(git("cat-file -t #{sha}")).to eq("commit"), "#{field} names #{sha}, which is not a commit"
-        expect(git("merge-base --is-ancestor #{sha} HEAD && echo reachable")).to eq("reachable"),
+        sha!(sha, field)
+        expect(git!("cat-file", "-t", sha)).to eq("commit"), "#{field} names #{sha}, which is not a commit"
+        expect(git("merge-base", "--is-ancestor", sha, "HEAD").last).to be(true),
                "#{field} names #{sha}, which is not reachable from HEAD"
       end
     end
@@ -52,15 +71,18 @@ RSpec.describe "Repository truth", type: :model do
       next if sha.nil? || sha == "pending"
 
       paths = BUILD_STATE["acceptance_evidence"]["acceptance_diff_paths"]
-      base = BUILD_STATE["acceptance_evidence"]["commit_range"].split("..").first
+      base = sha!(BUILD_STATE["acceptance_evidence"]["commit_range"].split("..").first, "range base")
+      sha!(sha, "implementation_commit")
 
       # Descendancy first. `diff base..sha` is symmetric in the paths it names, so a commit that
       # PRECEDES the range answers identically to one that contains it — the direction has to be
       # asserted separately or the check reads an inverse diff as containment.
-      expect(git("merge-base --is-ancestor #{base} #{sha} && echo after")).to eq("after"),
+      expect(git("merge-base", "--is-ancestor", base, sha).last).to be(true),
              "implementation_commit #{sha} predates the declared range base #{base}"
 
-      changed = git("diff --name-only #{base}..#{sha}").split("\n")
+      # The commit's OWN diff, not the cumulative range — `base..sha` would pass on the strength of
+      # its predecessors, so a commit touching only excluded paths read as containment.
+      changed = git!("show", "--name-only", "--format=", sha).split("\n").reject(&:empty?)
       expect(changed.any? { |f| paths.any? { |p| f.start_with?(p) } }).to be(true),
              "implementation_commit #{sha} contains none of the declared acceptance paths"
     end
@@ -83,17 +105,37 @@ RSpec.describe "Repository truth", type: :model do
       end
     end
 
-    it "does not direct the controller at mechanisms the repository has deleted" do
-      # `next_action` is the controller-facing directive. It was once left byte-identical to the
-      # tranche's starting commit while everything it described was replaced.
+    it "keeps next_action current with the open decisions it summarises" do
+      # `next_action` is the controller-facing directive and has twice been left byte-identical
+      # while everything it described was replaced. A hardcoded denylist of two deleted identifiers
+      # could not detect that — and would have been satisfied by the very comment recording a
+      # deletion. This instead ties it to the record it summarises: any follow-up it names must
+      # exist, and any it declares blocking must actually be blocking.
       directive = BUILD_STATE["next_action"].to_s
-      deleted = { "claim_limit_event" => "app", "reserve_sitemap_document" => "app" }
-      deleted.each do |identifier, dir|
-        next unless directive.include?(identifier)
+      ids = BUILD_STATE["open_decisions"].to_h { |d| [d["id"], d] }
 
-        expect(`cd #{ROOT} && rg -l '#{identifier}' #{dir} 2>/dev/null`).not_to be_empty,
-               "next_action directs at `#{identifier}`, which no longer exists in #{dir}/"
+      directive.scan(/\bFU-\d+\b/).uniq.each do |fu|
+        expect(ids).to have_key(fu), "next_action names #{fu}, which is not an open decision"
       end
+
+      # Anything next_action calls blocking must say so in its own record, and vice versa.
+      blocking_in_record = ids.values.select { |d| d["note"].to_s.include?("BLOCKING") }.map { |d| d["id"] }
+      blocking_in_record.each do |fu|
+        expect(directive).to include(fu),
+                             "#{fu} is recorded BLOCKING but next_action does not mention it"
+      end
+    end
+
+    it "keeps updated_at at or after the commit it names" do
+      # "Not in the future" cannot detect staleness, and the field was left three commits behind
+      # while the record around it was rewritten. The relationship the repository actually intends
+      # is that the stamp is no older than the work it describes.
+      sha = BUILD_STATE["implementation_commit"]
+      next if sha.nil? || sha == "pending"
+
+      committed = Time.parse(git!("log", "-1", "--format=%cI", sha!(sha, "implementation_commit")))
+      expect(Time.parse(BUILD_STATE["updated_at"])).to be >= committed,
+                                                       "updated_at predates implementation_commit"
     end
   end
 
@@ -102,13 +144,15 @@ RSpec.describe "Repository truth", type: :model do
     let(:report) { ROOT.join("S-07-008_COMPLETION_REPORT.md").read }
 
     it "partitions the tranche diff exactly into accepted paths and excluded contamination" do
-      base = evidence["commit_range"].split("..").first
-      changed = git("diff --name-only #{base}..HEAD").split("\n")
+      base = sha!(evidence["commit_range"].split("..").first, "commit_range base")
+      changed = git!("diff", "--name-only", "#{base}..HEAD").split("\n")
       accepted = changed.select { |f| evidence["acceptance_diff_paths"].any? { |p| f.start_with?(p) } }
-      excluded = changed - accepted
 
-      expect(excluded.sort).to eq(evidence["excluded_contamination"]["files"].sort)
-      expect(accepted + excluded).to match_array(changed)
+      # `excluded` was previously derived as `changed - accepted` and then asserted to recompose
+      # into `changed`, which is true by construction. The real assertion is that the RECORDED
+      # exclusion list equals what the declared paths leave behind.
+      expect((changed - accepted).sort).to eq(evidence["excluded_contamination"]["files"].sort)
+      expect(changed).not_to be_empty
     end
 
     it "declares the same accepted paths in the state file and the acceptance record" do
@@ -118,27 +162,59 @@ RSpec.describe "Repository truth", type: :model do
     end
 
     it "cites only file paths that resolve" do
-      report.scan(%r{`((?:app|db|spec|lib|schemas|specification)/[\w./-]+)`}).flatten.uniq.each do |path|
+      # The directory list is READ FROM THE REPOSITORY rather than hardcoded. The previous form
+      # named six directories, so a citation under `automation/` or `architecture/` — both of which
+      # this tranche's records cite — matched nothing and was never checked. A hardcoded vocabulary
+      # in a spec whose purpose is to catch hardcoded vocabularies is the same defect twice.
+      dirs = ROOT.children.select(&:directory?).map { |d| d.basename.to_s } - %w[. .. .git tmp log node_modules]
+      pattern = /`((?:#{dirs.map { |d| Regexp.escape(d) }.join('|')})\/[\w.\/-]+)`/
+      cited = report.scan(pattern).flatten.uniq
+      expect(cited).not_to be_empty, "no path citations found — has the record's format changed?"
+
+      cited.each do |path|
         expect(ROOT.join(path)).to exist, "acceptance record cites #{path}, which does not exist"
       end
     end
 
-    it "cites only Ruby identifiers that resolve" do
-      report.scan(/`([A-Z]\w+(?:::\w+)*)#(\w+)`/).uniq.each do |const, method|
-        klass = const.safe_constantize
-        next if klass.nil?   # a class named in prose but not loaded here is out of scope
+    it "cites only Ruby identifiers that resolve, and FAILS on one that does not" do
+      # The previous form skipped every unresolvable constant, and the record cites in the
+      # repository's abbreviated style — so `safe_constantize` returned nil for all of them and the
+      # check validated nothing. `HostGate#claimm` passed. Unresolved is now a FAILURE, and the
+      # record has been changed to cite fully-qualified names so the check has something to bite on.
+      citations = report.scan(/`([A-Z]\w+(?:::\w+)*)#(\w+)`/).uniq
+      expect(citations).not_to be_empty, "no identifier citations found — has the record's format changed?"
 
+      citations.each do |const, method|
+        klass = const.safe_constantize
+        expect(klass).not_to be_nil,
+                             "acceptance record cites #{const}##{method}; #{const} does not resolve. " \
+                             "Cite the fully-qualified constant."
         expect(klass.instance_methods(false) + klass.private_instance_methods(false))
           .to include(method.to_sym), "acceptance record cites #{const}##{method}, which does not exist"
       end
     end
 
-    it "agrees with the state file about the verified suite size" do
-      report_count = report[/RSpec \| \*\*(\d+) examples/, 1]
-      state_count = BUILD_STATE["reconciliation_note"][/rspec (\d+)\/0/, 1]
-      next if report_count.nil? || state_count.nil?
+    it "cites only migrations that exist" do
+      # Migration basenames carry no path prefix, so the file-path check never saw them.
+      names = report.scan(/`(\d{14}_\w+)`/).flatten.uniq
+      expect(names).not_to be_empty, "no migration citations found — has the record's format changed?"
+      names.each do |name|
+        expect(ROOT.join("db/migrate/#{name}.rb")).to exist,
+                                                      "acceptance record cites migration #{name}, which does not exist"
+      end
+    end
 
-      expect(report_count).to eq(state_count)
+    it "agrees with the state file about the verified suite size" do
+      # Parses the record's ACTUAL row — `| `bundle exec rspec` | `1871 examples, 0 failures` |`.
+      # The previous regex targeted a table format the record-surface reduction had already
+      # replaced, so it matched nothing and `next`ed past its own assertion.
+      report_count = report[/\|\s*`bundle exec rspec`\s*\|\s*`(\d+) examples/, 1]
+      state_count = BUILD_STATE["reconciliation_note"][/rspec (\d+)\/0/, 1]
+
+      expect(report_count).not_to be_nil, "the record's rspec verification row did not parse"
+      expect(state_count).not_to be_nil, "the state file records no rspec figure"
+      expect(report_count).to eq(state_count),
+                             "record says #{report_count} examples, state file says #{state_count}"
     end
   end
 

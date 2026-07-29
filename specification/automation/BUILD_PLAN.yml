@@ -927,12 +927,24 @@ blocks:
 
   - id: S-07-009
     name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
-    # BLOCKING PRECONDITION (found by the S-07-008 schema lens): `crawls_coverage_status_check` is
-    # `CHECK (coverage_status = ANY (...))` on a NULLABLE column, so a CHECK that evaluates to NULL
-    # is ADMITTED — a terminal Crawl with NULL coverage_status and NULL completion_reason passes
-    # today. This tranche writes exactly those two columns. Repair the constraint NULL-safely
-    # (`IS NOT DISTINCT FROM`, or an explicit `IS NOT NULL` conjunct) BEFORE writing them, or the
-    # known hole becomes operational debt at the moment it starts mattering. See FU-11.
+    # BLOCKING PRECONDITION. A terminal Crawl can carry NULL in both `coverage_status` and
+    # `completion_reason` today, and this tranche writes exactly those two columns.
+    #
+    # The constraint at fault is `crawls_terminal_shape`, NOT `crawls_coverage_status_check`, and
+    # the fault is ordinary two-valued logic rather than an UNKNOWN CHECK. `crawls_terminal_shape`'s
+    # terminal limb requires only `terminal_at IS NOT NULL`, so `state='completed'` with both
+    # columns NULL satisfies every constraint on the table. A NULL-safe rewrite of the enum check is
+    # a PROVEN NO-OP: `NULL = ANY(ARRAY['full','partial'])` is UNKNOWN and therefore admitted, and
+    # `IS NOT DISTINCT FROM` is admitted too. Applying it would produce a diff, close the item, and
+    # leave the hole open. `schemas/POSTGRESQL_SCHEMA.md` also declares the column nullable, which
+    # is what a non-terminal Crawl needs.
+    #
+    # THE REPAIR is a terminal-completeness conjunct on `crawls_terminal_shape`, scoped by state:
+    # every terminal state requires `completion_reason IS NOT NULL`, and `state='completed'`
+    # additionally requires `coverage_status IS NOT NULL`. Requiring BOTH on every terminal state is
+    # wrong and would break `IdentityAccess::Infrastructure::CrawlStartStore#fail`, which sets
+    # `state='failed'` with a completion reason and no coverage — a failed run has no coverage to
+    # report. Reconcile the catalogue's nullable declaration with the same rule. See FU-11.
     type: product
     status: pending
     depends_on:

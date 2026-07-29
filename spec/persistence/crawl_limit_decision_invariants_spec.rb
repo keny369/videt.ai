@@ -16,10 +16,24 @@ require "rails_helper"
 # same-Organization cross-Project Crawl, :442's once-per-dimension-and-run unique, the soft/hard
 # biconditional, and T-IMM on both UPDATE and DELETE.
 #
-# HONEST LIMIT: `DbInspector` connects as a BYPASSRLS superuser, so the inserts here exercise the
-# CONSTRAINTS, and the RLS assertions read the catalog rather than proving a policy blocks. That
-# matches all sixteen sibling specs and `f1:db:verify_runtime` proves the runtime role's behaviour
-# separately, but "forced RLS on both limbs" below means "declared", not "demonstrated".
+# `DbInspector` connects as a BYPASSRLS superuser, so the inserts here exercise the CONSTRAINTS and
+# the catalog assertions establish only that a policy is DECLARED. A catalog assertion cannot fail on
+# `USING (true)`, which is the whole class of defect RLS exists to prevent — so the two S-07-008
+# tables are also proved BEHAVIOURALLY, by connecting as the runtime role `f1_web` (no BYPASSRLS) and
+# reading across a tenant boundary. `f1:db:verify_runtime` does not cover either table: it is a fixed
+# list over `sessions`, `accounts`, `scheduled_actions` and the transport functions.
+def as_runtime(org)
+  cfg = ActiveRecord::Base.connection_db_config.configuration_hash
+  conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: "f1_web")
+  # `f1_enter_org_context` uses transaction-local `set_config`, so the context only exists inside a
+  # transaction — which is also how every production caller holds it.
+  conn.exec("BEGIN")
+  conn.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)", [org, SecureRandom.uuid_v7])
+  yield conn
+ensure
+  conn&.exec("ROLLBACK") rescue nil
+  conn&.close
+end
 RSpec.describe "Crawl limit-decision invariants", type: :model do
   self.use_transactional_tests = false
   after { ReceiptMinter.truncate_all }
@@ -91,6 +105,21 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
                                %w[crawl_limit_decisions crawl_limit_decisions_context])
       expect(policy["qual"]).to include("f1_current_context_org")
       expect(policy["with_check"]).to include("f1_current_context_org")
+    end
+
+    it "BLOCKS a cross-tenant read of a decision as the runtime role" do
+      ctx = context
+      insert_decision(ctx)
+      intruder = TenantSeeder.create_organization(display_name: "Intruder")
+
+      as_runtime(ctx[:org]) do |own|
+        expect(own.exec_params("SELECT count(*) FROM crawl_limit_decisions WHERE crawl_id=$1::uuid",
+                               [ctx[:crawl]]).getvalue(0, 0).to_i).to eq(1)
+      end
+      as_runtime(intruder) do |other|
+        expect(other.exec_params("SELECT count(*) FROM crawl_limit_decisions WHERE crawl_id=$1::uuid",
+                                 [ctx[:crawl]]).getvalue(0, 0).to_i).to eq(0)
+      end
     end
 
     it "grants the runtime role exactly SELECT/INSERT — a decision is never updated or deleted" do
@@ -248,6 +277,44 @@ RSpec.describe "Crawl sitemap-document charge invariants", type: :model do
     policy = DbInspector.one("SELECT qual, with_check FROM pg_policies WHERE tablename=$1", ["crawl_sitemap_document_charges"])
     expect(policy["qual"]).to include("f1_current_context_org")
     expect(policy["with_check"]).to include("f1_current_context_org")
+  end
+
+  it "BLOCKS a cross-tenant read as the runtime role, not merely declares a policy" do
+    # The mutation this exists for: `USING (organization_id = f1_current_context_org())` -> `USING
+    # (true)`. Every catalog check above still passes; a tenant reading another tenant's crawl
+    # spend does not.
+    c = context
+    insert_charge(c)
+    intruder = TenantSeeder.create_organization(display_name: "Intruder")
+
+    as_runtime(c[:org]) do |own|
+      expect(own.exec_params("SELECT count(*) FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid",
+                             [c[:crawl]]).getvalue(0, 0).to_i).to eq(1)
+    end
+    as_runtime(intruder) do |other|
+      expect(other.exec_params("SELECT count(*) FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid",
+                               [c[:crawl]]).getvalue(0, 0).to_i).to eq(0)
+    end
+  end
+
+  it "BLOCKS a cross-tenant write as the runtime role" do
+    # The WITH CHECK limb, which no catalog read can exercise either. A charge attributed to another
+    # Organization is refused by the policy, not by the foreign key — the FK would be satisfied.
+    c = context
+    intruder = TenantSeeder.create_organization(display_name: "Intruder")
+
+    as_runtime(intruder) do |other|
+      params = [SecureRandom.uuid_v7, c[:org], c[:project], c[:crawl], "https://h.example/x.xml",
+                { value: Digest::SHA256.digest("https://h.example/x.xml"), format: 1 }]
+      expect do
+        other.exec_params(<<~SQL, params)
+          INSERT INTO crawl_sitemap_document_charges
+            (id, schema_version, created_at, correlation_id, organization_id, project_id, crawl_id,
+             canonical_url, canonical_url_sha256, charged_at)
+          VALUES ($1,'1.0',now(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,$5,$6,now())
+        SQL
+      end.to raise_error(PG::InsufficientPrivilege, /row-level security/)
+    end
   end
 
   it "grants the runtime role exactly SELECT/INSERT — a charge is never released" do
