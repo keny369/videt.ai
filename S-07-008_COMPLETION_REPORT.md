@@ -21,13 +21,13 @@ Built under standing delegation ADR-061, across five commits:
 
 Every customer-visible limit event is a **consequence of a durable record**, never of runtime state:
 
-```
+```text
 decision inserted (UNIQUE adjudicates)  ->  audit + event, on the same transaction
 ```
 
 rather than the shape that was tempting at every one of the ten observation points:
 
-```
+```text
 runtime detects a threshold  ->  emit  ->  hope nothing else emitted too
 ```
 
@@ -133,9 +133,15 @@ Project that narrowed it was silently ignored.
   is lost; inventing a dimension would put a value in a customer event the contract does not admit.
 - **`accepted_pages_per_run` stays unobserved** until the artifact it counts exists.
 
-## Assumption requiring owner visibility
+## Owner-decided: what a limit event is for
 
-**Per-host RATE and CONCURRENCY emit no limit decision.** `:442` resolves an over-rate start by
+**Principle (owner, 2026-07-29): do not emit events for normal pacing decisions. An event must
+represent an exceptional operational condition, not expected scheduler behaviour — otherwise the
+signal loses its diagnostic value.** This is a general rule for the system, not a WF-005 detail: it
+applies wherever a ratified dimension has a "soft" value that is really an operating target rather
+than an approach to a wall.
+
+Its first application is here. **Per-host RATE and CONCURRENCY emit no limit decision.** `:442` resolves an over-rate start by
 **delaying** it ("a start that would make the count exceed 2 is delayed"), and carves that limb out
 before "At any **other** hard limit…". `:456`'s list of bounds that leave a candidate unevaluated is
 "depth, sitemap, queue, page, byte, response, request, or wall-clock" — rate and concurrency are
