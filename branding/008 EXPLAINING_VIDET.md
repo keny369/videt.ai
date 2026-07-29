@@ -27,15 +27,44 @@ Why it works: mystery shopping is a service Australians already understand and a
 **The reframe that ends the category confusion (use as the follow-up):**
 > "Search engines gave people a list and they picked. AI gives them one answer — a name — and they ring it. **There's no page two.** Either it says your name or it doesn't."
 
+## 1a. The structure (get this right, it is the whole argument)
+
+It is a **three step loop: measure, fix, measure again.** AEO sits inside step two, and it is not most of step two.
+
+- **Six audit surfaces** (delivery guide Part 4), only one of which is the website: identity and registers · maps and local · reviews · website technical · third party corroboration · adverse records.
+- **Ten fix types** (Part 8). The content-and-schema work a typical AEO vendor sells covers about three of them.
+
+So AEO is roughly **a slice of the middle step**. Never call it "the fix half" or "the last step": both overstate it and make VIDET sound like the same product with extra stages.
+
+## 1b. Why isn't AEO enough? (the question that decides the sale)
+
+**1. Most of what's broken isn't on your website.** When a machine answers a question about your business it is mostly repeating what *other people's* pages say: your maps listing, your ABN record, an old directory entry, a licence register, a review profile, a supplier's installer page. If your address is stale in three of those, your website can be immaculate and the machine still gives the customer the wrong address. Content does not fix a wrong record on someone else's page.
+
+**2. You can't tell whether it's working.** Ask it as a question, never as an assertion: *"What did they show you it looked like before they started, and what does it look like now?"* Almost nobody can answer. Every other line in the P&L has a before and after. This one doesn't.
+
+**3. Getting mentioned isn't the only problem. Being wrong is worse.** AEO tries to get you named. It does nothing about the machine handing out your old phone number, dropping a service you've offered for a decade, or confusing you with a similarly named business two suburbs away. Those cost jobs, and nobody is watching for them.
+
+**The positioning that makes it an easy yes: don't ask them to sack their guy.**
+> "I'm not replacing your guy. Keep him. I'm the diagnostic that tells him exactly where to aim, and the scoreboard that tells you whether it worked. If it turns out he's already got you covered, I'll show you that and you keep your money."
+
+Trades version:
+> "Your bloke's a good mechanic. But nobody's put it on the diagnostic, so he's replacing parts on a hunch, and nobody's road-tested it afterwards. That's my job."
+
+This makes the sale smaller and safer (a one-off audit that makes existing spend accountable, not a rival supplier demanding a switch), and it puts VIDET above every AEO vendor in the market rather than beside them.
+
+## 1c. Tone rule: we are not attacking SEO or AEO
+
+We sell that work too. Every line in this kit is about **sequence and coverage**, never about the competence or honesty of whoever the client already pays. Attacking their supplier makes them defend the supplier, and loyalty beats logic every time. The winning move is always: *"keep them, and here's what nobody is doing."* If a line in this document ever starts reading as "your guy is a cowboy", rewrite it.
+
 ## 2. The differentiator (only when someone says "oh, that's AEO/SEO")
 
 Never say "no it isn't." Concede the adjacency, then take the higher ground.
 
 **Business-owner version (one line):**
-> "AEO is the treatment. I'm the diagnosis — and the proof it worked."
+> "AEO is one of the repairs. I'm the diagnostic, the repair list, and the proof it worked."
 
 **Full version:**
-> "That's the fixing half, and yeah, we end up there. But everyone selling AEO is doing surgery without an X-ray — nobody's checked what the machines actually say about you first, and nobody goes back afterwards to prove it changed. That's my bit. The fixes come out of the evidence, not out of a template."
+> "That's part of the fixing step, and some of it we do too. But it's one slice of the middle of a three step job: measure, fix, measure again. Everyone selling AEO is doing surgery without an X-ray. Nobody's checked what the machines actually say about you first, and nobody goes back afterwards to prove it changed. And most of what's broken isn't even on your website, it's on the registers, maps and directories the machines quote."
 
 **Marketer/agency version (market-structure argument — use with Mark):**
 > "AEO is a crowded commodity: everyone promises visibility, nobody proves it. Position us there and we're in a price fight with fifty vendors. Position us as the audit that comes first, and we're the thing they all need and none of them do. Measurement is the wedge — optimisation is what follows it, only where the evidence supports it."

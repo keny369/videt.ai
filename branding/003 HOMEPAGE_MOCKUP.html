@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VIDET — Observatory homepage mockup</title>
+<title>VIDET Observatory homepage mockup</title>
 <style>
   /* Marketing surfaces are light-committed (002 VISUAL_IDENTITY §3 mode policy). */
   :root, :root[data-theme="dark"], :root[data-theme="light"] {
@@ -129,6 +129,9 @@
 
   /* ---------- eras ---------- */
   .eras h2 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.015em; line-height: 1.15; max-width: 24ch; }
+  .keepbox { border-left: 3px solid var(--ochre); background: var(--wash); padding: 22px 26px; margin-top: 56px; max-width: 74ch; }
+  .keepbox .kb-head { margin: 0; font-size: 21px; font-weight: 500; color: var(--ink); }
+  .keepbox .kb-body { margin: 10px 0 0; font-size: 17px; color: var(--ink-2); }
   .era-strip { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin-top: 44px; }
   @media (max-width: 720px) { .era-strip { grid-template-columns: repeat(2, 1fr); } }
   .era { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 18px 20px; }
@@ -276,8 +279,8 @@
     <div>
       <h1>The customer you never met <span class="hl">asked an AI first<svg viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><path id="hl-path" d="M1 7 C 25 4, 75 4, 99 6"></path></svg></span>.</h1>
       <p class="now">Whose name did it give them? There's no page two.</p>
-      <p class="sub">People ready to spend are asking ChatGPT, Gemini, Claude and Perplexity who to call. A search engine gave them a list and they picked. AI gives them one answer — a name — and they ring it. We find out whether it's yours, what the machines get wrong about you, and who they name instead.</p>
-      <p class="sub" style="margin-top:8px;">We ran it on our own business first, then on client businesses. Every finding is screenshot-backed and dated — ask to see any of them.</p>
+      <p class="sub">People ready to spend are asking ChatGPT, Gemini, Claude and Perplexity who to call. A search engine gave them a list and they picked. AI gives them one answer, a name, and they ring it. We find out whether it's yours, what the machines get wrong about you, and who they name instead.</p>
+      <p class="sub" style="margin-top:8px;">We ran it on our own business first, then on client businesses. Every finding is screenshot-backed and dated. Ask to see any of them.</p>
       <div class="ctas">
         <a class="btn btn-primary" href="#early-access">Book a 90-second demo</a>
         <a class="btn btn-secondary" href="#">See what we measure</a>
@@ -286,7 +289,7 @@
     <div class="plate">
       <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
       <div class="chat">
-        <div class="chat-head"><span class="dot"></span> AI assistant — simulated</div>
+        <div class="chat-head"><span class="dot"></span> AI assistant (simulated)</div>
         <div class="chat-body">
           <div class="bubble user"><span id="q-text"></span></div>
           <div class="bubble ai" id="a-bubble" hidden><span id="a-text"></span><span class="caret" id="a-caret"></span></div>
@@ -318,7 +321,7 @@
       <div class="q"><span class="n">04</span><span class="t">Does it recommend you?</span></div>
       <div class="q why"><span class="n">05</span><span class="t">Why?</span></div>
     </div>
-    <p class="closer rv">Your assessment answers all five about your business — with counts, screenshots and dates you can check.</p>
+    <p class="closer rv">Your assessment answers all five about your business, with counts, screenshots and dates you can check.</p>
   </div>
 </section>
 
@@ -330,24 +333,43 @@
       <div class="era"><div class="when">Era one</div><div class="what">Directories</div><div class="verb">You were listed.</div></div>
       <div class="era"><div class="when">Era two</div><div class="what">Search engines</div><div class="verb">You were ranked.</div></div>
       <div class="era"><div class="when">Era three</div><div class="what">Knowledge graphs</div><div class="verb">You were learned.</div></div>
-      <div class="era now-era"><div class="when">Now</div><div class="what">Generated answers</div><div class="verb">You are chosen — or not.</div></div>
+      <div class="era now-era"><div class="when">Now</div><div class="what">Generated answers</div><div class="verb">You are chosen, or not.</div></div>
     </div>
-    <p class="cat-line rv">Your customers ask; the machine replies with one recommendation. Being inside that answer is the new first page. VIDET is the Commercial Discoverability Observatory — where you watch the machines learn your business.</p>
+    <p class="cat-line rv">Your customers ask; the machine replies with one recommendation. Being inside that answer is the new first page. VIDET is the Commercial Discoverability Observatory, where you watch the machines learn your business.</p>
   </div>
 </section>
 
 <section class="diagnosis">
   <div class="wrap sec">
-    <p class="eyebrow rv">Before you pay anyone to fix anything</p>
-    <h2 class="h2-big rv">Anyone can sell you the fix. We show you what's actually broken.</h2>
-    <p class="lede rv" style="margin-top:20px; max-width:60ch;">Think of it as a mystery shopper for AI. Retailers pay people to walk in as customers and report what really gets said when the boss isn't there. We do that with the machines your buyers ask — around 22 real buyer questions, put to four assistants, again and again over several days. Every answer counted. Every mistake screenshotted.</p>
-    <div class="era-strip rv" aria-label="Diagnosis before treatment">
-      <div class="era"><div class="when">The usual</div><div class="what">Content and promises</div><div class="verb">No before. No after. No proof.</div></div>
-      <div class="era now-era"><div class="when">Step one</div><div class="what">We ask</div><div class="verb">The questions your buyers actually ask.</div></div>
-      <div class="era now-era"><div class="when">Step two</div><div class="what">We count</div><div class="verb">Every answer, dated and screenshotted.</div></div>
-      <div class="era now-era"><div class="when">Step three</div><div class="what">You know</div><div class="verb">Ten fixes from the evidence — then we measure again.</div></div>
+    <p class="eyebrow rv">Where SEO and AEO fit, and where we fit</p>
+    <h2 class="h2-big rv">Most of what's broken isn't on your website.</h2>
+    <p class="lede rv" style="margin-top:20px;">When a machine answers a question about your business, it is mostly repeating what other people's pages say about you. Your maps listing. Your ABN record. An old directory entry. A licence register. A review profile. A supplier's find-an-installer page. Your website can be immaculate and the machine will still hand a customer a three-year-old address, because no amount of content fixes a wrong record on someone else's page.</p>
+
+    <div class="era-strip rv" style="grid-template-columns:repeat(3,1fr);" aria-label="The six surfaces machines read">
+      <div class="era"><div class="when">Surface 01</div><div class="what">Identity and registers</div><div class="verb">ABN, licences, professional bodies.</div></div>
+      <div class="era"><div class="when">Surface 02</div><div class="what">Maps and local</div><div class="verb">One business, resolved correctly.</div></div>
+      <div class="era"><div class="when">Surface 03</div><div class="what">Review platforms</div><div class="verb">On the right listing, recent enough to count.</div></div>
+      <div class="era now-era"><div class="when">Surface 04</div><div class="what">Your website</div><div class="verb">Where content and markup work is done.</div></div>
+      <div class="era"><div class="when">Surface 05</div><div class="what">Third-party profiles</div><div class="verb">Directories, associations, supplier lists.</div></div>
+      <div class="era"><div class="when">Surface 06</div><div class="what">Adverse records</div><div class="verb">What a cautious buyer would find.</div></div>
     </div>
-    <p class="cat-line rv">The fixes come out of the evidence, not out of a template. That is the whole difference: everyone else is doing surgery without an X-ray.</p>
+    <p class="cat-line rv">Six surfaces. Content and markup work covers one of them. That is not a criticism of the work, it is a question of order, and of the other five.</p>
+
+    <h3 class="rv" style="font-size:26px; font-weight:500; margin-top:64px;">It is a three-step loop, and the middle step is the smallest part of the job.</h3>
+    <div class="loop-strip rv" aria-label="The three-step loop" style="margin-top:22px;">
+      <span class="st">measure</span><span class="ar">&rarr;</span>
+      <span class="st">fix</span><span class="ar">&rarr;</span>
+      <span class="st">measure again</span>
+    </div>
+    <p class="lede rv" style="margin-top:20px;">Optimisation work, whatever it gets called this year, sits inside step two. We do that work too, and we sell it. But of the ten kinds of fix we use, content and markup is about three, and step two only means something once step one has told you where to aim and step three has proved it moved.</p>
+
+    <h3 class="rv" style="font-size:26px; font-weight:500; margin-top:64px;">And right now, you can't tell whether it's working.</h3>
+    <p class="lede rv" style="margin-top:16px;">Every other line in your P&amp;L has a before and an after. This one doesn't. Ask whoever handles your search or AI work a single question: <em>what did it look like before you started, and what does it look like now?</em> If the answer isn't a number you can check, you are paying monthly for activity rather than results.</p>
+
+    <div class="keepbox rv">
+      <p class="kb-head">We are not here to replace them. Keep them.</p>
+      <p class="kb-body">We are the diagnostic that tells them exactly where to aim, and the scoreboard that tells you whether it worked. And if the machines already have you covered, we will show you that, and there is nothing for you to buy.</p>
+    </div>
   </div>
 </section>
 
@@ -358,29 +380,29 @@
     <div class="mirror rv">
       <div class="pic plate">
         <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
-        <span class="pic-tag">Reality — what's true</span>
+        <span class="pic-tag">Reality: what's true</span>
         <h3>Harper &amp; Lane, Accountants</h3>
         <div class="rowset">
           <div class="frow ok"><span class="mk">·</span>Small-business accounting since 2011</div>
           <div class="frow ok"><span class="mk">·</span>14 Collins Street, Melbourne</div>
-          <div class="frow ok"><span class="mk">·</span>214 client reviews — 4.8 average</div>
+          <div class="frow ok"><span class="mk">·</span>214 client reviews, 4.8 average</div>
           <div class="frow ok"><span class="mk">·</span>Certified practice, registered tax agents</div>
         </div>
       </div>
       <div class="pic per plate">
         <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
-        <span class="pic-tag">Perception — what a machine believes</span>
+        <span class="pic-tag">Perception: what a machine believes</span>
         <h3>The same firm, as one assistant sees it</h3>
         <div class="chips"><span class="chip">assistant one</span><span class="chip">assistant two</span><span class="chip">assistant three</span></div>
         <div class="rowset">
-          <div class="frow ok"><span class="mk">·</span>Bookkeeping — recognised</div>
-          <div class="frow gap"><span class="mk">△</span>Small-business accounting — not associated<span class="note">gap</span></div>
-          <div class="frow gap"><span class="mk">△</span>Address — three years stale<span class="note">gap</span></div>
-          <div class="frow gap"><span class="mk">△</span>"Accountant in Melbourne" — two competitors named, not them<span class="note">gap</span></div>
+          <div class="frow ok"><span class="mk">·</span>Bookkeeping: recognised</div>
+          <div class="frow gap"><span class="mk">△</span>Small-business accounting: not associated<span class="note">gap</span></div>
+          <div class="frow gap"><span class="mk">△</span>Address: three years stale<span class="note">gap</span></div>
+          <div class="frow gap"><span class="mk">△</span>"Accountant in Melbourne": two competitors named, not them<span class="note">gap</span></div>
         </div>
       </div>
     </div>
-    <p class="mirror-cap rv"><strong>There's the one you built, and the one the machines describe to your customers.</strong> The gap between the two is where enquiries change hands — a stale address here, a missing service there, a competitor named in your place. Nobody rings to tell you it happened; measuring is the only way to find out. Illustrative example.</p>
+    <p class="mirror-cap rv"><strong>There's the one you built, and the one the machines describe to your customers.</strong> The gap between the two is where enquiries change hands: a stale address here, a missing service there, a competitor named in your place. Nobody rings to tell you it happened; measuring is the only way to find out. Illustrative example.</p>
   </div>
 </section>
 
@@ -389,7 +411,7 @@
     <div>
       <p class="eyebrow rv">See it for yourself</p>
       <h2 class="rv">Find out now.</h2>
-      <p class="ask rv">Open ChatGPT or Gemini and ask who to use for what you do, in your suburb. Read it the way a customer would — someone with a job to book and no idea you exist. That's one answer on one day; the assessment asks properly, so you know whether it holds.</p>
+      <p class="ask rv">Open ChatGPT or Gemini and ask who to use for what you do, in your suburb. Read it the way a customer would: someone with a job to book and no idea you exist. That's one answer on one day; the assessment asks properly, so you know whether it holds.</p>
       <form class="capture rv" id="early-access" onsubmit="return false;">
         <label for="domain" style="position:absolute;left:-9999px;">Your company domain</label>
         <input class="mono" id="domain" type="text" inputmode="url" placeholder="yourbusiness.com" autocomplete="off">
@@ -399,11 +421,11 @@
     <div class="paths rv">
       <div class="path">
         <h3>If you appeared</h3>
-        <p>For which questions? Was your business cited, or improvised? Will the answer hold next month, on another model, phrased another way? One answer is an anecdote — the questions underneath it are the Observatory's job.</p>
+        <p>For which questions? Was your business cited, or improvised? Will the answer hold next month, on another model, phrased another way? One answer is an anecdote. The questions underneath it are the Observatory's job.</p>
       </div>
       <div class="path">
         <h3>If you didn't</h3>
-        <p>That absence is the gap — and it can be measured.</p>
+        <p>That absence is the gap, and it can be measured.</p>
       </div>
     </div>
   </div>
@@ -413,7 +435,7 @@
   <div class="wrap sec measures-grid">
     <div>
       <p class="eyebrow rv">Your business, measured</p>
-      <h2 class="h2-big rv">One number that means something — because you can open it.</h2>
+      <h2 class="h2-big rv">One number that means something, because you can open it.</h2>
       <p class="lede rv" style="font-size:17px; margin-top:18px;">One Discoverability Score. Seven evidence-backed pillars: how sound your site is, how present you are in search and in AI answers, how much authority and trust you've earned, how clear your content is, and how well your local presence carries. Equal weights. Published maths. No black box.</p>
       <p class="loop-cap rv">verified ownership in · evidence-backed score out · your systems untouched</p>
     </div>
@@ -423,7 +445,7 @@
         <div class="sc-head">
           <div>
             <span class="tag">Illustrative sample</span>
-            <div class="sc-title">Discoverability Score — harperlane.com.au</div>
+            <div class="sc-title">Discoverability Score: harperlane.com.au</div>
           </div>
           <div class="sc-overall"><span id="overall">0</span><span class="of"> / 100</span></div>
         </div>
@@ -434,9 +456,9 @@
           <div class="prow"><span class="name">Authority Signals</span><span class="bar"><i style="--w:63%"></i></span><span class="val">63</span></div>
           <div class="prow"><span class="name">Trust Signals</span><span class="bar"><i style="--w:70%"></i></span><span class="val">70</span></div>
           <div class="prow"><span class="name">Content Quality</span><span class="bar"><i style="--w:66%"></i></span><span class="val">66</span></div>
-          <div class="prow"><span class="name">Local Presence</span><span class="na">not applicable — excluded from the score</span></div>
+          <div class="prow"><span class="name">Local Presence</span><span class="na">not applicable, excluded from the score</span></div>
         </div>
-        <p class="sc-foot">When evidence is missing, a pillar reads <span class="mono">unavailable</span> — never an estimate. Every value traces to inspectable evidence: <span class="mono">EV·2041·A1 · captured 2026-07-14 09:12 UTC</span></p>
+        <p class="sc-foot">When evidence is missing, a pillar reads <span class="mono">unavailable</span>, never an estimate. Every value traces to inspectable evidence: <span class="mono">EV·2041·A1 · captured 2026-07-14 09:12 UTC</span></p>
       </div>
     </div>
   </div>
@@ -450,7 +472,7 @@
   <div class="wrap sec inner">
     <p class="eyebrow rv">Where the Observatory is headed</p>
     <h2 class="rv">Fix it once. Know it worked. Keep what you learned.</h2>
-    <p class="lede rv" style="margin-top:20px;">Every change you make is verified, observed again and measured — and the outcome is remembered, so the next recommendation starts smarter than the last. Reports depreciate. Knowledge compounds. Yours starts compounding the day you begin.</p>
+    <p class="lede rv" style="margin-top:20px;">Every change you make is verified, observed again and measured, and the outcome is remembered, so the next recommendation starts smarter than the last. Reports depreciate. Knowledge compounds. Yours starts compounding the day you begin.</p>
     <div class="loop-strip rv" aria-label="The learning loop">
       <span class="st">observe</span><span class="ar">→</span>
       <span class="st">understand</span><span class="ar">→</span>
@@ -459,7 +481,7 @@
       <span class="st">observe again</span><span class="ar">→</span>
       <span class="st">learn</span>
     </div>
-    <p class="vision-tag rv">Category direction, from VIDET's published future specifications — not yet shipping behaviour.</p>
+    <p class="vision-tag rv">Category direction, from VIDET's published future specifications. Not yet shipping behaviour.</p>
   </div>
 </section>
 
@@ -471,7 +493,7 @@
       <h2>You'll never be shown a number we can't prove.</h2>
     </div>
     <p class="rules rv">No evidence, no Issue. Every Issue traces to evidence you can inspect. Every score movement is attributable. Incomparable history shows no delta. Missing data is never synthesised.</p>
-    <p class="meth rv"><a href="#">See what we measure — the scoring maths is published in full</a></p>
+    <p class="meth rv"><a href="#">See what we measure. The scoring maths is published in full</a></p>
   </div>
 </section>
 
@@ -479,9 +501,9 @@
   <div class="wrap sec">
     <p class="eyebrow rv">Three readers, one record</p>
     <div class="readers rv">
-      <div class="reader"><h3>For owners and executives</h3><p>Where you stand, which way it's moving, and what it means commercially — without a single vanity metric.</p></div>
+      <div class="reader"><h3>For owners and executives</h3><p>Where you stand, which way it's moving, and what it means commercially, without a single vanity metric.</p></div>
       <div class="reader"><h3>For marketing teams</h3><p>Which customer questions you're absent from, and what to publish or fix first.</p></div>
-      <div class="reader"><h3>For technical implementers</h3><p>Implementation-ready artifacts with ordered steps and verification — not screenshots of problems.</p></div>
+      <div class="reader"><h3>For technical implementers</h3><p>Implementation-ready artifacts with ordered steps and verification, not screenshots of problems.</p></div>
     </div>
     <div class="trust-grid rv">
       <div class="fact"><h3>Deny by default</h3><p>Every permission is explicit. Nothing is reachable until it is granted.</p></div>
@@ -496,7 +518,7 @@
 <section class="closing">
   <div class="wrap">
     <h2 class="rv">Become the answer.</h2>
-    <p class="rv">It's your name they should be saying. Twenty founding places this August. Bring your domain — we'll bring the evidence.</p>
+    <p class="rv">It's your name they should be saying. Twenty founding places this August. Bring your domain, we'll bring the evidence.</p>
     <a class="btn rv" href="#early-access">Book a 90-second demo</a>
   </div>
 </section>
