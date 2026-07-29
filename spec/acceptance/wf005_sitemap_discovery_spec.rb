@@ -366,13 +366,56 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
   end
 
   describe "the :450 outcome table" do
-    it "records ABSENT when robots declares none and the default is 404 (coverage NOT reduced)" do
+    it "records ABSENT only when robots declares none AND the default is 404/410 (coverage NOT reduced)" do
       ctx = with_robots(sitemaps: [])
+      # outbound_map returns 404 for anything unmapped, so the default answers 404 here.
       result = discover(ctx, outbound_map({}))
       expect(result.state).to eq("absent")
       expect(result.reason_code).to eq("sitemap_absent")
       expect(result.reduces_coverage?).to be(false)
       expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("absent")
+    end
+
+    it "records UNAVAILABLE when robots declares none but the DEFAULT answers non-404/410" do
+      # :450 requires BOTH limbs for `absent`: "robots declares no sitemap AND the default sitemap
+      # returns 404 or 410". A default answering 500 is an unavailable host, not an absent one, and
+      # the difference is whether that Source root's coverage is reduced.
+      ctx = with_robots(sitemaps: [])
+      result = discover(ctx, outbound_map("https://shop.acme.example/sitemap.xml" => { status: 503 }))
+      expect(result.state).to eq("unavailable")
+      expect(result.reduces_coverage?).to be(true)
+    end
+
+    it "RETRIES a transient failure before recording unavailable (:450 'after retries')" do
+      # Recording a host unavailable on one 503 would reduce its coverage on a transient failure.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      attempts = 0
+      flaky = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **_k|
+          body = ""
+          status = 500
+          if url.end_with?("/s.xml")
+            attempts += 1
+            if attempts >= 2
+              status = 200
+              body = %(<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">) +
+                     "<url><loc>https://shop.acme.example/p</loc></url></urlset>"
+            end
+          else
+            status = 404
+          end
+          Platform::Outbound::Outcome.response(status:, headers: { "content-type" => "application/xml" },
+                                               body:, byte_count: body.bytesize, truncated: false,
+                                               canonical_host: "shop.acme.example", port: 443,
+                                               pinned_address: "198.51.100.7", final_url: url,
+                                               redirect_count: 0, latency_ms: 1)
+        end
+      end
+      result = Workflows::Wf005::DiscoverSitemaps.new(outbound: flaky, pacer: pacer_for(ctx)).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], canonical_host: ctx[:host],
+        source_id: ctx[:source_id], project_id: ctx[:g][:project_id], now: start_now)
+      expect(attempts).to be >= 2
+      expect(result.state).to eq("succeeded")
     end
 
     it "records UNAVAILABLE when a declared sitemap exists and none succeeds (coverage partial)" do

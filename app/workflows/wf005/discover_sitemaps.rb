@@ -56,6 +56,22 @@ module Workflows
       MAX_DEFERRALS_PER_CANDIDATE = 5
       DEFERRED = :deferred
 
+      # :444's shape, applied to sitemap fetches because :450 requires a sitemap to pass the same
+      # "request, retry" bounds as any other fetch — and because :450 conditions `sitemap_unavailable`
+      # on "no sitemap candidate succeeds AFTER RETRIES/validation". Recording a host unavailable
+      # without having retried would reduce its coverage on the strength of one transient failure.
+      MAX_ATTEMPTS = 3
+      RETRYABLE_STATUSES = [408, 429].freeze
+
+      # One fetch outcome. `parsed` is the parser Result when the document was retrieved and parsed;
+      # `status` is the HTTP status when there was a response; `retryable` marks a transient failure.
+      Attempt = Data.define(:parsed, :status, :retryable) do
+        def ok? = parsed&.ok?
+        # :450 — the default sitemap returning 404/410 is what makes "absent" the right outcome, as
+        # distinct from any other response, which makes it "unavailable".
+        def absent? = [404, 410].include?(status)
+      end
+
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
                      pacer: ->(ms) { sleep(ms.to_i / 1000.0) })
         @outbound = outbound
@@ -129,16 +145,34 @@ module Workflows
         return DEFERRED unless claim&.granted?
 
         begin
-          return nil unless authorized?(organization_id:, crawl_id:, source_id:, url:, gate_id:, now:)
+          unless authorized?(organization_id:, crawl_id:, source_id:, url:, gate_id:, now:)
+            return Attempt.new(parsed: nil, status: nil, retryable: false)
+          end
 
-          outcome = fetch(url)
-          return nil unless outcome.respond_to?(:response?) && outcome.response? &&
-                            (200..299).cover?(outcome.status.to_i)
-
-          SitemapParser.parse(outcome.body, content_type: content_type_of(outcome))
+          classify(fetch(url))
         ensure
           release_slot(organization_id, gate_id, claim.lease_token, now)
         end
+      end
+
+      # A transport failure is retryable when the adapter says so; 408/429/5xx are retryable by
+      # :444; every other status is terminal for the candidate. A non-2xx never reaches the parser,
+      # so attacker-controlled bytes behind an error status are never interpreted as a sitemap.
+      def classify(outcome)
+        unless outcome.respond_to?(:response?) && outcome.response?
+          return Attempt.new(parsed: nil, status: nil,
+                             retryable: outcome.respond_to?(:retryable) && outcome.retryable)
+        end
+
+        status = outcome.status.to_i
+        return Attempt.new(parsed: nil, status:, retryable: true) if RETRYABLE_STATUSES.include?(status) ||
+                                                                     (500..599).cover?(status)
+        unless (200..299).cover?(status)
+          return Attempt.new(parsed: nil, status:, retryable: false)
+        end
+
+        Attempt.new(parsed: SitemapParser.parse(outcome.body, content_type: content_type_of(outcome)),
+                    status:, retryable: false)
       end
 
       def content_type_of(outcome)
@@ -269,6 +303,9 @@ module Workflows
           @offered = 0
           @max_depth = 0
           @succeeded = false
+          @default_url = service.default_url(canonical_host)
+          # nil until the default has been attempted; then true only if it answered 404/410.
+          @default_absent = nil
         end
 
         def run(retained, declared_any:)
@@ -287,13 +324,29 @@ module Workflows
 
         private
 
-        # Wait out the host gate rather than recording a paced candidate as unavailable.
+        # Wait out the host gate rather than recording a paced candidate as unavailable, and RETRY a
+        # transient failure under :444 — :450 conditions `sitemap_unavailable` on "no candidate
+        # succeeds AFTER retries", so recording it on one 503 would reduce coverage prematurely.
         def fetch_paced(candidate)
+          last = nil
+          DiscoverSitemaps::MAX_ATTEMPTS.times do
+            attempt = fetch_once(candidate)
+            return attempt if attempt == DiscoverSitemaps::DEFERRED
+
+            last = attempt
+            return attempt unless attempt.retryable
+
+            @service.pace(HostGate::REFUSAL_RETRY_MS)
+          end
+          last
+        end
+
+        def fetch_once(candidate)
           DiscoverSitemaps::MAX_DEFERRALS_PER_CANDIDATE.times do
-            parsed = @service.fetch_document(**@context.slice(:organization_id, :crawl_id, :canonical_host,
-                                                              :source_id, :gate_id, :now),
-                                             url: candidate.canonical_url)
-            return parsed unless parsed == DiscoverSitemaps::DEFERRED
+            attempt = @service.fetch_document(**@context.slice(:organization_id, :crawl_id, :canonical_host,
+                                                               :source_id, :gate_id, :now),
+                                              url: candidate.canonical_url)
+            return attempt unless attempt == DiscoverSitemaps::DEFERRED
 
             @service.pace(HostGate::REFUSAL_RETRY_MS)
           end
@@ -302,8 +355,16 @@ module Workflows
 
         # Fetch one candidate; return any child candidates a sitemap INDEX names.
         def visit(candidate)
-          parsed = fetch_paced(candidate)
-          return [] if parsed == DiscoverSitemaps::DEFERRED   # still paced after the bound; telemetry only
+          attempt = fetch_paced(candidate)
+          return [] if attempt == DiscoverSitemaps::DEFERRED   # still paced after the bound; telemetry only
+
+          # :450 distinguishes the DEFAULT sitemap answering 404/410 (which makes the host "absent",
+          # covered, no coverage reduction) from it answering anything else (which makes the host
+          # "unavailable", reducing coverage). Recording which happened is the only way the outcome
+          # table below can tell them apart.
+          @default_absent = attempt.absent? if candidate.canonical_url == @default_url
+
+          parsed = attempt.parsed
           return [] if parsed.nil? || !parsed.ok?
 
           @documents += 1
@@ -331,14 +392,18 @@ module Workflows
                              url:, discovering:)
         end
 
-        # :450's outcome table.
+        # :450's outcome table, exactly:
+        #   "When robots declares no sitemap AND the default sitemap returns 404 or 410, record
+        #    sitemap_absent; this is covered and does not reduce coverage."
+        #   "If a declared sitemap exists, OR the default returns a non-404/410 response, and no
+        #    sitemap candidate succeeds after retries/validation, record sitemap_unavailable."
+        # Both limbs of the `absent` condition are required: robots declaring nothing is NOT enough
+        # on its own, because a default that answered 500 is an unavailable host, not an absent one.
         def outcome(declared_any:)
           state, reason =
             if @succeeded then ["succeeded", nil]
-            elsif declared_any then ["unavailable", DiscoverSitemaps::UNAVAILABLE]
-            # Robots declared none and nothing succeeded: the default was absent. "Covered, and does
-            # not reduce coverage."
-            else ["absent", DiscoverSitemaps::ABSENT]
+            elsif !declared_any && @default_absent then ["absent", DiscoverSitemaps::ABSENT]
+            else ["unavailable", DiscoverSitemaps::UNAVAILABLE]
             end
           DiscoverSitemaps::Result.new(state:, reason_code: reason, documents_fetched: @documents,
                                        urls_offered: @offered, max_index_depth: @max_depth,
