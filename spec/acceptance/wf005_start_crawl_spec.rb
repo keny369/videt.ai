@@ -351,14 +351,18 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       result = start(q[:crawl_id])
       expect(result.success?).to be(true)
       # S-07-004 completed SEARCH_CRAWL_RETRIEVAL step 6 inside this same commit; the fetch itself
-      # is S-07-007, so no attempt record exists and no network call occurs on this path.
+      # is S-07-007, so no attempt record is created and no network call occurs on this path.
+      # (This asserted `fetch_attempts` did not EXIST until S-07-007 created it. Table absence was
+      # only ever a proxy; the property is that StartCrawl writes no attempt row, so that is what is
+      # asserted now — the proxy would have gone quiet exactly when it started to matter.)
       expect(result.payload[:frontier_root_count]).to eq(1)
       entries = DbInspector.all("SELECT * FROM crawl_frontier_entries WHERE crawl_id = $1::uuid", [q[:crawl_id]])
       expect(entries.size).to eq(1)
       expect(entries.first["origin"]).to eq("root")
       expect(entries.first["depth"]).to eq("0")
       expect(entries.first["state"]).to eq("queued")
-      expect(DbInspector.connection.exec("SELECT to_regclass('fetch_attempts') AS t").getvalue(0, 0)).to be_nil
+      expect(DbInspector.all("SELECT id FROM fetch_attempts WHERE crawl_id = $1::uuid", [q[:crawl_id]])).to be_empty
+      expect(DbInspector.all("SELECT id FROM crawl_budget_counters WHERE crawl_id = $1::uuid", [q[:crawl_id]])).to be_empty
     end
   end
 

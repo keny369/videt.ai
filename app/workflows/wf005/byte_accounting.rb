@@ -52,14 +52,18 @@ module Workflows
       # path", which is the honest description.
       def measure(received:, expanded: nil, ceiling: PER_URL_CEILING)
         received = received.to_i
-        expanded = expanded.nil? ? received : expanded.to_i
+        # ":442 — at most one nonretained sentinel byte on EACH accounting path". When the transport
+        # did not content-decode the body there is ONE path, not two that happen to agree, so the
+        # probe count must be one. Deriving `expanded` from `received` and then counting both would
+        # report two probes for a single observation and inflate the telemetry counter.
+        paths = expanded.nil? ? [received] : [received, expanded.to_i]
 
         # A path that reached ceiling + 1 has had its one sentinel byte observed: the body is
         # over-limit, and that byte is telemetry rather than capacity.
-        probes = [received, expanded].count { |n| n > ceiling }
-        accounted_paths = [received, expanded].map { |n| n > ceiling ? ceiling : n }
+        probes = paths.count { |n| n > ceiling }
+        accounted = paths.map { |n| n > ceiling ? ceiling : n }.max
 
-        Measurement.new(accounted: accounted_paths.max, received:, expanded:,
+        Measurement.new(accounted:, received:, expanded: expanded.nil? ? received : expanded.to_i,
                         probe_bytes: probes, over_limit: probes.positive?)
       end
 
