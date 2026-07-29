@@ -323,9 +323,11 @@ module IdentityAccess
 
       # When the host is next startable under its own pacing, so a released claim can tell the
       # scheduler WHEN to come back rather than leaving it to spin.
-      def next_allowed_start(id)
-        query("SELECT next_allowed_start_at FROM crawl_host_gates WHERE id = $1::uuid", [id])
-          .to_a.first&.fetch("next_allowed_start_at", nil)
+      def next_allowed_start(organization_id, id)
+        query(<<~SQL, [organization_id, id]).to_a.first&.fetch("next_allowed_start_at", nil)
+          SELECT next_allowed_start_at FROM crawl_host_gates
+          WHERE organization_id = $1::uuid AND id = $2::uuid
+        SQL
       end
 
       # ---- execution-time authorization reads -----------------------------------

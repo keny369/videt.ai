@@ -17,7 +17,13 @@ module Platform
   #
   # The derivation is the OD-013 one, unchanged: the first 128 bits of the digest, stamped version 8
   # and RFC 4122 variant. It is duplicated here rather than called through SQL because callers need
-  # it outside a transaction, and the two implementations are pinned to each other by spec.
+  # it outside a transaction — `EffectiveLimits::GLOBAL_ARTIFACT_ID` is a load-time constant.
+  #
+  # `spec/platform/derived_uuid_spec.rb` pins the two implementations to each other by comparing
+  # this against the LIVE `f1_bootstrap_principal_uuid` over fixed digests, including the one the
+  # global Crawl Policy artifact uses. An earlier version of this comment asserted that pin before
+  # it was written, which two ADR-026 lenses caught: a fictional mitigation is worse than an
+  # acknowledged duplication, because a reader stops looking.
   module DerivedUuid
     module_function
 

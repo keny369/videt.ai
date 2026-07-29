@@ -25,6 +25,52 @@ RSpec.describe "WF-005 admission", type: :acceptance,
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
 
+  # The pacer fires on every reservation attempt; the rival must only take the budget once.
+  def paced_once = (@paced_once = true)
+  def paced_once? = @paced_once == true
+
+  # Seed extra queued entries at the same depth so several are admissible at once.
+  def seed_entries(ctx, count)
+    root = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+    (1..count).each do |i|
+      url = format("https://shop.acme.example/p%02d", i)
+      DbInspector.connection.exec_params(
+        "INSERT INTO crawl_frontier_entries
+           (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
+            crawl_id, source_id, canonical_url, canonical_url_preimage, canonical_url_sha256, collision_ordinal,
+            origin, depth, discovering_document_url, link_position, dequeue_key, state,
+            scope_policy_id, scope_policy_version, enqueue_order, canonicalization_version)
+         SELECT gen_random_uuid(), 0, now(), now(), gen_random_uuid(), e.organization_id,
+                e.project_id, e.crawl_id, e.source_id, $2, convert_to($2,'UTF8'),
+                sha256(convert_to($2,'UTF8')), 0, 'link', e.depth, '', 0,
+                -- A key that sorts by the index, so dequeue order is known independently of the
+                -- production encoder.
+                ('\\x00' || lpad(to_hex($3::int), 8, '0'))::bytea,
+                'queued', e.scope_policy_id, e.scope_policy_version, $3, e.canonicalization_version
+         FROM crawl_frontier_entries e WHERE e.id = $1::uuid",
+        [root["id"], url, i])
+    end
+  end
+
+
+  # Observed, not timed: the rival commits because admission was SEEN waiting on the counter row.
+  def blocked_on_counter?(ctx)
+    DbInspector.one(
+      "SELECT 1 AS waiting FROM pg_stat_activity a
+       JOIN pg_locks l ON l.pid = a.pid AND NOT l.granted
+       WHERE a.wait_event_type = 'Lock' AND a.query ILIKE '%crawl_budget_counters%'
+       LIMIT 1", []) ? true : false
+  end
+
+  def sleep_until(description, seconds: 10.0)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+    until yield
+      raise "timed out waiting for: #{description}" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      Kernel.sleep(0.002)
+    end
+  end
+
   def set_remaining(ctx, bytes)
     Platform::UnitOfWork.run do |conn|
       store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
@@ -86,47 +132,90 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       expect(decision.admitted?).to be(false)
       expect(decision.limited?).to be(true)
       expect(decision.reason_code).to eq("run_byte_budget_exhausted")
-      # The entry was claimed and is reported, so the caller can record it as a limit discard
-      # rather than losing it — :452 keeps a candidate discarded by a Crawl limit in the denominator.
-      expect(decision.entry).not_to be_nil
+      # The entry is NOT claimed. `in_progress` has no way back under the frontier guard, so an
+      # entry claimed and then refused its bytes would be stranded — and `sealed_depth`'s MIN over
+      # the non-terminal states would pin the run's breadth-first frontier at that depth forever.
+      # Admission peeks, pays, then claims.
+      expect(decision.entry).to be_nil
+      expect(DbInspector.all("SELECT state FROM crawl_frontier_entries WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]]).map { |r| r["state"] }).to all(eq("queued"))
+      # :452 keeps a candidate discarded by a Crawl limit in the coverage denominator. The record of
+      # that discard is the DECISION ROW, which S-07-009's terminal checkpoint reads — not a
+      # frontier state the run cannot leave.
+      expect(DbInspector.one(
+        "SELECT threshold_kind FROM crawl_limit_decisions
+         WHERE crawl_id=$1::uuid AND limit_dimension='accounted_response_body_bytes_per_run'",
+        [ctx[:crawl_id]])["threshold_kind"]).to eq("hard")
     end
 
     it "never lets concurrent admissions sum above the run-wide maximum" do
       # The property :442 states directly: "concurrent reservations MUST NOT sum above the run-wide
-      # maximum". The frontier lock serialises them, so this also fixes the ORDER (below).
+      # maximum". The previous version of this test was VACUOUS, as the ADR-026 concurrency lens
+      # showed: `running_crawl` seeds ONE root entry, so its three sequential `claim` calls returned
+      # idle twice, and deleting the bound predicate from `reserve_bytes` left it green. It was the
+      # only test named for this clause.
+      #
+      # This one seeds enough entries that every claimer has work, gives the run room for exactly
+      # two reservations, and races four workers on independent connections.
       ctx = running_crawl
+      seed_entries(ctx, 6)
       set_remaining(ctx, Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
 
-      3.times { claim(ctx) }
-      row = counters(ctx[:crawl_id])
-      expect(row["reserved_response_bytes"].to_i)
-        .to be <= Workflows::Wf005::ByteAccounting::RUN_CEILING
+      granted = 4.times.map { Thread.new { claim(ctx) } }.map(&:value).select(&:admitted?)
+
+      expect(granted.size).to eq(2)
+      expect(granted.sum(&:reserved_bytes)).to eq(Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
+      expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i)
+        .to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
+    end
+
+    it "does not call a LOST RACE a limit — the counter has writers the frontier lock does not cover" do
+      # The concurrency lens's finding. `pg_advisory_xact_lock("crawl-frontier:<id>")` serialises
+      # ADMISSIONS; it does not serialise `FetchContent`'s reserve/commit/release, none of which
+      # take it. The old code treated a failed compare-and-update as proof the run was exhausted and
+      # wrote an irrevocable `CrawlLimitReached` carrying the STALE pre-race figure — for a run
+      # whose budget the very next release handed straight back.
+      #
+      # DETERMINISTIC, NOT RACED. The rival commits from another connection inside admission's own
+      # read-to-write window, held open by the `pacer` seam. Racing threads and hoping cannot open
+      # that window reliably — an earlier version of this test blocked at `ensure_counters` instead,
+      # which is BEFORE the read, so both the defect and its repair passed it.
+      ctx = running_crawl
+      seed_entries(ctx, 2)
+      set_remaining(ctx, Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
+
+      rival = DbInspector.connection
+      paced = lambda do |stage|
+        next unless stage == :before_reserve
+
+        # Another worker takes the last of the budget, exactly as the fetch path does, and COMMITS.
+        rival.exec_params(
+          "UPDATE crawl_budget_counters
+           SET reserved_response_bytes = reserved_response_bytes + $2, state_version = state_version + 1
+           WHERE crawl_id = $1::uuid",
+          [ctx[:crawl_id], Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2])
+        paced_once
+      end
+
+      decision = Workflows::Wf005::Admission.new(pacer: ->(stage) { paced.call(stage) unless paced_once? })
+                                            .claim_next(organization_id: ctx[:g][:organization_id],
+                                                        crawl_id: ctx[:crawl_id], now: start_now)
+
+      # The reservation lost. It must NOT be reported as a limit on the stale figure.
+      expect(decision.admitted?).to be(false)
+      row = DbInspector.one(
+        "SELECT observed_value FROM crawl_limit_decisions
+         WHERE crawl_id=$1::uuid AND limit_dimension='accounted_response_body_bytes_per_run'
+           AND threshold_kind='hard'", [ctx[:crawl_id]])
+      # Admission re-read, found the budget genuinely spent, and recorded THAT figure — the one a
+      # statement actually enforced against. The stale figure was RUN_CEILING - 2*PER_URL.
+      expect(row).not_to be_nil
+      expect(row["observed_value"].to_i).to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
+      expect(decision.reason_code).to eq("run_byte_budget_exhausted")
     end
   end
 
   describe "admission order IS dequeue order (:456)" do
-    # Seed extra queued entries at the same depth so several are admissible at once.
-    def seed_entries(ctx, count)
-      root = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
-      (1..count).each do |i|
-        url = format("https://shop.acme.example/p%02d", i)
-        DbInspector.connection.exec_params(
-          "INSERT INTO crawl_frontier_entries
-             (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
-              crawl_id, source_id, canonical_url, canonical_url_preimage, canonical_url_sha256, collision_ordinal,
-              origin, depth, discovering_document_url, link_position, dequeue_key, state,
-              scope_policy_id, scope_policy_version, enqueue_order, canonicalization_version)
-           SELECT gen_random_uuid(), 0, now(), now(), gen_random_uuid(), e.organization_id,
-                  e.project_id, e.crawl_id, e.source_id, $2, convert_to($2,'UTF8'),
-                  sha256(convert_to($2,'UTF8')), 0, 'link', e.depth, '', 0,
-                  -- A key that sorts by the index, so dequeue order is known independently of the
-                  -- production encoder.
-                  ('\\x00' || lpad(to_hex($3::int), 8, '0'))::bytea,
-                  'queued', e.scope_policy_id, e.scope_policy_version, $3, e.canonicalization_version
-           FROM crawl_frontier_entries e WHERE e.id = $1::uuid",
-          [root["id"], url, i])
-      end
-    end
 
     it "admits in increasing dequeue key when several workers claim CONCURRENTLY" do
       # :456 — "Selection under every finite bound is deterministic." Claiming and reserving were

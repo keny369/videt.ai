@@ -71,12 +71,27 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
   def discover(ctx, outbound)
     Workflows::Wf005::DiscoverSitemaps.new(outbound:, pacer: pacer_for(ctx)).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      canonical_host: ctx[:host], source_id: ctx[:source_id], project_id: ctx[:g][:project_id],
-      now: start_now)
+      canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
   end
 
   def frontier_entries(cid) = DbInspector.all("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key", [cid])
   def occurrences(cid) = DbInspector.all("SELECT * FROM crawl_frontier_occurrences WHERE crawl_id=$1::uuid ORDER BY occurrence_order", [cid])
+
+  # Activate a Project policy narrowing the run-wide sitemap-document bound. `crawl_policies` rows
+  # are immutable, so a narrower policy is ACTIVATED rather than edited, and :390 resolves it at
+  # execution time — which is why this works on an already-running Crawl.
+  def narrow_documents(ctx, hard)
+    bounds = JSON.parse(JSON.generate(Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING))
+                 .merge("sitemap_documents" => { "soft" => hard, "hard" => hard })
+    DbInspector.connection.exec_params(
+      "INSERT INTO crawl_policies (id, state_version, created_at, updated_at, correlation_id,
+         schema_version, organization_id, project_id, scope, policy_version, state,
+         normalized_bounds, content_sha256, activated_by_account_id)
+       VALUES (gen_random_uuid(), 0, now(), now(), gen_random_uuid(), 'crawl-policy-v1', $1::uuid, $2::uuid,
+               'project', 'crawl-policy-v1-docs', 'active', $3::jsonb,
+               sha256(convert_to($3::text, 'UTF8')), $4::uuid)",
+      [ctx[:g][:organization_id], ctx[:g][:project_id], JSON.generate(bounds), ctx[:g][:account_id]])
+  end
 
   # A running crawl whose robots is resolved and declares the given sitemaps.
   def with_robots(sitemaps: [], crawl_delay: nil)
@@ -234,7 +249,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       end
       result = Workflows::Wf005::DiscoverSitemaps.new(outbound: flaky, pacer: pacer_for(ctx)).call(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], canonical_host: ctx[:host],
-        source_id: ctx[:source_id], project_id: ctx[:g][:project_id], now: start_now)
+        source_id: ctx[:source_id], now: start_now)
       expect(attempts).to be >= 2
       expect(result.state).to eq("succeeded")
     end
@@ -379,8 +394,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
         "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }
       ), pacer: ->(_ms) {}).call(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-        canonical_host: ctx[:host], source_id: ctx[:source_id],
-        project_id: ctx[:g][:project_id], now: start_now)
+        canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
     end
 
     it "does NOT record `sitemap_unavailable` for a host it never reached" do
@@ -404,6 +418,114 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(gate["sitemap_state"]).to eq("pending")
       expect(gate["sitemap_claim_token"]).to be_nil
       expect(gate["sitemap_terminal_at"]).to be_nil
+    end
+
+    it "rolls back its limit decisions when the terminal claim was taken over" do
+      # The atomicity regression this tranche introduced: the zero-row guard sat OUTSIDE the unit of
+      # work, so a worker whose claim had been stolen still committed an immutable, once-per-run
+      # `CrawlLimitReached` for a traversal whose outcome was discarded — and the legitimate worker
+      # then collided and emitted nothing. Simulated by rotating the claim token underneath a
+      # traversal that has a limit to report.
+      ctx = with_robots(sitemaps: %w[https://shop.acme.example/a.xml https://shop.acme.example/b.xml])
+      narrow_documents(ctx, 1)
+
+      service = Workflows::Wf005::DiscoverSitemaps.new(
+        outbound: outbound_map("https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }),
+        pacer: pacer_for(ctx))
+      # Steal the claim at the moment the traversal finishes, before it terminalizes. `bounded` is
+      # called once by `begin_discovery` and once by `terminalize`; the second is the one that runs
+      # after the traversal, which is exactly where a stale-attempt takeover would land.
+      calls = 0
+      service.define_singleton_method(:bounded) do |entries, key|
+        calls += 1
+        if calls == 2
+          DbInspector.connection.exec_params(
+            "UPDATE crawl_host_gates SET sitemap_claim_token = gen_random_uuid(),
+               state_version = state_version + 1 WHERE crawl_id = $1::uuid", [ctx[:crawl_id]])
+        end
+        super(entries, key)
+      end
+
+      expect do
+        service.call(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+                     canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
+      end.to raise_error(Platform::InvariantViolation, /sitemap terminal decision lost/)
+
+      # Neither the outcome nor the decisions it would have explained survived. The SOFT crossing
+      # written by the reservation earlier is deliberately not asserted away: it belongs to a
+      # different transaction, one whose effect (a document genuinely charged and fetched) did
+      # commit. Only the terminalize-time decisions roll back with the terminalize.
+      expect(gate_row(ctx[:crawl_id])["sitemap_terminal_at"]).to be_nil
+      expect(DbInspector.all(
+        "SELECT id FROM crawl_limit_decisions WHERE crawl_id=$1::uuid AND threshold_kind='hard'",
+        [ctx[:crawl_id]])).to be_empty
+      expect(DbInspector.all(
+        "SELECT id FROM event_registry WHERE aggregate_id=$1::uuid AND event_type='CrawlLimitReached'",
+        [ctx[:crawl_id]])).to be_empty
+    end
+
+    def documents_spent(ctx)
+      DbInspector.one("SELECT sitemap_documents FROM crawl_budget_counters WHERE crawl_id=$1::uuid",
+                      [ctx[:crawl_id]])&.fetch("sitemap_documents").to_i
+    end
+
+    it "spends NO run-wide document budget on a pass that made no network attempt" do
+      # The defect the concurrency, security and architecture lenses each reached independently. The
+      # budget was charged in the traversal loop, BEFORE the gate was consulted, and
+      # `reserve_sitemap_document` only ever increments — so a paced candidate cost the run a
+      # document it never fetched, and nothing gave it back.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      contended(ctx)
+
+      expect(documents_spent(ctx)).to eq(0)
+    end
+
+    it "survives REPEATED re-entry — the budget is not monotonically consumed by pacing" do
+      # Bounding this by the budget rather than by the clock is what made the old code converge on
+      # `sitemap_unavailable` with zero attempts: pass k found every reservation refused, recorded
+      # `sitemap_documents_limit` instead of a deferral, and terminalized. Thirty passes here is far
+      # past the 50-document run-wide ceiling under the old arithmetic.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      30.times { contended(ctx) }
+
+      expect(documents_spent(ctx)).to eq(0)
+      gate = gate_row(ctx[:crawl_id])
+      expect(gate["sitemap_state"]).to eq("pending")
+      expect(gate["sitemap_outcome_reason"]).to be_nil
+      # And no limit decision was invented for a host nothing was ever requested from.
+      expect(DbInspector.all("SELECT limit_dimension FROM crawl_limit_decisions WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]])).to be_empty
+    end
+
+    it "charges ONE document per distinct URL however many times :444 retries it" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      # Two transient failures then a success: three attempts, one distinct URL.
+      attempts = 0
+      flaky = Object.new
+      flaky.define_singleton_method(:fetch) do |url, **_k|
+        next Platform::Outbound::Outcome.response(
+          status: 404, headers: {}, body: "", byte_count: 0, truncated: false,
+          canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
+          final_url: url, redirect_count: 0, latency_ms: 1) unless url.end_with?("a.xml")
+
+        attempts += 1
+        next Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example") if attempts < 3
+
+        Platform::Outbound::Outcome.response(
+          status: 200, headers: { "content-type" => "application/xml" },
+          body: urlset("https://shop.acme.example/p1"),
+          byte_count: urlset("https://shop.acme.example/p1").bytesize, truncated: false,
+          canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
+          final_url: url, redirect_count: 0, latency_ms: 1)
+      end
+
+      Workflows::Wf005::DiscoverSitemaps.new(outbound: flaky, pacer: pacer_for(ctx)).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+        canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
+
+      expect(attempts).to eq(3)
+      # `a.xml` once; the default `/sitemap.xml` once. Not five.
+      expect(documents_spent(ctx)).to eq(2)
     end
 
     it "RE-ENTERS and succeeds once the contention clears" do

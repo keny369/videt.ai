@@ -2333,7 +2333,7 @@ CREATE TABLE public.crawl_limit_decisions (
     CONSTRAINT crawl_limit_decisions_limit_dimension_check CHECK ((limit_dimension = ANY (ARRAY['accepted_pages_per_run'::text, 'discovered_url_queue'::text, 'crawl_depth_from_source_root'::text, 'accounted_response_body_bytes_per_run'::text, 'response_body_per_url'::text, 'wall_clock_run_duration'::text, 'redirects_per_url'::text, 'request_rate_per_canonical_host'::text, 'concurrent_requests_per_canonical_host'::text, 'connection_plus_response_time_per_request'::text, 'sitemap_documents_per_run'::text, 'sitemap_index_nesting_depth'::text]))),
     CONSTRAINT crawl_limit_decisions_observed_value_check CHECK ((observed_value >= 0)),
     CONSTRAINT crawl_limit_decisions_output_sha256_check CHECK ((octet_length(output_sha256) = 32)),
-    CONSTRAINT crawl_limit_decisions_threshold_agreement CHECK ((((threshold_kind = 'soft'::text) AND (decision_value = 'soft_reached'::text) AND (decision_reason_code IS NULL)) OR ((threshold_kind = 'hard'::text) AND (decision_value = 'hard_reached'::text) AND (decision_reason_code = 'limit_reached'::text)))),
+    CONSTRAINT crawl_limit_decisions_threshold_agreement CHECK ((((threshold_kind = 'soft'::text) AND (decision_value = 'soft_reached'::text) AND (decision_reason_code IS NULL)) OR ((threshold_kind = 'hard'::text) AND (decision_value = 'hard_reached'::text) AND (NOT (decision_reason_code IS DISTINCT FROM 'limit_reached'::text))))),
     CONSTRAINT crawl_limit_decisions_threshold_kind_check CHECK ((threshold_kind = ANY (ARRAY['soft'::text, 'hard'::text])))
 );
 
@@ -6127,6 +6127,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120280'),
 ('20260727120270'),
 ('20260727120260'),
 ('20260727120250'),

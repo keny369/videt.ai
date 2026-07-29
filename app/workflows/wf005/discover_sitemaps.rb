@@ -84,6 +84,9 @@ module Workflows
       MAX_DEFERRALS_PER_CANDIDATE = 20
       DEFERRED = :deferred
       GATE_DEFERRED = "sitemap_gate_deferred"
+      # The run-wide sitemap-document budget refused this attempt. Distinct from DEFERRED: the gate
+      # would have let us out, the RUN cannot pay.
+      DOCUMENTS_EXHAUSTED = :documents_exhausted
 
       # :444's shape, applied to sitemap fetches because :450 requires a sitemap to pass the same
       # "request, retry" bounds as any other fetch — and because :450 conditions `sitemap_unavailable`
@@ -118,7 +121,10 @@ module Workflows
 
       # Resolve every sitemap for the host and admit the content URLs it names to the frontier.
       # Robots must already be terminal — :450's discovery reads the parsed robots file.
-      def call(organization_id:, crawl_id:, canonical_host:, source_id:, project_id: nil, now:)
+      # NOTE there is no `project_id:` parameter, deliberately. It used to be accepted and silently
+      # ignored — the Project is resolved from the CRAWL below, never from the caller — which invited
+      # a caller to believe it was authoritative.
+      def call(organization_id:, crawl_id:, canonical_host:, source_id:, now:)
         gate = load_gate(organization_id, crawl_id, canonical_host)
         return already(gate) if gate && terminal?(gate["sitemap_state"])
         return pending("robots_not_resolved") unless gate && robots_terminal?(gate)
@@ -217,7 +223,7 @@ module Workflows
       def reschedule(organization_id, gate_id, token, now)
         next_start = in_unit(organization_id) do |store|
           store.release_sitemaps(gate_id, token, now)
-          store.next_allowed_start(gate_id)
+          store.next_allowed_start(organization_id, gate_id)
         end
         pending(CONTENDED, retry_after: next_start)
       end
@@ -275,7 +281,22 @@ module Workflows
 
       # Fetch and parse ONE sitemap. Returns the parser Result, or nil when the gate, authorization
       # or transport refused — refusals are telemetry unless nothing at all succeeds (:450).
-      def fetch_document(organization_id:, crawl_id:, canonical_host:, source_id:, gate_id:, url:, now:)
+      # `charge` reserves one slot of the run-wide document budget and answers whether the run can
+      # pay. It is invoked HERE — after the gate has granted and authorization has passed, and
+      # immediately before the connection — because :437 counts "distinct canonical sitemap URLs"
+      # and the code's own rule is that the unit is URLs ATTEMPTED.
+      #
+      # It used to be charged in the traversal loop, before the gate was even consulted. That made a
+      # PACED candidate cost the run a document it never fetched, and the charge had no release
+      # path (`reserve_sitemap_document` only ever increments), so FU-9's re-entry inherited a
+      # strictly smaller budget every pass: a contended host burned the whole run-wide 50 without a
+      # single network request, and the next pass then found every reservation refused, recorded
+      # `sitemap_documents_limit` instead of a deferral, and terminalized the very
+      # `sitemap_unavailable` outcome FU-9 exists to prevent — with a false `CrawlLimitReached`
+      # beside it. Charging at the point an attempt genuinely begins removes the leak at its source
+      # rather than adding a compensating release.
+      def fetch_document(organization_id:, crawl_id:, canonical_host:, source_id:, gate_id:, url:, now:,
+                         charge: nil)
         claim = claim_slot(organization_id, gate_id, now)
         # Distinguish "the host gate is pacing us" from "this candidate failed". Only the second is a
         # sitemap outcome; the first means try again after the interval the GATE names.
@@ -285,6 +306,7 @@ module Workflows
           unless authorized?(organization_id:, crawl_id:, source_id:, url:, gate_id:, now:)
             return Attempt.new(parsed: nil, status: nil, retryable: false, outcome: nil)
           end
+          return DOCUMENTS_EXHAUSTED unless charge.nil? || charge.call
 
           classify(fetch(url))
         ensure
@@ -429,19 +451,27 @@ module Workflows
       # A zero-row terminalize would leave the gate permanently `in_progress`, so the :450 outcome
       # would never be recorded and nothing would notice. It is asserted, not assumed.
       def terminalize(organization_id, project_id, crawl_id, gate_id, token, result, now)
-        moved = in_unit(organization_id) do |store, raw|
-          row = store.terminalize_sitemaps(gate_id, token, now, state: result.state, reason: result.reason_code,
+        in_unit(organization_id) do |store, raw|
+          moved = store.terminalize_sitemaps(gate_id, token, now, state: result.state, reason: result.reason_code,
                                                    documents: result.documents_fetched,
                                                    max_depth: result.max_index_depth,
                                                    skipped: bounded(result.skipped, "url"),
                                                    limit_reasons: result.limit_reasons)
+          # THE GUARD IS INSIDE THE TRANSACTION, AND BEFORE THE OBSERVATION. It used to sit after the
+          # unit of work returned, which was harmless while the block held only this UPDATE — a
+          # zero-row result committed nothing. Putting the limit decisions in the same block changed
+          # that: a worker whose claim had been taken over by the stale-attempt sweep matched zero
+          # rows here and still committed an immutable, once-per-run `CrawlLimitReached` for a
+          # traversal whose outcome was discarded, after which the legitimate worker's own
+          # observation collided and emitted nothing. Raising inside rolls both back together, which
+          # is what `FetchContent#settle` already does.
+          raise Platform::InvariantViolation, "sitemap terminal decision lost" if moved.to_i.zero?
+
           # The sitemap bounds are observed HERE rather than where each candidate was skipped,
           # because the traversal holds no transaction — and this is the transaction that makes the
           # outcome durable, so the decisions and the outcome they explain commit together.
           observe_sitemap_limits(raw, organization_id, project_id, crawl_id, result, now)
-          row
         end
-        raise Platform::InvariantViolation, "sitemap terminal decision lost" if moved.to_i.zero?
       end
 
       # :437/:438's two sitemap bounds, recorded from the traversal's own `limit_reasons` — the
@@ -610,6 +640,11 @@ module Workflows
           @succeeded = false
           @skipped = []
           @limit_reasons = []
+          # Candidates charged against the run-wide document budget, and candidates the gate never
+          # released. A candidate is charged AT MOST ONCE however many times :444 retries it — the
+          # unit is distinct URLs, not attempts.
+          @charged = {}
+          @deferred = {}
           @default_url = service.default_url(canonical_host)
           # nil until the default has been attempted; then true only if it answered 404/410.
           @default_absent = nil
@@ -627,16 +662,15 @@ module Workflows
             # per `(crawl, canonical_host)`, so a per-host counter would let a Crawl with ten Sources
             # on ten hosts fetch ten times the ratified maximum.
             #
-            # Reserved BEFORE the attempt, because the unit is distinct canonical URLs ATTEMPTED.
-            # Counting successful parses instead would let one index naming ten thousand dead
-            # children fetch every one of them without the counter ever moving.
-            unless @service.reserve_document(**@context.slice(:organization_id, :project_id, :crawl_id, :now))
-              skip(candidate.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT)
-              next
-            end
+            # The charge happens INSIDE `fetch_document`, once the gate has granted — see the note
+            # there. A candidate that never reaches the network costs the run nothing, so a paced
+            # host can be re-entered without its budget having moved. `@visited` is likewise only
+            # marked once an attempt genuinely began: a deferred candidate must remain a candidate.
+            children = visit(candidate)
+            next if children == DiscoverSitemaps::DOCUMENTS_EXHAUSTED
 
-            @visited[candidate.canonical_url] = candidate
-            admit(visit(candidate))
+            @visited[candidate.canonical_url] = candidate unless @deferred.key?(candidate.canonical_url)
+            admit(children)
           end
           outcome(declared_any:)
         end
@@ -674,7 +708,7 @@ module Workflows
           last = nil
           DiscoverSitemaps::MAX_ATTEMPTS.times do |index|
             attempt = fetch_once(candidate)
-            return attempt if attempt == DiscoverSitemaps::DEFERRED
+            return attempt if [DiscoverSitemaps::DEFERRED, DiscoverSitemaps::DOCUMENTS_EXHAUSTED].include?(attempt)
 
             last = attempt
             return attempt unless attempt.retryable
@@ -688,7 +722,8 @@ module Workflows
           DiscoverSitemaps::MAX_DEFERRALS_PER_CANDIDATE.times do
             attempt = @service.fetch_document(**@context.slice(:organization_id, :crawl_id, :canonical_host,
                                                                :source_id, :gate_id, :now),
-                                              url: candidate.canonical_url)
+                                              url: candidate.canonical_url,
+                                              charge: charge_for(candidate))
             return attempt unless attempt.is_a?(::Array) && attempt.first == DiscoverSitemaps::DEFERRED
 
             # Wait the length the GATE reports, not a fixed constant: the interval is
@@ -699,12 +734,31 @@ module Workflows
           DiscoverSitemaps::DEFERRED
         end
 
+        # One reservation per DISTINCT candidate, taken at the moment its first real attempt begins.
+        # Memoized so :444's retries of the same URL do not each cost a document.
+        def charge_for(candidate)
+          url = candidate.canonical_url
+          lambda do
+            next true if @charged.key?(url)
+
+            granted = @service.reserve_document(**@context.slice(:organization_id, :project_id,
+                                                                 :crawl_id, :now))
+            @charged[url] = true if granted
+            granted
+          end
+        end
+
         # Fetch one candidate; return any child candidates a sitemap INDEX names.
         def visit(candidate)
           attempt = fetch_paced(candidate)
           if attempt == DiscoverSitemaps::DEFERRED
+            @deferred[candidate.canonical_url] = true
             skip(candidate.canonical_url, DiscoverSitemaps::GATE_DEFERRED)
             return []
+          end
+          if attempt == DiscoverSitemaps::DOCUMENTS_EXHAUSTED
+            skip(candidate.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT)
+            return DiscoverSitemaps::DOCUMENTS_EXHAUSTED
           end
 
           # :450 distinguishes the DEFAULT sitemap answering 404/410 (which makes the host "absent",

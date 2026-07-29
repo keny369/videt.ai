@@ -53,8 +53,11 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       raw = conn.raw_connection
       store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
       store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+      # Through the gate store, which is where the production frontier callers resolve it too —
+      # `CrawlFrontierStore` does not read policies and no longer pretends to.
       limits = Workflows::Wf005::EffectiveLimits.resolve(
-        store.active_crawl_policies(ctx[:g][:organization_id], ctx[:g][:project_id])
+        IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
+          .active_crawl_policies(ctx[:g][:organization_id], ctx[:g][:project_id])
       )
       observer = Workflows::Wf005::LimitDecisions.new.for(
         raw, organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
@@ -109,6 +112,18 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       expect(offer(ctx, url: "https://shop.acme.example/at", depth: 2).admitted?).to be(true)
       expect(decision(ctx[:crawl_id], "crawl_depth_from_source_root", "hard")).to be_nil
     end
+
+    it "records the SOFT crossing at the depth soft bound, which had no limb at all" do
+      ctx = running_crawl
+      narrow(ctx, "crawl_depth" => { "soft" => 2, "hard" => 4 })
+
+      expect(offer(ctx, url: "https://shop.acme.example/mid", depth: 2).admitted?).to be(true)
+      row = decision(ctx[:crawl_id], "crawl_depth_from_source_root", "soft")
+      expect(row).not_to be_nil
+      expect(row["configured_value"].to_i).to eq(2)
+      expect(row["observed_value"].to_i).to eq(2)
+      expect(limit_events(ctx[:crawl_id])).to include("CrawlSoftLimitApproaching")
+    end
   end
 
   describe "the discovered URL queue (:438)" do
@@ -136,6 +151,25 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       expect(result.reason).to eq("queue_limit_discarded")
       row = decision(ctx[:crawl_id], "discovered_url_queue", "hard")
       expect(row).not_to be_nil
+      expect(row["configured_value"].to_i).to eq(2)
+      expect(row["observed_value"].to_i).to eq(2)
+    end
+
+    it "records the bound as OBSERVED on the EVICTION path too, not one below it" do
+      # `admitted_count` excludes discarded rows, so re-reading it after the victim was evicted
+      # returned `configured - 1` — telling a customer they hit a maximum of 2 at an observed 1,
+      # permanently, since the decision is once-per-run. The lower-sorting newcomer takes the
+      # eviction branch.
+      ctx = running_crawl
+      narrow(ctx, "discovered_queue" => { "soft" => 2, "hard" => 2 })
+      offer(ctx, url: "https://shop.acme.example/zzz", depth: 1)
+
+      result = offer(ctx, url: "https://shop.acme.example/aaa", depth: 1)
+
+      expect(result.admitted?).to be(true)
+      expect(result.evicted_entry_id).not_to be_nil
+      row = decision(ctx[:crawl_id], "discovered_url_queue", "hard")
+      expect(row["observed_value"].to_i).to eq(2)
       expect(row["configured_value"].to_i).to eq(2)
     end
 
@@ -231,7 +265,11 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
   end
 
   describe "connection plus response time per request (:438)" do
-    it "records the HARD limit when the request times out" do
+    it "records the HARD limit only once the retries are EXHAUSTED" do
+      # :444 gives a timeout "one initial attempt plus at most two retries"; :452 makes only the
+      # exhausted case `content_fetch_failed`. Firing per attempt meant the first transient timeout
+      # in any run wrote a permanent `CrawlLimitReached`, so a run that retried once, succeeded and
+      # evaluated every candidate was still labelled `limit_reached` by the terminal checkpoint.
       ctx = fetchable
       narrow(ctx, "request_timeout_seconds" => { "soft" => 2, "hard" => 3 })
 
@@ -241,6 +279,26 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       expect(row).not_to be_nil
       expect(row["configured_value"].to_i).to eq(3)
       expect(row["observed_value"].to_i).to eq(3)
+      expect(DbInspector.all("SELECT id FROM fetch_attempts WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]]).size).to eq(Workflows::Wf005::FetchContent::MAX_ATTEMPTS)
+    end
+
+    it "records NOTHING when a timeout is retried and the retry succeeds" do
+      ctx = fetchable
+      narrow(ctx, "request_timeout_seconds" => { "soft" => 2, "hard" => 3 })
+      queue = [Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example"), content_response]
+      outbound = Object.new
+      outbound.define_singleton_method(:fetch) { |*_a, **_k| queue.length > 1 ? queue.shift : queue.first }
+      entry = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
+                              [ctx[:crawl_id]])
+
+      result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry:,
+        gate_id: ctx[:gate_id], now: start_now)
+
+      expect(result.document?).to be(true)
+      expect(decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "hard")).to be_nil
+      expect(limit_events(ctx[:crawl_id])).to be_empty
     end
 
     it "records nothing for a request that answered inside the bound" do
@@ -312,15 +370,13 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
     Workflows::Wf005::DiscoverSitemaps.new(outbound: by_url(map, default: not_found),
                                            pacer: pacer_for(ctx)).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      canonical_host: ctx[:host], source_id: ctx[:source_id], project_id: ctx[:g][:project_id],
-      now: start_now)
+      canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
   end
 
   def discover(ctx, *outcomes)
     Workflows::Wf005::DiscoverSitemaps.new(outbound: outbound_returning(*outcomes), pacer: pacer_for(ctx)).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      canonical_host: ctx[:host], source_id: ctx[:source_id], project_id: ctx[:g][:project_id],
-      now: start_now)
+      canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
   end
 
   describe "sitemap documents per run (:437)" do

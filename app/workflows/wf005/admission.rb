@@ -40,6 +40,15 @@ module Workflows
 
       EXHAUSTED = "run_byte_budget_exhausted"
       WALL_CLOCK = "wall_clock_exhausted"
+      # The compare-and-update lost to another writer of the byte counter rather than the run
+      # having no budget. A DIFFERENT outcome, and deliberately not a limit: the caller should come
+      # back, and no customer is told a limit was reached.
+      CONTENDED = "run_byte_budget_contended"
+      NOT_RUNNING = "crawl_not_running"
+
+      # The same bound `FetchContent` uses. Another worker committing between the read and the
+      # write is normal on this counter, not exceptional.
+      RESERVE_ATTEMPTS = 3
 
       # The two dimensions this class is the observation point for. Everything else is observed
       # where it happens — per-URL bytes and request time at the fetch, rate and concurrency at the
@@ -47,10 +56,17 @@ module Workflows
       BYTES = "accounted_response_body_bytes_per_run"
       WALL_CLOCK_DIMENSION = "wall_clock_run_duration"
 
-      def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil)
+      # `pacer` is the same seam `FetchContent` and `DiscoverSitemaps` carry: a no-op in production,
+      # and the only way to place another writer's COMMIT between this class's read of the byte
+      # counter and its write to it. That window is where the defect lived, and a test that cannot
+      # open it deterministically can only hope the scheduler opens it — which is the failure mode
+      # this codebase has already shipped twice.
+      def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil,
+                     pacer: ->(_stage) {})
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @limits = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
+        @pacer = pacer
       end
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
@@ -62,6 +78,12 @@ module Workflows
           crawl = gates.crawl(organization_id, crawl_id)
           next idle if crawl.nil?
 
+          # EXECUTION-TIME STATE, not queue-time. A terminal Crawl's `deadline_at` is by then in the
+          # past, so without this the wall-clock limb would write a permanent
+          # `wall_clock_run_duration` hard decision and emit `CrawlLimitReached` for a run that
+          # completed normally — and a canceled run would have byte budget reserved against it.
+          next limited(NOT_RUNNING) unless crawl["state"] == "running"
+
           bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
 
           # :442 — "At 60 elapsed minutes, no new request starts." Checked BEFORE the entry is
@@ -72,10 +94,14 @@ module Workflows
           # The same advisory lock the dequeue already takes. Holding it across the reservation is
           # what makes admission order equal dequeue order.
           frontier.lock_frontier(crawl_id)
-          entry = frontier.claim_next(organization_id, crawl_id, now)
-          next idle if entry.nil?
+          # PEEK, then pay, then claim. `in_progress` has no way back under the frontier guard, so an
+          # entry claimed and then refused its bytes is stranded — and `sealed_depth` would pin the
+          # run's breadth-first frontier at that depth forever. The lock makes peek-then-claim
+          # indivisible against another admission.
+          candidate = frontier.peek_next(organization_id, crawl_id)
+          next idle if candidate.nil?
 
-          reserve(raw, organization_id, crawl, crawl_id, entry, bounds, now)
+          admit(raw, frontier, organization_id, crawl, crawl_id, candidate, bounds, now)
         end
       end
 
@@ -87,20 +113,54 @@ module Workflows
         Decision.new(entry:, reserved_bytes: nil, reserved_total: nil, reason_code: reason)
       end
 
-      def reserve(raw, organization_id, crawl, crawl_id, entry, limits, now)
+      # Pay for the peeked candidate, then take it.
+      #
+      # WHY THE RESERVATION RETRIES. The frontier advisory lock serialises ADMISSIONS. It does not
+      # serialise the other writers of `crawl_budget_counters.reserved_response_bytes` — the fetch
+      # path reserves, commits and releases without ever taking it. The earlier comment here claimed
+      # a refusal "means the budget genuinely moved, not that a race was lost", and that was simply
+      # false: a lost compare-and-update wrote a hard `CrawlLimitReached` carrying the STALE
+      # pre-race figure, for a run whose budget the very next release handed straight back. Reading
+      # again and retrying is what `FetchContent` already does on this counter, and for this reason.
+      #
+      # A LOST RACE IS NOT A LIMIT. Only a re-read showing genuinely nothing left produces a
+      # decision; exhausting the retries produces `CONTENDED`, which tells the caller to come back
+      # and tells the customer nothing.
+      def admit(raw, frontier, organization_id, crawl, crawl_id, candidate, limits, now)
         bounds = limits.byte_bounds
         budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
         budget.ensure_counters(id: @ids.generate, now:, correlation_id: @correlation_id,
                                organization_id:, project_id: crawl["project_id"], crawl_id:)
-        row = budget.counters(organization_id, crawl_id)
-        remaining = bounds.per_run - row["reserved_response_bytes"].to_i
-        want = ByteAccounting.reservation(remaining:, per_url: bounds.per_url)
-        return exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now) if want.zero?
 
-        granted = budget.reserve_bytes(organization_id, crawl_id, want, bounds.per_run, now)
-        # Under the frontier lock no other admission can be in flight for this Crawl, so a refusal
-        # here means the budget genuinely moved (a concurrent COMMIT), not that a race was lost.
-        return exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now) if granted.nil?
+        want = nil
+        granted = nil
+        observed = nil
+        RESERVE_ATTEMPTS.times do
+          observed = budget.counters(organization_id, crawl_id)["reserved_response_bytes"].to_i
+          want = ByteAccounting.reservation(remaining: bounds.per_run - observed, per_url: bounds.per_url)
+          break if want.zero?
+
+          @pacer.call(:before_reserve)
+          granted = budget.reserve_bytes(organization_id, crawl_id, want, bounds.per_run, now)
+          break unless granted.nil?
+        end
+
+        # ":442 — a capacity hard-limit event fires BEFORE an action would exceed the maximum; the
+        # exceeding page, URL, or accounted bytes are not accepted." The candidate is NOT claimed,
+        # so nothing is stranded `in_progress` and the frontier is exactly where it was.
+        if want.zero?
+          observe(raw, organization_id, crawl, crawl_id, BYTES, LimitDimensions::HARD, observed, limits, now)
+          return limited(EXHAUSTED)
+        end
+        return limited(CONTENDED) if granted.nil?
+
+        entry = frontier.claim_next(organization_id, crawl_id, now)
+        # Under the lock the peeked candidate is still the next one. If it is not, the reservation
+        # belongs to nobody and must go back rather than retire budget silently.
+        if entry.nil?
+          budget.release_bytes(organization_id, crawl_id, want, now)
+          return idle
+        end
 
         # ":442 — a soft event fires when the observed OR RESERVED value first equals the soft
         # limit." The reserved peak is what the statement just produced: a peak that is later
@@ -109,15 +169,6 @@ module Workflows
         observe(raw, organization_id, crawl, crawl_id, BYTES, LimitDimensions::SOFT, peak, limits, now) if peak >= bounds.per_run_target
 
         Decision.new(entry:, reserved_bytes: want, reserved_total: peak, reason_code: nil)
-      end
-
-      # ":442 — a capacity hard-limit event fires BEFORE an action would exceed the maximum; the
-      # exceeding page, URL, or accounted bytes are not accepted." The entry is returned to the
-      # caller unreserved, so nothing is fetched on a budget the run does not have.
-      def exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now)
-        observe(raw, organization_id, crawl, crawl_id, BYTES, LimitDimensions::HARD,
-                row["reserved_response_bytes"].to_i, limits, now)
-        limited(EXHAUSTED, entry:)
       end
 
       # :442 — "Wall-clock duration starts at the atomic `Crawl.Queued -> Crawl.Running`

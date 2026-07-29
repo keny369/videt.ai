@@ -24,9 +24,10 @@ module Workflows
     # only participant that can adjudicate "first" across processes, so making it the thing that
     # decides means a retry, a replay, a crash between the two writes, or eight workers crossing the
     # same threshold in the same millisecond all converge on one event without any of them
-    # coordinating. The counter bits on `crawl_budget_counters` remain the cheap pre-filter that
-    # avoids the write; they are not the authority, and nothing reads them to decide whether to
-    # emit.
+    # coordinating. There is no pre-filter and no counter bit consulted first: the insert IS the
+    # check, so there is no second mechanism that could disagree with it. (S-07-008 (1/n) built a
+    # counter-bit claim for this and 3/n superseded it; the method has been deleted rather than
+    # left dormant with a rationale describing something that no longer runs.)
     #
     # The event's fields are read back OUT of the inserted row rather than taken from the caller's
     # arguments, so a CHECK that rejected a value stops the event too, and the stream can never

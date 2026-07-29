@@ -892,6 +892,38 @@ blocks:
     expected_outputs:
       - the limits slice + specs
 
+  - id: S-07-012
+    name: Crawl Execution — the run driver (scheduler re-entry for dequeue, fetch and discovery)
+    # THE MISSING BLOCK, named by the ADR-026 architecture and concurrency lenses at S-07-008.
+    # Numbered next-unused; placed HERE because this is its execution order, before the terminal
+    # checkpoint has anything to check.
+    #
+    # S-07-004..008 built the execution surfaces — `Admission#claim_next`, `EnsureRobots`,
+    # `DiscoverSitemaps`, `FetchContent` — and NOTHING IN PRODUCTION CALLS ANY OF THEM. The only
+    # registered entry point is `crawl_dispatch -> StartCrawl`, which seeds the root frontier and
+    # schedules nothing further. Every claim about the run making progress, including S-07-008's
+    # FU-9 "re-entry", presupposes this block.
+    #
+    # MUST provide, within the ratified ScheduledAction catalogue (it is CLOSED — `crawl_fetch_due`
+    # is bound to a Fetch Attempt identity, `crawl_dispatch`/`crawl_terminal_deadline` to
+    # `crawl_orchestrate`):
+    #   - the loop that admits, fetches and discovers until the frontier drains or a bound stops it;
+    #   - RE-ENTRY for a host gate left `sitemap_state = 'pending'` by S-07-008's FU-9 hand-back,
+    #     honouring the `retry_after` instant the release reports;
+    #   - re-entry for `Admission`'s `run_byte_budget_contended` outcome, which is a "come back",
+    #     not a limit.
+    # Until it exists FU-9 is MITIGATED, not delivered: the write-once false `sitemap_unavailable`
+    # is gone, but nothing re-enters.
+    type: product
+    status: pending
+    depends_on:
+      - S-07-008
+    human_gate_before: false
+    human_gate_after: false
+    risk_level: high
+    expected_outputs:
+      - the run-driver slice + specs
+
   - id: S-07-009
     name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
     type: product

@@ -71,13 +71,26 @@ module IdentityAccess
         SQL
         return { row: inserted, replayed: false } if inserted
 
-        { row: existing(row[:crawl_id], row[:limit_dimension], row[:threshold_kind]), replayed: true }
+        found = existing(row[:organization_id], row[:project_id], row[:crawl_id],
+                         row[:limit_dimension], row[:threshold_kind])
+        # `ON CONFLICT DO NOTHING` suppresses the RLS `WITH CHECK` on the conflicting path, so a
+        # caller without a proved context inserts nothing AND reads nothing. Failing loudly here
+        # beats returning a nil row for the caller to dereference three frames later.
+        raise Platform::InvariantViolation, "limit decision conflicted but is not visible" if found.nil?
+
+        { row: found, replayed: true }
       end
 
-      def existing(crawl_id, dimension, threshold)
-        query(<<~SQL, [crawl_id, dimension, threshold]).to_a.first
+      # Keyed on all three of (organization, project, crawl) rather than on the unique key alone.
+      # The unique key would have found the row, and RLS would have hidden a foreign tenant's — but
+      # POSTGRESQL_SCHEMA :128's rule is that a Project-owned read is SAFE BY PREDICATE, not safe by
+      # argument, and RLS is Organization-scoped so it says nothing about Projects. This was the
+      # fourth consecutive tranche to grow an instance of that defect class.
+      def existing(organization_id, project_id, crawl_id, dimension, threshold)
+        query(<<~SQL, [organization_id, project_id, crawl_id, dimension, threshold]).to_a.first
           SELECT #{RETURNED} FROM crawl_limit_decisions
-          WHERE crawl_id = $1::uuid AND limit_dimension = $2 AND threshold_kind = $3
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND crawl_id = $3::uuid
+            AND limit_dimension = $4 AND threshold_kind = $5
         SQL
       end
 

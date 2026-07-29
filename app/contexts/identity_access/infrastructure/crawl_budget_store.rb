@@ -74,26 +74,15 @@ module IdentityAccess
         SQL
       end
 
-      # Claim the right to emit a limit event for one dimension and threshold, ONCE PER RUN. Returns
-      # the row when this call won the claim and nil when the bit was already set — so N workers
-      # crossing together produce exactly one emission, decided by the row lock rather than by who
-      # read first.
-      #
-      # ":442 — emit `CrawlLimitReached` EXACTLY ONCE per dimension and run." The bits are add-only
-      # (the guard enforces `@>`), so a claim cannot be released and re-won, and the decision table's
-      # `UNIQUE (crawl_id, limit_dimension, threshold_kind)` is the second, authoritative barrier.
-      def claim_limit_event(organization_id, crawl_id, dimension, threshold, now)
-        column = threshold.to_s == "soft" ? "soft_limit_events" : "hard_limit_events"
-        params = [organization_id, crawl_id, dimension.to_s, iso(now)]
-        query(<<~SQL, params).to_a.first
-          UPDATE crawl_budget_counters
-          SET #{column} = #{column} || jsonb_build_object($3, true),
-              state_version = state_version + 1, updated_at = $4::timestamptz
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-            AND NOT (#{column} ? $3)
-          RETURNING #{column}
-        SQL
-      end
+      # NOTE: there is deliberately no `claim_limit_event` here any more, and nothing reads
+      # `soft_limit_events` / `hard_limit_events`. S-07-008 (1/n) added a counter-bit claim as the
+      # once-per-run mechanism; 3/n replaced it with `crawl_limit_decisions`, whose
+      # `UNIQUE (crawl_id, limit_dimension, threshold_kind)` IS :442's "exactly once per dimension
+      # and run" and is the only participant that can adjudicate "first" across processes. The
+      # superseded method survived with its rationale intact and no caller — an untested write
+      # surface on this row, and three comments elsewhere describing it as a live pre-filter. It is
+      # removed rather than left dormant. The columns remain because POSTGRESQL_SCHEMA :299 defines
+      # them; if a future tranche wants them as a read-side projection it should say so explicitly.
 
       # Commit what the attempt actually consumed and RELEASE the unused remainder of its
       # reservation in the same statement (:442 — "unused bytes are released in the same order").

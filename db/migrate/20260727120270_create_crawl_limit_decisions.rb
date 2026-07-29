@@ -14,8 +14,9 @@
 # "Exactly once per dimension and run" is `UNIQUE (crawl_id, limit_dimension, threshold_kind)`, and
 # it is the whole reason this is a table rather than a counter: the uniqueness constraint IS the
 # once-ness, so a replayed or raced emission collides instead of duplicating an event that customers
-# see. `crawl_budget_counters`' event bits are the fast path that avoids the write; this row is the
-# authority.
+# see. It is the ONLY such mechanism: the insert is the check, and nothing consults a counter bit
+# first. (The `crawl_budget_counters` event-bit claim written alongside this table was superseded
+# before the tranche closed and has been removed.)
 #
 # T-IMM: a limit observation is a fact about a moment. It is never updated and never deleted — the
 # observed value that triggered it does not become untrue when the run continues.

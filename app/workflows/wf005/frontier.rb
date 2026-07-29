@@ -168,10 +168,22 @@ module Workflows
           state = "discarded"
           reason = DEPTH_LIMIT_DISCARDED
           observer&.hard(DEPTH_DIMENSION, depth.to_i, now:, affected: LimitDecisions::Affected.new(sources: 1, urls: 1))
-        elsif @store.admitted_count(organization_id, crawl_id) >= queue_hard(observer)
+        elsif observer && depth.to_i >= observer.soft_bound(DEPTH_DIMENSION)
+          # ":442 — a soft event fires when the observed value first equals the soft limit." The
+          # depth dimension had a hard limb and no soft one at all. Latent until link extraction
+          # produces a candidate past depth 8, which is precisely why it had to be written down now
+          # rather than left for S-07-010 to inherit silently.
+          observer.soft(DEPTH_DIMENSION, depth.to_i, now:)
+        elsif (retained = @store.admitted_count(organization_id, crawl_id)) >= queue_hard(observer)
           victim = @store.highest_unclaimed(organization_id, crawl_id)
           if victim && unhex(victim["dequeue_key"]) > key
-            @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED)
+            # The row count is checked: `discard` is guarded on `state IN ('discovered','queued')`
+            # AND the expected version, so a claim landing between `highest_unclaimed` and here
+            # matches nothing — and reporting an eviction that did not happen would leave the run one
+            # candidate ABOVE its nonexceedable retention bound.
+            raise Platform::InvariantViolation, "frontier eviction lost" if
+              @store.discard(victim["id"], victim["state_version"].to_i, now, QUEUE_LIMIT_DISCARDED).to_i.zero?
+
             evicted = victim["id"]
           else
             state = "discarded"
@@ -179,7 +191,12 @@ module Workflows
           end
           # Either way the run is AT its retention bound and a candidate has been discarded for it —
           # the evicted one or this one. That is the hard limit, once for the run.
-          observer&.hard(QUEUE_DIMENSION, @store.admitted_count(organization_id, crawl_id), now:)
+          #
+          # The observed value is the count read BEFORE the eviction. Re-reading after it returned
+          # `configured - 1` on the eviction branch, because `admitted_count` excludes `discarded`
+          # rows — so a customer could be told they hit a maximum of 20,000 at an observed 19,999,
+          # permanently, since the decision is once-per-run.
+          observer&.hard(QUEUE_DIMENSION, retained, now:)
         end
 
         insert(id:, organization_id:, project_id:, crawl_id:, now:, state:, source_id:, canonical_url:,

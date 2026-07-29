@@ -8,15 +8,23 @@ module Workflows
     # ONE resolution of a Crawl's operative limits (WORKFLOW_SPECIFICATIONS.md :390 — "the most
     # restrictive of global safety, approved entitlement, Organization, and Project limits").
     #
-    # WHY THIS IS ONE PLACE. Four call sites had grown their own copy of the same eight lines —
-    # `StartCrawl`, `HostGate`, `FetchContent` and `Admission` — each re-deriving the effective
-    # bounds and each with its own rescue. They agreed, but nothing made them agree, and S-07-008
-    # adds a fifth consumer that must not merely agree: a limit decision records the CONFIGURED
-    # VALUE it was judged against (:442), so if the number in the event and the bound the scheduler
-    # enforced come from two resolutions, a customer can be told they hit a limit that was never
-    # applied. Resolving once and passing the result is the same discipline `StartCrawl` already
-    # applies to the entitlement decision: "never a second read, so the Decision row, this context
-    # and the event can never name different resolutions."
+    # WHY THIS IS ONE PLACE. Three execution-time call sites had grown their own copy of the same
+    # resolution — `HostGate`, `FetchContent` and, at S-07-008, the new `Admission` — two of them
+    # with their own rescue. They agreed, but nothing made them agree, and S-07-008 adds consumers
+    # that must not merely agree: a limit decision records the CONFIGURED VALUE it was judged
+    # against (:442), so if the number in the event and the bound the scheduler enforced come from
+    # two resolutions, a customer can be told they hit a limit that was never applied. Resolving
+    # once and passing the result is the same discipline `StartCrawl` already applies to the
+    # entitlement decision: "never a second read, so the Decision row, this context and the event
+    # can never name different resolutions."
+    #
+    # `StartCrawl` IS NOT ONE OF THEM and deliberately keeps its own. Its contract is different in
+    # three ways: it REFUSES the start when any stored policy is incomplete (`crawl_policy_unavailable`)
+    # where the execution path ignores one and continues; it additionally enforces `soft_le_hard?` on
+    # the resolved set; and it has no rescue, so malformed JSON raises out of the handler rather than
+    # falling back. A gate that admits a run and a scheduler that paces one are entitled to different
+    # answers about a policy nobody can read, and collapsing them would silently make the start gate
+    # more permissive.
     #
     # THE CONTRIBUTING SET AND THE NAMED SET ARE THE SAME SET. A stored policy whose bounds are
     # malformed is ignored rather than guessed at (its own activation command already refuses one,
@@ -76,7 +84,7 @@ module Workflows
       end
 
       # NOTE the rescue above catches a MALFORMED STORED POLICY and nothing else. `KeyError` was in
-      # the four copies this replaced, and carrying it here would have been a silent trap: a caller
+      # the copies this replaced, and carrying it here would have been a silent trap: a caller
       # whose query forgot `content_sha256` would raise inside `governing_version`, be swallowed, and
       # every Crawl would quietly fall back to the global clamp with no Organization or Project
       # policy applied. A reader that does not select what an event needs must fail loudly.

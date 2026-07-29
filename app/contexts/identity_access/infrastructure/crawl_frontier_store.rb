@@ -12,8 +12,6 @@ module IdentityAccess
     # through `claim_next`, which orders by the materialized `dequeue_key` — never by an application
     # sort, and never by `created_at`.
     class CrawlFrontierStore
-      include ActiveCrawlPolicies
-
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -158,6 +156,37 @@ module IdentityAccess
       # `FOR UPDATE SKIP LOCKED` then lets concurrent workers take DISTINCT candidates within that
       # depth without blocking. It is the CLAIM that may interleave; the ordered COMMIT of results
       # is a separate obligation belonging to S-07-007's coordinator. Returns the claimed row or nil.
+      # The entry `claim_next` WOULD claim, without claiming it. Same selection, same sealing, no
+      # state change and no row lock.
+      #
+      # It exists because `in_progress` has no way back: the guard admits only
+      # `discovered -> queued|discarded` and `queued -> in_progress|discarded`, so an entry claimed
+      # and then refused a byte reservation is stranded, and `sealed_depth`'s MIN over
+      # `('queued','in_progress','fetched_pending_commit')` then pins the run's breadth-first
+      # frontier at that depth for the rest of the run. Admission therefore decides whether it can
+      # PAY for an entry before it takes it. Safe against a concurrent claimer only because the
+      # caller holds the per-Crawl frontier advisory lock across both statements — which is the same
+      # lock that makes the reservation happen in dequeue order.
+      def peek_next(organization_id, crawl_id)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
+          WITH sealed_depth AS (
+            SELECT MIN(depth) AS d FROM crawl_frontier_entries
+            WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+              AND state IN ('queued','in_progress','fetched_pending_commit')
+          )
+          SELECT e.id, e.canonical_url, e.source_id, e.depth
+          FROM crawl_frontier_entries e, sealed_depth
+          WHERE e.organization_id = $1::uuid AND e.crawl_id = $2::uuid AND e.state = 'queued'
+            AND e.depth = sealed_depth.d
+            AND EXISTS (
+              SELECT 1 FROM sources s
+              WHERE s.organization_id = e.organization_id AND s.project_id = e.project_id
+                AND s.id = e.source_id AND s.state = 'active')
+          ORDER BY e.dequeue_key
+          LIMIT 1
+        SQL
+      end
+
       def claim_next(organization_id, crawl_id, now)
         exec(<<~SQL, [organization_id, crawl_id, iso(now)]).to_a.first
           WITH sealed_depth AS (

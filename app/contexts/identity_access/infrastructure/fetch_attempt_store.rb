@@ -66,7 +66,7 @@ module IdentityAccess
                   $2::timestamptz, $26::timestamptz)
           ON CONFLICT (crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number)
             DO NOTHING
-          RETURNING id, checkpoint_version, reserved_bytes
+          RETURNING id, checkpoint_version, reserved_bytes, attempt_number
         SQL
       end
 

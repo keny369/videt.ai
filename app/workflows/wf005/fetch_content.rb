@@ -523,7 +523,7 @@ module Workflows
           raise Platform::InvariantViolation, "fetch attempt terminal decision lost" if moved.to_i.zero?
 
           # The per-URL bounds are observed on the SAME transaction as the attempt they describe.
-          observe_fetch_limits(raw, context, result, outcome, measurement, limits)
+          observe_fetch_limits(raw, context, attempt, result, outcome, measurement, limits)
         end
       end
 
@@ -539,7 +539,7 @@ module Workflows
       #
       # The affected counts are 1 and 1 because a per-URL bound costs exactly the URL that hit it —
       # unlike a run-wide bound, which abandons everything still queued.
-      def observe_fetch_limits(pg, context, result, outcome, measurement, limits)
+      def observe_fetch_limits(pg, context, attempt, result, outcome, measurement, limits)
         observer = @limit_decisions.for(pg, organization_id: context[:organization_id],
                                         project_id: context[:project_id],
                                         crawl_id: context[:crawl_id], limits:)
@@ -547,7 +547,7 @@ module Workflows
         now = context[:now]
 
         observe_body(observer, result, measurement, one, now)
-        observe_request_time(observer, outcome, one, now)
+        observe_request_time(observer, attempt, outcome, one, now)
         observe_redirects(observer, result, one, now)
       end
 
@@ -565,9 +565,16 @@ module Workflows
         end
       end
 
-      def observe_request_time(observer, outcome, one, now)
+      # ONE TIMED-OUT ATTEMPT IS NOT A LIMIT HIT. :444 gives a timeout "one initial attempt plus at
+      # most two retries", and :452 makes only the EXHAUSTED case `content_fetch_failed`. Firing per
+      # attempt meant the first transient timeout in any run wrote a permanent
+      # `CrawlLimitReached` — so a run that retried once, succeeded, and evaluated every candidate
+      # was still labelled `limit_reached` with partial coverage by the terminal checkpoint.
+      def observe_request_time(observer, attempt, outcome, one, now)
         hard = observer.hard_bound(REQUEST_TIME_DIMENSION)
         if outcome.respond_to?(:kind) && outcome.kind == :timeout
+          return unless attempt["attempt_number"].to_i >= MAX_ATTEMPTS
+
           return observer.hard(REQUEST_TIME_DIMENSION, hard, now:, affected: one)
         end
 
