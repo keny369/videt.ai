@@ -143,9 +143,27 @@ RSpec.describe "Repository truth", type: :model do
     let(:evidence) { BUILD_STATE["acceptance_evidence"] }
     let(:report) { ROOT.join("S-07-008_COMPLETION_REPORT.md").read }
 
+    # THE RANGE IS BOUNDED AT BOTH ENDS, and both ends are read from the record.
+    #
+    # This check used to parse the base out of `commit_range` and then DISCARD the endpoint,
+    # diffing `base..HEAD` instead. That silently converted a statement about one tranche into a
+    # statement about every future commit on the branch: any later authorized work touching a path
+    # outside S-07-008's accepted paths broke an accepted record it had nothing to do with. A
+    # dependency-security commit upgrading Rails to 8.1.3.1 is what demonstrated it — `Gemfile` and
+    # `Gemfile.lock` appeared in a partition they postdate by four commits.
+    #
+    # The repository's authority is bounded. ADR-083: the tranche "is reviewed BY PATH over a
+    # COMMIT RANGE". `acceptance_evidence.verified`: the declared paths and the excluded set
+    # "account for every file changed IN THE RANGE". `excluded_contamination.reason` scopes that
+    # list to the `git add -A` sweep in two named commits. None of the three claims anything about
+    # later work, and the honest repair to a later change is its own commit, not an entry in an
+    # accepted record describing something that had not yet happened.
     it "partitions the tranche diff exactly into accepted paths and excluded contamination" do
-      base = sha!(evidence["commit_range"].split("..").first, "commit_range base")
-      changed = git!("diff", "--name-only", "#{base}..HEAD").split("\n")
+      base, head = evidence["commit_range"].split("..")
+      sha!(base, "commit_range base")
+      sha!(head, "commit_range endpoint")
+
+      changed = git!("diff", "--name-only", "#{base}..#{head}").split("\n")
       accepted = changed.select { |f| evidence["acceptance_diff_paths"].any? { |p| f.start_with?(p) } }
 
       # `excluded` was previously derived as `changed - accepted` and then asserted to recompose
@@ -153,6 +171,24 @@ RSpec.describe "Repository truth", type: :model do
       # exclusion list equals what the declared paths leave behind.
       expect((changed - accepted).sort).to eq(evidence["excluded_contamination"]["files"].sort)
       expect(changed).not_to be_empty
+    end
+
+    it "names a commit range whose endpoint is real, reachable and after its base" do
+      # The endpoint was previously discarded, so it was never validated at all: it could have
+      # named a fabricated SHA, an orphaned object, or a commit PRECEDING the base, and nothing
+      # would have failed. A bounded range is only as trustworthy as its bound.
+      base, head = evidence["commit_range"].split("..")
+      sha!(base, "commit_range base")
+      sha!(head, "commit_range endpoint")
+
+      [["base", base], ["endpoint", head]].each do |label, sha|
+        expect(git!("cat-file", "-t", sha)).to eq("commit"), "commit_range #{label} #{sha} is not a commit"
+        expect(git("merge-base", "--is-ancestor", sha, "HEAD").last).to be(true),
+               "commit_range #{label} #{sha} is not reachable from HEAD"
+      end
+
+      expect(git("merge-base", "--is-ancestor", base, head).last).to be(true),
+             "commit_range endpoint #{head} does not follow its base #{base}"
     end
 
     it "declares the same accepted paths in the state file and the acceptance record" do
