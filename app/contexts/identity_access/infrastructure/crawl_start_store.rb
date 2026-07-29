@@ -66,7 +66,8 @@ module IdentityAccess
       # (WORKFLOW_SPECIFICATIONS.md :732) because this is re-resolved at start, not pinned.
       def active_crawl_policies(organization_id, project_id)
         exec(<<~SQL, [organization_id, project_id]).to_a
-          SELECT id, policy_version, scope, normalized_bounds FROM crawl_policies
+          SELECT id, policy_version, scope, normalized_bounds, encode(content_sha256,'hex') AS content_sha256
+          FROM crawl_policies
           WHERE organization_id = $1::uuid AND state = 'active'
             AND ((scope = 'project' AND project_id = $2::uuid) OR scope = 'organization')
           ORDER BY (scope = 'project') ASC

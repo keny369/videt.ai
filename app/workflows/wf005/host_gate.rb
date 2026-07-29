@@ -63,7 +63,10 @@ module Workflows
                    base_interval_ms: WINDOW_MS / target)
       end
 
-      GLOBAL_LIMITS = limits_from(CrawlPolicy::GLOBAL_CEILING)
+      # (The global fallback constant that used to live here is gone with the local rescue it
+      # served: `EffectiveLimits` owns the malformed-policy fallback for every execution-time
+      # consumer, so there is one place that decides what happens when a stored policy cannot be
+      # read, not three that happen to agree.)
 
       REFUSAL_RETRY_MS = 250
 
@@ -143,12 +146,9 @@ module Workflows
       # policy is ignored rather than guessed at — its own activation command already refuses one,
       # so falling back to the global clamp is strictly safe.
       def effective_limits(organization_id, locked)
-        rows = @store.active_crawl_policies(organization_id, locked["project_id"])
-        sets = rows.map { |r| JSON.parse(r["normalized_bounds"]) }.select { |s| CrawlPolicy.complete?(s) }
-        bounds = CrawlPolicy.most_restrictive(CrawlPolicy::GLOBAL_CEILING, *sets)
-        self.class.limits_from(bounds)
-      rescue JSON::ParserError, KeyError
-        GLOBAL_LIMITS
+        self.class.limits_from(EffectiveLimits.resolve(
+                                 @store.active_crawl_policies(organization_id, locked["project_id"])
+                               ).bounds)
       end
 
       # Content and sitemap dispatch is blocked until the robots record is TERMINAL, and permanently

@@ -308,7 +308,8 @@ module IdentityAccess
       # bind at the claim — not merely at the start commit.
       def active_crawl_policies(organization_id, project_id)
         query(<<~SQL, [organization_id, project_id]).to_a
-          SELECT id, policy_version, scope, normalized_bounds FROM crawl_policies
+          SELECT id, policy_version, scope, normalized_bounds, encode(content_sha256,'hex') AS content_sha256
+          FROM crawl_policies
           WHERE organization_id = $1::uuid AND state = 'active'
             AND ((scope = 'project' AND project_id = $2::uuid) OR scope = 'organization')
           ORDER BY (scope = 'project') ASC

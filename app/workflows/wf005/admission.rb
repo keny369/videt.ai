@@ -41,9 +41,16 @@ module Workflows
       EXHAUSTED = "run_byte_budget_exhausted"
       WALL_CLOCK = "wall_clock_exhausted"
 
-      def initialize(ids: Platform::Ids.system, correlation_id: nil)
+      # The two dimensions this class is the observation point for. Everything else is observed
+      # where it happens — per-URL bytes and request time at the fetch, rate and concurrency at the
+      # host gate, queue and depth at the frontier, sitemaps at discovery.
+      BYTES = "accounted_response_body_bytes_per_run"
+      WALL_CLOCK_DIMENSION = "wall_clock_run_duration"
+
+      def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil)
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
+        @limits = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
       end
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
@@ -55,9 +62,11 @@ module Workflows
           crawl = gates.crawl(organization_id, crawl_id)
           next idle if crawl.nil?
 
+          bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
+
           # :442 — "At 60 elapsed minutes, no new request starts." Checked BEFORE the entry is
           # claimed, so an expired run does not take work out of the frontier only to refuse it.
-          next limited(WALL_CLOCK) if expired?(gates, crawl, crawl_id, now)
+          next limited(WALL_CLOCK) if wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
 
           frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
           # The same advisory lock the dequeue already takes. Holding it across the reservation is
@@ -66,7 +75,7 @@ module Workflows
           entry = frontier.claim_next(organization_id, crawl_id, now)
           next idle if entry.nil?
 
-          reserve(raw, organization_id, crawl, crawl_id, entry, now)
+          reserve(raw, organization_id, crawl, crawl_id, entry, bounds, now)
         end
       end
 
@@ -78,42 +87,68 @@ module Workflows
         Decision.new(entry:, reserved_bytes: nil, reserved_total: nil, reason_code: reason)
       end
 
-      def reserve(raw, organization_id, crawl, crawl_id, entry, now)
-        bounds = effective_bounds(raw, organization_id, crawl["project_id"])
+      def reserve(raw, organization_id, crawl, crawl_id, entry, limits, now)
+        bounds = limits.byte_bounds
         budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
         budget.ensure_counters(id: @ids.generate, now:, correlation_id: @correlation_id,
                                organization_id:, project_id: crawl["project_id"], crawl_id:)
         row = budget.counters(organization_id, crawl_id)
         remaining = bounds.per_run - row["reserved_response_bytes"].to_i
         want = ByteAccounting.reservation(remaining:, per_url: bounds.per_url)
-        return limited(EXHAUSTED, entry:) if want.zero?
+        return exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now) if want.zero?
 
         granted = budget.reserve_bytes(organization_id, crawl_id, want, bounds.per_run, now)
         # Under the frontier lock no other admission can be in flight for this Crawl, so a refusal
         # here means the budget genuinely moved (a concurrent COMMIT), not that a race was lost.
-        return limited(EXHAUSTED, entry:) if granted.nil?
+        return exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now) if granted.nil?
 
-        Decision.new(entry:, reserved_bytes: want,
-                     reserved_total: granted["reserved_response_bytes"].to_i, reason_code: nil)
+        # ":442 — a soft event fires when the observed OR RESERVED value first equals the soft
+        # limit." The reserved peak is what the statement just produced: a peak that is later
+        # released is invisible in the stored row but visible here, to the caller that caused it.
+        peak = granted["reserved_response_bytes"].to_i
+        observe(raw, organization_id, crawl, crawl_id, BYTES, LimitDimensions::SOFT, peak, limits, now) if peak >= bounds.per_run_target
+
+        Decision.new(entry:, reserved_bytes: want, reserved_total: peak, reason_code: nil)
       end
 
-      # :442 — "Wall-clock duration starts at the atomic `Crawl.Queued -> Crawl.Running` transition."
-      # `crawls.deadline_at` is written by StartCrawl from that instant, so it is the authority
-      # rather than a duration recomputed here.
-      def expired?(_gates, crawl, _crawl_id, now)
+      # ":442 — a capacity hard-limit event fires BEFORE an action would exceed the maximum; the
+      # exceeding page, URL, or accounted bytes are not accepted." The entry is returned to the
+      # caller unreserved, so nothing is fetched on a budget the run does not have.
+      def exhausted(raw, organization_id, crawl, crawl_id, entry, limits, row, now)
+        observe(raw, organization_id, crawl, crawl_id, BYTES, LimitDimensions::HARD,
+                row["reserved_response_bytes"].to_i, limits, now)
+        limited(EXHAUSTED, entry:)
+      end
+
+      # :442 — "Wall-clock duration starts at the atomic `Crawl.Queued -> Crawl.Running`
+      # transition." `crawls.deadline_at` is written by StartCrawl from that instant, so it is the
+      # authority rather than a duration recomputed here. The SOFT crossing has no deadline column
+      # of its own and is measured from `started_at` against the resolved soft bound, which is the
+      # same instant read a different way.
+      def wall_clock(raw, organization_id, crawl, crawl_id, limits, now)
+        elapsed = elapsed_minutes(crawl, now)
         deadline = crawl["deadline_at"]
-        return false if deadline.nil?
+        expired = !deadline.nil? && Time.parse(deadline.to_s).utc <= now.utc
 
-        Time.parse(deadline.to_s).utc <= now.utc
+        threshold = if expired
+                      LimitDimensions::HARD
+                    elsif elapsed && elapsed >= limits.configured(WALL_CLOCK_DIMENSION, LimitDimensions::SOFT)
+                      LimitDimensions::SOFT
+                    end
+        observe(raw, organization_id, crawl, crawl_id, WALL_CLOCK_DIMENSION, threshold, elapsed.to_i, limits, now) if threshold
+        expired
       end
 
-      def effective_bounds(raw, organization_id, project_id)
-        gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
-        rows = gates.active_crawl_policies(organization_id, project_id)
-        sets = rows.map { |r| JSON.parse(r["normalized_bounds"]) }.select { |s| CrawlPolicy.complete?(s) }
-        ByteAccounting.bounds_from(CrawlPolicy.most_restrictive(CrawlPolicy::GLOBAL_CEILING, *sets))
-      rescue JSON::ParserError, KeyError
-        ByteAccounting::GLOBAL_BOUNDS
+      def elapsed_minutes(crawl, now)
+        started = crawl["started_at"]
+        return nil if started.nil?
+
+        ((now.utc - Time.parse(started.to_s).utc) / 60).floor
+      end
+
+      def observe(raw, organization_id, crawl, crawl_id, dimension, threshold, observed, limits, now)
+        @limits.observe(raw, organization_id:, project_id: crawl["project_id"],
+                        crawl_id:, dimension:, threshold:, observed:, limits:, now:)
       end
     end
   end

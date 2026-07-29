@@ -431,14 +431,13 @@ module Workflows
 
       # :390 — the operative bounds are the most restrictive of global safety and every active
       # Organization/Project policy, resolved HERE rather than carried from queue time.
-      def effective_bounds(context)
+      def effective_bounds(context) = effective_limits(context).byte_bounds
+
+      def effective_limits(context)
         rows = in_unit(context[:organization_id]) do |store|
           store.active_crawl_policies(context[:organization_id], context[:project_id])
         end
-        sets = rows.map { |r| JSON.parse(r["normalized_bounds"]) }.select { |s| CrawlPolicy.complete?(s) }
-        ByteAccounting.bounds_from(CrawlPolicy.most_restrictive(CrawlPolicy::GLOBAL_CEILING, *sets))
-      rescue JSON::ParserError, KeyError
-        ByteAccounting::GLOBAL_BOUNDS
+        EffectiveLimits.resolve(rows)
       end
 
       # ---- honest boundaries -----------------------------------------------------
