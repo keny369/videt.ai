@@ -61,4 +61,11 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf005::Handlers::StartCrawl,
     command: Workflows::Wf005::Commands::StartCrawl
   )
+  registry.register(
+    action_kind: "crawl_fetch_due",
+    action_schema_version: "1.0",
+    operation: "RecordFetchAttempt",
+    handler: Workflows::Wf005::Handlers::RecordFetchAttempt,
+    command: Workflows::Wf005::Commands::RecordFetchAttempt
+  )
 end
