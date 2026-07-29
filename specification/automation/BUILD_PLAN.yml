@@ -850,7 +850,7 @@ blocks:
   - id: S-07-006
     name: Crawl Execution — sitemap discovery + XXE-hardened XML
     type: product
-    status: pending
+    status: completed   # 2026-07-29: accepted (ADR-061); complete 5-lens review, 12 CB fixed + mutation-checked (ADR-081).
     depends_on:
       - S-07-005
     human_gate_before: false
@@ -864,7 +864,7 @@ blocks:
     type: product
     status: pending
     depends_on:
-      - S-07-005
+      - S-07-006
     human_gate_before: false
     human_gate_after: false
     risk_level: high
@@ -873,6 +873,9 @@ blocks:
 
   - id: S-07-008
     name: Crawl Execution — limits, soft/hard events, wall clock
+    # MUST provide scheduler re-entry for a host deferred by sustained gate contention (FU-9,
+    # ADR-081). Without it, sitemap discovery can terminalize `sitemap_unavailable` with zero
+    # network attempts, which reopens S-07-006.
     type: product
     status: pending
     depends_on:

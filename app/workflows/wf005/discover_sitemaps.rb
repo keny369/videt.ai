@@ -87,7 +87,6 @@ module Workflows
       # One fetch outcome. `parsed` is the parser Result when the document was retrieved and parsed;
       # `status` is the HTTP status when there was a response; `retryable` marks a transient failure.
       Attempt = Data.define(:parsed, :status, :retryable, :outcome) do
-        def ok? = parsed&.ok?
         # :450 — the default sitemap returning 404/410 is what makes "absent" the right outcome, as
         # distinct from any other response, which makes it "unavailable".
         def absent? = [404, 410].include?(status)

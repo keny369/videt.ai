@@ -46,7 +46,9 @@ module Workflows
       # may redirect. F-01's guarded client performs a NEW full resolution and destination check on
       # every hop, so following here inherits the same egress guarantees as the first connection.
       # Exhausting the budget is a named non-retryable failure and still fails closed.
-      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("soft")
+      # :442 — "an ELEVENTH redirect fails that URL", so the operative bound is the hard ceiling.
+      # The soft value is a scheduling target for rate and concurrency, not a per-URL failure point.
+      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("hard")
       # :444 — one initial attempt plus at most two retries, with EXACTLY these delays after the
       # first and second failed attempts. A `Retry-After` of 1..120 seconds replaces that retry's
       # delay; every other value is ignored.
