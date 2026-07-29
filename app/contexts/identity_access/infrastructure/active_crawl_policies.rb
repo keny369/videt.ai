@@ -4,8 +4,8 @@ module IdentityAccess
   module Infrastructure
     # The one read of a Crawl's governing policies (WORKFLOW_SPECIFICATIONS.md :390).
     #
-    # It had grown three copies across the stores that need it, and S-07-008 added a reason they
-    # must not drift apart: `content_sha256` is now part of what an event asserts, so a store that
+    # It had grown two copies (`CrawlHostGateStore`, `CrawlStartStore`), and S-07-008 added a
+    # reason they must not drift apart: `content_sha256` is now part of what an event asserts, so a store that
     # selects four of the five columns produces an `EventGoverningVersion` that cannot be built.
     # One definition means adding a column is one edit, not a hunt.
     #

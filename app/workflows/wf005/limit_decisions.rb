@@ -115,7 +115,7 @@ module Workflows
 
         store = IdentityAccess::Infrastructure::CrawlLimitDecisionStore.new(pg)
         configured = limits.configured(dimension, threshold)
-        counts = affected || default_affected(store, organization_id, crawl_id, threshold)
+        counts = affected || default_affected(store, organization_id, crawl_id, dimension, threshold)
 
         result = store.record(decision_row(organization_id:, project_id:, crawl_id:, dimension:, threshold:,
                                            configured:, observed:, counts:, limits:, now:))
@@ -128,13 +128,18 @@ module Workflows
 
       private
 
-      # ":456 — any in-scope candidate NOT EVALUATED because of a … bound makes coverage partial."
-      # The candidates that will not be evaluated when scheduling stops are the ones still awaiting
-      # selection; entries already in flight will finish. A soft crossing stops nothing, so nothing
-      # is affected by it — recording a hard limit's counts on a soft event would tell a customer
-      # work had been abandoned when none had.
-      def default_affected(store, organization_id, crawl_id, threshold)
-        return NONE unless threshold == LimitDimensions::HARD
+      # ":442 — at any other hard limit, STOP SCHEDULING AFFECTED WORK … record … affected Source
+      # and URL counts." The unselected frontier is the right population for exactly the two bounds
+      # that DO stop scheduling: the run's byte budget and its wall clock. Every other dimension
+      # abandons something narrower and passes it explicitly — one URL for a per-URL bound or a
+      # queue discard, the skipped sitemap candidates for a sitemap bound. Defaulting all of them to
+      # the whole frontier reported ~20,000 abandoned URLs for a queue discard that cost exactly one.
+      #
+      # A soft crossing stops nothing, so nothing is affected by it.
+      RUN_STOPPING = ["accounted_response_body_bytes_per_run", "wall_clock_run_duration"].freeze
+
+      def default_affected(store, organization_id, crawl_id, dimension, threshold)
+        return NONE unless threshold == LimitDimensions::HARD && RUN_STOPPING.include?(dimension)
 
         row = store.unselected_counts(organization_id, crawl_id)
         Affected.new(sources: row["sources"].to_i, urls: row["urls"].to_i)

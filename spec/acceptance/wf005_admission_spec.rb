@@ -25,9 +25,22 @@ RSpec.describe "WF-005 admission", type: :acceptance,
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
 
-  # The pacer fires on every reservation attempt; the rival must only take the budget once.
-  def paced_once = (@paced_once = true)
-  def paced_once? = @paced_once == true
+  # Observed, not timed: the rival commits because admission was SEEN waiting on the counter row.
+  def blocked_on_counter?
+    DbInspector.one(
+      "SELECT 1 AS waiting FROM pg_stat_activity
+       WHERE wait_event_type = 'Lock' AND query ILIKE '%crawl_budget_counters%'
+         AND query ILIKE '%reserved_response_bytes%' LIMIT 1", []) ? true : false
+  end
+
+  def sleep_until(description, seconds: 15.0)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+    until yield
+      raise "timed out waiting for: #{description}" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      Kernel.sleep(0.005)
+    end
+  end
 
   # Seed extra queued entries at the same depth so several are admissible at once.
   def seed_entries(ctx, count)
@@ -139,7 +152,13 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       # only test named for this clause.
       #
       # This one seeds enough entries that every claimer has work, gives the run room for exactly
-      # two reservations, and races four workers on independent connections.
+      # two reservations, and races four workers.
+      #
+      # HONEST LIMIT: `Admission` holds the frontier advisory lock across every statement here, so
+      # the four SERIALISE and the counter's own `reserved + want <= ceiling` predicate is never
+      # exercised — deleting it leaves this green. What this proves is that ADMISSION's own sizing
+      # is exact under the lock. The predicate itself is proved by the test below, whose rival does
+      # not hold that lock.
       ctx = running_crawl
       seed_entries(ctx, 6)
       set_remaining(ctx, Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
@@ -153,48 +172,51 @@ RSpec.describe "WF-005 admission", type: :acceptance,
     end
 
     it "does not call a LOST RACE a limit — the counter has writers the frontier lock does not cover" do
-      # The concurrency lens's finding. `pg_advisory_xact_lock("crawl-frontier:<id>")` serialises
-      # ADMISSIONS; it does not serialise `FetchContent`'s reserve/commit/release, none of which
-      # take it. The old code treated a failed compare-and-update as proof the run was exhausted and
-      # wrote an irrevocable `CrawlLimitReached` carrying the STALE pre-race figure — for a run
-      # whose budget the very next release handed straight back.
+      # `pg_advisory_xact_lock("crawl-frontier:<id>")` serialises ADMISSIONS; it does not serialise
+      # `FetchContent`'s reserve/commit/release, none of which take it. The old code treated a failed
+      # compare-and-update as proof the run was exhausted and wrote an irrevocable `CrawlLimitReached`
+      # carrying the STALE pre-race figure — for a run whose budget the very next release handed back.
       #
-      # DETERMINISTIC, NOT RACED. The rival commits from another connection inside admission's own
-      # read-to-write window, held open by the `pacer` seam. Racing threads and hoping cannot open
-      # that window reliably — an earlier version of this test blocked at `ensure_counters` instead,
-      # which is BEFORE the read, so both the defect and its repair passed it.
+      # DETERMINISTIC WITHOUT ANY PRODUCTION SEAM. A rival holds an UNCOMMITTED reservation on the
+      # counter row through the production store. Admission's plain `SELECT` reads the pre-race
+      # value (READ COMMITTED gives no dirty read, so it sees the stale figure), its `UPDATE` then
+      # BLOCKS on the rival's row lock, and on the rival's COMMIT PostgreSQL re-evaluates the
+      # predicate against the new tuple (EvalPlanQual) and matches nothing. That is exactly the lost
+      # compare-and-update, ordered by the lock rather than by hope. An earlier version of this test
+      # needed a `pacer:` probe point on the production constructor; this needs none, and uses the
+      # same EPQ mechanism the store already documents.
       ctx = running_crawl
       seed_entries(ctx, 2)
       set_remaining(ctx, Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2)
 
-      # The rival reserves through the PRODUCTION store on its own connection, which is exactly the
-      # `FetchContent` relationship: a writer of `crawl_budget_counters` that never takes the
-      # frontier advisory lock. A raw UPDATE would have tested the test rather than the predicate.
       cfg = ActiveRecord::Base.connection_db_config.configuration_hash
-      paced = lambda do |stage|
-        next unless stage == :before_reserve
+      rival = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database],
+                         user: cfg[:username], password: cfg[:password].presence)
+      begin
+        rival.exec("BEGIN")
+        store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(rival)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        # A bare row lock, NOT an UPDATE. An UPDATE would create a new tuple version whose
+        # uncommitted index entry blocks admission at `ensure_counters` — which is BEFORE its read,
+        # so it would then read the fresh value and the test would prove nothing about the window.
+        rival.exec_params("SELECT 1 FROM crawl_budget_counters WHERE crawl_id = $1::uuid FOR UPDATE",
+                          [ctx[:crawl_id]])
 
-        conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database],
-                          user: cfg[:username], password: cfg[:password].presence)
-        begin
-          conn.exec("BEGIN")
-          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn)
-          store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
-          store.reserve_bytes(ctx[:g][:organization_id], ctx[:crawl_id],
-                              Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2,
-                              Workflows::Wf005::ByteAccounting::RUN_CEILING, start_now)
-          conn.exec("COMMIT")
-        ensure
-          conn.close
-        end
-        paced_once
+        # Admission now reads the STALE value (READ COMMITTED, non-locking SELECT) and blocks on its
+        # own UPDATE — exactly the read-to-write window the defect lived in.
+        worker = Thread.new { claim(ctx) }
+        sleep_until("admission is blocked on the counter row") { blocked_on_counter? }
+
+        # The rival takes the last of the budget and commits underneath it.
+        expect(store.reserve_bytes(ctx[:g][:organization_id], ctx[:crawl_id],
+                                   Workflows::Wf005::ByteAccounting::PER_URL_CEILING * 2,
+                                   Workflows::Wf005::ByteAccounting::RUN_CEILING, start_now)).not_to be_nil
+        rival.exec("COMMIT")
+        decision = worker.value
+      ensure
+        rival.close
       end
 
-      decision = Workflows::Wf005::Admission.new(pacer: ->(stage) { paced.call(stage) unless paced_once? })
-                                            .claim_next(organization_id: ctx[:g][:organization_id],
-                                                        crawl_id: ctx[:crawl_id], now: start_now)
-
-      # The reservation lost. It must NOT be reported as a limit on the stale figure.
       expect(decision.admitted?).to be(false)
       row = DbInspector.one(
         "SELECT observed_value FROM crawl_limit_decisions
@@ -206,11 +228,9 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       expect(row["observed_value"].to_i).to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
       expect(decision.reason_code).to eq("run_byte_budget_exhausted")
 
-      # AND the property :442 actually states: "concurrent reservations MUST NOT sum above the
-      # run-wide maximum." This is the assertion the bound predicate carries — the rival does not
-      # take the frontier lock, so nothing but `reserved + want <= ceiling` in the statement's own
-      # WHERE stops admission adding its reservation on top. Mutation-proved: delete that predicate
-      # and this exceeds the ceiling.
+      # AND :442's own sentence: "concurrent reservations MUST NOT sum above the run-wide maximum."
+      # The rival never takes the frontier lock, so nothing but `reserved + want <= ceiling` in the
+      # statement's own WHERE stops admission adding its reservation on top. Mutation-proved.
       expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i)
         .to eq(Workflows::Wf005::ByteAccounting::RUN_CEILING)
     end
@@ -219,7 +239,11 @@ RSpec.describe "WF-005 admission", type: :acceptance,
   describe "execution-time authorization, before any effect" do
     # Admission reserves budget, claims an entry and can write an IMMUTABLE customer-visible
     # decision. Checking only "does the Crawl exist" let a suspended tenant or an unmetered run get
-    # all three. Each of these deletes its guard line to prove the test is load-bearing.
+    # all three.
+    #
+    # THREE of the four limbs delete their guard line to prove the test is load-bearing. The fourth,
+    # the Project limb, is unreachable at HEAD and says so below rather than claiming coverage it
+    # does not have — the claim that every limb was mutation-proved was false and is withdrawn.
     def effects(ctx)
       { decisions: DbInspector.all("SELECT id FROM crawl_limit_decisions WHERE crawl_id=$1::uuid", [ctx[:crawl_id]]).size,
         events: DbInspector.all("SELECT id FROM event_registry WHERE aggregate_id=$1::uuid AND event_type LIKE 'Crawl%Limit%'", [ctx[:crawl_id]]).size,
@@ -258,6 +282,26 @@ RSpec.describe "WF-005 admission", type: :acceptance,
 
       expect(decision.reason_code).to eq("admission_crawl_not_running")
       expect(effects(ctx)).to eq({ decisions: 0, events: 0, reserved: 0, claimed: 0 })
+    end
+
+    it "cannot yet be exercised for an inactive Project — and that is asserted, not assumed" do
+      # THREE lenses across two passes found the Project limb untested while this block's comment
+      # claimed every limb was mutation-proved. The honest reason is that the limb is UNREACHABLE at
+      # HEAD: `f1_projects_guard` admits exactly one state transition, `draft -> active`, so a
+      # Project that has started a Crawl can never become inactive. There is no legitimate way to
+      # reach the branch, and fabricating one with a double would assert the double.
+      #
+      # So this asserts the unreachability instead. When the Project lifecycle lands its
+      # `active -> paused|archived` edges, this example fails — which is the signal to replace it
+      # with the real denial test.
+      ctx = running_crawl
+      %w[paused archived draft].each do |state|
+        expect do
+          DbInspector.connection.exec_params(
+            "UPDATE projects SET state=$2, state_version=state_version+1 WHERE id=$1::uuid",
+            [ctx[:g][:project_id], state])
+        end.to raise_error(PG::RaiseException, /project_lifecycle_transition_unavailable/)
+      end
     end
 
     it "refuses a run whose entitlement reservation is no longer executing (PRULE-007)" do

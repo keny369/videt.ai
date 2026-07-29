@@ -261,10 +261,26 @@ module Workflows
       # The canonicalizer is the S-06 predicate — the same one content URLs go through — driven by a
       # permissive identity policy for this host, so host/scheme/port/path/query normalization and
       # the same-host rule are decided by one implementation rather than two.
+      # `canonical_url` is bounded at persistence (`crawl_sitemap_document_charges` CHECKs
+      # `length BETWEEN 1 AND 8192`), so it must be bounded HERE, where a refusal is an ordinary
+      # recorded skip. Remote input reaches this from a customer's robots.txt and from
+      # `<sitemapindex>` bodies the parser admits up to 10 MiB of character data; neither caps a
+      # single location. Without this an over-long URL raised an uncaught `PG::CheckViolation` out of
+      # the charge, AFTER `begin_sitemaps` had committed the gate `in_progress` — so the gate never
+      # terminalized, the stale-attempt sweep re-ran the identical traversal and raised identically,
+      # and the host was wedged for the run's whole wall clock.
+      MAX_SITEMAP_URL_BYTES = 8192
+
       def normalize(url, canonical_host)
-        decision = Wf004::SourceScopePredicate.evaluate(url: url.to_s.strip,
+        raw = url.to_s.strip
+        return nil if raw.bytesize > MAX_SITEMAP_URL_BYTES
+
+        decision = Wf004::SourceScopePredicate.evaluate(url: raw,
                                                         policies: [identity_policy(canonical_host)])
-        decision.allowed? ? decision.canonical_url : nil
+        canonical = decision.allowed? ? decision.canonical_url : nil
+        # Canonicalization can only shorten or preserve, but the bound is asserted on what will
+        # actually be stored rather than on what arrived.
+        canonical if canonical && canonical.bytesize <= MAX_SITEMAP_URL_BYTES
       rescue ArgumentError
         nil
       end
@@ -506,14 +522,32 @@ module Workflows
         observer = observer_for(pg, organization_id, project_id, crawl_id)
         return if observer.nil?
 
+        # ":442 — at any hard limit, record ... AFFECTED SOURCE AND URL COUNTS." The work a sitemap
+        # bound abandons is SITEMAP CANDIDATES, which are not frontier entries at all — reporting
+        # the unselected content frontier here named a population that will be crawled in full.
         if result.limit_reasons.include?(DOCUMENTS_LIMIT)
-          observer.hard(DOCUMENTS_DIMENSION, observer.hard_bound(DOCUMENTS_DIMENSION), now:)
+          observer.hard(DOCUMENTS_DIMENSION, observer.hard_bound(DOCUMENTS_DIMENSION), now:,
+                        affected: skipped_for(result, DOCUMENTS_LIMIT))
         end
-        if result.limit_reasons.include?(INDEX_DEPTH_LIMIT)
-          observer.hard(INDEX_DEPTH_DIMENSION, observer.hard_bound(INDEX_DEPTH_DIMENSION) + 1, now:)
-        elsif result.max_index_depth >= observer.soft_bound(INDEX_DEPTH_DIMENSION)
-          observer.soft(INDEX_DEPTH_DIMENSION, result.max_index_depth, now:)
-        end
+
+        # Soft is independent of hard: a run that nested past the bound reached the soft depth on
+        # the way, and the once-per-run decision would otherwise lose that permanently.
+        depth_hit = result.limit_reasons.include?(INDEX_DEPTH_LIMIT)
+        observed_depth = depth_hit ? observer.hard_bound(INDEX_DEPTH_DIMENSION) + 1 : result.max_index_depth
+        observer.soft(INDEX_DEPTH_DIMENSION, observed_depth, now:) if
+          observed_depth >= observer.soft_bound(INDEX_DEPTH_DIMENSION)
+        return unless depth_hit
+
+        observer.hard(INDEX_DEPTH_DIMENSION, observed_depth, now:,
+                      affected: skipped_for(result, INDEX_DEPTH_LIMIT))
+      end
+
+      # The sitemap URLs this bound abandoned, and the Sources they belong to. Discovery runs per
+      # canonical host and a host belongs to one Source, so the Source count is 1 whenever anything
+      # was skipped.
+      def skipped_for(result, reason)
+        urls = result.skipped.count { |s| s["reason"] == reason }
+        LimitDecisions::Affected.new(sources: urls.zero? ? 0 : 1, urls:)
       end
 
       # The run's observation point, resolved ONCE per service instance: the bounds a decision

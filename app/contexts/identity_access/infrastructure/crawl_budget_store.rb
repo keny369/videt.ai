@@ -137,47 +137,46 @@ module IdentityAccess
       # :437's run-wide sitemap-document budget, charged ONCE PER DISTINCT CANONICAL URL for the
       # life of the Crawl. Returns `:granted`, `:already` (this URL is paid for) or `:exhausted`.
       #
-      # THE LEDGER ROW IS THE CHARGE; the counter is a read-side total kept in step in the same
-      # transaction. An in-memory memo could only ever mean "once per traversal", and a `Traversal`
-      # is rebuilt on every `DiscoverSitemaps#call`, so scheduler re-entry re-charged every URL that
-      # had already reached the network. `UNIQUE (crawl_id, canonical_url_sha256)` is what makes
-      # ":437's distinct canonical sitemap URLs" true across passes, processes and crashes.
+      # An in-memory memo could only ever mean "once per traversal", and a `Traversal` is rebuilt on
+      # every `DiscoverSitemaps#call`, so scheduler re-entry re-charged every URL that had already
+      # reached the network. `UNIQUE (crawl_id, canonical_url_sha256)` is what makes ":437's distinct
+      # canonical sitemap URLs" true across passes, processes and crashes.
       #
-      # WHAT ENFORCES WHAT, stated precisely because a mutation check caught an earlier version of
-      # this comment claiming the wrong thing:
-      #   - the BOUND is enforced by `sitemap_documents < $3` in the UPDATE's own predicate. Under
-      #     READ COMMITTED a second writer blocks on the row and EPQ re-evaluates that predicate
-      #     against the new version, so it refuses. Mutation-proved: delete the predicate and six
-      #     workers racing on six URLs all charge against a ceiling of one.
-      #   - the IDENTITY is enforced by `UNIQUE (crawl_id, canonical_url_sha256)`. No interleaving
-      #     can charge one URL twice, whatever this method does.
-      #   - the `FOR UPDATE` adds neither of those. It serialises charges for one Crawl so a
-      #     concurrent same-URL charge resolves to `:already` rather than reaching the ledger INSERT
-      #     and taking a unique violation — a correct outcome either way, but a decision rather than
-      #     an exception. That property is asserted, not proved: six threads did not reliably
-      #     overlap, and no cheap harness forced them to.
+      # ONE AUTHORITY, NOT TWO. The LEDGER is the whole truth: `:437`'s unit is "distinct canonical
+      # sitemap URLs", the set of charged URLs is that unit, and the bound is
+      # `COUNT(*) < ceiling` over it. `crawl_budget_counters.sitemap_documents` is a DECLARED
+      # PROJECTION — recomputed from the ledger in the same statement that inserts into it, never
+      # incremented, so it cannot drift and is not a second enforcement site.
       #
-      # The claim is written AFTER the counter moves, in the same transaction, so the two can never
-      # disagree: if the bound refuses, no identity is consumed; if the caller's transaction rolls
-      # back, neither is.
+      # It was written as an increment guarded by its own predicate, which made two representations
+      # of one fact connected only by convention: correct in practice, because one method wrote
+      # both under one lock, but with nothing making disagreement impossible. S-07-005 set the
+      # opposite precedent in this same subsystem — `crawl_host_gates.active_leases` is authoritative
+      # and its counter is derived from it with a CHECK — and a cross-table split forbids that CHECK,
+      # which is exactly the argument for deriving instead.
+      #
+      # `SELECT ... FOR UPDATE` on the counters row is the serialisation point that makes
+      # `COUNT(*)` exact: without it two workers charging different URLs both read `count = ceiling - 1`
+      # and both proceed. It is load-bearing for the BOUND now, not merely for turning a same-URL
+      # race into `:already`.
       def charge_sitemap_document(organization_id:, project_id:, crawl_id:, canonical_url:, ceiling:,
                                   id:, correlation_id:, now:)
-        digest = Digest::SHA256.digest(canonical_url)
-        query(<<~SQL, [organization_id, crawl_id])
+        digest = Digest::SHA256.digest(canonical_url.to_s.unicode_normalize(:nfc).b)
+        locked = query(<<~SQL, [organization_id, crawl_id]).to_a.first
           SELECT 1 FROM crawl_budget_counters
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid FOR UPDATE
         SQL
+        # A zero-row lock is not a spent budget. Without this the caller recorded
+        # `sitemap_documents_limit` and terminalization emitted an immutable `CrawlLimitReached` for
+        # a run whose counters row simply did not exist — the false limit event this subsystem keeps
+        # having to remove. Callers create the row first; a caller that did not is a defect, not a
+        # customer-visible limit.
+        raise Platform::InvariantViolation, "sitemap charge without a budget counter row" if locked.nil?
 
-        return :already unless charge_for(crawl_id, digest).nil?
+        return :already unless charge_for(organization_id, project_id, crawl_id, digest).nil?
 
-        moved = query(<<~SQL, [organization_id, crawl_id, ceiling.to_i, iso(now)]).to_a.first
-          UPDATE crawl_budget_counters
-          SET sitemap_documents = sitemap_documents + 1,
-              state_version = state_version + 1, updated_at = $4::timestamptz
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND sitemap_documents < $3
-          RETURNING sitemap_documents
-        SQL
-        return :exhausted if moved.nil?
+        # The bound, over the authority. Exact under the row lock taken above.
+        return :exhausted if charged_count(organization_id, project_id, crawl_id) >= ceiling.to_i
 
         claim = [id, iso(now), correlation_id, organization_id, project_id, crawl_id,
                  canonical_url, bytea(digest)]
@@ -188,13 +187,31 @@ module IdentityAccess
           VALUES ($1::uuid,'1.0',$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6::uuid,
                   $7,$8,$2::timestamptz)
         SQL
+
+        # The projection, DERIVED rather than incremented, in the same transaction as the row it
+        # counts. Nothing else writes this column.
+        query(<<~SQL, [organization_id, crawl_id, iso(now)])
+          UPDATE crawl_budget_counters
+          SET sitemap_documents = (SELECT COUNT(*) FROM crawl_sitemap_document_charges
+                                   WHERE organization_id = $1::uuid AND crawl_id = $2::uuid),
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+        SQL
         :granted
       end
 
-      def charge_for(crawl_id, digest)
-        query(<<~SQL, [crawl_id, bytea(digest)]).to_a.first
+      def charged_count(organization_id, project_id, crawl_id)
+        query(<<~SQL, [organization_id, project_id, crawl_id]).to_a.first["n"].to_i
+          SELECT COUNT(*) AS n FROM crawl_sitemap_document_charges
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND crawl_id = $3::uuid
+        SQL
+      end
+
+      def charge_for(organization_id, project_id, crawl_id, digest)
+        query(<<~SQL, [organization_id, project_id, crawl_id, bytea(digest)]).to_a.first
           SELECT id FROM crawl_sitemap_document_charges
-          WHERE crawl_id = $1::uuid AND canonical_url_sha256 = $2
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND crawl_id = $3::uuid
+            AND canonical_url_sha256 = $4
         SQL
       end
 

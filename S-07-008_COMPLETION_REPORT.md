@@ -3,7 +3,7 @@
 **Status: reviewed and repaired. NOT ACCEPTED.** No acceptance ADR is allocated.
 
 The five ADR-026 lenses returned **four BLOCK and one PASS_WITH_OBSERVATIONS**, with eight
-confirmed-blocking findings after deduplication — three of them reached independently by more than
+confirmed-blocking findings after deduplication — two of them reached independently by more than
 one lens. Every confirmed-blocking finding is repaired below, each with a test that fails when the
 repair is reverted. The gate was not ceremony: it stopped a materially incorrect tranche.
 
@@ -56,7 +56,47 @@ Two consequences that were designed for rather than discovered:
 | 7 | No persistence-invariants spec, while the report implied `verify_runtime` covered the table | security | `spec/persistence/crawl_limit_decision_invariants_spec.rb` |
 | 8 | FU-9 had no driver and no build-plan block owned one | architecture | S-07-012 added; FU-9 downgraded to `mitigated` |
 
-### The delta re-review found the repairs had their own defects
+### The third pass: the accounting semantics, the proof quality and the repository truth
+
+Owner-directed. All five lenses ran again over the complete tranche and every repair. **Three BLOCK,
+two PASS_WITH_OBSERVATIONS** — and concurrency, which had blocked hardest, passed: the ledger held
+under every interleaving it could construct.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 15 | `discovered_url_queue` counted `state <> 'discarded'`, excluding depth-rejected candidates that `:440` says DO consume the queue — a run could pass its inclusive maximum in silence | the count now includes them; a queue-limit discard stays excluded, or the bound would be self-defeating |
+| 16 | The queue bound was an `elsif` on the depth limb, so an over-depth candidate arriving at the retention bound produced no queue decision | the bound is evaluated for every candidate; only the EVICTION is skipped for one that is not retained |
+| 17 | The soft limb was gated behind the hard limb at four remaining sites, losing the soft event permanently for any run whose only crossing was the hard one | all four hoisted; the rule the frontier learned, applied everywhere |
+| 18 | `affected_*` counts named the whole unselected frontier for dimensions that do not stop scheduling — ~20,000 reported for a queue discard costing one URL | explicit counts per dimension; the default is restricted to the two run-stopping bounds |
+| 19 | `canonical_url` had an 8,192 CHECK over remote input with no application bound, so an over-long sitemap URL raised an uncaught violation that wedged the gate `in_progress` for the run | bounded at `normalize`, where a refusal is an ordinary recorded skip |
+| 20 | `charge_for` was keyed on `crawl_id` alone — the shape the sibling repair condemned by name ten lines away | all three of (organization, project, crawl), plus a guard for a missing counter row |
+
+**The ledger authority question is resolved rather than documented.** The ledger is now the SOLE
+authority: the bound is `COUNT(*) < ceiling` over its rows under the per-Crawl row lock, and
+`crawl_budget_counters.sitemap_documents` is a declared projection *recomputed* from it in the same
+transaction — never incremented, so the two cannot disagree. Two apparently authoritative
+representations connected only by convention is what S-07-005 already rejected in this subsystem.
+
+**The `pacer` seam is deleted.** The byte race is now forced by an uncommitted rival holding the
+counter row, with PostgreSQL's re-evaluation ordering it — the same EPQ mechanism the store already
+documents, no production API change. The seam was a new category justified by a claim that no
+alternative existed; there was one.
+
+**Four claim-honesty failures**, all mine: the `FOR UPDATE` explanation in the spec contradicted the
+store's own correct comment; `charging_threads` documented a `gate` mechanism that did not exist;
+`ActiveCrawlPolicies` said three copies when there were two; and the Project authorization limb was
+called mutation-proved when it is UNREACHABLE at HEAD — `f1_projects_guard` admits only
+`draft -> active`. Its spec now asserts that unreachability and fails when the Project lifecycle
+lands, which is the signal to write the real denial test.
+
+**Three governance contradictions**: `BUILD_STATE.next_action` was byte-identical to `09277e7`,
+still assigning FU-9 re-entry to this tranche and still directing the deleted counter-bit mechanism;
+the machine fields said `pending`/`ready` while the prose said complete-and-reviewed, with
+`updated_at` moving backwards; and the ledger table was absent from `schemas/POSTGRESQL_SCHEMA.md`
+— structurally invisible because `schemas/` was missing from the declared acceptance paths. All
+three repaired, including the paths.
+
+### The second pass found the repairs had their own defects
 
 Owner-directed scope: the five lenses ran again over the repair delta, in the context of their own
 original findings. **All five returned BLOCK.**
@@ -239,7 +279,7 @@ and rewriting would create more risk than it removes.
 | Packwerk | clean, no stale violations |
 | Brakeman | 0 security warnings |
 | `verify_runtime` | OK as `f1_web`, 15 checks — a FIXED list over `sessions`/`accounts`/`scheduled_actions`/transport, which says **nothing** about this tranche's table |
-| `crawl_limit_decisions` invariants | 13 examples, asserted against a live database |
+| Persistence invariants (`crawl_limit_decisions` + `crawl_sitemap_document_charges`) | 21 examples, asserted against a live database |
 | `db/structure.sql` | no drift |
 
 ### What is proved rather than asserted

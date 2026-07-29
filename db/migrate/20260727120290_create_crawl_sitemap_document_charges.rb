@@ -14,8 +14,13 @@
 #
 # ":437's unit is DISTINCT URLs" is therefore `UNIQUE (crawl_id, canonical_url_sha256)`, adjudicated
 # by the database, exactly as `crawl_limit_decisions` makes ":442's once per dimension and run" a
-# unique key rather than a counter. The row IS the charge; `crawl_budget_counters.sitemap_documents`
-# is kept in step in the same transaction as a read-side total, never as the authority.
+# unique key rather than a counter.
+#
+# THIS TABLE IS THE ONLY AUTHORITY. The bound is `COUNT(*) < ceiling` over these rows, evaluated
+# under the per-Crawl `crawl_budget_counters` row lock that serialises charges.
+# `crawl_budget_counters.sitemap_documents` is a DECLARED PROJECTION recomputed from this table in
+# the same statement that inserts into it — never incremented, so the two cannot disagree, and there
+# is no second enforcement site connected to this one only by convention.
 #
 # T-IMM: a charge is a fact about an attempt that was made. It is never updated and never deleted —
 # releasing one would let a URL be charged twice, which is the defect this table exists to prevent.

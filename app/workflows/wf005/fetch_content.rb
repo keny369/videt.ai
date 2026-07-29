@@ -551,18 +551,23 @@ module Workflows
         observe_redirects(observer, result, one, now)
       end
 
+      # AN OBSERVATION IS NOT A DISPOSITION. Each soft limb below is independent of its hard limb:
+      # a run that crosses the hard bound genuinely reached the soft value on the way past it, and
+      # because the decision is once-per-run, gating soft behind `elsif` lost the soft event
+      # permanently for any run whose only crossing was the hard one. The frontier learned this
+      # first; these four are the same rule applied where it was still missing.
       def observe_body(observer, result, measurement, one, now)
         return if measurement.nil?
 
-        if result.reason_code == ByteAccounting::OVER_LIMIT
-          # The exact size is UNKNOWABLE: the reader stopped one sentinel byte past the maximum and
-          # never retained it (:442 "never parsed or retained"). What was genuinely observed is the
-          # bound plus the probes, and that is what is recorded — inventing a larger figure would be
-          # putting a number in a customer event that nothing measured.
-          observer.hard(BODY_DIMENSION, measurement.accounted + measurement.probe_bytes, now:, affected: one)
-        elsif measurement.accounted >= observer.soft_bound(BODY_DIMENSION)
-          observer.soft(BODY_DIMENSION, measurement.accounted, now:)
-        end
+        observer.soft(BODY_DIMENSION, measurement.accounted, now:) if
+          measurement.accounted >= observer.soft_bound(BODY_DIMENSION)
+        return unless result.reason_code == ByteAccounting::OVER_LIMIT
+
+        # The exact size is UNKNOWABLE: the reader stopped one sentinel byte past the maximum and
+        # never retained it (:442 "never parsed or retained"). :442 allows one sentinel PER
+        # ACCOUNTING PATH, so a two-path response could observe `ceiling + 2` — but no single path
+        # measured that, and the recorded value must be one a path actually saw.
+        observer.hard(BODY_DIMENSION, measurement.accounted + 1, now:, affected: one)
       end
 
       # ONE TIMED-OUT ATTEMPT IS NOT A LIMIT HIT. :444 gives a timeout "one initial attempt plus at
@@ -572,24 +577,28 @@ module Workflows
       # was still labelled `limit_reached` with partial coverage by the terminal checkpoint.
       def observe_request_time(observer, attempt, outcome, one, now)
         hard = observer.hard_bound(REQUEST_TIME_DIMENSION)
-        if outcome.respond_to?(:kind) && outcome.kind == :timeout
-          return unless attempt["attempt_number"].to_i >= MAX_ATTEMPTS
+        timed_out = outcome.respond_to?(:kind) && outcome.kind == :timeout
+        # A timed-out attempt ran to the hard bound by definition, so it crossed the soft bound
+        # whatever happens to the retry. Measured latency carries the ordinary case.
+        seconds = timed_out ? hard : (outcome.respond_to?(:latency_ms) ? outcome.latency_ms.to_i : 0) / 1000
+        observer.soft(REQUEST_TIME_DIMENSION, seconds, now:) if
+          seconds >= observer.soft_bound(REQUEST_TIME_DIMENSION)
 
-          return observer.hard(REQUEST_TIME_DIMENSION, hard, now:, affected: one)
-        end
+        # ONE TIMED-OUT ATTEMPT IS NOT A LIMIT HIT. :444 gives a timeout "one initial attempt plus at
+        # most two retries", and :452 makes only the EXHAUSTED case `content_fetch_failed`.
+        return unless timed_out && attempt["attempt_number"].to_i >= MAX_ATTEMPTS
 
-        latency = outcome.respond_to?(:latency_ms) ? outcome.latency_ms.to_i : 0
-        seconds = latency / 1000
-        observer.soft(REQUEST_TIME_DIMENSION, seconds, now:) if seconds >= observer.soft_bound(REQUEST_TIME_DIMENSION)
+        observer.hard(REQUEST_TIME_DIMENSION, hard, now:, affected: one)
       end
 
       def observe_redirects(observer, result, one, now)
-        followed = result.redirect_count.to_i
-        if result.reason_code == REASONS[:redirect_limit]
-          observer.hard(REDIRECTS_DIMENSION, observer.hard_bound(REDIRECTS_DIMENSION) + 1, now:, affected: one)
-        elsif followed >= observer.soft_bound(REDIRECTS_DIMENSION)
-          observer.soft(REDIRECTS_DIMENSION, followed, now:)
-        end
+        exhausted = result.reason_code == REASONS[:redirect_limit]
+        followed = exhausted ? observer.hard_bound(REDIRECTS_DIMENSION) + 1 : result.redirect_count.to_i
+        observer.soft(REDIRECTS_DIMENSION, followed, now:) if
+          followed >= observer.soft_bound(REDIRECTS_DIMENSION)
+        return unless exhausted
+
+        observer.hard(REDIRECTS_DIMENSION, followed, now:, affected: one)
       end
 
       # Reclaim the run's expired attempt leases and hand their reservations back. Every claim does

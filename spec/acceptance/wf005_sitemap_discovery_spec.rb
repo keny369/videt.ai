@@ -588,11 +588,9 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
                              [ctx[:crawl_id]])).to be_empty
     end
 
-    # Six independent logins, so the transactions genuinely overlap rather than queueing behind the
-    # five-slot pool. `gate` is an optional controller connection already holding the counter row:
-    # every worker then piles up behind it and is RELEASED TOGETHER, so the overlap is observed
-    # rather than hoped for. Six threads left to their own devices did not overlap at all — the
-    # first version of this test passed with the row lock removed.
+    # Six independent logins rather than pooled connections, so the pool's five slots are not the
+    # limiting factor. They are NOT forced to overlap — see the honest-limit note on the same-URL
+    # example below.
     def charging_threads(ctx, urls, ceiling:)
       cfg = ActiveRecord::Base.connection_db_config.configuration_hash
       urls.map do |url|
@@ -624,10 +622,11 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
 
 
     it "never charges past the ceiling when workers race on DIFFERENT urls" do
-      # What the `FOR UPDATE` on the counter row is for. The unique index adjudicates IDENTITY (one
-      # charge per URL); it says nothing about the BOUND, because two workers charging two different
-      # URLs conflict on nothing. Without the row lock both read `sitemap_documents = 0`, both pass
-      # `< 1`, and the run fetches two documents against a ceiling of one.
+      # The bound is `COUNT(*) < ceiling` over the LEDGER, which is the only authority for it, and
+      # the `SELECT ... FOR UPDATE` on the counters row is what makes that count exact: without it
+      # two workers charging two different URLs both count `ceiling - 1` and both proceed. The unique
+      # index adjudicates IDENTITY and says nothing about the bound, because two different URLs
+      # conflict on nothing.
       ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
       urls = Array.new(6) { |i| "https://shop.acme.example/s#{i}.xml" }
 

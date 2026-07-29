@@ -57,12 +57,20 @@ module IdentityAccess
         SQL
       end
 
-      # How many candidates this Crawl has already ADMITTED (`queued` or beyond). A discarded
-      # candidate never consumed queue capacity, so it is excluded.
+      # The DISCOVERED QUEUE, as :440 defines it: "the discovered queue counts distinct
+      # content-candidate URLs after Source Scope canonicalization, INCLUDING AN IN-SCOPE URL EVEN
+      # WHEN IT IS LATER REJECTED FOR DEPTH".
+      #
+      # So a depth-rejected candidate COUNTS, even though it is stored `discarded`. It used to be
+      # excluded — writing the row was mistaken for counting it — which let a run admit 20,000
+      # retained candidates on top of any number of depth-rejected ones and never reach its own
+      # inclusive maximum. A queue-limit discard is a different matter and stays excluded: counting
+      # a candidate the bound itself refused would make the bound self-defeating.
       def admitted_count(organization_id, crawl_id)
         exec(<<~SQL, [organization_id, crawl_id]).to_a.first["n"].to_i
           SELECT COUNT(*) AS n FROM crawl_frontier_entries
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND state <> 'discarded'
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+            AND (state <> 'discarded' OR reason = 'depth_limit_discarded')
         SQL
       end
 

@@ -323,7 +323,11 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
                              [ctx[:crawl_id]]).size).to eq(Workflows::Wf005::FetchContent::MAX_ATTEMPTS)
     end
 
-    it "records NOTHING when a timeout is retried and the retry succeeds" do
+    it "records the SOFT crossing but NOT the hard one when a timeout is retried and succeeds" do
+      # This example previously asserted `limit_events` was EMPTY, which locked in a defect: the
+      # timed-out attempt ran to the 3 s hard bound, so it crossed the 2 s soft bound, and :442's
+      # soft limb is unconditional. The hard limb is the one :444 defers to exhaustion. An
+      # observation is not a disposition — the same rule the frontier learned.
       ctx = fetchable
       narrow(ctx, "request_timeout_seconds" => { "soft" => 2, "hard" => 3 })
       queue = [Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example"), content_response]
@@ -338,7 +342,10 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
 
       expect(result.document?).to be(true)
       expect(decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "hard")).to be_nil
-      expect(limit_events(ctx[:crawl_id])).to be_empty
+      soft = decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "soft")
+      expect(soft).not_to be_nil
+      expect(soft["observed_value"].to_i).to eq(3)
+      expect(limit_events(ctx[:crawl_id])).to eq(["CrawlSoftLimitApproaching"])
     end
 
     it "records nothing for a request that answered inside the bound" do

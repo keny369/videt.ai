@@ -62,23 +62,10 @@ module Workflows
       BYTES = "accounted_response_body_bytes_per_run"
       WALL_CLOCK_DIMENSION = "wall_clock_run_duration"
 
-      # `pacer` is a NAMED PROBE POINT, and it is a new kind of seam in this codebase — not the
-      # millisecond-sleep collaborator `FetchContent` and `DiscoverSitemaps` carry, whose default is
-      # real production behaviour (:444's retry backoff). This one defaults to a no-op and has no
-      # production role. An earlier version of this comment claimed it was the same pattern; it is
-      # not, and the claim is withdrawn.
-      #
-      # It earns its place on its own merits: the defect repaired here lived in the window between
-      # this class's READ of the byte counter and its WRITE to it, and that window cannot be opened
-      # reliably by racing threads — a test that tries can only hope the scheduler cooperates, which
-      # is the failure mode this codebase has already shipped twice. The alternative was to leave the
-      # repair unproved.
-      def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil,
-                     pacer: ->(_stage) {})
+      def initialize(ids: Platform::Ids.system, correlation_id: nil, limit_decisions: nil)
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @limits = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
-        @pacer = pacer
       end
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
@@ -140,6 +127,11 @@ module Workflows
         return DENIALS[:organization] unless org && org["status"] == "active"
         return DENIALS[:crawl] unless crawl["state"] == "running"
 
+        # DEFENCE IN DEPTH, and currently unreachable: `f1_projects_guard` admits only
+        # `draft -> active`, so a Project that has started a Crawl cannot become inactive until the
+        # Project lifecycle lands its remaining edges. Kept because `FetchAuthorization` checks it at
+        # the same position and admission must not be the looser of the two gates; its spec asserts
+        # the unreachability rather than claiming a coverage it cannot have.
         project = gates.project(organization_id, crawl["project_id"])
         return DENIALS[:project] unless project && project["state"] == "active"
 
@@ -182,7 +174,6 @@ module Workflows
           want = ByteAccounting.reservation(remaining: bounds.per_run - observed, per_url: bounds.per_url)
           break if want.zero?
 
-          @pacer.call(:before_reserve)
           granted = budget.reserve_bytes(organization_id, crawl_id, want, bounds.per_run, now)
           break unless granted.nil?
         end
