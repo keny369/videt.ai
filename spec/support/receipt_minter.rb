@@ -14,10 +14,9 @@ module ReceiptMinter
 
   def owner_connection
     @owner_connection ||= begin
-      cfg = ActiveRecord::Base.connection_db_config.configuration_hash
-      PG.connect(
-        host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: "f1_schema_owner"
-      )
+      # Through PgTestConnection so `truncate_all`'s 26-table ACCESS EXCLUSIVE TRUNCATE runs under
+      # `database.yml`'s statement timeout rather than unbounded. See that file.
+      PgTestConnection.connect(user: "f1_schema_owner")
     end
   end
 

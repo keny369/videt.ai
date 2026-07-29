@@ -11,9 +11,10 @@ module DbInspector
 
   def connection
     @connection ||= begin
-      cfg = ActiveRecord::Base.connection_db_config.configuration_hash
-      # The local cluster superuser bypasses RLS.
-      PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: superuser)
+      # The local cluster superuser bypasses RLS. Opened through PgTestConnection so this
+      # PROCESS-WIDE connection carries `database.yml`'s statement timeout; a raw `PG.connect` runs
+      # unbounded, which turns a contended lock into a suite-wide hang instead of a failure.
+      PgTestConnection.connect(user: superuser)
     end
   end
 
