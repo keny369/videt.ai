@@ -196,6 +196,28 @@ on them would fire on essentially every run and make the saturation signal worth
 This is the one reading here a careful reader could differ on. **To change it**, add the two
 dimensions to the observation in `HostGate#claim` — the surface takes them without modification.
 
+## The acceptance diff, and what is excluded from it
+
+Owner ruling, 2026-07-29: **published history is not rewritten to make a tranche cosmetically
+clean.** Commits `827c39a` and `508edde` were made with `git add -A` and swept in twelve unrelated
+`branding/`, `investor/` and `operations/` files, including ~2 MB of binaries. `827c39a` is
+therefore **not an atomic implementation unit**.
+
+The consequence for review is procedural, not cosmetic: **S-07-008 is reviewed BY PATH over a
+commit range, never by treating any single commit as a tranche slice.**
+
+| | |
+| --- | --- |
+| Range | `09277e7..eae1192` |
+| Acceptance paths | `app/`, `db/`, `spec/`, `lib/`, `specification/`, `S-07-008_COMPLETION_REPORT.md` |
+| Excluded | the twelve files listed in `BUILD_STATE.acceptance_evidence.excluded_contamination` |
+
+Verified complete: the acceptance paths plus the excluded set account for every file changed in the
+range — nothing falls outside both. History surgery was considered and rejected; it would only be
+justified if the branch were private, nothing were based on it, governance permitted rewriting, and
+separation materially improved release, audit or cherry-pick integrity. None of that is established,
+and rewriting would create more risk than it removes.
+
 ## Verification
 
 | Gate | Result |
