@@ -209,19 +209,28 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     resolve_robots(ctx, outbound_returning(response(status: 200, body:)))
   end
 
+  # Every request the stub sees, WITH its keyword arguments. The stub used to discard them
+  # (`**_k`), so the ratified per-fetch bounds — timeout, byte cap, redirect budget, user agent —
+  # had no coverage at all and any of them could have been deleted with the suite still green.
+  def requests = (@requests ||= [])
+
   # An outbound stub keyed by URL, so one run can serve robots, an index and its children.
   def outbound_map(map)
+    sink = requests
     Object.new.tap do |o|
-      o.define_singleton_method(:fetch) do |url, **_k|
+      o.define_singleton_method(:fetch) do |url, **kwargs|
+        sink << kwargs.merge(url:)
         entry = map[url]
         next Platform::Outbound::Outcome.response(status: 404, headers: {}, body: "", byte_count: 0,
                                                   truncated: false, canonical_host: "shop.acme.example",
                                                   port: 443, pinned_address: "198.51.100.7",
                                                   final_url: url, redirect_count: 0, latency_ms: 1) if entry.nil?
 
+        headers = entry.key?(:type) && entry[:type].nil? ? {} : { "content-type" => entry.fetch(:type, "application/xml") }
         Platform::Outbound::Outcome.response(
-          status: entry.fetch(:status, 200), headers: { "content-type" => entry.fetch(:type, "application/xml") },
-          body: entry.fetch(:body, ""), byte_count: entry.fetch(:body, "").bytesize, truncated: false,
+          status: entry.fetch(:status, 200), headers:,
+          body: entry.fetch(:body, ""), byte_count: entry.fetch(:body, "").bytesize,
+          truncated: entry.fetch(:truncated, false),
           canonical_host: "shop.acme.example", port: 443, pinned_address: "198.51.100.7",
           final_url: url, redirect_count: 0, latency_ms: 1)
       end
@@ -238,14 +247,30 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     %(<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">#{entries}</sitemapindex>)
   end
 
-  # The pacer simulates elapsed real time instead of spending it: the host gate's rolling window is
-  # measured with clock_timestamp(), so clearing it is exactly what a second of waiting does.
+  # The pacer simulates elapsed real time instead of spending it. It ADVANCES THE CLOCK BY THE
+  # REQUESTED INTERVAL rather than clearing the gate outright: `recent_start_instants` is a rolling
+  # one-second window and `next_allowed_start_at` is an arbitrary interval — `max(base, robots
+  # Crawl-delay, ...)` — so nulling the second one made the very first retry succeed whatever the
+  # configured delay, and no test could ever exhaust the deferral bound. Every pace is recorded, so
+  # a test can assert the traversal waited the length the HOST asked for.
+  def paces = (@paces ||= [])
+
   def pacer_for(ctx)
-    lambda do |_ms|
+    sink = paces
+    lambda do |ms|
+      sink << ms.to_i
+      # `ms` of real time passing IS every recorded instant moving `ms` further into the past. Doing
+      # it that way — rather than clearing the columns — means the gate's own predicates decide
+      # whether enough time has elapsed, so a `Crawl-delay` longer than the pace still refuses.
       DbInspector.connection.exec_params(
-        "UPDATE crawl_host_gates SET recent_start_instants = ARRAY[]::timestamptz(6)[],
-           next_allowed_start_at = NULL, state_version = state_version + 1
-         WHERE crawl_id = $1::uuid", [ctx[:crawl_id]])
+        "UPDATE crawl_host_gates
+         SET recent_start_instants =
+               (SELECT COALESCE(array_agg(s - ($2 || ' milliseconds')::interval),
+                                ARRAY[]::timestamptz(6)[])
+                FROM unnest(recent_start_instants) AS s),
+             next_allowed_start_at = next_allowed_start_at - ($2 || ' milliseconds')::interval,
+             state_version = state_version + 1
+         WHERE crawl_id = $1::uuid", [ctx[:crawl_id], ms.to_i])
     end
   end
 
@@ -260,10 +285,12 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
   def occurrences(cid) = DbInspector.all("SELECT * FROM crawl_frontier_occurrences WHERE crawl_id=$1::uuid ORDER BY occurrence_order", [cid])
 
   # A running crawl whose robots is resolved and declares the given sitemaps.
-  def with_robots(sitemaps: [])
+  def with_robots(sitemaps: [], crawl_delay: nil)
     ctx = running_crawl
     ensure_gate(ctx)
-    body = (["User-agent: *", "Disallow: /private"] + sitemaps.map { |s| "Sitemap: #{s}" }).join("\n") + "\n"
+    lines = ["User-agent: *", "Disallow: /private"]
+    lines << "Crawl-delay: #{crawl_delay}" if crawl_delay
+    body = (lines + sitemaps.map { |s| "Sitemap: #{s}" }).join("\n") + "\n"
     resolve_robots_with(ctx, body)
     ctx
   end
@@ -479,4 +506,175 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(frontier_entries(ctx[:crawl_id]).select { |e| e["origin"] == "sitemap" }).to be_empty
     end
   end
+  # ---- the ratified per-fetch bounds, asserted on the REQUEST ------------------
+  #
+  # :450 requires a sitemap to "pass Source Scope, destination safety, robots, redirect, request,
+  # retry and 10 MiB received-body limits". Four of those are request PARAMETERS, and the outbound
+  # stub used to discard its keyword arguments — so every one of them could have been deleted or
+  # transposed with the suite still green.
+  describe "every sitemap fetch carries the ratified bounds (:437/:450)" do
+    it "sends the hard request timeout, the 10 MiB byte cap, the redirect budget and the agent token" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      discover(ctx, outbound_map("https://shop.acme.example/s.xml" => { body: urlset("https://shop.acme.example/p") }))
+
+      sitemap_request = requests.find { |r| r[:url] == "https://shop.acme.example/s.xml" }
+      expect(sitemap_request).not_to be_nil
+      expect(sitemap_request[:timeout_s]).to eq(Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
+                                                  .fetch("request_timeout_seconds").fetch("hard"))
+      expect(sitemap_request[:byte_cap]).to eq(10 * 1024 * 1024)
+      expect(sitemap_request[:max_redirects]).to eq(Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
+                                                      .fetch("redirects_per_url").fetch("hard"))
+      expect(sitemap_request[:user_agent]).to eq("F1DiscoverabilityBot")
+    end
+
+    it "treats a body stopped AT the cap as a LIMIT, not as malformed XML" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/big.xml"])
+      result = discover(ctx, outbound_map("https://shop.acme.example/big.xml" =>
+                                            { body: urlset("https://shop.acme.example/p"), truncated: true }))
+      expect(result.skipped.map { |x| x["reason"] }).to include("sitemap_xml_limit")
+      expect(result.limit_reached?).to be(true)
+    end
+
+    it "refuses a sitemap served without a media type (the allowlist fails CLOSED)" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      result = discover(ctx, outbound_map("https://shop.acme.example/s.xml" =>
+                                            { body: urlset("https://shop.acme.example/p"), type: nil }))
+      expect(result.state).to eq("unavailable")
+      expect(result.skipped.map { |x| x["reason"] }).to include("sitemap_unsupported_media_type")
+      expect(frontier_entries(ctx[:crawl_id]).select { |e| e["origin"] == "sitemap" }).to be_empty
+    end
+  end
+
+  # ---- pacing is a DELAY, never a candidate failure (:442) ---------------------
+  describe "a host declaring a long Crawl-delay is paced, not dropped" do
+    it "waits the interval the HOST asked for rather than a fixed constant" do
+      # :448 — "a positive robots crawl-delay makes the request rate more restrictive than policy".
+      # Ten seconds is far longer than the old 250 ms retry constant, which is what silently turned
+      # a paced candidate into `sitemap_unavailable` for a perfectly reachable host.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml", "https://shop.acme.example/b.xml"],
+                        crawl_delay: 10)
+      result = discover(ctx, outbound_map(
+        "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") },
+        "https://shop.acme.example/b.xml" => { body: urlset("https://shop.acme.example/p2") }))
+
+      expect(result.state).to eq("succeeded")
+      expect(result.documents_fetched).to eq(2)
+      # The wait actually taken is the gate's remaining interval, which for a 10 s crawl-delay is
+      # seconds — not the refusal constant.
+      expect(paces.max).to be > Workflows::Wf005::HostGate::REFUSAL_RETRY_MS
+      expect(result.skipped.map { |x| x["reason"] }).not_to include("sitemap_gate_deferred")
+    end
+  end
+
+  # ---- the 50-document bound is PER RUN and counts ATTEMPTS (:437) -------------
+  describe "the sitemap-document ceiling" do
+    it "applies :454 SELECTION to index children — the lowest by the tuple, not the first named" do
+      # Retention was applied to the declared set only; index children were appended unbounded, so
+      # WHICH children got fetched was decided by the attacker's document order rather than by :454.
+      # The index names its children in DESCENDING order, so document order and canonical order
+      # disagree on every element — if selection were by arrival, the highest URLs would be fetched.
+      children = (1..120).map { |i| format("https://shop.acme.example/c%03d.xml", i) }
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/i.xml"])
+      map = { "https://shop.acme.example/i.xml" => { body: sitemapindex(*children.reverse) } }
+      children.each { |c| map[c] = { status: 404 } }
+
+      result = discover(ctx, outbound_map(map))
+      fetched = requests.map { |r| r[:url] }.select { |u| u.include?("/c") }.sort
+
+      # One slot of the run budget went to the index itself, so the children take the rest — and
+      # they are the LOWEST by canonical URL bytes, whatever order the document named them in.
+      expect(fetched).to eq(children.first(fetched.size))
+      expect(fetched.size).to be < children.size
+      expect(result.limit_reasons).to include("sitemap_documents_limit")
+      # The candidates that lost the selection are recorded, not silently dropped (:450).
+      expect(result.skipped.map { |x| x["url"] }).to include(children.last)
+    end
+
+    it "spends ONE run-wide budget across hosts, not fifty per host" do
+      # :437's unit is "distinct canonical sitemap URLs" per RUN. A per-host counter let a Crawl with
+      # ten Sources on ten hosts fetch ten times the ratified maximum.
+      ctx = with_robots(sitemaps: (1..60).map { |i| format("https://shop.acme.example/s%03d.xml", i) })
+      map = {}
+      (1..60).each { |i| map[format("https://shop.acme.example/s%03d.xml", i)] = { status: 404 } }
+      discover(ctx, outbound_map(map))
+
+      spent = DbInspector.all("SELECT limit_counters FROM crawls WHERE id=$1::uuid", [ctx[:crawl_id]])
+                         .first["limit_counters"]
+      expect(JSON.parse(spent)["sitemap_documents"])
+        .to eq(Workflows::Wf005::SitemapCandidates::DOCUMENT_LIMIT)
+    end
+  end
+
+  # ---- one worker owns one discovery (MTX-030 concurrency) ---------------------
+  describe "concurrent discovery of the same host" do
+    it "lets only the CLAIM HOLDER traverse, and only the claim holder terminalize" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      map = { "https://shop.acme.example/s.xml" => { body: urlset("https://shop.acme.example/p") } }
+
+      first = discover(ctx, outbound_map(map))
+      expect(first.state).to eq("succeeded")
+
+      # A second worker arriving after the decision reads it back rather than re-deciding: the
+      # terminal record is write-once, and re-running the traversal would double the request volume
+      # against the host the whole subsystem exists to pace.
+      before = requests.size
+      second = discover(ctx, outbound_map(map))
+      expect(second.state).to eq("succeeded")
+      expect(requests.size).to eq(before)
+      expect(second.retained).to eq(first.retained)
+    end
+
+    it "stands a losing worker down instead of running the traversal twice" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      # Simulate a live attempt owned by another worker.
+      DbInspector.connection.exec_params(
+        "UPDATE crawl_host_gates SET sitemap_state='in_progress', sitemap_claim_token=gen_random_uuid(),
+           sitemap_attempt_started_at=clock_timestamp(), state_version = state_version + 1
+         WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+
+      result = discover(ctx, outbound_map("https://shop.acme.example/s.xml" => { body: urlset("https://shop.acme.example/p") }))
+      expect(result.state).to eq("pending")
+      expect(result.reason_code).to eq("sitemap_discovery_contended")
+      expect(requests.select { |r| r[:url].end_with?("s.xml") }).to be_empty
+    end
+  end
+
+  # ---- every skip is RECORDED with its reason (:450) ---------------------------
+  describe "skipped and failed candidates are recorded, not silently dropped" do
+    it "records each :450 reason on the gate, separating the LIMIT subset" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/evil.xml",
+                                   "https://shop.acme.example/dead.xml",
+                                   "https://shop.acme.example/ok.xml"])
+      evil = %(<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><urlset/>)
+      result = discover(ctx, outbound_map(
+        "https://shop.acme.example/evil.xml" => { body: evil },
+        "https://shop.acme.example/dead.xml" => { status: 404 },
+        "https://shop.acme.example/ok.xml" => { body: urlset("https://shop.acme.example/p") }))
+
+      expect(result.state).to eq("succeeded")
+      reasons = result.skipped.map { |x| x["reason"] }
+      expect(reasons).to include("sitemap_xml_unsafe")
+      expect(reasons).to include("sitemap_fetch_failed")
+      # A non-limit failure alongside a success is telemetry only (:450).
+      expect(result.limit_reached?).to be(false)
+
+      row = gate_row(ctx[:crawl_id])
+      expect(JSON.parse(row["sitemap_skipped"]).map { |x| x["reason"] }).to include("sitemap_xml_unsafe")
+      expect(JSON.parse(row["sitemap_limit_reasons"])).to be_empty
+    end
+
+    it "keeps the terminal decision write-once, including its OBSERVED values" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      discover(ctx, outbound_map("https://shop.acme.example/s.xml" => { body: urlset("https://shop.acme.example/p") }))
+
+      # `sitemap_documents_fetched` and `sitemap_max_index_depth` ARE the observed values :442
+      # requires a limit decision to record, and they were rewritable after terminalisation.
+      expect do
+        DbInspector.connection.exec_params(
+          "UPDATE crawl_host_gates SET sitemap_documents_fetched = 999, state_version = state_version + 1
+           WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+      end.to raise_error(/sitemap_decision_frozen/)
+    end
+  end
+
 end

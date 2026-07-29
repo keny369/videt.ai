@@ -102,7 +102,12 @@ module Workflows
         return refuse("host_concurrency_ceiling", gate_id) if active >= limits.concurrency_ceiling
         return refuse("host_rate_limited", gate_id) if starts >= limits.rate_target
         return refuse("host_concurrency_limited", gate_id) if active >= limits.concurrency_target
-        return refuse("host_delay_pending", gate_id) unless truthy?(locked["delay_elapsed"])
+        # A pacing refusal reports the REAL remaining wait, so the caller sleeps once for as long as
+        # the host actually requires instead of spinning a fixed constant that a robots `Crawl-delay`
+        # above it can outlast — which silently turned "delayed" (:442) into a dropped candidate.
+        unless truthy?(locked["delay_elapsed"])
+          return refuse("host_delay_pending", gate_id, retry_after_ms: locked["delay_remaining_ms"].to_i)
+        end
 
         # A stored crawl-delay and a caller-supplied one may only ever make the interval LONGER
         # (:448 "never increases rate"), so the maximum is taken over all three rather than letting
@@ -157,9 +162,9 @@ module Workflows
         nil
       end
 
-      def refuse(reason, gate_id)
+      def refuse(reason, gate_id, retry_after_ms: REFUSAL_RETRY_MS)
         Decision.new(granted: false, reason_code: reason, gate_id:, lease_version: nil,
-                     lease_token: nil, retry_after_ms: REFUSAL_RETRY_MS)
+                     lease_token: nil, retry_after_ms: [retry_after_ms.to_i, REFUSAL_RETRY_MS].max)
       end
 
       def truthy?(value) = value == true || value == "t"

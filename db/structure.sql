@@ -355,9 +355,15 @@ CREATE FUNCTION public.f1_crawl_host_gates_sitemap_guard() RETURNS trigger
 BEGIN
   IF OLD.sitemap_state IN ('succeeded','absent','unavailable') THEN
     IF NEW.sitemap_state IS DISTINCT FROM OLD.sitemap_state
-       OR NEW.sitemap_outcome_reason IS DISTINCT FROM OLD.sitemap_outcome_reason
-       OR NEW.sitemap_terminal_at IS DISTINCT FROM OLD.sitemap_terminal_at
-       OR NEW.sitemap_candidates IS DISTINCT FROM OLD.sitemap_candidates THEN
+             OR NEW.sitemap_outcome_reason IS DISTINCT FROM OLD.sitemap_outcome_reason
+             OR NEW.sitemap_terminal_at IS DISTINCT FROM OLD.sitemap_terminal_at
+             OR NEW.sitemap_candidates IS DISTINCT FROM OLD.sitemap_candidates
+             OR NEW.sitemap_discarded IS DISTINCT FROM OLD.sitemap_discarded
+             OR NEW.sitemap_documents_fetched IS DISTINCT FROM OLD.sitemap_documents_fetched
+             OR NEW.sitemap_max_index_depth IS DISTINCT FROM OLD.sitemap_max_index_depth
+             OR NEW.sitemap_skipped IS DISTINCT FROM OLD.sitemap_skipped
+             OR NEW.sitemap_limit_reasons IS DISTINCT FROM OLD.sitemap_limit_reasons
+             OR NEW.sitemap_claim_token IS DISTINCT FROM OLD.sitemap_claim_token THEN
       RAISE EXCEPTION 'crawl_host_gate_sitemap_decision_frozen' USING ERRCODE = 'raise_exception';
     END IF;
   END IF;
@@ -2068,6 +2074,10 @@ CREATE TABLE public.crawl_host_gates (
     sitemap_max_index_depth integer DEFAULT 0 NOT NULL,
     sitemap_outcome_reason text,
     sitemap_terminal_at timestamp(6) with time zone,
+    sitemap_skipped jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sitemap_limit_reasons jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sitemap_claim_token uuid,
+    sitemap_attempt_started_at timestamp(6) with time zone,
     CONSTRAINT crawl_host_gates_active_connection_count_check CHECK ((active_connection_count >= 0)),
     CONSTRAINT crawl_host_gates_canonical_host_sha256_check CHECK ((octet_length(canonical_host_sha256) = 32)),
     CONSTRAINT crawl_host_gates_lease_count_agrees CHECK ((active_connection_count = jsonb_array_length(active_leases))),
@@ -2078,9 +2088,14 @@ CREATE TABLE public.crawl_host_gates (
     CONSTRAINT crawl_host_gates_robots_state_check CHECK ((robots_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text]))),
     CONSTRAINT crawl_host_gates_robots_terminal_shape CHECK (((robots_state = ANY (ARRAY['rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text])) = (robots_terminal_at IS NOT NULL))),
     CONSTRAINT crawl_host_gates_robots_unavailable_reason CHECK (((robots_state <> 'unavailable'::text) OR (robots_terminal_reason IS NOT NULL))),
+    CONSTRAINT crawl_host_gates_sitemap_candidates_bounded CHECK ((jsonb_array_length(sitemap_candidates) <= 50)),
+    CONSTRAINT crawl_host_gates_sitemap_claim_shape CHECK (((sitemap_state = 'pending'::text) = ((sitemap_claim_token IS NULL) AND (sitemap_attempt_started_at IS NULL)))),
+    CONSTRAINT crawl_host_gates_sitemap_discarded_bounded CHECK ((jsonb_array_length(sitemap_discarded) <= 200)),
     CONSTRAINT crawl_host_gates_sitemap_documents_fetched_check CHECK ((sitemap_documents_fetched >= 0)),
+    CONSTRAINT crawl_host_gates_sitemap_limit_reasons_bounded CHECK ((jsonb_array_length(sitemap_limit_reasons) <= 200)),
     CONSTRAINT crawl_host_gates_sitemap_max_index_depth_check CHECK ((sitemap_max_index_depth >= 0)),
     CONSTRAINT crawl_host_gates_sitemap_outcome_reason CHECK (((sitemap_state <> ALL (ARRAY['absent'::text, 'unavailable'::text])) OR (sitemap_outcome_reason IS NOT NULL))),
+    CONSTRAINT crawl_host_gates_sitemap_skipped_bounded CHECK ((jsonb_array_length(sitemap_skipped) <= 200)),
     CONSTRAINT crawl_host_gates_sitemap_state_check CHECK ((sitemap_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'succeeded'::text, 'absent'::text, 'unavailable'::text]))),
     CONSTRAINT crawl_host_gates_sitemap_terminal_shape CHECK (((sitemap_state = ANY (ARRAY['succeeded'::text, 'absent'::text, 'unavailable'::text])) = (sitemap_terminal_at IS NOT NULL)))
 );
@@ -5556,6 +5571,8 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120240'),
+('20260727120230'),
 ('20260727120220'),
 ('20260727120210'),
 ('20260727120200'),

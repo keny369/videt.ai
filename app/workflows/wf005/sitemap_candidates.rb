@@ -39,10 +39,13 @@ module Workflows
       # Distinct by canonical URL, keeping the LOWEST-ordered occurrence of each — "the first 50
       # DISTINCT candidates in that order". Deduplication happens after ordering so that which
       # duplicate survives is decided by the tuple, not by arrival.
+      # Membership is tested against a Set rather than by scanning what has been kept: the input is a
+      # remote-controlled list (robots.txt bounds the body at 1 MiB but not the number of `Sitemap:`
+      # lines, so ~39,000 candidates is reachable), and the linear scan made this quadratic — about
+      # 24 seconds of CPU at that size, on a path with no lock to make it visible.
       def distinct(candidates)
-        order(candidates).each_with_object([]) do |candidate, kept|
-          kept << candidate unless kept.any? { |k| k.canonical_url == candidate.canonical_url }
-        end
+        seen = Set.new
+        order(candidates).select { |candidate| seen.add?(candidate.canonical_url) }
       end
 
       # The retained set and the overflow, as [retained, discarded]. The overflow is returned rather

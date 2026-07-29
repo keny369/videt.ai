@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "digest"
 require "securerandom"
 
 module Workflows
@@ -38,34 +37,56 @@ module Workflows
       UNAVAILABLE = "sitemap_unavailable"
       TIMEOUT_S = CrawlPolicy::GLOBAL_CEILING.fetch("request_timeout_seconds").fetch("hard")
       MAX_BODY_BYTES = SitemapParser::MAX_CHARACTER_BYTES
-      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("soft")
+      REDIRECT_BUDGET = CrawlPolicy::GLOBAL_CEILING.fetch("redirects_per_url").fetch("hard")
       USER_AGENT = RobotsPolicy::AGENT_TOKEN
 
+      # How many audit entries are persisted. The bound exists because both lists are driven by a
+      # remote input (robots.txt bounds its body, not its `Sitemap:` line count), and the gate row is
+      # read under an exclusive lock on the authorization path. Truncation is RECORDED, never silent.
+      AUDIT_BOUND = 200
+      AUDIT_TRUNCATED = "sitemap_audit_truncated"
+
       Result = Data.define(:state, :reason_code, :documents_fetched, :urls_offered, :max_index_depth,
-                           :retained, :discarded) do
+                           :retained, :discarded, :skipped, :limit_reasons) do
         def succeeded? = state == "succeeded"
-        # Only `unavailable` reduces coverage (:450).
+        # Only `unavailable` reduces coverage (:450) — but a LIMIT is a separate, stronger outcome
+        # that forces `limit_reached` for the whole run whatever else happened.
         def reduces_coverage? = state == "unavailable"
+        # :450 — "any sitemap depth/count/body/time/XML limit still produces limit_reached".
+        def limit_reached? = !limit_reasons.empty?
       end
+
+      # The :450 reason codes that are LIMITS rather than mere failures. Only these force
+      # `limit_reached`; everything else is telemetry once a candidate has succeeded.
+      DOCUMENTS_LIMIT = "sitemap_documents_limit"
+      INDEX_DEPTH_LIMIT = "sitemap_index_depth_limit"
+      LIMIT_REASONS = [SitemapParser::LIMIT, DOCUMENTS_LIMIT, INDEX_DEPTH_LIMIT].freeze
+      CONTENDED = "sitemap_discovery_contended"
 
       # A gate refusal is a SCHEDULING condition, never a candidate failure: :442 says a start over
       # the rate is "DELAYED", and treating the delay as a failure would silently turn the rate
       # limiter into "only the first sitemap per second is ever read, the rest are unavailable" —
       # which then reduces coverage for a host that was perfectly reachable. `pacer` is how the
       # traversal waits; it is injectable so a test can simulate elapsed time instead of spending it.
-      MAX_DEFERRALS_PER_CANDIDATE = 5
+      #
+      # The wait is the length the GATE reports, not a fixed constant — a host declaring
+      # `Crawl-delay: 10` needs ten seconds, and pacing it in 250 ms increments merely exhausted the
+      # deferral budget on a reachable host. With the real interval waited, the count below is a
+      # liveness backstop against a wedged gate rather than a scheduling parameter, and reaching it
+      # is RECORDED rather than silently dropped.
+      MAX_DEFERRALS_PER_CANDIDATE = 20
       DEFERRED = :deferred
+      GATE_DEFERRED = "sitemap_gate_deferred"
 
       # :444's shape, applied to sitemap fetches because :450 requires a sitemap to pass the same
       # "request, retry" bounds as any other fetch — and because :450 conditions `sitemap_unavailable`
       # on "no sitemap candidate succeeds AFTER RETRIES/validation". Recording a host unavailable
       # without having retried would reduce its coverage on the strength of one transient failure.
-      MAX_ATTEMPTS = 3
-      RETRYABLE_STATUSES = [408, 429].freeze
+      MAX_ATTEMPTS = FetchRetryPolicy::MAX_ATTEMPTS
 
       # One fetch outcome. `parsed` is the parser Result when the document was retrieved and parsed;
       # `status` is the HTTP status when there was a response; `retryable` marks a transient failure.
-      Attempt = Data.define(:parsed, :status, :retryable) do
+      Attempt = Data.define(:parsed, :status, :retryable, :outcome) do
         def ok? = parsed&.ok?
         # :450 — the default sitemap returning 404/410 is what makes "absent" the right outcome, as
         # distinct from any other response, which makes it "unavailable".
@@ -84,20 +105,41 @@ module Workflows
 
       # Resolve every sitemap for the host and admit the content URLs it names to the frontier.
       # Robots must already be terminal — :450's discovery reads the parsed robots file.
-      def call(organization_id:, crawl_id:, canonical_host:, source_id:, project_id:, now:)
+      def call(organization_id:, crawl_id:, canonical_host:, source_id:, project_id: nil, now:)
         gate = load_gate(organization_id, crawl_id, canonical_host)
         return already(gate) if gate && terminal?(gate["sitemap_state"])
-        return Result.new(state: "pending", reason_code: "robots_not_resolved", documents_fetched: 0,
-                          urls_offered: 0, max_index_depth: 0, retained: [], discarded: []) unless gate && robots_terminal?(gate)
+        return pending("robots_not_resolved") unless gate && robots_terminal?(gate)
+
+        # The Project is resolved from the CRAWL, never from the caller. `FetchAuthorization` already
+        # does this deliberately; reading a caller-supplied value here would evaluate Source Scope
+        # against another Project's policy before a composite foreign key rejected the insert —
+        # fail-closed, but a decision taken on unverified input, which is not the same thing.
+        crawl = load_crawl(organization_id, crawl_id)
+        return pending("crawl_not_found") if crawl.nil?
 
         declared = declared_candidates(gate, canonical_host)
         retained, discarded = SitemapCandidates.retain(declared)
-        begin_discovery(organization_id, gate["id"], retained, discarded, now)
+        # A zero row count means another worker won the pending -> in_progress transition. Standing
+        # down is the point: both workers running the traversal would DOUBLE the request volume
+        # against the host this whole subsystem exists to pace.
+        # The claim token identifies THIS attempt. Only the holder may write the terminal outcome, so
+        # a worker that lost the race — or one whose lost attempt was later taken over — cannot close
+        # a run it is not executing.
+        token = @ids.generate
+        if begin_discovery(organization_id, gate, retained, discarded, token, now).zero?
+          return pending(CONTENDED)
+        end
 
         state = Traversal.new(self, organization_id:, crawl_id:, canonical_host:, source_id:,
-                              project_id:, gate_id: gate["id"], now:).run(retained, declared_any: declared_any?(gate))
-        terminalize(organization_id, gate["id"], state, now)
+                              project_id: crawl["project_id"], gate_id: gate["id"], now:)
+                         .run(retained, declared_any: declared_any?(gate), discarded:)
+        terminalize(organization_id, gate["id"], token, state, now)
         state
+      end
+
+      def pending(reason)
+        Result.new(state: "pending", reason_code: reason, documents_fetched: 0, urls_offered: 0,
+                   max_index_depth: 0, retained: [], discarded: [], skipped: [], limit_reasons: [])
       end
 
       # ---- candidate construction ----------------------------------------------
@@ -123,15 +165,30 @@ module Workflows
 
       def default_url(canonical_host) = "https://#{canonical_host}#{DEFAULT_PATH}"
 
-      # :450 — "A sitemap or sitemap index must remain on the verified canonical host". A cross-host
-      # or non-HTTPS location is recorded and skipped, never followed.
+      # :450 — "A sitemap or sitemap index must remain on the verified canonical host" and "canonical
+      # duplicates are fetched once"; :454 orders candidates by CANONICAL URL bytes. Both require the
+      # location to be CANONICALIZED, not merely host-compared: without it
+      # `https://Host/sitemap.xml`, `https://host:443/sitemap.xml`, `https://host/a/../sitemap.xml`
+      # and a `#fragment` variant are four candidates for one document, each fetched separately and
+      # each sorting on the wrong bytes.
+      #
+      # The canonicalizer is the S-06 predicate — the same one content URLs go through — driven by a
+      # permissive identity policy for this host, so host/scheme/port/path/query normalization and
+      # the same-host rule are decided by one implementation rather than two.
       def normalize(url, canonical_host)
-        candidate = url.to_s.strip
-        return nil unless candidate.start_with?("https://")
+        decision = Wf004::SourceScopePredicate.evaluate(url: url.to_s.strip,
+                                                        policies: [identity_policy(canonical_host)])
+        decision.allowed? ? decision.canonical_url : nil
+      rescue ArgumentError
+        nil
+      end
 
-        authority = candidate.delete_prefix("https://").split(%r{[/?#]}, 2).first.to_s
-        host = authority.split("@", 2).last.to_s.split(":", 2).first.to_s.downcase
-        host == canonical_host.to_s.downcase ? candidate : nil
+      def identity_policy(canonical_host)
+        Wf004::SourceScopePredicate::Policy.new(
+          canonical_host: canonical_host.to_s.downcase, allowed_schemes: ["https"],
+          allowed_ports: [443], include_prefixes: ["/"], exclude_prefixes: [],
+          query_handling: Wf004::SourceScopePredicate::RETAIN_ALL
+        )
       end
 
       # ---- one candidate --------------------------------------------------------
@@ -141,12 +198,12 @@ module Workflows
       def fetch_document(organization_id:, crawl_id:, canonical_host:, source_id:, gate_id:, url:, now:)
         claim = claim_slot(organization_id, gate_id, now)
         # Distinguish "the host gate is pacing us" from "this candidate failed". Only the second is a
-        # sitemap outcome; the first means try again shortly.
-        return DEFERRED unless claim&.granted?
+        # sitemap outcome; the first means try again after the interval the GATE names.
+        return [DEFERRED, claim&.retry_after_ms || HostGate::REFUSAL_RETRY_MS] unless claim&.granted?
 
         begin
           unless authorized?(organization_id:, crawl_id:, source_id:, url:, gate_id:, now:)
-            return Attempt.new(parsed: nil, status: nil, retryable: false)
+            return Attempt.new(parsed: nil, status: nil, retryable: false, outcome: nil)
           end
 
           classify(fetch(url))
@@ -160,19 +217,35 @@ module Workflows
       # so attacker-controlled bytes behind an error status are never interpreted as a sitemap.
       def classify(outcome)
         unless outcome.respond_to?(:response?) && outcome.response?
-          return Attempt.new(parsed: nil, status: nil,
-                             retryable: outcome.respond_to?(:retryable) && outcome.retryable)
+          return Attempt.new(parsed: nil, status: nil, outcome:,
+                             retryable: FetchRetryPolicy.retryable?(outcome))
         end
 
         status = outcome.status.to_i
-        return Attempt.new(parsed: nil, status:, retryable: true) if RETRYABLE_STATUSES.include?(status) ||
-                                                                     (500..599).cover?(status)
+        return Attempt.new(parsed: nil, status:, retryable: true, outcome:) if FetchRetryPolicy.retryable?(outcome)
         unless (200..299).cover?(status)
-          return Attempt.new(parsed: nil, status:, retryable: false)
+          return Attempt.new(parsed: nil, status:, retryable: false, outcome:)
+        end
+
+        # A body stopped AT the byte cap is over the :450 bound, not at it, and handing the truncated
+        # prefix to the parser would report `sitemap_malformed` for what is really `sitemap_xml_limit`
+        # — and, worse, parse a document the site never served. `EnsureRobots` already checks this.
+        if outcome.byte_count.to_i > MAX_BODY_BYTES || (outcome.respond_to?(:truncated) && outcome.truncated)
+          return Attempt.new(parsed: SitemapParser.failure(SitemapParser::LIMIT), status:,
+                             retryable: false, outcome:)
+        end
+
+        # :450 — "A sitemap or sitemap index MUST REMAIN ON THE VERIFIED CANONICAL HOST". F-01
+        # revalidates destination safety on every redirect hop but imposes no same-host rule, so a
+        # sitemap that redirects off-host would otherwise be fetched and parsed as this host's
+        # sitemap. The final URL is what was actually retrieved, so that is what is checked.
+        final = outcome.final_url
+        if final && normalize(final, outcome.canonical_host).nil?
+          return Attempt.new(parsed: nil, status:, retryable: false, outcome:)
         end
 
         Attempt.new(parsed: SitemapParser.parse(outcome.body, content_type: content_type_of(outcome)),
-                    status:, retryable: false)
+                    status:, retryable: false, outcome:)
       end
 
       def content_type_of(outcome)
@@ -186,13 +259,27 @@ module Workflows
         @outbound.fetch(url, timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
                         max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)
       rescue StandardError
-        Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true)
+        Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true,
+                                           canonical_host: nil)
       end
 
       # ---- transactions ---------------------------------------------------------
 
       def load_gate(organization_id, crawl_id, canonical_host)
         in_unit(organization_id) { |store| store.gate(organization_id, crawl_id, canonical_host) }
+      end
+
+      def load_crawl(organization_id, crawl_id)
+        in_unit(organization_id) { |store| store.crawl(organization_id, crawl_id) }
+      end
+
+      # Reserve one slot from the RUN-WIDE sitemap-document budget (:437 — 50 distinct canonical
+      # sitemap URLs PER RUN). Returns false when the run has spent it.
+      def reserve_document(organization_id, crawl_id, now)
+        in_unit(organization_id) do |store|
+          !store.reserve_sitemap_document(organization_id, crawl_id,
+                                          SitemapCandidates::DOCUMENT_LIMIT, now).nil?
+        end
       end
 
       def claim_slot(organization_id, gate_id, now)
@@ -215,46 +302,81 @@ module Workflows
         end
       end
 
-      def begin_discovery(organization_id, gate_id, retained, discarded, now)
+      def begin_discovery(organization_id, gate, retained, discarded, token, now)
         in_unit(organization_id) do |store|
-          store.begin_sitemaps(gate_id, now,
+          store.begin_sitemaps(gate["id"], gate["state_version"].to_i, now,
                                retained.map { |c| candidate_json(c) },
-                               discarded.map { |c| candidate_json(c) })
-        end
+                               bounded(discarded.map { |c| candidate_json(c) }, "url"), token)
+        end.to_i
       end
 
-      def terminalize(organization_id, gate_id, result, now)
-        in_unit(organization_id) do |store|
-          store.terminalize_sitemaps(gate_id, now, state: result.state, reason: result.reason_code,
+      # Persist at most `AUDIT_BOUND` entries, recording that the list was truncated. The overflow of
+      # a 39,000-candidate declared set is genuine audit data, but it is remote-controlled and it
+      # lives on the row every authorization read locks — so it is bounded, and the bound is visible.
+      def bounded(entries, key)
+        return entries if entries.length <= AUDIT_BOUND
+
+        entries.first(AUDIT_BOUND - 1) +
+          [{ key => AUDIT_TRUNCATED, "reason" => AUDIT_TRUNCATED, "omitted" => entries.length - AUDIT_BOUND + 1 }]
+      end
+
+      # A zero-row terminalize would leave the gate permanently `in_progress`, so the :450 outcome
+      # would never be recorded and nothing would notice. It is asserted, not assumed.
+      def terminalize(organization_id, gate_id, token, result, now)
+        moved = in_unit(organization_id) do |store|
+          store.terminalize_sitemaps(gate_id, token, now, state: result.state, reason: result.reason_code,
                                                    documents: result.documents_fetched,
-                                                   max_depth: result.max_index_depth)
+                                                   max_depth: result.max_index_depth,
+                                                   skipped: bounded(result.skipped, "url"),
+                                                   limit_reasons: result.limit_reasons)
+        end
+        raise Platform::InvariantViolation, "sitemap terminal decision lost" if moved.to_i.zero?
+      end
+
+      # Admit every content URL ONE PARSED DOCUMENT names, in one unit of work. Per-URL transactions
+      # were the shape here, and they cost a `f1_enter_org_context`, a two-table `current_scope_policy`
+      # join, an advisory lock and a commit EACH — for a document naming 16,000 URLs, and up to 50
+      # documents per run. The network call is already outside every transaction because the document
+      # is in memory by the time this runs, so batching costs no invariant: the scope policy is read
+      # once for URLs that are admitted together anyway, and `FetchAuthorization` re-reads it at fetch
+      # time regardless, which is where freshness actually matters.
+      def offer_urls(organization_id:, project_id:, crawl_id:, source_id:, urls:, discovering:, now:)
+        return 0 if urls.empty?
+
+        in_unit(organization_id) do |store, conn|
+          scope = store.current_scope_policy(organization_id, project_id, source_id)
+          next 0 if scope.nil?
+
+          policy = scope_policy(scope)
+          frontier = Frontier.new(IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn),
+                                  ids: @ids, correlation_id: @correlation_id)
+          urls.count { |url| admit(frontier, policy, scope, url, discovering, organization_id,
+                                   project_id, crawl_id, source_id, now) }
         end
       end
 
-      def offer_url(organization_id:, project_id:, crawl_id:, source_id:, url:, discovering:, now:)
-        in_unit(organization_id) do |store|
-          gate_store = store
-          frontier_store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(gate_store.connection)
-          scope = gate_store.current_scope_policy(organization_id, project_id, source_id)
-          next false if scope.nil?
+      def admit(frontier, policy, scope, url, discovering, organization_id, project_id, crawl_id,
+                source_id, now)
+        # :450 — "Content URLs still pass normal scope, destination safety, robots, queue, depth and
+        # deduplication rules." Scope is checked here; the frontier owns dedup and queue admission.
+        decision = Wf004::SourceScopePredicate.evaluate(url:, policies: [policy])
+        return false unless decision.allowed?
 
-          # :450 — "Content URLs still pass normal scope, destination safety, robots, queue, depth and
-          # deduplication rules." Scope is checked here; the frontier owns dedup and queue admission.
-          decision = Wf004::SourceScopePredicate.evaluate(url:, policies: [scope_policy(scope)])
-          next false unless decision.allowed?
-
-          Frontier.new(frontier_store, ids: @ids, correlation_id: @correlation_id).offer(
-            organization_id:, project_id:, crawl_id:, source_id:,
-            canonical_url: decision.canonical_url, origin: "sitemap",
-            # :440 — "a sitemap-discovered content URL starts at depth 1".
-            depth: 1, now:, discovering_document_url: "", link_position: 0,
-            # :454 forces the ENTRY tuple to ('',0) for a sitemap candidate, so the discovering
-            # sitemap URL is carried on the OCCURRENCE, where the provenance survives.
-            occurrence_document_url: discovering,
-            scope_policy_id: scope["id"], scope_policy_version: scope["policy_version"]
-          )
-          true
-        end
+        # `urls_offered` counts URLs genuinely ADMITTED to the frontier. Counting every call made a
+        # duplicate or a queue-limit discard look like a new candidate, which is exactly the number a
+        # reader would use to check that discovery did what it says.
+        frontier.offer(
+          organization_id:, project_id:, crawl_id:, source_id:,
+          canonical_url: decision.canonical_url, origin: "sitemap",
+          # :440 — "a sitemap-discovered content URL starts at depth 1".
+          depth: 1, now:, discovering_document_url: "", link_position: 0,
+          # :454 forces the ENTRY tuple to ('',0) for a sitemap candidate, so the discovering
+          # sitemap URL is carried on the OCCURRENCE, where the provenance survives.
+          occurrence_document_url: discovering,
+          scope_policy_id: scope["id"], scope_policy_version: scope["policy_version"]
+        ).admitted?
+      rescue ArgumentError
+        false
       end
 
       def scope_policy(row)
@@ -269,11 +391,14 @@ module Workflows
         )
       end
 
+      # Yields the gate store AND the raw connection, so a caller needing a sibling store on the same
+      # transaction can build one without the gate store publishing its own connection as public API.
       def in_unit(organization_id)
         Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
+          raw = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          yield store
+          yield store, raw
         end
       end
 
@@ -282,61 +407,116 @@ module Workflows
           "discovered_by" => candidate.discovering_sitemap_url }
       end
 
+      def parse_json(value)
+        parsed = JSON.parse(value.to_s)
+        parsed.is_a?(::Array) ? parsed : []
+      rescue JSON::ParserError
+        []
+      end
+
       def terminal?(state) = %w[succeeded absent unavailable].include?(state)
       def robots_terminal?(gate) = %w[rules_applied no_restrictions].include?(gate["robots_state"])
 
+      # An already-terminal gate reports what was RECORDED, including the retained candidate set and
+      # the overflow — the same fields a fresh run reports, read back from the row rather than
+      # invented as empty.
       def already(gate)
         Result.new(state: gate["sitemap_state"], reason_code: gate["sitemap_outcome_reason"],
                    documents_fetched: gate["sitemap_documents_fetched"].to_i, urls_offered: 0,
-                   max_index_depth: gate["sitemap_max_index_depth"].to_i, retained: [], discarded: [])
+                   max_index_depth: gate["sitemap_max_index_depth"].to_i,
+                   retained: parse_json(gate["sitemap_candidates"]).filter_map { |c| c["url"] },
+                   discarded: parse_json(gate["sitemap_discarded"]).filter_map { |c| c["url"] },
+                   skipped: parse_json(gate["sitemap_skipped"]),
+                   limit_reasons: parse_json(gate["sitemap_limit_reasons"]))
       end
 
       # The breadth-first traversal of the candidate set, following sitemap-index edges up to the
-      # ratified depth. Extracted so the fetch/parse/offer loop is readable as one thing.
+      # ratified depth. Every skipped or failed candidate is RECORDED with its reason (:450), and the
+      # LIMIT subset is separated because only those force `limit_reached` for the whole run.
       class Traversal
         def initialize(service, organization_id:, crawl_id:, canonical_host:, source_id:, project_id:,
                        gate_id:, now:)
           @service = service
           @context = { organization_id:, crawl_id:, canonical_host:, source_id:, project_id:, gate_id:, now: }
-          @seen = []
+          # Insertion-ordered and O(1) to test. The previous Array + `include?` was quadratic over a
+          # remote-controlled candidate list.
+          @visited = {}
+          @pending = []
           @documents = 0
           @offered = 0
           @max_depth = 0
           @succeeded = false
+          @skipped = []
+          @limit_reasons = []
           @default_url = service.default_url(canonical_host)
           # nil until the default has been attempted; then true only if it answered 404/410.
           @default_absent = nil
         end
 
-        def run(retained, declared_any:)
-          queue = retained.dup
-          until queue.empty?
-            candidate = queue.shift
-            next if @seen.include?(candidate.canonical_url)
+        def run(retained, declared_any:, discarded: [])
+          discarded.each { |c| skip(c.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT) }
+          @pending = SitemapCandidates.order(retained)
+          until @pending.empty?
+            candidate = @pending.shift
+            next if @visited.key?(candidate.canonical_url)
 
-            @seen << candidate.canonical_url
-            queue.concat(visit(candidate))
-            # The document bound applies to the whole run of this host (:450 sitemaps 40/50).
-            break if @documents >= SitemapCandidates::DOCUMENT_LIMIT
+            # :437 — "sitemap documents per RUN | 40 | 50 | distinct canonical sitemap URLs". The
+            # budget is reserved from the CRAWL, not from this host: `crawl_host_gates` holds one row
+            # per `(crawl, canonical_host)`, so a per-host counter would let a Crawl with ten Sources
+            # on ten hosts fetch ten times the ratified maximum.
+            #
+            # Reserved BEFORE the attempt, because the unit is distinct canonical URLs ATTEMPTED.
+            # Counting successful parses instead would let one index naming ten thousand dead
+            # children fetch every one of them without the counter ever moving.
+            unless @service.reserve_document(@context[:organization_id], @context[:crawl_id], @context[:now])
+              skip(candidate.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT)
+              next
+            end
+
+            @visited[candidate.canonical_url] = candidate
+            admit(visit(candidate))
           end
           outcome(declared_any:)
         end
 
         private
 
+        # :454's retention is a SELECTION OVER THE WHOLE CANDIDATE SET, not over the declared set
+        # alone. Applying it only at depth 0 and then appending index children unbounded is what let
+        # one attacker-authored index name 500 children and produce 501 outbound fetches — the
+        # ceiling that exists to stop precisely that.
+        #
+        # Re-selecting over visited + pending + new keeps the invariant stable: candidates sort by
+        # index depth first and the traversal is breadth-first, so the visited set is always a prefix
+        # of the order and re-selection never has to un-visit anything.
+        def admit(children)
+          return if children.empty?
+
+          retained, overflow = SitemapCandidates.retain(@visited.values + @pending + children)
+          overflow.each do |c|
+            skip(c.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT) unless @visited.key?(c.canonical_url)
+          end
+          @pending = retained.reject { |c| @visited.key?(c.canonical_url) }
+        end
+
+        def skip(url, reason)
+          @skipped << { "url" => url, "reason" => reason }
+          @limit_reasons << reason if DiscoverSitemaps::LIMIT_REASONS.include?(reason)
+        end
+
         # Wait out the host gate rather than recording a paced candidate as unavailable, and RETRY a
         # transient failure under :444 — :450 conditions `sitemap_unavailable` on "no candidate
         # succeeds AFTER retries", so recording it on one 503 would reduce coverage prematurely.
         def fetch_paced(candidate)
           last = nil
-          DiscoverSitemaps::MAX_ATTEMPTS.times do
+          DiscoverSitemaps::MAX_ATTEMPTS.times do |index|
             attempt = fetch_once(candidate)
             return attempt if attempt == DiscoverSitemaps::DEFERRED
 
             last = attempt
             return attempt unless attempt.retryable
 
-            @service.pace(HostGate::REFUSAL_RETRY_MS)
+            @service.pace(FetchRetryPolicy.delay_ms(index + 1, attempt.outcome))
           end
           last
         end
@@ -346,9 +526,12 @@ module Workflows
             attempt = @service.fetch_document(**@context.slice(:organization_id, :crawl_id, :canonical_host,
                                                                :source_id, :gate_id, :now),
                                               url: candidate.canonical_url)
-            return attempt unless attempt == DiscoverSitemaps::DEFERRED
+            return attempt unless attempt.is_a?(::Array) && attempt.first == DiscoverSitemaps::DEFERRED
 
-            @service.pace(HostGate::REFUSAL_RETRY_MS)
+            # Wait the length the GATE reports, not a fixed constant: the interval is
+            # max(base, robots Crawl-delay, ...), so pacing a `Crawl-delay: 10` host in 250 ms
+            # increments merely burned the budget on a host that was perfectly reachable.
+            @service.pace(attempt.last)
           end
           DiscoverSitemaps::DEFERRED
         end
@@ -356,7 +539,10 @@ module Workflows
         # Fetch one candidate; return any child candidates a sitemap INDEX names.
         def visit(candidate)
           attempt = fetch_paced(candidate)
-          return [] if attempt == DiscoverSitemaps::DEFERRED   # still paced after the bound; telemetry only
+          if attempt == DiscoverSitemaps::DEFERRED
+            skip(candidate.canonical_url, DiscoverSitemaps::GATE_DEFERRED)
+            return []
+          end
 
           # :450 distinguishes the DEFAULT sitemap answering 404/410 (which makes the host "absent",
           # covered, no coverage reduction) from it answering anything else (which makes the host
@@ -365,31 +551,44 @@ module Workflows
           @default_absent = attempt.absent? if candidate.canonical_url == @default_url
 
           parsed = attempt.parsed
-          return [] if parsed.nil? || !parsed.ok?
+          if parsed.nil?
+            skip(candidate.canonical_url, attempt.status ? "sitemap_fetch_failed" : "sitemap_unreachable")
+            return []
+          end
+          unless parsed.ok?
+            # `sitemap_xml_unsafe`, `sitemap_xml_limit`, malformed, unsupported media — each recorded
+            # under its own :450 reason, with the limit subset separated.
+            skip(candidate.canonical_url, parsed.reason)
+            return []
+          end
 
           @documents += 1
           @succeeded = true
           @max_depth = [@max_depth, candidate.index_depth].max
-          parsed.urls.each { |url| @offered += 1 if offer(url, candidate.canonical_url) }
+          @offered += @service.offer_urls(**@context.slice(:organization_id, :project_id, :crawl_id,
+                                                           :source_id, :now),
+                                          urls: parsed.urls, discovering: candidate.canonical_url)
           children(parsed, candidate)
         end
 
         def children(parsed, candidate)
           depth = candidate.index_depth + 1
-          return [] unless SitemapCandidates.within_index_depth?(depth)
+          normalized = parsed.sitemaps.filter_map do |url|
+            target = @service.normalize(url, @context[:canonical_host])
+            # A cross-host or unparseable location is recorded and skipped, never followed (:450).
+            next skip(url, "sitemap_cross_host_location") && nil if target.nil?
 
-          parsed.sitemaps.filter_map do |url|
-            normalized = @service.normalize(url, @context[:canonical_host])
-            next if normalized.nil?
+            target
+          end
+          unless SitemapCandidates.within_index_depth?(depth)
+            normalized.each { |url| skip(url, DiscoverSitemaps::INDEX_DEPTH_LIMIT) }
+            return []
+          end
 
-            SitemapCandidates.candidate(canonical_url: normalized, index_depth: depth,
+          normalized.map do |url|
+            SitemapCandidates.candidate(canonical_url: url, index_depth: depth,
                                         discovering_sitemap_url: candidate.canonical_url)
-          end.then { |set| SitemapCandidates.order(set) }
-        end
-
-        def offer(url, discovering)
-          @service.offer_url(**@context.slice(:organization_id, :project_id, :crawl_id, :source_id, :now),
-                             url:, discovering:)
+          end
         end
 
         # :450's outcome table, exactly:
@@ -407,7 +606,9 @@ module Workflows
             end
           DiscoverSitemaps::Result.new(state:, reason_code: reason, documents_fetched: @documents,
                                        urls_offered: @offered, max_index_depth: @max_depth,
-                                       retained: @seen, discarded: [])
+                                       retained: @visited.keys,
+                                       discarded: @skipped.map { |s| s["url"] },
+                                       skipped: @skipped, limit_reasons: @limit_reasons.uniq)
         end
       end
     end
