@@ -2248,3 +2248,37 @@ Every mandatory gate green from the final state: whole-repo suite **1882/0**; Br
 
 Authority And Precedence:
 Under standing delegation ADR-061. Follows ADR-080's rule that no acceptance is recorded until every lens has reported; five passes reported here, the fifth as mutation verification rather than prose review, on the owner's instruction. Allocated the next unused number after ADR-082.
+
+## ADR-084: Blocking-Defect Repair Authority — A Demonstrated Root Cause May Be Repaired Across Tranche Boundaries
+
+Status: Accepted (owner decision, 2026-07-30; drafted by the implementation agent at the owner's direction)
+Date: 2026-07-30
+Owner: repository owner
+Reversibility: Governance only. No product code, schema or contract changes.
+
+The question this answers:
+**May the controller interrupt its current tranche to repair a blocker it did not create?** It arose three times in two days and was answered differently each time, which is the signal that it belongs in the record rather than in a judgement call.
+
+The occasion. The mandatory `complete_test_suite` gate began hanging intermittently — two of four whole-suite runs, on an unchanged tree. The controller stopped, which was defensible, and recorded the blocker. But it recorded it against "S-013", a block that DOES NOT EXIST in BUILD_PLAN: the name was inferred from a commit-message prefix and a spec filename. The record then directed the next session to seek authority from a block that could never grant it. Meanwhile the actual defect sat in shared test-harness code owned by no tranche at all — two memoized raw `PG.connect` connections running with `statement_timeout = 0` while `config/database.yml` declares 15s for precisely this purpose and says so in a comment.
+
+Two failure modes in one episode, and they pull in opposite directions. Stopping produced a false ownership claim and a session lost to a blocker that was one small change away from repaired. Not stopping would have risked an agent wandering out of its tranche on a hunch. The rule has to permit the first while forbidding the second, and the discriminator is EVIDENCE.
+
+**The rule.** A mandatory gate failure whose ROOT CAUSE HAS BEEN DEMONSTRATED is repaired immediately, whichever tranche owns the defect and whatever tranche is in progress, provided every one of the following holds:
+
+1. **The repair removes the blocker itself, rather than merely restoring a passing gate.** Widening a timeout, reordering or seeding tests, excluding a file, quarantining an example, retrying until green, or loosening an assertion are all forbidden, because each restores the gate while leaving the defect. If the smallest available change makes the gate pass without removing the cause, that is not a repair and the controller stops.
+2. It is the smallest correction that satisfies (1).
+3. It does not change product semantics.
+4. It does not touch a frozen foundation. F-01 through F-04 remain an owner decision even when the evidence looks conclusive, because "I have proved this foundation must change" is exactly the conclusion an agent is most likely to reach wrongly and least able to check. ADR-082 modified F-01 and required an owner-visible argument to do it; that bar does not move.
+5. It does not require changing repository governance, including this rule.
+6. It is committed SEPARATELY from the tranche in progress, mixing no unrelated change.
+7. It is recorded as a follow-up in `BUILD_STATE.open_decisions`. A separate commit gives git history; a follow-up gives GOVERNANCE history. They answer different questions and neither substitutes for the other.
+8. The full mandatory gate set passes from the resulting state, and where the failure was nondeterministic, repeated whole-suite runs are recorded as stability evidence rather than a single green run.
+
+**DEMONSTRATED means reproduced and explained, not inferred.** The threshold is deliberately not "deterministic defect": the hang that produced this rule presented intermittently and only its cause was deterministic, so that wording would have excluded the very case it was written for. A root cause is demonstrated when the mechanism is exhibited on demand and the counterfactual is shown — here, that a harness-style connection reported `statement_timeout` `0` against ActiveRecord's `15s`, that a `TRUNCATE` on it was still blocked after 20 seconds behind an idle-in-transaction session, and that the identical statement carrying the configured value raised `PG::QueryCanceled` instead. Location is not causation: the threads visibly piled up in the WF-013 concurrency specs, which is where the symptom appeared and not where the defect lived.
+
+If any condition fails, the controller stops and escalates under HUMAN_ESCALATION_POLICY. A blocked tranche remains preferable to an unapproved change.
+
+**What this does not authorise.** It is not permission to work on another tranche's backlog, to repair defects that are not blocking a mandatory gate, or to treat a failing spec's filename as evidence of ownership. Ownership is read from BUILD_PLAN; a defect in shared infrastructure owned by no block is repaired under this rule, not assigned to a block invented for the purpose.
+
+Authority And Precedence:
+Owner decision, taken after the observed episode rather than in anticipation of it. Operates within standing delegation ADR-061 and does not alter it; ADR-080's rule that acceptance requires every lens to have reported is untouched, and a repair under this rule is not an acceptance. Restates nothing in AUTONOMY_POLICY that it contradicts: the operational statement is added there under this ADR's number, following the pattern ADR-061 already set. Allocated the next unused number after ADR-083.

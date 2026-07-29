@@ -12,6 +12,16 @@ Within an owner-AUTHORISED block, the controller runs each authorised sub-tranch
 
 `human_gate_before` is set only where a real owner decision is required (a new block, a decomposition, or a genuine contract ambiguity). `human_gate_after` is reserved for a mandatory-gate failure or an acceptance criterion that cannot be objectively satisfied. The controller returns to the owner ONLY for: (1) a genuine repository ambiguity with two materially different valid interpretations affecting behaviour or security; (2) a contract or scope change requiring owner approval; (3) a mandatory verification gate failing or a repository invariant that cannot be satisfied; or when the current authorised block is exhausted and the next requires fresh authorisation.
 
+## Blocking-defect repair authority (DECISIONS ADR-084)
+
+A mandatory gate failure whose ROOT CAUSE HAS BEEN DEMONSTRATED is repaired immediately, whichever tranche owns the defect and whatever tranche is in progress, provided all of: the repair removes the blocker itself rather than merely restoring a passing gate; it is the smallest correction that does so; it does not change product semantics; it does not touch a frozen foundation (F-01 through F-04, which remain an owner decision); it does not require changing repository governance; it is committed separately from the tranche in progress; it is recorded as a follow-up in `BUILD_STATE.open_decisions`; and the full mandatory gate set passes from the resulting state, with repeated whole-suite runs recorded as stability evidence where the failure was nondeterministic.
+
+DEMONSTRATED means reproduced and explained, not inferred: the mechanism is exhibited on demand and the counterfactual shown. Location is not causation — where a symptom appears is not where the defect lives. Ownership is read from BUILD_PLAN; a defect in shared infrastructure owned by no block is repaired under this rule, never assigned to a block inferred from a filename or a commit-message prefix.
+
+Widening a timeout, reordering or seeding tests, excluding a file, quarantining an example, retrying until green, or loosening an assertion are forbidden: each restores the gate and leaves the defect. If any condition fails, stop and escalate. A blocked tranche remains preferable to an unapproved change.
+
+This is not permission to work on another tranche's backlog, nor to repair defects that are not blocking a mandatory gate.
+
 ## Decision classes
 
 Every decision made by the controller or an invoked agent must be classified as one of:
