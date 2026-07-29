@@ -47,13 +47,17 @@ module Workflows
       AUDIT_TRUNCATED = "sitemap_audit_truncated"
 
       Result = Data.define(:state, :reason_code, :documents_fetched, :urls_offered, :max_index_depth,
-                           :retained, :discarded, :skipped, :limit_reasons) do
+                           :retained, :discarded, :skipped, :limit_reasons, :retry_after) do
+        def initialize(retry_after: nil, **) = super
+
         def succeeded? = state == "succeeded"
         # Only `unavailable` reduces coverage (:450) — but a LIMIT is a separate, stronger outcome
         # that forces `limit_reached` for the whole run whatever else happened.
         def reduces_coverage? = state == "unavailable"
         # :450 — "any sitemap depth/count/body/time/XML limit still produces limit_reached".
         def limit_reached? = !limit_reasons.empty?
+        # FU-9: nothing was decided about this host, and the scheduler owes it another pass.
+        def rescheduled? = state == "pending" && reason_code == DiscoverSitemaps::CONTENDED
       end
 
       # The :450 reason codes that are LIMITS rather than mere failures. Only these force
@@ -149,13 +153,73 @@ module Workflows
         state = Traversal.new(self, organization_id:, crawl_id:, canonical_host:, source_id:,
                               project_id: crawl["project_id"], gate_id: gate["id"], now:)
                          .run(retained, declared_any: declared_any?(gate), discarded:)
+
+        # FU-9 (ADR-081): SUSTAINED CONTENTION IS NOT AN OUTCOME, so it does not get written as one.
+        return reschedule(organization_id, gate["id"], token, now) if defer_to_scheduler?(state, crawl, now)
+
         terminalize(organization_id, crawl["project_id"], crawl_id, gate["id"], token, state, now)
         state
       end
 
-      def pending(reason)
+      def pending(reason, retry_after: nil)
         Result.new(state: "pending", reason_code: reason, documents_fetched: 0, urls_offered: 0,
-                   max_index_depth: 0, retained: [], discarded: [], skipped: [], limit_reasons: [])
+                   max_index_depth: 0, retained: [], discarded: [], skipped: [], limit_reasons: [],
+                   retry_after:)
+      end
+
+      # ---- FU-9: scheduler re-entry after sustained host-gate contention -----------
+      #
+      # THE DEFECT (ADR-081, ADR-026 concurrency lens): a host under sustained contention could
+      # exhaust the traversal's deferral budget and then be terminalized `sitemap_unavailable` —
+      # WRITE-ONCE, coverage permanently partial — having made ZERO network attempts. S-07-006
+      # mitigated the trigger (the gate now reports the real remaining wait, so pacing no longer
+      # expires on a legitimate `Crawl-delay`) but left the failure mode reachable, and the build
+      # plan makes the re-entry this tranche's to provide.
+      #
+      # THE FIX IS TO NOT DECIDE. :450 conditions `sitemap_unavailable` on "no sitemap candidate
+      # succeeds AFTER RETRIES/VALIDATION"; a candidate the rate limiter never released has had
+      # neither, so the premise of that sentence is unmet and there is nothing to record. The claim
+      # is handed back, the gate returns to `pending`, and the host is exactly as discoverable as it
+      # was before this attempt.
+      #
+      # WHY NO NEW SCHEDULED-ACTION KIND. The ratified catalogue is closed, and none of its crawl
+      # kinds means "re-run sitemap discovery for a host" — `crawl_fetch_due` is bound to a Fetch
+      # Attempt identity and `crawl_dispatch` to `StartCrawl`/`CompleteCrawl`/`FailCrawl`/
+      # `CancelCrawl` "selected solely from persisted Crawl/deadline state". Inventing one would add
+      # vocabulary to a frozen catalogue to express something the existing state already expresses:
+      # a `pending` gate IS the re-entry, because the next pass claims it exactly as the first did.
+      #
+      # WHAT BOUNDS IT. The run's own wall clock, which is now enforced at admission (:442 — "at 60
+      # elapsed minutes, no new request starts"). A host that stays contended until the deadline is
+      # terminalized honestly HERE, once, with `unavailable` — at that point no candidate can ever
+      # be attempted, so the coverage reduction is true rather than premature, and the run already
+      # carries a `wall_clock_run_duration` decision explaining it.
+      def defer_to_scheduler?(state, crawl, now)
+        return false if state.succeeded? || !gate_deferred?(state)
+
+        !run_expired?(crawl, now)
+      end
+
+      def gate_deferred?(state)
+        state.skipped.any? { |s| s["reason"] == GATE_DEFERRED }
+      end
+
+      def run_expired?(crawl, now)
+        deadline = crawl["deadline_at"]
+        return false if deadline.nil?
+
+        Time.parse(deadline.to_s).utc <= now.utc
+      end
+
+      # Hand the claim back and tell the caller when the host is next startable, so a scheduler can
+      # place the re-entry rather than spin. A zero row count means the claim had already been taken
+      # over by a presumed-lost-worker sweep, which is itself the re-entry.
+      def reschedule(organization_id, gate_id, token, now)
+        next_start = in_unit(organization_id) do |store|
+          store.release_sitemaps(gate_id, token, now)
+          store.next_allowed_start(gate_id)
+        end
+        pending(CONTENDED, retry_after: next_start)
       end
 
       # ---- candidate construction ----------------------------------------------

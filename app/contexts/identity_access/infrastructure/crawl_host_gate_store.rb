@@ -298,6 +298,36 @@ module IdentityAccess
         SQL
       end
 
+      # Hand the discovery claim BACK, leaving the gate exactly as claimable as it was (FU-9,
+      # S-07-008). This is the counterpart to `terminalize_sitemaps` for the one outcome that is not
+      # an outcome: sustained host-gate contention, where no candidate ever reached the network.
+      #
+      # ":450 — if a declared sitemap exists ... and no sitemap candidate succeeds AFTER
+      # RETRIES/VALIDATION, record `sitemap_unavailable`." A candidate the rate limiter never let out
+      # has had neither, so writing the write-once `unavailable` outcome for it states as a fact
+      # about the HOST something that is only a fact about our own pacing — and permanently, since
+      # the outcome cannot be revised.
+      #
+      # The token ROTATES on the next claim, so a worker released here can never terminalize on top
+      # of its successor; and because the state returns to `pending` rather than to a third
+      # "deferred" state, re-entry needs no new vocabulary and no new scheduled-action kind.
+      def release_sitemaps(id, token, now)
+        query(<<~SQL, [id, iso(now), token]).cmd_tuples
+          UPDATE crawl_host_gates
+          SET sitemap_state = 'pending', sitemap_claim_token = NULL,
+              sitemap_attempt_started_at = NULL,
+              state_version = state_version + 1, updated_at = $2::timestamptz
+          WHERE id = $1::uuid AND sitemap_state = 'in_progress' AND sitemap_claim_token = $3::uuid
+        SQL
+      end
+
+      # When the host is next startable under its own pacing, so a released claim can tell the
+      # scheduler WHEN to come back rather than leaving it to spin.
+      def next_allowed_start(id)
+        query("SELECT next_allowed_start_at FROM crawl_host_gates WHERE id = $1::uuid", [id])
+          .to_a.first&.fetch("next_allowed_start_at", nil)
+      end
+
       # ---- execution-time authorization reads -----------------------------------
       #
       # Every one of these is read FRESH immediately before a connection. None is cached and none is

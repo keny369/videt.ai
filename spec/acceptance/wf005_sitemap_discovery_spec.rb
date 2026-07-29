@@ -360,6 +360,86 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     end
   end
 
+  # ---- FU-9: sustained contention is not an outcome ----------------------------
+  #
+  # ADR-081's open follow-up, closed here. A host under sustained contention could exhaust the
+  # traversal's deferral budget and then be terminalized `sitemap_unavailable` — WRITE-ONCE,
+  # coverage permanently partial — having made zero network attempts. S-07-006 mitigated the trigger
+  # but left the failure mode reachable; S-07-008 owns run scheduling and owes the re-entry.
+  describe "a host the rate limiter never released" do
+    # Hold every concurrency slot with live leases, so the gate refuses every start for the whole
+    # traversal. A no-op pacer means no simulated time passes, so the refusal never clears — which
+    # is exactly the sustained-contention shape, produced by the gate's own predicates rather than
+    # by a stub.
+    def contended(ctx)
+      # :438's nonexceedable per-host concurrency ceiling, all of it held.
+      seed_leases(gate_row(ctx[:crawl_id])["id"],
+                  Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("concurrency_per_host").fetch("hard"))
+      Workflows::Wf005::DiscoverSitemaps.new(outbound: outbound_map(
+        "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }
+      ), pacer: ->(_ms) {}).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+        canonical_host: ctx[:host], source_id: ctx[:source_id],
+        project_id: ctx[:g][:project_id], now: start_now)
+    end
+
+    it "does NOT record `sitemap_unavailable` for a host it never reached" do
+      # ":450 — if a declared sitemap exists ... and no sitemap candidate succeeds AFTER
+      # RETRIES/VALIDATION, record `sitemap_unavailable`." A candidate the rate limiter never
+      # released has had neither, so the premise of that sentence is unmet.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      result = contended(ctx)
+
+      expect(result.state).to eq("pending")
+      expect(result.reason_code).to eq(Workflows::Wf005::DiscoverSitemaps::CONTENDED)
+      expect(result.rescheduled?).to be(true)
+      expect(gate_row(ctx[:crawl_id])["sitemap_outcome_reason"]).to be_nil
+    end
+
+    it "hands the claim BACK, so the gate is exactly as claimable as before" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      contended(ctx)
+
+      gate = gate_row(ctx[:crawl_id])
+      expect(gate["sitemap_state"]).to eq("pending")
+      expect(gate["sitemap_claim_token"]).to be_nil
+      expect(gate["sitemap_terminal_at"]).to be_nil
+    end
+
+    it "RE-ENTERS and succeeds once the contention clears" do
+      # The property that makes this a re-entry rather than a retry loop: a later pass, with no
+      # special knowledge that an earlier one was deferred, claims the gate exactly as the first did.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      contended(ctx)
+
+      seed_leases(gate_row(ctx[:crawl_id])["id"], 0)
+      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      result = discover(ctx, outbound_map(
+        "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }))
+
+      expect(result.state).to eq("succeeded")
+      expect(result.documents_fetched).to eq(1)
+      expect(frontier_entries(ctx[:crawl_id]).map { |e| e["canonical_url"] })
+        .to include("https://shop.acme.example/p1")
+    end
+
+    it "TERMINALIZES honestly once the run's wall clock has passed" do
+      # The bound on re-entry is the run's own deadline (:442 — "at 60 elapsed minutes, no new
+      # request starts"). Past it no candidate can ever be attempted, so the coverage reduction is
+      # true rather than premature — and the run already carries a `wall_clock_run_duration`
+      # decision explaining it. Without this limb the release would be unbounded.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
+      DbInspector.connection.exec_params(
+        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1
+         WHERE id = $1::uuid", [ctx[:crawl_id], start_now - 1])
+
+      result = contended(ctx)
+
+      expect(result.state).to eq("unavailable")
+      expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("unavailable")
+    end
+  end
+
   # ---- the 50-document bound is PER RUN and counts ATTEMPTS (:437) -------------
   describe "the sitemap-document ceiling" do
     it "applies :454 SELECTION to index children — the lowest by the tuple, not the first named" do
