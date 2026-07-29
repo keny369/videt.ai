@@ -200,6 +200,36 @@ module IdentityAccess
         SQL
       end
 
+      # ---- sitemap discovery (S-07-006) -----------------------------------------
+
+      # The raw connection, so a caller inside this unit of work can build a sibling store on the
+      # same transaction rather than opening a second one.
+      def connection = @pg
+
+      # pending -> in_progress, recording the RESOLVED candidate set (:454-ordered, retained) and the
+      # overflow. Distinct from `robots_sitemap_candidates`, which stays the raw declared list.
+      def begin_sitemaps(id, now, retained, discarded)
+        params = [id, iso(now), JSON.generate(retained), JSON.generate(discarded)]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE crawl_host_gates
+          SET sitemap_state = 'in_progress', sitemap_candidates = $3::jsonb,
+              sitemap_discarded = $4::jsonb,
+              state_version = state_version + 1, updated_at = $2::timestamptz
+          WHERE id = $1::uuid AND sitemap_state = 'pending'
+        SQL
+      end
+
+      def terminalize_sitemaps(id, now, state:, reason:, documents:, max_depth:)
+        params = [id, iso(now), state, reason, documents.to_i, max_depth.to_i]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE crawl_host_gates
+          SET sitemap_state = $3, sitemap_outcome_reason = $4, sitemap_terminal_at = $2::timestamptz,
+              sitemap_documents_fetched = $5, sitemap_max_index_depth = $6,
+              state_version = state_version + 1, updated_at = $2::timestamptz
+          WHERE id = $1::uuid AND sitemap_state = 'in_progress'
+        SQL
+      end
+
       # ---- execution-time authorization reads -----------------------------------
       #
       # Every one of these is read FRESH immediately before a connection. None is cached and none is

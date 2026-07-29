@@ -89,9 +89,14 @@ module Workflows
       # Offer a discovered candidate. Returns :admitted (a new retained entry), :duplicate (an
       # occurrence recorded against the entry that already holds the identity) or :discarded (the
       # discovered-queue bound). The caller has already decided the candidate is in scope.
+      # `occurrence_document_url` is the provenance recorded on an OCCURRENCE when it differs from
+      # the entry's ordering tuple. It exists for sitemap candidates: :454 forces a sitemap entry's
+      # `discovering_document_url` to "" (the tuple has no room for it), so without this the URL of
+      # the sitemap that named a candidate would be lost the moment the candidate was a duplicate —
+      # which is exactly where provenance matters most. Defaults to the tuple's own value.
       def offer(organization_id:, project_id:, crawl_id:, source_id:, canonical_url:, origin:,
                 depth:, now:, discovering_document_url: "", link_position: 0, parent_entry_id: nil,
-                scope_policy_id:, scope_policy_version:)
+                occurrence_document_url: nil, scope_policy_id:, scope_policy_version:)
         @store.lock_frontier(crawl_id)
         preimage = canonical_url.to_s.unicode_normalize(:nfc).b
         digest = Digest::SHA256.digest(preimage)
@@ -113,7 +118,8 @@ module Workflows
         if same
           return deduplicate(organization_id:, project_id:, crawl_id:, source_id:, now:, existing: same,
                              canonical_url:, digest:, origin:, depth:, discovering_document_url:,
-                             link_position:, parent_entry_id:)
+                             link_position:, parent_entry_id:,
+                             occurrence_document_url: occurrence_document_url || discovering_document_url)
         end
 
         # Digest match with a DIFFERENT preimage is a SHA-256 collision. It must never merge two
@@ -168,7 +174,7 @@ module Workflows
       # the occurrence. A claimed entry keeps its position — it has already been acted on.
       def deduplicate(organization_id:, project_id:, crawl_id:, source_id:, now:, existing:,
                       canonical_url:, digest:, origin:, depth:, discovering_document_url:,
-                      link_position:, parent_entry_id:)
+                      link_position:, parent_entry_id:, occurrence_document_url: nil)
         entry = @store.entry(organization_id, existing["id"])
         incoming = FrontierOrder.dequeue_key(depth:, origin:, canonical_url:,
                                              discovering_document_url:, link_position:,
@@ -184,7 +190,8 @@ module Workflows
                        { url: entry_url(entry, canonical_url), discovering: entry["discovering_document_url"],
                          position: entry["link_position"].to_i, referrer: entry["parent_entry_id"] }
                      else
-                       { url: canonical_url, discovering: discovering_document_url,
+                       { url: canonical_url,
+                         discovering: occurrence_document_url || discovering_document_url,
                          position: link_position, referrer: parent_entry_id }
                      end
 

@@ -345,6 +345,36 @@ $$;
 
 
 --
+-- Name: f1_crawl_host_gates_sitemap_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_host_gates_sitemap_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF OLD.sitemap_state IN ('succeeded','absent','unavailable') THEN
+    IF NEW.sitemap_state IS DISTINCT FROM OLD.sitemap_state
+       OR NEW.sitemap_outcome_reason IS DISTINCT FROM OLD.sitemap_outcome_reason
+       OR NEW.sitemap_terminal_at IS DISTINCT FROM OLD.sitemap_terminal_at
+       OR NEW.sitemap_candidates IS DISTINCT FROM OLD.sitemap_candidates THEN
+      RAISE EXCEPTION 'crawl_host_gate_sitemap_decision_frozen' USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  IF NEW.sitemap_state IS DISTINCT FROM OLD.sitemap_state THEN
+    IF NOT ((OLD.sitemap_state = 'pending' AND NEW.sitemap_state = 'in_progress')
+            OR (OLD.sitemap_state = 'in_progress' AND NEW.sitemap_state IN ('succeeded','absent','unavailable'))
+            OR (OLD.sitemap_state = 'in_progress' AND NEW.sitemap_state = 'pending')) THEN
+      RAISE EXCEPTION 'crawl_host_gate_sitemap_transition_unavailable % -> %',
+        OLD.sitemap_state, NEW.sitemap_state USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_policies_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2031,6 +2061,13 @@ CREATE TABLE public.crawl_host_gates (
     lease_version bigint DEFAULT 0 NOT NULL,
     robots_attempt_started_at timestamp(6) with time zone,
     active_leases jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sitemap_state text DEFAULT 'pending'::text NOT NULL,
+    sitemap_candidates jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sitemap_discarded jsonb DEFAULT '[]'::jsonb NOT NULL,
+    sitemap_documents_fetched integer DEFAULT 0 NOT NULL,
+    sitemap_max_index_depth integer DEFAULT 0 NOT NULL,
+    sitemap_outcome_reason text,
+    sitemap_terminal_at timestamp(6) with time zone,
     CONSTRAINT crawl_host_gates_active_connection_count_check CHECK ((active_connection_count >= 0)),
     CONSTRAINT crawl_host_gates_canonical_host_sha256_check CHECK ((octet_length(canonical_host_sha256) = 32)),
     CONSTRAINT crawl_host_gates_lease_count_agrees CHECK ((active_connection_count = jsonb_array_length(active_leases))),
@@ -2040,7 +2077,12 @@ CREATE TABLE public.crawl_host_gates (
     CONSTRAINT crawl_host_gates_robots_source_sha256_check CHECK (((robots_source_sha256 IS NULL) OR (octet_length(robots_source_sha256) = 32))),
     CONSTRAINT crawl_host_gates_robots_state_check CHECK ((robots_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text]))),
     CONSTRAINT crawl_host_gates_robots_terminal_shape CHECK (((robots_state = ANY (ARRAY['rules_applied'::text, 'no_restrictions'::text, 'unavailable'::text])) = (robots_terminal_at IS NOT NULL))),
-    CONSTRAINT crawl_host_gates_robots_unavailable_reason CHECK (((robots_state <> 'unavailable'::text) OR (robots_terminal_reason IS NOT NULL)))
+    CONSTRAINT crawl_host_gates_robots_unavailable_reason CHECK (((robots_state <> 'unavailable'::text) OR (robots_terminal_reason IS NOT NULL))),
+    CONSTRAINT crawl_host_gates_sitemap_documents_fetched_check CHECK ((sitemap_documents_fetched >= 0)),
+    CONSTRAINT crawl_host_gates_sitemap_max_index_depth_check CHECK ((sitemap_max_index_depth >= 0)),
+    CONSTRAINT crawl_host_gates_sitemap_outcome_reason CHECK (((sitemap_state <> ALL (ARRAY['absent'::text, 'unavailable'::text])) OR (sitemap_outcome_reason IS NOT NULL))),
+    CONSTRAINT crawl_host_gates_sitemap_state_check CHECK ((sitemap_state = ANY (ARRAY['pending'::text, 'in_progress'::text, 'succeeded'::text, 'absent'::text, 'unavailable'::text]))),
+    CONSTRAINT crawl_host_gates_sitemap_terminal_shape CHECK (((sitemap_state = ANY (ARRAY['succeeded'::text, 'absent'::text, 'unavailable'::text])) = (sitemap_terminal_at IS NOT NULL)))
 );
 
 ALTER TABLE ONLY public.crawl_host_gates FORCE ROW LEVEL SECURITY;
@@ -4397,6 +4439,13 @@ CREATE TRIGGER crawl_host_gates_guard BEFORE DELETE OR UPDATE ON public.crawl_ho
 
 
 --
+-- Name: crawl_host_gates crawl_host_gates_sitemap_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_host_gates_sitemap_guard BEFORE UPDATE ON public.crawl_host_gates FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_host_gates_sitemap_guard();
+
+
+--
 -- Name: crawl_policies crawl_policies_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5507,6 +5556,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120220'),
 ('20260727120210'),
 ('20260727120200'),
 ('20260727120190'),
