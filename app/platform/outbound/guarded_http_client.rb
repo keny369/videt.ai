@@ -85,6 +85,17 @@ module Platform
           nxt = resolve_redirect(target, result.location, policy, redirects, started)
           return nxt if nxt.is_a?(Outcome)
 
+          # SEARCH_CRAWL_RETRIEVAL.md § Destination And HTTP Safety makes "canonicalize and
+          # recheck Source Scope and robots policy" STEP 1 of the indivisible per-redirect
+          # sequence, and :448 says redirects are rechecked "BEFORE FOLLOWING". Those policies
+          # belong to the caller — the platform cannot evaluate them — so a caller that supplies
+          # a guard gets it consulted here, before the next connection is attempted. Retrospective
+          # validation of the FINAL url would not do: the disallowed intermediate would already
+          # have been fetched.
+          unless policy.redirect_allowed?(nxt.uri)
+            return reject(:redirect_policy_denied, nxt, redirects, started)
+          end
+
           redirects += 1
           target = nxt
         end

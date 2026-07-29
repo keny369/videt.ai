@@ -31,10 +31,11 @@ module Platform
     #                            timeout_s: 10, byte_cap: 4096, max_redirects: 0)
     #     => Outcome(kind: :response|:timeout|:connection_failure|:tls_failure|
     #                      :resolver_failure|:rejected, ...)
-    def fetch(url, timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil, user_agent: nil)
+    def fetch(url, timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil, user_agent: nil,
+              redirect_guard: nil)
       policy = RequestPolicy.build(
         timeout_s:, byte_cap:, max_redirects:, allowed_ports:,
-        user_agent: user_agent || Ceilings::DEFAULT_USER_AGENT
+        user_agent: user_agent || Ceilings::DEFAULT_USER_AGENT, redirect_guard:
       )
       GuardedHttpClient.new.get(url, policy:)
     end

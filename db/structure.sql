@@ -214,6 +214,40 @@ $$;
 
 
 --
+-- Name: f1_crawl_budget_counters_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_budget_counters_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'crawl_budget_counters_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'crawl_budget_counters_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state_version <> OLD.state_version + 1 THEN
+    RAISE EXCEPTION 'crawl_budget_counters_version_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.committed_response_bytes < OLD.committed_response_bytes
+     OR NEW.committed_pages < OLD.committed_pages
+     OR NEW.limit_probe_bytes < OLD.limit_probe_bytes
+     OR NEW.sitemap_documents < OLD.sitemap_documents
+     OR NEW.redirects_followed < OLD.redirects_followed THEN
+    RAISE EXCEPTION 'crawl_budget_counters_not_monotonic' USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_frontier_entries_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1099,6 +1133,71 @@ $$;
 
 
 --
+-- Name: f1_fetch_attempts_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_fetch_attempts_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'fetch_attempt_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- The identity/input half is frozen from insert, not merely from terminalisation: it is
+  -- what the attempt WAS AUTHORIZED AS, and rewriting it would relabel a request that has
+  -- already been made.
+  IF NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+           OR NEW.project_id IS DISTINCT FROM OLD.project_id
+           OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+           OR NEW.source_id IS DISTINCT FROM OLD.source_id
+           OR NEW.frontier_entry_id IS DISTINCT FROM OLD.frontier_entry_id
+           OR NEW.kind IS DISTINCT FROM OLD.kind
+           OR NEW.attempt_number IS DISTINCT FROM OLD.attempt_number
+           OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
+           OR NEW.canonical_url_preimage IS DISTINCT FROM OLD.canonical_url_preimage
+           OR NEW.canonical_url_sha256 IS DISTINCT FROM OLD.canonical_url_sha256
+           OR NEW.canonical_host IS DISTINCT FROM OLD.canonical_host
+           OR NEW.depth IS DISTINCT FROM OLD.depth
+           OR NEW.scope_policy_id IS DISTINCT FROM OLD.scope_policy_id
+           OR NEW.scope_policy_version IS DISTINCT FROM OLD.scope_policy_version
+           OR NEW.crawl_policy_id IS DISTINCT FROM OLD.crawl_policy_id
+           OR NEW.crawl_policy_version IS DISTINCT FROM OLD.crawl_policy_version
+           OR NEW.reserved_bytes IS DISTINCT FROM OLD.reserved_bytes
+           OR NEW.started_at IS DISTINCT FROM OLD.started_at
+           OR NEW.created_at IS DISTINCT FROM OLD.created_at
+           OR NEW.correlation_id IS DISTINCT FROM OLD.correlation_id THEN
+    RAISE EXCEPTION 'fetch_attempt_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.state_version <> OLD.state_version + 1 THEN
+    RAISE EXCEPTION 'fetch_attempt_version_invalid' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- The result half is write-once: once terminal, no column of it may change again.
+  IF OLD.outcome IS NOT NULL THEN
+    IF NEW.outcome IS DISTINCT FROM OLD.outcome
+             OR NEW.reason_code IS DISTINCT FROM OLD.reason_code
+             OR NEW.http_status IS DISTINCT FROM OLD.http_status
+             OR NEW.accounted_response_bytes IS DISTINCT FROM OLD.accounted_response_bytes
+             OR NEW.received_body_bytes IS DISTINCT FROM OLD.received_body_bytes
+             OR NEW.expanded_body_bytes IS DISTINCT FROM OLD.expanded_body_bytes
+             OR NEW.limit_probe_bytes IS DISTINCT FROM OLD.limit_probe_bytes
+             OR NEW.media_type IS DISTINCT FROM OLD.media_type
+             OR NEW.redirect_count IS DISTINCT FROM OLD.redirect_count
+             OR NEW.final_url IS DISTINCT FROM OLD.final_url
+             OR NEW.body_sha256 IS DISTINCT FROM OLD.body_sha256
+             OR NEW.retryable IS DISTINCT FROM OLD.retryable
+             OR NEW.latency_ms IS DISTINCT FROM OLD.latency_ms
+             OR NEW.terminal_at IS DISTINCT FROM OLD.terminal_at THEN
+      RAISE EXCEPTION 'fetch_attempt_result_frozen' USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_find_invitation_acceptance_replay(bytea, bytea); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1960,6 +2059,44 @@ ALTER TABLE ONLY public.command_results FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_budget_counters; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_budget_counters (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    reserved_response_bytes bigint DEFAULT 0 NOT NULL,
+    committed_response_bytes bigint DEFAULT 0 NOT NULL,
+    limit_probe_bytes bigint DEFAULT 0 NOT NULL,
+    reserved_pages bigint DEFAULT 0 NOT NULL,
+    committed_pages bigint DEFAULT 0 NOT NULL,
+    queue_entries bigint DEFAULT 0 NOT NULL,
+    sitemap_documents bigint DEFAULT 0 NOT NULL,
+    redirects_followed bigint DEFAULT 0 NOT NULL,
+    soft_limit_events jsonb DEFAULT '{}'::jsonb NOT NULL,
+    hard_limit_events jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT crawl_budget_counters_bytes_committed_within_reserved CHECK ((committed_response_bytes <= reserved_response_bytes)),
+    CONSTRAINT crawl_budget_counters_committed_pages_check CHECK ((committed_pages >= 0)),
+    CONSTRAINT crawl_budget_counters_committed_response_bytes_check CHECK ((committed_response_bytes >= 0)),
+    CONSTRAINT crawl_budget_counters_limit_probe_bytes_check CHECK ((limit_probe_bytes >= 0)),
+    CONSTRAINT crawl_budget_counters_pages_committed_within_reserved CHECK ((committed_pages <= reserved_pages)),
+    CONSTRAINT crawl_budget_counters_queue_entries_check CHECK ((queue_entries >= 0)),
+    CONSTRAINT crawl_budget_counters_redirects_followed_check CHECK ((redirects_followed >= 0)),
+    CONSTRAINT crawl_budget_counters_reserved_pages_check CHECK ((reserved_pages >= 0)),
+    CONSTRAINT crawl_budget_counters_reserved_response_bytes_check CHECK ((reserved_response_bytes >= 0)),
+    CONSTRAINT crawl_budget_counters_sitemap_documents_check CHECK ((sitemap_documents >= 0))
+);
+
+ALTER TABLE ONLY public.crawl_budget_counters FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawl_frontier_entries; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2594,6 +2731,69 @@ CREATE TABLE public.f1_encryption_key_versions (
     CONSTRAINT f1_encryption_key_fingerprint_len CHECK (((key_fingerprint IS NULL) OR (octet_length(key_fingerprint) = 32))),
     CONSTRAINT f1_encryption_key_state_valid CHECK ((state = ANY (ARRAY['active'::text, 'retired'::text, 'destroyed'::text])))
 );
+
+
+--
+-- Name: fetch_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fetch_attempts (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    frontier_entry_id uuid,
+    kind text NOT NULL,
+    attempt_number integer NOT NULL,
+    canonical_url text NOT NULL,
+    canonical_url_preimage bytea NOT NULL,
+    canonical_url_sha256 bytea NOT NULL,
+    canonical_host text NOT NULL,
+    depth integer NOT NULL,
+    scope_policy_id uuid,
+    scope_policy_version text,
+    crawl_policy_id uuid,
+    crawl_policy_version text,
+    reserved_bytes bigint NOT NULL,
+    started_at timestamp(6) with time zone NOT NULL,
+    outcome text,
+    reason_code text,
+    http_status integer,
+    accounted_response_bytes bigint,
+    received_body_bytes bigint,
+    expanded_body_bytes bigint,
+    limit_probe_bytes integer DEFAULT 0 NOT NULL,
+    media_type text,
+    redirect_count integer,
+    final_url text,
+    body_sha256 bytea,
+    retryable boolean,
+    latency_ms integer,
+    terminal_at timestamp(6) with time zone,
+    CONSTRAINT fetch_attempts_accounted_response_bytes_check CHECK (((accounted_response_bytes IS NULL) OR (accounted_response_bytes >= 0))),
+    CONSTRAINT fetch_attempts_attempt_bound CHECK ((attempt_number <= 3)),
+    CONSTRAINT fetch_attempts_attempt_number_check CHECK ((attempt_number >= 1)),
+    CONSTRAINT fetch_attempts_body_sha256_check CHECK (((body_sha256 IS NULL) OR (octet_length(body_sha256) = 32))),
+    CONSTRAINT fetch_attempts_canonical_url_sha256_check CHECK ((octet_length(canonical_url_sha256) = 32)),
+    CONSTRAINT fetch_attempts_depth_check CHECK ((depth >= 0)),
+    CONSTRAINT fetch_attempts_expanded_body_bytes_check CHECK (((expanded_body_bytes IS NULL) OR (expanded_body_bytes >= 0))),
+    CONSTRAINT fetch_attempts_kind_check CHECK ((kind = ANY (ARRAY['content'::text, 'robots'::text, 'sitemap'::text]))),
+    CONSTRAINT fetch_attempts_latency_ms_check CHECK (((latency_ms IS NULL) OR (latency_ms >= 0))),
+    CONSTRAINT fetch_attempts_limit_probe_bytes_check CHECK (((limit_probe_bytes >= 0) AND (limit_probe_bytes <= 2))),
+    CONSTRAINT fetch_attempts_outcome_check CHECK (((outcome IS NULL) OR (outcome = ANY (ARRAY['document_created'::text, 'content_absent'::text, 'content_fetch_failed'::text, 'policy_excluded'::text, 'limit_discarded'::text])))),
+    CONSTRAINT fetch_attempts_received_body_bytes_check CHECK (((received_body_bytes IS NULL) OR (received_body_bytes >= 0))),
+    CONSTRAINT fetch_attempts_redirect_count_check CHECK (((redirect_count IS NULL) OR (redirect_count >= 0))),
+    CONSTRAINT fetch_attempts_reserved_bytes_check CHECK ((reserved_bytes >= 0)),
+    CONSTRAINT fetch_attempts_terminal_shape CHECK (((outcome IS NULL) = (terminal_at IS NULL))),
+    CONSTRAINT fetch_attempts_within_reservation CHECK (((accounted_response_bytes IS NULL) OR (accounted_response_bytes <= reserved_bytes)))
+);
+
+ALTER TABLE ONLY public.fetch_attempts FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -3479,6 +3679,38 @@ ALTER TABLE ONLY public.command_results
 
 
 --
+-- Name: crawl_budget_counters crawl_budget_counters_crawl_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_budget_counters
+    ADD CONSTRAINT crawl_budget_counters_crawl_unique UNIQUE (crawl_id);
+
+
+--
+-- Name: crawl_budget_counters crawl_budget_counters_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_budget_counters
+    ADD CONSTRAINT crawl_budget_counters_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_budget_counters crawl_budget_counters_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_budget_counters
+    ADD CONSTRAINT crawl_budget_counters_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawl_budget_counters crawl_budget_counters_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_budget_counters
+    ADD CONSTRAINT crawl_budget_counters_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawl_frontier_entries crawl_frontier_entries_dequeue_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3788,6 +4020,38 @@ ALTER TABLE ONLY public.f1_encrypted_records
 
 ALTER TABLE ONLY public.f1_encryption_key_versions
     ADD CONSTRAINT f1_encryption_key_versions_pkey PRIMARY KEY (provider, version);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_entry_attempt_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_entry_attempt_unique UNIQUE (crawl_id, frontier_entry_id, kind, attempt_number);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_pkey PRIMARY KEY (id);
 
 
 --
@@ -4272,6 +4536,20 @@ CREATE UNIQUE INDEX f1_one_active_encryption_key_per_provider ON public.f1_encry
 
 
 --
+-- Name: fetch_attempts_crawl_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fetch_attempts_crawl_order ON public.fetch_attempts USING btree (crawl_id, started_at, id);
+
+
+--
+-- Name: fetch_attempts_crawl_outcome; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fetch_attempts_crawl_outcome ON public.fetch_attempts USING btree (organization_id, crawl_id, outcome);
+
+
+--
 -- Name: idempotency_scope_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4433,6 +4711,13 @@ CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_
 
 
 --
+-- Name: crawl_budget_counters crawl_budget_counters_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_budget_counters_guard BEFORE DELETE OR UPDATE ON public.crawl_budget_counters FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_budget_counters_guard();
+
+
+--
 -- Name: crawl_frontier_entries crawl_frontier_entries_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4538,6 +4823,13 @@ CREATE TRIGGER evidence_append_only BEFORE DELETE OR UPDATE ON public.evidence F
 
 
 --
+-- Name: fetch_attempts fetch_attempts_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER fetch_attempts_guard BEFORE DELETE OR UPDATE ON public.fetch_attempts FOR EACH ROW EXECUTE FUNCTION public.f1_fetch_attempts_guard();
+
+
+--
 -- Name: organizations organizations_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4637,6 +4929,14 @@ ALTER TABLE ONLY public.command_executions
 
 ALTER TABLE ONLY public.command_results
     ADD CONSTRAINT command_results_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: crawl_budget_counters crawl_budget_counters_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_budget_counters
+    ADD CONSTRAINT crawl_budget_counters_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
 
 
 --
@@ -4912,6 +5212,30 @@ ALTER TABLE ONLY public.evidence
 
 
 --
+-- Name: fetch_attempts fetch_attempts_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_frontier_entry_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_frontier_entry_fk FOREIGN KEY (organization_id, project_id, frontier_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
+
+
+--
+-- Name: fetch_attempts fetch_attempts_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fetch_attempts
+    ADD CONSTRAINT fetch_attempts_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
 -- Name: identity_receipt_consumptions identity_receipt_consumptions_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5095,6 +5419,19 @@ ALTER TABLE public.command_results ENABLE ROW LEVEL SECURITY;
 CREATE POLICY command_results_context ON public.command_results USING ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions))) WITH CHECK ((command_execution_id IN ( SELECT command_executions.id
    FROM public.command_executions)));
+
+
+--
+-- Name: crawl_budget_counters; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_budget_counters ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_budget_counters crawl_budget_counters_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_budget_counters_context ON public.crawl_budget_counters USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -5303,6 +5640,19 @@ ALTER TABLE public.evidence ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY evidence_context ON public.evidence USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: fetch_attempts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fetch_attempts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fetch_attempts fetch_attempts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY fetch_attempts_context ON public.fetch_attempts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -5571,6 +5921,8 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120260'),
+('20260727120250'),
 ('20260727120240'),
 ('20260727120230'),
 ('20260727120220'),

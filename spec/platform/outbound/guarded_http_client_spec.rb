@@ -145,8 +145,9 @@ RSpec.describe Platform::Outbound::GuardedHttpClient, type: :model do
 
   def raw_response(**kwargs) = GuardedHttpClientSpecSupport.raw_response(**kwargs)
 
-  def policy(byte_cap: 4096, max_redirects: 0, timeout_s: 10, allowed_ports: nil)
-    Platform::Outbound::RequestPolicy.build(timeout_s:, byte_cap:, max_redirects:, allowed_ports:)
+  def policy(byte_cap: 4096, max_redirects: 0, timeout_s: 10, allowed_ports: nil, redirect_guard: nil)
+    Platform::Outbound::RequestPolicy.build(timeout_s:, byte_cap:, max_redirects:, allowed_ports:,
+                                            redirect_guard:)
   end
 
   def get(url, **policy_opts) = client.get(url, policy: policy(**policy_opts))
@@ -276,6 +277,67 @@ RSpec.describe Platform::Outbound::GuardedHttpClient, type: :model do
       expect(out).to be_response
       expect(out.body).to eq("at-y")
       expect(out.final_url).to eq("https://a.example/y")
+    end
+
+    # SEARCH_CRAWL_RETRIEVAL.md § Destination And HTTP Safety makes "canonicalize and recheck
+    # Source Scope and robots policy" STEP 1 of the indivisible per-redirect sequence, and
+    # WORKFLOW_SPECIFICATIONS.md :448 says redirects are rechecked "BEFORE FOLLOWING". Only the
+    # caller knows those policies. Without the guard the connector followed every hop the PLATFORM
+    # considered safe, so a robots-disallowed or out-of-scope intermediate was fetched and only the
+    # final URL could be judged — by which time the request had already been made.
+    describe "the caller's redirect policy is consulted BEFORE the hop is fetched (:448)" do
+      it "refuses a hop the caller denies, without connecting to it" do
+        connector.respond("a.example", redirect("https://a.example/denied"))
+        connector.respond("a.example", raw_response(body: "should never be read"))
+        resolver.allow("a.example", "203.0.113.5")
+
+        out = get("https://a.example/x", max_redirects: 3,
+                  redirect_guard: ->(uri) { uri.path != "/denied" })
+
+        expect(out.reason).to eq(:redirect_policy_denied)
+        expect(out.body).to be_nil
+        # One exchange only: the START url. The denied target was never opened.
+        expect(connector.opens.size).to eq(1)
+      end
+
+      it "follows a hop the caller allows" do
+        connector.respond("a.example", redirect("https://b.example/final"))
+        connector.respond("b.example", raw_response(body: "ok"))
+        resolver.allow("a.example", "203.0.113.5")
+        resolver.allow("b.example", "203.0.113.6")
+
+        out = get("https://a.example/x", max_redirects: 3, redirect_guard: ->(_uri) { true })
+        expect(out.status).to eq(200)
+        expect(out.body).to eq("ok")
+      end
+
+      it "receives the RESOLVED ABSOLUTE target, so a relative Location is judged correctly" do
+        connector.respond("a.example", redirect("/moved"))
+        connector.respond("a.example", raw_response(body: "ok"))
+        resolver.allow("a.example", "203.0.113.5")
+
+        seen = []
+        get("https://a.example/x", max_redirects: 3, redirect_guard: ->(uri) { seen << uri.to_s; true })
+        expect(seen).to eq(["https://a.example/moved"])
+      end
+
+      it "can only REFUSE — a permissive guard never admits a hop the platform refused" do
+        connector.respond("a.example", redirect("http://a.example/insecure", status: 301))
+        resolver.allow("a.example", "203.0.113.5")
+
+        out = get("https://a.example/x", max_redirects: 3, redirect_guard: ->(_uri) { true })
+        # The platform's own rejection stands, and it is reported as the PLATFORM's reason.
+        expect(out.reason).to eq(:redirect_rejected)
+      end
+
+      it "admits every hop when no guard is supplied, as every existing caller expects" do
+        connector.respond("a.example", redirect("https://b.example/final"))
+        connector.respond("b.example", raw_response(body: "ok"))
+        resolver.allow("a.example", "203.0.113.5")
+        resolver.allow("b.example", "203.0.113.6")
+
+        expect(get("https://a.example/x", max_redirects: 3).status).to eq(200)
+      end
     end
 
     it "detects a redirect loop back to a visited target" do

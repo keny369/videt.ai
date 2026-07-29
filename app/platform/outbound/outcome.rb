@@ -16,7 +16,13 @@ module Platform
     #  :resolver_failure    — DNS resolution failed transiently (retryable).
     #  :rejected            — a nonretryable safety refusal; see `reason`:
     #       :destination_address_prohibited, :destination_host_invalid,
-    #       :redirect_rejected, :unsupported_scheme, :unsupported_port.
+    #       :redirect_rejected, :redirect_policy_denied, :unsupported_scheme,
+    #       :unsupported_port.
+    #
+    # `:redirect_rejected` is the PLATFORM refusing a hop (over budget, loop, non-HTTPS,
+    # userinfo, disallowed port, unsafe address); `:redirect_policy_denied` is the CALLER's
+    # redirect guard refusing one the platform would have allowed — :448's robots and Source
+    # Scope recheck. They are separate reasons because :452 classifies them differently.
     #
     # `body` holds the RAW received entity-body bytes (ASCII-8BIT), truncated at
     # byte_cap + 1; `truncated` is true exactly when the body reached that limit and is

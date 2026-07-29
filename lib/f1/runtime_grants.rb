@@ -102,6 +102,13 @@ module F1
       # SELECT/INSERT/UPDATE — never DELETE (a gate is never removed within a run). Additive
       # new-table grant (ADR-029); no existing grant changes and FORCE RLS is preserved.
       "crawl_host_gates"                  => "SELECT, INSERT, UPDATE",
+      # S-07-007 run-wide budget accounting and the attempt record. `crawl_budget_counters` is
+      # T-MUT — :442's reserve/commit/release protocol UPDATEs the row on every attempt — and
+      # `fetch_attempts` is insert-then-terminalise, so both need UPDATE and neither ever needs
+      # DELETE: an attempt that was made is a fact, and a run's byte total is never un-spent.
+      # Additive new-table grants (ADR-029); no existing grant changes and FORCE RLS is preserved.
+      "crawl_budget_counters"             => "SELECT, INSERT, UPDATE",
+      "fetch_attempts"                    => "SELECT, INSERT, UPDATE",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter
