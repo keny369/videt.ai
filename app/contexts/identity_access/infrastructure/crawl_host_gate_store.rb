@@ -321,7 +321,7 @@ module IdentityAccess
 
       def crawl(organization_id, crawl_id)
         query(<<~SQL, [organization_id, crawl_id]).to_a.first
-          SELECT id, project_id, state, entitlement_reservation_id
+          SELECT id, project_id, state, entitlement_reservation_id, started_at, deadline_at
           FROM crawls WHERE organization_id = $1::uuid AND id = $2::uuid
         SQL
       end

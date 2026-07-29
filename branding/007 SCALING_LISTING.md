@@ -41,7 +41,9 @@ Repositioning note (28 Jul): v1.0 read like a consultancy. v1.1 sells the observ
 *Long body (if a longer "About the deal" field exists):*
 > Your business now exists twice: what's true, and what the machines believe. When a customer asks ChatGPT who to use, the machines' version wins — and you can't see it.
 >
-> VIDET is building the observatory that watches this for you. It starts with measurement: around 22 real buyer questions, put to ChatGPT, Gemini, Claude and Perplexity again and again over several days. Every answer counted — where you came up, what they got wrong (screenshots included), who was named instead. Then ten fixes in plain English, a 45-minute walkthrough, and at 90 days we measure again: your before-and-after on paper. Measure, fix, re-measure — the loop the platform will run at scale.
+> Plenty of people will sell you AI fixes — blog posts, keywords, promises. That's surgery without an X-ray. Nobody checked what the machines actually say about you first, and nobody goes back afterwards to prove it changed.
+>
+> Think of us as a mystery shopper for AI. Around 22 real buyer questions, put to ChatGPT, Gemini, Claude and Perplexity again and again over several days. Every answer counted — where you came up, what they got wrong (screenshots included), who was named instead. Then ten fixes in plain English that come out of the evidence, a 45-minute walkthrough, and at 90 days we measure again: your before-and-after on paper. Measure, fix, re-measure — the loop the platform will run at scale.
 >
 > Twenty founding places this August, delivered personally by the founder. Founding members keep the founding price for every future re-measure, get first access when the platform product opens, and hold the longest baseline record in the book.
 >

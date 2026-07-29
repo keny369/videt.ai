@@ -185,7 +185,10 @@ module IdentityAccess
           WHERE e.id = next_entry.id
           RETURNING e.id, e.canonical_url, e.source_id, e.depth, e.origin, e.link_position,
                     e.discovering_document_url, e.scope_policy_id, e.scope_policy_version,
-                    e.enqueue_order, e.state
+                    e.enqueue_order, e.state,
+                    -- :456's ordering tuple, carried to the attempt record so the run's accounting
+                    -- can be replayed "in canonical dequeue/attempt order" without re-deriving it.
+                    e.dequeue_key
         SQL
       end
 
