@@ -24,6 +24,7 @@ RSpec.describe "WF-005 admission", type: :acceptance,
                                         crawl_id: ctx[:crawl_id], now: start_now)
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
+  def attempts(cid) = DbInspector.all("SELECT * FROM fetch_attempts WHERE crawl_id=$1::uuid ORDER BY attempt_number", [cid])
 
   # Observed, not timed: the rival commits because admission was SEEN waiting on the counter row.
   def blocked_on_counter?
@@ -83,6 +84,23 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       [ctx[:crawl_id], Workflows::Wf005::ByteAccounting::RUN_CEILING - bytes])
   end
 
+  def fetchable_crawl
+    ctx = running_crawl
+    ensure_gate(ctx)
+    resolve_robots(ctx, outbound_returning(response(status: 200, body: "User-agent: *\nAllow: /\n")))
+    ctx[:gate_id] = gate_row(ctx[:crawl_id])["id"]
+    ctx
+  end
+
+  def content_response(body: "<html><body>ok</body></html>")
+    Platform::Outbound::Outcome.response(
+      status: 200, headers: { "content-type" => "text/html; charset=utf-8" }, body:,
+      byte_count: body.bytesize, truncated: false, canonical_host: "shop.acme.example",
+      port: 443, pinned_address: "198.51.100.7", final_url: "https://shop.acme.example/",
+      redirect_count: 0, latency_ms: 5
+    )
+  end
+
   describe "claiming and reserving are one decision" do
     it "admits the entry and its reservation together" do
       ctx = running_crawl
@@ -110,6 +128,26 @@ RSpec.describe "WF-005 admission", type: :acceptance,
       expect(decision.admitted?).to be(false)
       expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i)
         .to eq(Workflows::Wf005::ByteAccounting::PER_URL_CEILING)
+    end
+
+    it "hands FetchContent a reservation that is consumed exactly once" do
+      ctx = fetchable_crawl
+      decision = claim(ctx)
+      body = "<html><body>from admission</body></html>"
+      response = content_response(body:)
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) { |*_a, **_k| response }
+      end
+
+      result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry: decision.entry,
+        gate_id: ctx[:gate_id], now: start_now, reserved_bytes: decision.reserved_bytes
+      )
+
+      expect(result.outcome).to eq("document_created")
+      expect(attempts(ctx[:crawl_id]).first["reserved_bytes"].to_i).to eq(decision.reserved_bytes)
+      expect(counters(ctx[:crawl_id])["committed_response_bytes"].to_i).to eq(body.bytesize)
+      expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i).to eq(body.bytesize)
     end
   end
 

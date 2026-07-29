@@ -72,6 +72,24 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       entry: entry || root_entry(ctx), gate_id: ctx[:gate_id], now: start_now)
   end
 
+  def admit_next(ctx)
+    Workflows::Wf005::Admission.new.claim_next(
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: start_now
+    )
+  end
+
+  def admitted_fetch_content(ctx, outbound)
+    decision = admit_next(ctx)
+    raise "expected an admitted entry" unless decision.admitted?
+
+    result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+      entry: decision.entry, gate_id: ctx[:gate_id], now: start_now,
+      reserved_bytes: decision.reserved_bytes
+    )
+    [decision, result]
+  end
+
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
 
@@ -199,6 +217,59 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       expect(result.reason_code).to eq("run_byte_budget_exhausted")
       # The request was never made: a run with no budget does not spend the host's rate limit.
       expect(requests).to be_empty
+    end
+  end
+
+  describe "when FetchContent consumes Admission's reservation" do
+    it "uses the admitted reservation instead of taking a second run-wide reservation" do
+      ctx = fetchable
+      body = "<html>" + ("x" * 500) + "</html>"
+
+      decision, result = admitted_fetch_content(ctx, content_outbound(content_response(body:)))
+
+      expect(result.outcome).to eq("document_created")
+      expect(requests.last[:byte_cap]).to eq(decision.reserved_bytes)
+      expect(attempts(ctx[:crawl_id]).first["reserved_bytes"].to_i).to eq(decision.reserved_bytes)
+
+      row = counters(ctx[:crawl_id])
+      expect(row["committed_response_bytes"].to_i).to eq(body.bytesize)
+      expect(row["reserved_response_bytes"].to_i).to eq(body.bytesize)
+    end
+
+    it "carries one reservation across retries and releases the remainder only at terminal settle" do
+      ctx = fetchable
+      first_body = "x" * 1024
+      second_body = "<html>ok</html>"
+      before_second_attempt = nil
+
+      outbound = content_outbound(
+        content_response(status: 500, body: first_body, byte_count: first_body.bytesize),
+        lambda do |_url, **_kwargs|
+          before_second_attempt = counters(ctx[:crawl_id]).slice(
+            "reserved_response_bytes", "committed_response_bytes"
+          )
+          content_response(body: second_body)
+        end
+      )
+
+      decision, result = admitted_fetch_content(ctx, outbound)
+
+      expect(result.outcome).to eq("document_created")
+      expect(before_second_attempt["reserved_response_bytes"].to_i).to eq(decision.reserved_bytes)
+      expect(before_second_attempt["committed_response_bytes"].to_i).to eq(first_body.bytesize)
+      expect(requests.map { |r| r[:byte_cap] }).to eq(
+        [decision.reserved_bytes, decision.reserved_bytes - first_body.bytesize]
+      )
+
+      rows = attempts(ctx[:crawl_id])
+      expect(rows.map { |r| r["reserved_bytes"].to_i }).to eq(
+        [decision.reserved_bytes, decision.reserved_bytes - first_body.bytesize]
+      )
+
+      total = first_body.bytesize + second_body.bytesize
+      row = counters(ctx[:crawl_id])
+      expect(row["committed_response_bytes"].to_i).to eq(total)
+      expect(row["reserved_response_bytes"].to_i).to eq(total)
     end
   end
 

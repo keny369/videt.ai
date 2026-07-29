@@ -21,6 +21,8 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
     "SELECT * FROM crawl_limit_decisions WHERE crawl_id=$1::uuid ORDER BY limit_dimension, threshold_kind", [cid]
   )
 
+  def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
+
   def decision(cid, dimension, threshold)
     decisions(cid).find { |d| d["limit_dimension"] == dimension && d["threshold_kind"] == threshold }
   end
@@ -280,13 +282,22 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
     ctx
   end
 
-  def fetch(ctx, outcome)
+  def admit_next(ctx)
+    Workflows::Wf005::Admission.new.claim_next(
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: start_now
+    )
+  end
+
+  def fetch(ctx, outcome, admitted: false)
     outbound = Object.new.tap { |o| o.define_singleton_method(:fetch) { |*_a, **_k| outcome } }
-    entry = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
-                            [ctx[:crawl_id]])
+    decision = admitted ? admit_next(ctx) : nil
+    entry = decision&.entry || DbInspector.one(
+      "SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
+      [ctx[:crawl_id]]
+    )
     Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry:,
-      gate_id: ctx[:gate_id], now: start_now)
+      gate_id: ctx[:gate_id], now: start_now, reserved_bytes: decision&.reserved_bytes)
   end
 
   describe "response body per URL (:438)" do
@@ -307,6 +318,20 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       # A per-URL bound costs exactly the URL that hit it.
       expect(row["affected_url_count"].to_i).to eq(1)
       expect(row["affected_source_count"].to_i).to eq(1)
+    end
+
+    it "records the hard limit under an admitted reservation without leaving that reservation behind" do
+      ctx = fetchable
+      narrow(ctx, "per_url_body_mib" => { "soft" => 1, "hard" => 1 })
+      cap = 1024 * 1024
+
+      result = fetch(ctx, content_response(body: "x" * (cap + 1), truncated: true), admitted: true)
+
+      expect(result.reason_code).to eq("response_body_limit_exceeded")
+      row = decision(ctx[:crawl_id], "response_body_per_url", "hard")
+      expect(row).not_to be_nil
+      expect(counters(ctx[:crawl_id])["committed_response_bytes"].to_i).to eq(cap)
+      expect(counters(ctx[:crawl_id])["reserved_response_bytes"].to_i).to eq(cap)
     end
 
     it "records the SOFT crossing for a body at or past the soft bound" do

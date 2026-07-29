@@ -14,7 +14,7 @@ module Workflows
     #   2. AUTHORIZE at execution time — Organization, Crawl, Project, Source, reservation, current
     #      Source Scope, robots. Never queue-time authority: S-07-004's dequeue check is necessary
     #      and not sufficient, and the owner's direction on this block is explicit.
-    #   3. RESERVE bytes from the run-wide budget BEFORE the body is read (:442).
+    #   3. CONSUME the run-wide bytes Admission reserved BEFORE the body is read (:442).
     #   4. CLAIM the attempt row, so a worker lost mid-request leaves a record rather than a hole.
     #   5. FETCH, with the caller's redirect guard rechecking robots and Source Scope on every hop
     #      before it is followed (:448) — the platform owns destination safety, the caller owns
@@ -108,7 +108,9 @@ module Workflows
       def pace(milliseconds) = @pacer.call(milliseconds)
 
       # Fetch one frontier entry's URL. `entry` is the claimed `crawl_frontier_entries` row.
-      def call(organization_id:, crawl_id:, entry:, gate_id:, now:)
+      # `reserved_bytes`, when present, is Admission's run-wide reservation for this entry and is
+      # consumed across the whole retry loop rather than re-taken per attempt.
+      def call(organization_id:, crawl_id:, entry:, gate_id:, now:, reserved_bytes: nil)
         crawl = load_crawl(organization_id, crawl_id)
         return excluded(REASONS[:unauthorized]) if crawl.nil?
 
@@ -118,15 +120,16 @@ module Workflows
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i
         }
-        attempt_loop(context, entry)
+        attempt_loop(context, entry, reserved_bytes:)
       end
 
       private
 
       # :444 — one initial attempt plus at most two retries, with the attempt NUMBER read from
       # committed state so a process loss cannot reset it.
-      def attempt_loop(context, entry)
+      def attempt_loop(context, entry, reserved_bytes:)
         last = nil
+        remaining_reserved = reserved_bytes
         MAX_ATTEMPTS.times do
           number = next_attempt_number(context)
           # :452 — "Exhausted timeout/408/429/5xx ... is `content_fetch_failed`, REMAINS IN THE
@@ -138,7 +141,7 @@ module Workflows
             break
           end
 
-          last = one_attempt(context, entry, number)
+          last, remaining_reserved = one_attempt(context, entry, number, remaining_reserved:)
           return last unless last.retryable
           # :444 gives "one initial attempt plus AT MOST TWO RETRIES" with delays "exactly 30 seconds
           # after ... the first failed attempt and 120 seconds after ... the second". There is no
@@ -151,12 +154,26 @@ module Workflows
         last
       end
 
-      def one_attempt(context, entry, number)
+      def one_attempt(context, entry, number, remaining_reserved:)
+        if !remaining_reserved.nil? && remaining_reserved <= 0
+          return [limit_discarded(REASONS[:budget_exhausted]), nil]
+        end
+
         claim = claim_slot(context)
-        return deferred(claim) unless claim&.granted?
+        unless claim&.granted?
+          result = deferred(claim)
+          return [release_and(context, remaining_reserved, result), nil] unless remaining_reserved.nil?
+
+          return [result, nil]
+        end
 
         begin
-          return excluded(REASONS[:unauthorized]) unless authorized?(context)
+          unless authorized?(context)
+            result = excluded(REASONS[:unauthorized])
+            return [release_and(context, remaining_reserved, result), nil] unless remaining_reserved.nil?
+
+            return [result, nil]
+          end
 
           # SEARCH_CRAWL_RETRIEVAL :82 — "the same attempt identity is completed OR TIMED OUT, never
           # replaced by an unaccounted request." Every claim sweeps the run's expired attempt leases
@@ -169,13 +186,14 @@ module Workflows
           # `configured_value` a limit decision records are the same resolution (:390).
           limits = effective_limits(context)
           bounds = limits.byte_bounds
-          reserved = reserve_bytes(context, bounds)
-          return limit_discarded(REASONS[:budget_exhausted]) if reserved.nil?
+          reserved = remaining_reserved
+          reserved ||= reserve_bytes(context, bounds)
+          return [limit_discarded(REASONS[:budget_exhausted]), nil] if reserved.nil?
 
           attempt = claim_attempt(context, entry, number, reserved, bounds)
-          return release_and(context, reserved, excluded(REASONS[:contended])) if attempt.nil?
+          return [release_and(context, reserved, excluded(REASONS[:contended])), nil] if attempt.nil?
 
-          perform(context, attempt, reserved, limits)
+          perform(context, attempt, reserved, limits, hold_reservation: !remaining_reserved.nil?)
         ensure
           release_slot(context, claim.lease_token)
         end
@@ -188,14 +206,16 @@ module Workflows
       # accounted response-body bytes are EXACTLY sum(accounted_response_bytes_i)" was not
       # reproducible from the record and nothing could reconcile the two. They describe the same
       # event; they commit together.
-      def perform(context, attempt, reserved, limits)
+      def perform(context, attempt, reserved, limits, hold_reservation:)
         bounds = limits.byte_bounds
         outcome = fetch(context, reserved, bounds)
         @last_outcome = outcome
         measurement = measure(outcome, reserved)
         result = classify(outcome, measurement, context, reserved, bounds)
-        settle(context, attempt, reserved, result, outcome, measurement, limits)
-        result
+        release_unused = !hold_reservation || !result.retryable
+        settle(context, attempt, reserved, result, outcome, measurement, limits, release_unused:)
+        remaining_reserved = hold_reservation && result.retryable ? reserved - measurement&.accounted.to_i : nil
+        [result, remaining_reserved]
       end
 
       # ---- the fetch -------------------------------------------------------------
@@ -453,7 +473,8 @@ module Workflows
       # `covered?` is therefore CANDIDATE coverage — the fetch did everything :452 asks of it — and
       # S-07-009 confirms it against the artifact before computing `coverage_status`.
 
-      # :442 — reserve BEFORE the body is read, sized from what the run has left. A shrinking
+      # :442 — reserve BEFORE the body is read, sized from what the run has left, only when the
+      # caller has not already supplied Admission's reservation for this entry. A shrinking
       # reservation is retried down to nothing rather than abandoned on the first loss, because
       # another worker committing between the read and the write is normal, not exceptional.
       # RETURNS THE RESERVED AMOUNT, OR NIL. The `nil` is load-bearing and was the tranche's worst
@@ -493,7 +514,7 @@ module Workflows
 
       # One transaction: the run counter and the attempt record describe the same event, so they
       # commit together or neither does.
-      def settle(context, attempt, reserved, result, outcome, measurement, limits)
+      def settle(context, attempt, reserved, result, outcome, measurement, limits, release_unused:)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
@@ -502,7 +523,8 @@ module Workflows
                               { reserved:, accounted: measurement&.accounted.to_i,
                                 probe_bytes: measurement&.probe_bytes.to_i,
                                 received: measurement&.received.to_i,
-                                expanded: measurement&.expanded.to_i }, context[:now])
+                                expanded: measurement&.expanded.to_i }, context[:now],
+                             release_unused:)
           budget.count_redirects(context[:organization_id], context[:crawl_id],
                                  result.redirect_count.to_i, context[:now])
 

@@ -85,26 +85,28 @@ module IdentityAccess
       # removed rather than left dormant. The columns remain because POSTGRESQL_SCHEMA :299 defines
       # them; if a future tranche wants them as a read-side projection it should say so explicitly.
 
-      # Commit what the attempt actually consumed and RELEASE the unused remainder of its
-      # reservation in the same statement (:442 — "unused bytes are released in the same order").
-      # Doing both at once is what stops a crash between them from permanently retiring budget that
-      # was never spent.
+      # Commit what the attempt actually consumed and, when the attempt is terminal for its
+      # reservation, RELEASE the unused remainder in the same statement (:442 — "unused bytes are
+      # released in the same order"). Doing both at once is what stops a crash between them from
+      # permanently retiring budget that was never spent.
       #
       # `limit_probe_bytes` is added to its own counter, never to either byte total: :442 calls
       # probes "detection telemetry, not accepted/accounted capacity".
-      def commit_bytes(organization_id, crawl_id, measurement, now)
+      def commit_bytes(organization_id, crawl_id, measurement, now, release_unused: true)
         params = [organization_id, crawl_id, measurement.fetch(:reserved).to_i,
                   measurement.fetch(:accounted).to_i, measurement.fetch(:probe_bytes).to_i,
-                  measurement.fetch(:received).to_i, measurement.fetch(:expanded).to_i, iso(now)]
+                  measurement.fetch(:received).to_i, measurement.fetch(:expanded).to_i,
+                  release_unused, iso(now)]
         query(<<~SQL, params).to_a.first
           UPDATE crawl_budget_counters
           SET committed_response_bytes = committed_response_bytes + $4,
               received_response_bytes = received_response_bytes + $6,
               expanded_response_bytes = expanded_response_bytes + $7,
-              reserved_response_bytes = reserved_response_bytes - ($3 - $4),
+              reserved_response_bytes =
+                reserved_response_bytes - CASE WHEN $8::boolean THEN ($3 - $4) ELSE 0 END,
               limit_probe_bytes = limit_probe_bytes + $5,
               requests_made = requests_made + 1,
-              state_version = state_version + 1, updated_at = $8::timestamptz
+              state_version = state_version + 1, updated_at = $9::timestamptz
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
           RETURNING committed_response_bytes, reserved_response_bytes, limit_probe_bytes
         SQL
