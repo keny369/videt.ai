@@ -33,13 +33,36 @@ RSpec.describe "Repository truth", type: :model do
       expect(AutonomousBuild::StateMachine::STATES).to include(BUILD_STATE["status"])
     end
 
-    it "names commit fields that exist" do
+    it "names commit fields that are REACHABLE FROM HEAD, not merely objects that exist" do
+      # `cat-file -t` is not enough: an amended or rebased commit survives as a dangling object and
+      # answers "commit" while naming a tree nobody will ever review. Reachability is the property
+      # that matters.
       %w[implementation_commit review_commit last_verified_commit base_commit].each do |field|
         sha = BUILD_STATE[field]
         next if sha.nil? || sha == "pending" || sha.empty?
 
         expect(git("cat-file -t #{sha}")).to eq("commit"), "#{field} names #{sha}, which is not a commit"
+        expect(git("merge-base --is-ancestor #{sha} HEAD && echo reachable")).to eq("reachable"),
+               "#{field} names #{sha}, which is not reachable from HEAD"
       end
+    end
+
+    it "names an implementation commit that contains the tranche" do
+      sha = BUILD_STATE["implementation_commit"]
+      next if sha.nil? || sha == "pending"
+
+      paths = BUILD_STATE["acceptance_evidence"]["acceptance_diff_paths"]
+      base = BUILD_STATE["acceptance_evidence"]["commit_range"].split("..").first
+
+      # Descendancy first. `diff base..sha` is symmetric in the paths it names, so a commit that
+      # PRECEDES the range answers identically to one that contains it — the direction has to be
+      # asserted separately or the check reads an inverse diff as containment.
+      expect(git("merge-base --is-ancestor #{base} #{sha} && echo after")).to eq("after"),
+             "implementation_commit #{sha} predates the declared range base #{base}"
+
+      changed = git("diff --name-only #{base}..#{sha}").split("\n")
+      expect(changed.any? { |f| paths.any? { |p| f.start_with?(p) } }).to be(true),
+             "implementation_commit #{sha} contains none of the declared acceptance paths"
     end
 
     it "carries a parseable timestamp that is not in the future" do

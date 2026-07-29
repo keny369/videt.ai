@@ -111,7 +111,7 @@ Run from the repository root. Outputs are those observed at this commit.
 
 | Command | Output |
 | --- | --- |
-| `bundle exec rspec` | `1870 examples, 0 failures` |
+| `bundle exec rspec` | `1871 examples, 0 failures` |
 | `bundle exec packwerk check` | `No offenses detected` |
 | `bundle exec brakeman -q --no-pager` | `No warnings found` |
 | `bin/rails zeitwerk:check` | `All is good!` |
