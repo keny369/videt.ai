@@ -6,6 +6,13 @@ Gates at the candidate: rspec 2040/0, brakeman 0, packwerk clean, zeitwerk ok, v
 
 **VERDICT: FAIL-WITH-FINDINGS. Eleven confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
 
+> **REPAIR STATUS (2026-07-31): ALL ELEVEN REPAIRED, ROUND 2 NOT YET RUN.** B7 → ADR-105; B8 → ADR-106;
+> B1, B2 → ADR-107; B9 → ADR-108; B10 → ADR-109; B3, B4, B5 → ADR-110; B6, B11 → ADR-111. Each carries a
+> proof that fails under a mutation of its own repair. The 24 non-blocking observations below are NOT
+> repaired and remain open. **This record's verdict stands until a second full five-lens round is run
+> against the repaired candidate** — repairing the findings of round 1 is not acceptance, and round 1
+> found eleven blockers on a candidate whose suite was already green.
+
 All five lenses returned FAIL. Three findings were reached independently by two or three lenses from
 different mandates, which is the strongest signal this round produced.
 

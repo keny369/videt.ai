@@ -2632,7 +2632,7 @@ Reversibility: Integration branch only. One CHECK constraint replaced; reversibl
 
 The defect. A terminal `crawls` row could carry NULL in BOTH `coverage_status` and `completion_reason`, so a fully covered Crawl was byte-indistinguishable from one that recorded nothing. Repaired BEFORE S-07-009's body rather than inside it, because S-07-009 writes exactly those two columns and BUILD_PLAN names this its blocking precondition.
 
-**THE DIAGNOSIS WAS WRONG TWICE, AND BOTH REFUTATIONS ARE KEPT.** Pass three of the S-07-008 review recorded this as a three-valued-logic hole in `crawls_coverage_status_check` and prescribed the `IS NOT DISTINCT FROM` form. THAT PRESCRIPTION IS A PROVEN NO-OP, and it was re-verified live at the repair rather than taken from the record: a CHECK admits UNKNOWN and admits TRUE, `NULL = ANY(ARRAY['full','partial'])` yields the former and the NULL-safe rewrite yields the latter, so both admit a NULL. Applying it would have produced a diff, closed the item, and left the hole exactly where it was. `crawls_coverage_status_check` is therefore DELIBERATELY UNTOUCHED, and PROOF 29 pins the no-op in a test so it cannot be reintroduced as a fix by a future reader who rediscovers the original reasoning.
+**THE DIAGNOSIS WAS WRONG TWICE, AND BOTH REFUTATIONS ARE KEPT.** Pass three of the S-07-008 review recorded this as a three-valued-logic hole in `crawls_coverage_status_check` and prescribed the `IS NOT DISTINCT FROM` form. THE PRESCRIPTION WAS SET ASIDE, AND THE REASON FIRST RECORDED HERE WAS ITSELF FALSE — corrected in place at ADR-111. What is true: `NULL = ANY(ARRAY['full','partial'])` yields UNKNOWN, which a CHECK admits, and the NULL-safe form PROOF 29 evaluates (`x IS NULL OR x = ANY(...)`) yields TRUE, which it also admits — so rewriting to THAT shape is a genuine no-op. What is false, as first written: the `IS NOT DISTINCT FROM` spelling the third pass NAMED is not a no-op at all. Its `ANY(...)` form is a syntax error and its pairwise form yields FALSE for a NULL, which a CHECK REFUSES, so applying it would have rejected every `queued` and `running` Crawl. Applying it would have produced a diff, closed the item, and left the hole exactly where it was. `crawls_coverage_status_check` is therefore DELIBERATELY UNTOUCHED, and PROOF 29 pins the no-op in a test so it cannot be reintroduced as a fix by a future reader who rediscovers the original reasoning.
 
 The actual defect is ordinary two-valued logic in `crawls_terminal_shape`, whose terminal limb required only `terminal_at IS NOT NULL`. Measured against the live cluster before the repair, it admitted `state='completed'` with both columns NULL, `completed` with a reason and no coverage, and `failed` with neither.
 
@@ -2951,3 +2951,30 @@ Proof standard. PROOF 102 (`CrawlCompleted` carries the count and a null reason)
 
 Authority And Precedence:
 Repairs B3, B4 and B5 of `S-07-009_ACCEPTANCE_REVIEW.md`. API_CONTRACTS.md :807-808, :938 and :956 govern the envelope; POSTGRESQL_SCHEMA.md :128 governs the link, and its `crawl_terminal_outcomes` row is reconciled. Opens FU-33 for the two pre-existing omissions. Allocated the next unused number after ADR-109.
+
+## ADR-111: B6 And B11 Repaired — A Refutation That Was Itself False, Corrected In Four Places And Pinned
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of two ADR-080 acceptance-round findings
+Reversibility: Integration branch only. Record corrections and one new proof; no production change.
+
+**B6.** ADR-097, `20260727120340`'s header, `POSTGRESQL_SCHEMA.md`, the FU-11 note and PROOF 29's own comment all stated that the `IS NOT DISTINCT FROM` rewrite of `crawls_coverage_status_check` "yields TRUE" and was "a proven no-op, evaluated against the live cluster". Evaluated live:
+
+```
+NULL = ANY(ARRAY['full','partial'])                        -> UNKNOWN        a CHECK ADMITS
+NULL IS NULL OR NULL = ANY(ARRAY['full','partial'])        -> true           a CHECK ADMITS   (PROOF 29)
+NULL IS NOT DISTINCT FROM 'full' OR ... 'partial'          -> false          a CHECK REFUSES
+NULL IS NOT DISTINCT FROM ANY(ARRAY['full','partial'])     -> SYNTAX ERROR
+```
+
+**The form as named does not parse, and its only valid spelling would refuse every `queued` and `running` Crawl** — those rows carry NULL in that column by design. So the claim was not merely imprecise: it was the opposite of true, and it cannot have been evaluated as written. PROOF 29 pins a DIFFERENT expression (`x IS NULL OR x = ANY(...)`), which genuinely is a no-op, so the proof never tested the proposition the record stated.
+
+**This is the more dangerous of the two error shapes in this round.** That record exists specifically to stop a future implementer from applying the wrong fix after rediscovering the original reasoning, and as written it told them the wrong fix was harmless. The substantive conclusion is unaffected and was re-verified: the fault was `crawls_terminal_shape`, and `crawls_coverage_status_check` is correctly untouched.
+
+All five statements are corrected in place rather than superseded, per the convention ADR-097 itself set for its own refutations. PROOF 104 pins the correction: the pairwise form is FALSE (not UNKNOWN — asserted separately, because UNKNOWN would be admitted and is the whole distinction), the `ANY(...)` form raises `PG::SyntaxError`, and a live `queued` Crawl is demonstrated to fail the predicate.
+
+**B11.** `BUILD_STATE.next_action` said twice that FU-30 was "deliberately deferred" and "STAYING OPEN" while `open_decisions[FU-30].status` read `resolved`; it also said "seven commits" against nine and omitted ADR-103, ADR-104 and FU-32. `next_action` is what the controller reads. It has been rewritten at each repair in this round and now describes the state that exists.
+
+Authority And Precedence:
+Repairs B6 and B11 of `S-07-009_ACCEPTANCE_REVIEW.md`. Corrects ADR-097 in place. No production behaviour changes. Allocated the next unused number after ADR-110.

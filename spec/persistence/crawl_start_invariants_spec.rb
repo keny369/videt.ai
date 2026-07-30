@@ -501,7 +501,11 @@ RSpec.describe "Crawl-start invariants", type: :model do
 
       # `crawls_coverage_status_check` is DELIBERATELY NOT the constraint that was changed. The earlier
       # diagnosis of FU-11 blamed it and prescribed a NULL-safe rewrite; that is a PROVEN NO-OP, because
-      # `NULL = ANY(...)` is UNKNOWN and admitted, and `IS NOT DISTINCT FROM` is TRUE and also admitted.
+      # `NULL = ANY(...)` is UNKNOWN and admitted, and the NULL-safe form THIS EXAMPLE EVALUATES —
+      # `x IS NULL OR x = ANY(...)` — is TRUE and also admitted, so rewriting to it is a no-op.
+      # The `IS NOT DISTINCT FROM` spelling the third pass NAMED is a different thing and is not a
+      # no-op: its `ANY(...)` form is a syntax error and its pairwise form yields FALSE, which a
+      # CHECK refuses — it would reject every `queued` and `running` Crawl (ADR-111).
       # Asserted here so the no-op cannot be reintroduced as a fix.
       admits_null = conn.exec_params(
         "SELECT (NULL::text = ANY (ARRAY['full','partial'])) IS NOT FALSE AS live_form,
@@ -516,6 +520,38 @@ RSpec.describe "Crawl-start invariants", type: :model do
       # string values here would fail; asserting `["t", "t"]` would pass on this connection and break on
       # any other. One reader crosses both encodings.
       expect(admits_null.values.map { |v| Platform::PgBool.true?(v) }).to eq([true, true])
+    end
+
+    it "PROOF 104 — the prescribed `IS NOT DISTINCT FROM` spelling would REFUSE every live Crawl" do
+      # THE CORRECTION, PINNED SO THE RECORD CANNOT DRIFT BACK (ADR-111). ADR-097, this migration's
+      # header, the FU-11 note, the catalogue and PROOF 29's own comment all said the prescribed rewrite
+      # "yields TRUE" and was "a proven no-op, evaluated against the live cluster". It is not, and it
+      # cannot have been evaluated as written. PROOF 29 pins the shape that IS a no-op; this pins the
+      # shape that was NAMED, which is a different expression with the opposite effect.
+      #
+      # The distinction matters because that record exists to stop a future implementer applying the
+      # wrong fix, and as first written it told them the wrong fix was harmless.
+      pairwise = conn.exec_params(
+        "SELECT (NULL::text IS NOT DISTINCT FROM 'full' OR NULL::text IS NOT DISTINCT FROM 'partial') AS v"
+      ).first.fetch("v")
+      # FALSE, not UNKNOWN and not TRUE — so a CHECK REFUSES it, and every `queued` and `running` Crawl
+      # carries NULL in this column by design.
+      expect(Platform::PgBool.true?(pairwise)).to be(false)
+      expect(pairwise).not_to be_nil, "a NULL here would mean UNKNOWN, which a CHECK admits"
+
+      # And the `ANY(...)` form the prescription's wording implies does not parse at all.
+      expect { conn.exec_params("SELECT NULL::text IS NOT DISTINCT FROM ANY (ARRAY['full','partial'])") }
+        .to raise_error(PG::SyntaxError)
+
+      # The consequence, demonstrated rather than argued: a live `queued` Crawl fails that predicate.
+      pid = draft_project
+      cid = insert_crawl(pid)
+      refused = conn.exec_params(<<~SQL, [cid]).first.fetch("would_refuse")
+        SELECT NOT (coverage_status IS NOT DISTINCT FROM 'full'
+                    OR coverage_status IS NOT DISTINCT FROM 'partial') AS would_refuse
+        FROM crawls WHERE id = $1::uuid
+      SQL
+      expect(Platform::PgBool.true?(refused)).to be(true)
     end
   end
 end

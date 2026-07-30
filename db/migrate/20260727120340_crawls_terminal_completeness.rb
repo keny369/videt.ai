@@ -5,12 +5,22 @@
 # nothing. S-07-009 writes exactly those two columns, which is why this is repaired before it and not
 # inside it.
 #
-# THE DEFECT IS ORDINARY TWO-VALUED LOGIC, and the record says so only after being wrong twice. The third
-# review pass diagnosed it as a three-valued-logic hole in `crawls_coverage_status_check` and prescribed
-# the `IS NOT DISTINCT FROM` form. THAT PRESCRIPTION IS A PROVEN NO-OP, evaluated against the live
-# cluster: `NULL = ANY(ARRAY['full','partial'])` yields UNKNOWN, which a CHECK admits, and the NULL-safe
-# rewrite yields TRUE, which it also admits. Applying it would have produced a diff, closed the item and
-# left the hole open. `crawls_coverage_status_check` IS THEREFORE DELIBERATELY UNTOUCHED HERE.
+# THE DEFECT IS ORDINARY TWO-VALUED LOGIC, and the record says so only after being wrong THREE times. The
+# third review pass diagnosed it as a three-valued-logic hole in `crawls_coverage_status_check` and
+# prescribed "the `IS NOT DISTINCT FROM` form". `crawls_coverage_status_check` IS DELIBERATELY UNTOUCHED
+# HERE, and the reasoning for that is now stated correctly (ADR-111 corrects what this header first said):
+#
+#   `NULL = ANY(ARRAY['full','partial'])`                   -> UNKNOWN, which a CHECK ADMITS
+#   `coverage_status IS NULL OR coverage_status = ANY (...)` -> TRUE,    which a CHECK ADMITS  (PROOF 29)
+#   `NULL IS NOT DISTINCT FROM 'full' OR ... 'partial'`      -> FALSE,   which a CHECK REFUSES
+#   `NULL IS NOT DISTINCT FROM ANY(ARRAY[...])`              -> SYNTAX ERROR
+#
+# So a NULL-safe rewrite of the SHAPE PROOF 29 evaluates is genuinely a no-op — a diff that closes the
+# item and leaves the hole open. But the spelling the third pass NAMED is not a no-op at all: it would
+# REFUSE EVERY `queued` AND `running` CRAWL, because those rows carry NULL in this column by design. The
+# first version of this header called that spelling "a proven no-op, evaluated against the live cluster",
+# which cannot have been evaluated as written, and it is the more dangerous error of the two: it told a
+# future reader that applying the wrong fix was harmless.
 #
 # The admission is in `crawls_terminal_shape`, whose terminal limb required only `terminal_at IS NOT
 # NULL`. Measured on the live cluster before this migration, the current predicate admits all of:
