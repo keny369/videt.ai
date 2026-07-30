@@ -117,6 +117,11 @@ module F1
       # :437's "distinct canonical sitemap URLs" made durable across scheduler re-entry. T-IMM for
       # the same reason as the decisions: releasing a charge would let one URL be charged twice.
       "crawl_sitemap_document_charges"    => "SELECT, INSERT",
+      # S-07-009 per-entry terminal record (FU-21). SELECT/INSERT only, for the same reason as its two
+      # T-IMM siblings above: the missing UPDATE is defence in depth behind the immutability trigger,
+      # not a substitute for it. A coverage-bearing decision that could be rewritten after the fact
+      # would make :456's "no edge leaves terminal" an application convention rather than a property.
+      "crawl_terminal_outcomes"           => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

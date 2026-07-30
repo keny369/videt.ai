@@ -518,6 +518,20 @@ $$;
 
 
 --
+-- Name: f1_crawl_terminal_outcomes_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_terminal_outcomes_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'crawl_terminal_outcome_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_crawls_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2474,6 +2488,41 @@ ALTER TABLE ONLY public.crawl_sources FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: crawl_terminal_outcomes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.crawl_terminal_outcomes (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    crawl_frontier_entry_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    commit_order bigint NOT NULL,
+    outcome text NOT NULL,
+    reason text,
+    document_id uuid,
+    accounted_response_body_bytes bigint NOT NULL,
+    coverage_effect text NOT NULL,
+    decided_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT crawl_terminal_outcomes_accounted_response_body_bytes_check CHECK ((accounted_response_body_bytes >= 0)),
+    CONSTRAINT crawl_terminal_outcomes_commit_order_check CHECK ((commit_order > 0)),
+    CONSTRAINT crawl_terminal_outcomes_coverage_agreement CHECK ((((outcome = ANY (ARRAY['document_created'::text, 'content_absent'::text])) AND (coverage_effect = 'covered'::text)) OR ((outcome = 'policy_excluded'::text) AND (coverage_effect = 'excluded'::text)) OR ((outcome = ANY (ARRAY['content_fetch_failed'::text, 'limit_discarded'::text, 'robots_unavailable_fail_closed'::text])) AND (coverage_effect = 'not_covered'::text)))),
+    CONSTRAINT crawl_terminal_outcomes_coverage_effect_check CHECK ((coverage_effect = ANY (ARRAY['covered'::text, 'not_covered'::text, 'excluded'::text]))),
+    CONSTRAINT crawl_terminal_outcomes_document_agreement CHECK (((document_id IS NULL) OR (outcome = 'document_created'::text))),
+    CONSTRAINT crawl_terminal_outcomes_outcome_check CHECK ((outcome = ANY (ARRAY['document_created'::text, 'content_absent'::text, 'policy_excluded'::text, 'content_fetch_failed'::text, 'limit_discarded'::text, 'robots_unavailable_fail_closed'::text]))),
+    CONSTRAINT crawl_terminal_outcomes_reason_presence CHECK ((((coverage_effect = 'covered'::text) AND (reason IS NULL)) OR ((coverage_effect <> 'covered'::text) AND (reason IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: crawls; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4081,6 +4130,46 @@ ALTER TABLE ONLY public.crawl_sources
 
 
 --
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_commit_order_once; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_commit_order_once UNIQUE (crawl_id, commit_order);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_entry_once; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_entry_once UNIQUE (crawl_frontier_entry_id);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: crawls crawls_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4717,6 +4806,13 @@ CREATE UNIQUE INDEX crawl_sources_crawl_source_unique ON public.crawl_sources US
 
 
 --
+-- Name: crawl_terminal_outcomes_run; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX crawl_terminal_outcomes_run ON public.crawl_terminal_outcomes USING btree (organization_id, crawl_id, commit_order);
+
+
+--
 -- Name: crawls_project_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5053,6 +5149,13 @@ CREATE TRIGGER crawl_sources_guard BEFORE DELETE OR UPDATE ON public.crawl_sourc
 
 
 --
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_terminal_outcomes_guard BEFORE DELETE OR UPDATE ON public.crawl_terminal_outcomes FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_terminal_outcomes_guard();
+
+
+--
 -- Name: crawls crawls_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5342,6 +5445,22 @@ ALTER TABLE ONLY public.crawl_sources
 
 ALTER TABLE ONLY public.crawl_sources
     ADD CONSTRAINT crawl_sources_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_entry_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_entry_fk FOREIGN KEY (organization_id, project_id, crawl_frontier_entry_id) REFERENCES public.crawl_frontier_entries(organization_id, project_id, id);
 
 
 --
@@ -5843,6 +5962,19 @@ CREATE POLICY crawl_sources_context ON public.crawl_sources USING ((organization
 
 
 --
+-- Name: crawl_terminal_outcomes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.crawl_terminal_outcomes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY crawl_terminal_outcomes_context ON public.crawl_terminal_outcomes USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: crawls; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -6264,6 +6396,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120350'),
 ('20260727120340'),
 ('20260727120330'),
 ('20260727120320'),
