@@ -29,11 +29,37 @@ require "pg"
 module PgTestConnection
   module_function
 
+  # The session variables this helper will carry, as an ALLOWLIST.
+  #
+  # `SET` takes an identifier, and an identifier cannot be parameterised or escaped as a literal —
+  # so the earlier form interpolated the configured NAME straight into SQL and escaped only the
+  # value. The configuration is repository-controlled and this is test-only code, so it was not
+  # reachable; it was still an identifier built from input, which is not a thing to leave in place
+  # because the current input happens to be trusted.
+  #
+  # The name written into the statement below is therefore an element of THIS frozen array, matched
+  # by equality, never the string that came from the file.
+  PERMITTED = %w[statement_timeout lock_timeout idle_in_transaction_session_timeout].freeze
+
   # Connect as `user`, carrying every session variable `database.yml` declares.
+  #
+  # An unlisted variable RAISES rather than being skipped. Skipping would silently recreate the
+  # exact defect this file exists to prevent: a harness connection quietly running without a bound
+  # the application runs with. Adding a variable to `database.yml` that belongs on these connections
+  # is a one-line change here, and the failure says so.
   def connect(user:)
     cfg = ActiveRecord::Base.connection_db_config.configuration_hash
     conn = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user:)
-    cfg.fetch(:variables, {}).each { |name, value| conn.exec("SET #{name} = #{conn.escape_literal(value.to_s)}") }
+    cfg.fetch(:variables, {}).each do |name, value|
+      permitted = PERMITTED.find { |allowed| allowed == name.to_s }
+      if permitted.nil?
+        conn.close
+        raise ArgumentError,
+              "database.yml declares session variable #{name.inspect}, which PgTestConnection::PERMITTED " \
+              "does not list. Add it there if harness connections should carry it."
+      end
+      conn.exec("SET #{permitted} = #{conn.escape_literal(value.to_s)}")
+    end
     conn
   end
 end

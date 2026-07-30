@@ -39,6 +39,26 @@ RSpec.describe "Test-harness connection bounds", type: :model do
     expect(timeout_of(ReceiptMinter.send(:owner_connection))).not_to eq("0")
   end
 
+  it "writes only an allowlisted identifier into SET, never the configured string" do
+    # `SET` takes an identifier, which cannot be parameterised, so the name is matched by equality
+    # against a frozen list and the LIST'S element is what reaches the statement. Every variable
+    # database.yml actually declares must be listed, or connections would raise on open.
+    expect(PgTestConnection::PERMITTED).to be_frozen
+    expect(configured.keys.map(&:to_s) - PgTestConnection::PERMITTED).to be_empty
+  end
+
+  it "REFUSES an unlisted session variable rather than silently skipping it" do
+    # Skipping would recreate the defect this file exists to prevent: a harness connection quietly
+    # running without a bound the application runs with.
+    cfg = ActiveRecord::Base.connection_db_config.configuration_hash
+    allow(ActiveRecord::Base).to receive(:connection_db_config)
+      .and_return(instance_double(ActiveRecord::DatabaseConfigurations::HashConfig,
+                                  configuration_hash: cfg.merge(variables: { "work_mem" => "64MB" })))
+
+    expect { PgTestConnection.connect(user: cfg[:username].to_s) }
+      .to raise_error(ArgumentError, /work_mem.*PERMITTED/m)
+  end
+
   it "opens every MEMOIZED harness connection through PgTestConnection" do
     # The class of defect, not just its two instances — but scoped to the kind that is dangerous.
     # A process-wide memoized connection outlives every example and is shared by all of them, so an
