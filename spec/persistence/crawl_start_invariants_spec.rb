@@ -70,6 +70,29 @@ RSpec.describe "Crawl-start invariants", type: :model do
     id
   end
 
+  # An `executing` reservation and the Decision it belongs to — the two IDs the accepted start stamps
+  # onto the Crawl, both behind composite-tenant FKs.
+  def insert_reservation(organization_id: org)
+    decision_id = insert_decision(organization_id:)
+    window_id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [window_id, organization_id])
+      INSERT INTO entitlement_counter_windows
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, counter_group,
+         window_start, window_end, soft_limit, hard_limit, policy_version)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,'crawl.start',
+              now(), now() + interval '30 days', 3, 4, 'entitlement-interim-v1')
+    SQL
+    reservation_id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [reservation_id, organization_id, decision_id, window_id])
+      INSERT INTO entitlement_reservations
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, decision_id,
+         counter_window_id, units, lease_generation, lease_due, started_at, state)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,1,1,
+              now() + interval '15 minutes', now(), 'executing')
+    SQL
+    { decision_id:, reservation_id: }
+  end
+
   def insert_context(pid, crawl_id, evaluation_id, decision_id, organization_id: org, **overrides)
     id = SecureRandom.uuid_v7
     row = { organization_id:, project_id: pid, crawl_id:, evaluation_id:, decision_id: }.merge(overrides)
@@ -208,29 +231,137 @@ RSpec.describe "Crawl-start invariants", type: :model do
     end
   end
 
-  describe "the exact Crawl state edges the guard permits after S-07-003" do
-    it "permits queued -> running and queued -> failed" do
+  # THE EDGE SET IS NOW :736's WHOLE SENTENCE, opened by `20260727120360_crawls_terminal_transitions`.
+  #
+  # S-07-003 opened `queued -> running|failed` and said in its own migration that "running->terminal and
+  # cancel are relaxed by later tranches". S-07-009 is that tranche, because it is the one that
+  # terminalizes a run. The example that asserted `running -> completed` was REFUSED is superseded by
+  # PROOF 50 rather than deleted: what it recorded was true of the guard S-07-003 left, and what
+  # replaces it enumerates the whole cross product instead of a chosen few.
+  describe "the exact Crawl state edges the guard permits (:736)" do
+    CRAWL_STATES = %w[queued running completed failed canceled].freeze
+    # :736 — "Crawl.Queued -> Crawl.Running, Crawl.Failed on the exact pre-execution gate, or
+    # Crawl.Canceled; Crawl.Running -> Crawl.Completed, Crawl.Failed, or Crawl.Canceled."
+    PERMITTED_EDGES = [%w[queued running], %w[queued failed], %w[queued canceled],
+                       %w[running completed], %w[running failed], %w[running canceled]].freeze
+
+    # A VALID row in any state — `crawls_terminal_shape` requires a reason of every terminal state and
+    # coverage of `completed`, so a starting row that ignored it could not be inserted at all.
+    def in_state(pid, state, organization_id: org)
+      id = SecureRandom.uuid_v7
+      terminal = %w[completed failed canceled].include?(state)
+      params = [id, organization_id, pid, state, terminal ? state : nil, state == "completed" ? "full" : nil]
+      conn.exec_params(<<~SQL, params)
+        INSERT INTO crawls
+          (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+           requested_entitlement_policy_id, requested_entitlement_policy_version, trigger_kind,
+           queued_at, started_at, terminal_at, state, completion_reason, coverage_status)
+        VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'root',
+                gen_random_uuid(),'entitlement-interim-v1','manual', now(),
+                #{state == 'queued' ? 'NULL' : 'now()'}, #{terminal ? 'now()' : 'NULL'}, $4,$5,$6)
+      SQL
+      id
+    end
+
+    # The columns `crawls_terminal_shape` requires of each target, so a REFUSED edge is refused by the
+    # guard rather than by a CHECK the example forgot to satisfy. (BEFORE triggers fire ahead of
+    # constraint checks, so the guard would win either way — this makes the permitted half writable.)
+    def move(cid, to)
+      set = case to
+            when "running"   then "state = 'running'"
+            when "completed" then "state = 'completed', terminal_at = now(), completion_reason = 'completed', coverage_status = 'full'"
+            when "queued"    then "state = 'queued', terminal_at = NULL, completion_reason = NULL, coverage_status = NULL"
+            else "state = '#{to}', terminal_at = now(), completion_reason = '#{to}', coverage_status = NULL"
+            end
+      conn.exec_params("UPDATE crawls SET #{set} WHERE id = $1::uuid", [cid])
+    end
+
+    it "PROOF 50 — exactly the six edges :736 names, over the whole cross product" do
       pid = draft_project
-      running = insert_crawl(pid)
-      expect { conn.exec_params("UPDATE crawls SET state = 'running', started_at = now() WHERE id = $1::uuid", [running]) }
+      observed = CRAWL_STATES.product(CRAWL_STATES).reject { |from, to| from == to }.map do |from, to|
+        cid = in_state(pid, from)
+        begin
+          move(cid, to)
+          [from, to, nil]
+        rescue PG::RaiseException => e
+          [from, to, e.message[/crawl_[a-z_]+/]]
+        end
+      end
+
+      expect(observed.select { |_f, _t, err| err.nil? }.map { |f, t, _| [f, t] })
+        .to match_array(PERMITTED_EDGES)
+      # And every refusal names the rule that refused it. An edge out of a terminal state is refused
+      # because the ROW IS FINISHED, not because that particular pair is unlisted — the stronger fact,
+      # and the one PROOF 51 turns on.
+      observed.reject { |f, t, _| PERMITTED_EDGES.include?([f, t]) }.each do |from, to, err|
+        expected = %w[completed failed canceled].include?(from) ? "crawl_terminal_immutable" : "crawl_transition_unavailable"
+        expect(err).to eq(expected), "#{from} -> #{to} was refused as #{err.inspect}"
+      end
+    end
+
+    it "PROOF 51 — a terminal Crawl is FROZEN, not merely unable to change state" do
+      # :458 — "terminal selection occurs ONCE at a serialized checkpoint"; :735 — a recovery "creates a
+      # new linked `Crawl.Queued` attempt RATHER THAN TRANSITIONING THE OLD RECORD". Confined to state
+      # changes, the guard would have left the two columns that carry the customer-visible answer freely
+      # rewritable on a finished run, and a second opinion about coverage would be indistinguishable
+      # from the first. NONE of these UPDATEs changes `state`.
+      cid = in_state(draft_project, "completed")
+      ["completion_reason = 'failed'", "coverage_status = 'partial'", "recovery_generation = 1",
+       "limit_counters = '{}'::jsonb", "updated_at = now()"].each do |assignment|
+        expect { conn.exec_params("UPDATE crawls SET #{assignment} WHERE id = $1::uuid", [cid]) }
+          .to raise_error(PG::RaiseException, /crawl_terminal_immutable/), assignment
+      end
+      expect { conn.exec_params("DELETE FROM crawls WHERE id = $1::uuid", [cid]) }
+        .to raise_error(PG::RaiseException, /crawl_immutable/)
+    end
+
+    it "PROOF 52 — the run's METERING IDENTITY is fixed at the accepted start" do
+      # POSTGRESQL_SCHEMA.md :338 declares both columns "NULL until start"; once stamped they name the
+      # reservation the terminal checkpoint commits or releases "EXACTLY ONCE" (MTX-030). Swapping
+      # either is an UPDATE that changes no state, so it would otherwise pass every check on this table.
+      # `started_at` and `deadline_at` are deliberately NOT frozen here — see FU-30.
+      pid = draft_project
+      cid = insert_crawl(pid)
+      metering = insert_reservation
+      conn.exec_params(<<~SQL, [cid, metering[:decision_id], metering[:reservation_id]])
+        UPDATE crawls SET state='running', started_at=now(), deadline_at=now() + interval '60 minutes',
+               entitlement_decision_id=$2::uuid, entitlement_reservation_id=$3::uuid
+        WHERE id = $1::uuid
+      SQL
+      other = insert_reservation
+
+      ["entitlement_decision_id = '#{other[:decision_id]}'::uuid",
+       "entitlement_reservation_id = '#{other[:reservation_id]}'::uuid"].each do |assignment|
+        expect { conn.exec_params("UPDATE crawls SET #{assignment} WHERE id = $1::uuid", [cid]) }
+          .to raise_error(PG::RaiseException, /crawl_run_identity_immutable/), assignment
+      end
+      # And a `running` Crawl is otherwise still mutable, so the freeze is scoped rather than a second
+      # terminal rule applied early. `deadline_at` IS still writable, which is FU-30's open item and is
+      # asserted here so the gap is visible rather than assumed absent.
+      expect { conn.exec_params("UPDATE crawls SET limit_counters = '{\"x\":1}'::jsonb WHERE id = $1::uuid", [cid]) }
         .not_to raise_error
-      failed = insert_crawl(pid)
-      expect { conn.exec_params("UPDATE crawls SET state = 'failed', terminal_at = now(), completion_reason = 'failed' WHERE id = $1::uuid", [failed]) }
+      expect { conn.exec_params("UPDATE crawls SET deadline_at = now() + interval '600 minutes' WHERE id = $1::uuid", [cid]) }
         .not_to raise_error
     end
 
-    it "still refuses every other edge, including the running terminals later tranches own" do
+    it "PROOF 53 — the accepted start still stamps all four in ONE statement, through the real store" do
+      # The freeze is scoped on `OLD.started_at IS NOT NULL`, so the start that WRITES those columns is
+      # unaffected. Driven through `CrawlStartStore#start` rather than an UPDATE shaped like it, so a
+      # future change to the freeze that broke the only production writer fails here.
       pid = draft_project
-      %w[completed canceled].each do |target|
-        cid = insert_crawl(pid)
-        expect { conn.exec_params("UPDATE crawls SET state = $2, terminal_at = now() WHERE id = $1::uuid", [cid, target]) }
-          .to raise_error(PG::RaiseException, /crawl_transition_unavailable queued -> #{target}/)
+      cid = insert_crawl(pid)
+      metering = insert_reservation
+      moved = Platform::UnitOfWork.run do |c|
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(c.raw_connection)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        store.start(cid, 0, Time.now.utc, Time.now.utc + 3600,
+                    metering[:decision_id], metering[:reservation_id])
       end
-      running = insert_crawl(pid, state: "running")
-      %w[completed failed canceled].each do |target|
-        expect { conn.exec_params("UPDATE crawls SET state = $2, terminal_at = now() WHERE id = $1::uuid", [running, target]) }
-          .to raise_error(PG::RaiseException, /crawl_transition_unavailable running -> #{target}/)
-      end
+      expect(moved).to eq(1)
+      row = conn.exec_params("SELECT * FROM crawls WHERE id = $1::uuid", [cid]).first
+      expect(row["state"]).to eq("running")
+      expect(row["deadline_at"]).not_to be_nil
+      expect(row["entitlement_reservation_id"]).not_to be_nil
     end
 
     it "keeps the pinned request facts frozen across the start edge" do

@@ -328,10 +328,20 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
         .to raise_error(PG::RaiseException, /crawl_immutable/)
       expect { conn.exec_params("UPDATE crawls SET requested_entitlement_policy_version = 'x' WHERE id = $1::uuid", [cid]) }
         .to raise_error(PG::RaiseException, /crawl_facts_immutable/)
-      # S-07-003 relaxed the guard to permit exactly queued->running and queued->failed; queued->canceled
-      # (and every other edge) is still refused until later tranches relax it.
-      expect { conn.exec_params("UPDATE crawls SET state = 'canceled', terminal_at = now() WHERE id = $1::uuid", [cid]) }
-        .to raise_error(PG::RaiseException, /crawl_transition_unavailable/)
+      # SUPERSEDED AND REPLACED, NOT DELETED. This example asserted `queued -> canceled` was REFUSED,
+      # which was true of the guard S-07-003 left and is exactly what S-07-009 changes: :736 names that
+      # edge, and `20260727120360_crawls_terminal_transitions` opens it. What is still refused from
+      # `queued` is `completed` — :736 gives no such edge, because a Crawl that never ran cannot have
+      # completed. The whole cross product is enumerated in
+      # `spec/persistence/crawl_start_invariants_spec.rb` PROOF 50; this asserts it on a REAL queued
+      # Crawl, which is what this describe block is for.
+      expect { conn.exec_params("UPDATE crawls SET state = 'completed', terminal_at = now(), completion_reason = 'completed', coverage_status = 'full' WHERE id = $1::uuid", [cid]) }
+        .to raise_error(PG::RaiseException, /crawl_transition_unavailable queued -> completed/)
+      expect { conn.exec_params("UPDATE crawls SET state = 'canceled', terminal_at = now(), completion_reason = 'canceled' WHERE id = $1::uuid", [cid]) }
+        .not_to raise_error
+      # And having cancelled it, the row is FINISHED: no further edit of any kind (:458's "once").
+      expect { conn.exec_params("UPDATE crawls SET completion_reason = 'failed' WHERE id = $1::uuid", [cid]) }
+        .to raise_error(PG::RaiseException, /crawl_terminal_immutable/)
     end
 
     it "makes crawl_sources fully immutable (T-IMM): no UPDATE, no DELETE" do
