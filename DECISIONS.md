@@ -2887,3 +2887,29 @@ A harness note worth recording: these examples seed a session AT the instant und
 
 Authority And Precedence:
 Repairs B1 and B2 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the boundary and the precedence, :442 the wall clock and what a hard limit records, :551 the release-versus-commit the escape exploited. Corrects ADR-102, which quoted :458 incompletely. Allocated the next unused number after ADR-106.
+
+## ADR-108: B9 Repaired — Each Counted Fact Now Decides Something A Run Can Be Wrong About
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of an ADR-080 acceptance-round finding
+Reversibility: Integration branch only. Specs and one spec helper; no production change.
+
+`TerminalSelection` was proved exhaustively as a pure function with its facts handed in by hand. The SQL that SUPPLIES those facts — the part that can actually be wrong — had no behavioural anchor at all. Zeroing `uncovered`, `fetch_failures` or `hard_limits` in `count_facts` each left 218 examples green.
+
+`uncovered` is :458's coverage denominator, so zeroing it turns `partial` into `full` — **the single error direction `CoverageClassification`'s own header says it exists to prevent** — and no example noticed. `completion_reason = 'limit_reached'` was never written to a real `crawls` row anywhere in the suite; it existed only inside the pure-function spec.
+
+**TWO PROPERTIES OF THE RUN HAD TO BE ARRANGED BEFORE EITHER FACT COULD DECIDE ANYTHING**, and getting them wrong is what made the first three attempts at these examples prove nothing:
+
+- **:452 makes a Source root succeed ONLY when its own depth-zero URL creates a Document.** A run whose single root failed is therefore `failed` by :453's second limb whatever else it fetched, and the fact under test never reaches the coverage question. Both examples use TWO Sources: one root succeeds, the other carries the defect.
+- **The failure must not also trip a hard limit**, or `limit_reached` masks it. PROOF 98 uses three 5xx responses: :444 exhausts them into `content_fetch_failed`, and a 5xx trips no per-fetch hard limit — only a timeout, an over-limit body or redirect exhaustion do.
+
+Two harness defects were found and fixed in the course of this, both of which had been silently weakening existing examples:
+
+1. **`drain` executed every pass at `start_now`.** :444's retries are due at `completed_at + 30s`, so the handler refused them `scheduled_action_not_due` and every chain stopped one pass in. No example that needed a retry had been getting one. Each pass now runs at its own due instant, which is what the transport does.
+2. **`outbound_by_path` answers as ONE canonical host** whatever it was asked. That is invisible with a single Source and silently fails a second Source's fetch on :436's final-URL scope check — which is exactly what happened, producing `policy_excluded / redirect_policy_denied` for a URL nothing had refused. `outbound_by_host_path` answers as the host it was asked.
+
+Proof standard. PROOF 98 (a `content_fetch_failed` outcome decides `partial` and `partial_source_failure`, with `hard_limit_decisions` asserted at zero so the reading is unambiguous) and PROOF 99 (a REAL per-URL body limit recorded by the accepted observation point decides `limit_reached`, with a Document present so `failed` does not outrank it). Three mutations, each previously surviving at 218/0: `uncovered → 0` and `fetch_failures → 0` each fail PROOF 98; `hard_limits → 0` fails PROOF 99 and PROOF 95.
+
+Authority And Precedence:
+Repairs B9 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :442, :452 and :458 govern the facts and the precedence. No production behaviour changes; what changes is whether the suite can tell a correct implementation from an incorrect one. Allocated the next unused number after ADR-107.

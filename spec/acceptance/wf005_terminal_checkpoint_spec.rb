@@ -44,6 +44,30 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     )
   end
 
+  # A stub that answers AS THE HOST IT WAS ASKED. `outbound_by_path` reports one canonical host for every
+  # request, which is fine while a run has one Source and silently fails a second Source's fetch on
+  # :436's final-URL scope check. Keyed on "<host><path>", and the response it builds carries the
+  # requested host in `canonical_host` and `final_url`.
+  def outbound_by_host_path(map)
+    Object.new.tap do |o|
+      o.define_singleton_method(:fetch) do |url, **_kwargs|
+        uri = URI.parse(url.to_s)
+        key = "#{uri.host}#{uri.path}"
+        raise "unexpected outbound fetch: #{url}" unless map.key?(key)
+
+        spec = map[key]
+        spec = spec.length > 1 ? spec.shift : spec.first if spec.is_a?(Array)
+        body = spec.fetch(:body, "<html><title>t</title></html>")
+        Platform::Outbound::Outcome.response(
+          status: spec.fetch(:status, 200), headers: { "content-type" => spec.fetch(:type, "text/html") },
+          body:, byte_count: body.bytesize, truncated: false, canonical_host: uri.host, port: 443,
+          pinned_address: "198.51.100.7", final_url: "https://#{uri.host}#{uri.path}",
+          redirect_count: 0, latency_ms: 5
+        )
+      end
+    end
+  end
+
   def crawl_row(cid) = DbInspector.one("SELECT * FROM crawls WHERE id = $1::uuid", [cid])
   def action_row(id) = DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [id])
   def entries(cid) = DbInspector.all("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key", [cid])
@@ -90,13 +114,16 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
   end
 
   # Drive the fetch chain to exhaustion, exactly as the transport does.
+  # Each pass runs at ITS OWN due instant, which is what the transport does. Executing every pass at
+  # `start_now` silently skipped :444's retries — they are due at `completed_at + 30s`, so the handler
+  # refused them `scheduled_action_not_due` and the chain stopped one pass in.
   def drain(ctx, outbound, limit: 8, at: start_now)
     action = link_first(ctx, at:)
     return [] if action.nil?
 
     [].tap do |results|
       limit.times do
-        results << execute_fetch(ctx, action, outbound, at:)
+        results << execute_fetch(ctx, action, outbound, at: Time.parse(action["due_at"]).getutc)
         nxt = results.last.success? && results.last.payload[:next_action_id]
         break unless nxt
 
@@ -283,6 +310,93 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(crawl["completion_reason"]).to eq("completed")
       expect(crawl["coverage_status"]).to eq("partial")
       expect(result.payload[:unevaluated_candidates]).to eq(1)
+    end
+  end
+
+  # THE COUNTED FACTS THAT DECIDE THE COVERAGE NUMBER (B9).
+  #
+  # `TerminalSelection` is proved exhaustively as a pure function, with the facts handed in by hand. The
+  # SQL that SUPPLIES those facts had no behavioural anchor at all: zeroing `uncovered`, `fetch_failures`
+  # or `hard_limits` in `count_facts` left 218 examples green. `uncovered` is :458's coverage denominator,
+  # so zeroing it turns `partial` into `full` — the one error direction `CoverageClassification`'s own
+  # header says it exists to prevent — and no example noticed. These three make each fact decide.
+  describe "each counted fact decides something a run can be wrong about (B9)" do
+    def decisions(cid)
+      DbInspector.all("SELECT * FROM crawl_limit_decisions WHERE crawl_id = $1::uuid", [cid])
+    end
+
+    # TWO SOURCES, because :452 makes a Source root succeed ONLY when its own depth-zero URL creates a
+    # Document — so a run whose single root failed is `failed` by :453's second limb whatever else it
+    # fetched, and the fact under test would never reach the coverage question. One root succeeds, the
+    # other carries the defect.
+    ROBOTS_OK = { body: "User-agent: *\nAllow: /\n", type: "text/plain" }.freeze
+    SITEMAP_ABSENT = { status: 404, body: "", type: "text/plain" }.freeze
+
+    def two_source_run(failing_root)
+      ctx = running_crawl(hosts: %w[shop.acme.example zeta.acme.example])
+      ensure_gate(ctx)
+      resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
+      resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
+      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      drain(ctx, outbound_by_host_path(
+        "shop.acme.example/" => failing_root,
+        "zeta.acme.example/" => [{}],
+        "zeta.acme.example/robots.txt" => [ROBOTS_OK],
+        "zeta.acme.example/sitemap.xml" => [SITEMAP_ABSENT]
+      ), limit: 14)
+      ctx
+    end
+
+    it "PROOF 98 — a `content_fetch_failed` outcome is the DECIDING fact: partial, and not covered" do
+      # :452 — "Exhausted timeout/408/429/5xx … is `content_fetch_failed`, REMAINS IN THE DENOMINATOR,
+      # and makes coverage partial." Three 5xx responses exhaust :444's bound, and a 5xx trips no
+      # per-fetch hard limit (only a timeout, an over-limit body or redirect exhaustion do), so
+      # `limit_reached` cannot mask the fact under test. The other root produces a Document, so the run
+      # completes and `uncovered`/`fetch_failures` are the only things between it and `full`.
+      ctx = two_source_run([{ status: 500, body: "server error", type: "text/plain" }])
+
+      outcomes = DbInspector.all(<<~SQL, [ctx[:crawl_id]]).map { |r| r["outcome"] }
+        SELECT outcome FROM crawl_terminal_outcomes WHERE crawl_id = $1::uuid ORDER BY commit_order
+      SQL
+      expect(outcomes).to include("content_fetch_failed", "document_created")
+
+      result = checkpoint(ctx)
+
+      expect(result.payload[:content_fetch_failures]).to eq(1)
+      expect(result.payload[:uncovered_candidates]).to eq(1)
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["state"]).to eq("completed")
+      expect(crawl["completion_reason"]).to eq("partial_source_failure")
+      expect(crawl["coverage_status"]).to eq("partial")
+    end
+
+    it "PROOF 99 — a hard limit before the checkpoint is the DECIDING fact: `limit_reached`" do
+      # :442 — "at any other hard limit … set `coverage_status=partial` and
+      # `completion_reason=limit_reached`"; :452 — "a limit hit takes the HIGHER `limit_reached`
+      # precedence". Before this, `limit_reached` was never written to a real `crawls` row anywhere in
+      # the suite: it existed only inside the pure-function spec, which hands the fact in by hand.
+      #
+      # The limit is REAL, recorded by the accepted per-fetch observation point — a body past the
+      # per-URL maximum — not a row this example inserted.
+      oversized = "x" * (Workflows::Wf005::ByteAccounting::PER_URL_CEILING + 64)
+      ctx = two_source_run([{ body: oversized }])
+
+      hard = DbInspector.all(<<~SQL, [ctx[:crawl_id]])
+        SELECT * FROM crawl_limit_decisions WHERE crawl_id = $1::uuid AND threshold_kind = 'hard'
+      SQL
+      expect(hard.map { |r| r["limit_dimension"] }).to include("response_body_per_url")
+
+      result = checkpoint(ctx)
+
+      expect(result.payload[:hard_limit_decisions]).to be >= 1
+      expect(result.payload[:documents]).to eq(1)
+      crawl = crawl_row(ctx[:crawl_id])
+      # The run COMPLETED — one root produced a Document — so `failed` does not outrank the limit, and
+      # `limit_reached` outranks the `partial_source_failure` this run would otherwise have read.
+      expect(crawl["state"]).to eq("completed")
+      expect(crawl["completion_reason"]).to eq("limit_reached")
+      expect(crawl["coverage_status"]).to eq("partial")
     end
   end
 
