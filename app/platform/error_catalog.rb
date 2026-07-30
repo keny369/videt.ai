@@ -283,6 +283,12 @@ module Platform
       # crawl_policy_unavailable above and the three Entitlement Block reasons below, each of which
       # becomes the failed Crawl's `completion_reason` (WORKFLOW_SPECIFICATIONS.md :734).
       "crawl_not_queued"                  => "F1-DOMAIN-409",
+      # S-07-009, the terminal checkpoint. ":458 — a cancellation at or after the checkpoint is
+      # REJECTED AS `crawl_already_terminal`", which is the ratified token; the checkpoint reuses it
+      # for its own late delivery, because a Crawl that has had its one terminal selection is exactly
+      # what the word describes. `crawl_not_running` is its sibling for a Crawl that never started.
+      "crawl_already_terminal"            => "F1-DOMAIN-409",
+      "crawl_not_running"                 => "F1-DOMAIN-409",
       # The Organization re-authorized at the start commit. A distinct code from the WF-001 sign-in
       # `organization_inactive` above, so the entitlement recovery mandated for this condition
       # (:541 "Organization -> reactivate_organization") does not disturb the sign-in mapping.

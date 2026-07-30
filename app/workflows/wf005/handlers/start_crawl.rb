@@ -325,6 +325,17 @@ module Workflows
           # frontier with nothing selectable, asserted in the run-driver spec's drained-frontier example.
           raise LostRace if handoff[:entry_id].nil?
 
+          # THE RUN'S TERMINAL CHECKPOINT, on this same transaction (FU-22, S-07-009). Nothing created
+          # this action until now, so a run whose frontier stopped advancing stayed `running` for ever:
+          # the chain only links forward FROM a pass, and a run with no pass to make creates no link.
+          # BACKGROUND_PROCESSING.md :139 makes `crawl_terminal_deadline` the "exact 60-minute terminal
+          # checkpoint" and :199 keys it to the "Crawl/deadline identity", so it is created once, here,
+          # against the deadline this commit has just resolved — never a second derivation of it.
+          terminal = Wf005::CrawlTerminalDeadlineSchedule.schedule(
+            pg: d[:pg], organization_id: org, project_id: pid, crawl_id: crawl["id"],
+            due_at: deadline, now:, correlation_id: ctx.correlation_id, command_id: command.command_id
+          )
+
           payload = {
             "crawl_id" => crawl["id"], "organization_id" => org, "project_id" => pid, "state" => "running",
             "evaluation_id" => ids[:evaluation], "evaluation_kind" => EVALUATION_KIND, "evaluation_state" => "pending",
@@ -337,7 +348,10 @@ module Workflows
             "excluded_inactive_source_count" => seeded.excluded_inactive,
             "first_fetch_frontier_entry_id" => handoff[:entry_id],
             "first_fetch_action_id" => handoff[:action_id],
-            "first_fetch_due_at_utc" => handoff[:due_at]&.getutc&.iso8601(6)
+            "first_fetch_due_at_utc" => handoff[:due_at]&.getutc&.iso8601(6),
+            # The checkpoint that bounds this run, reported so a reader can see that the Crawl and the
+            # thing that will terminalize it committed together rather than having to infer it.
+            "terminal_checkpoint_action_id" => terminal
           }
           # WF-005 Audit and Observability requires "all policy versions AND effective limits". The
           # resolved bounds are a per-dimension minimum that no single policy version labels, so the

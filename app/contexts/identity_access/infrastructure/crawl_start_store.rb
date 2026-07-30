@@ -126,6 +126,122 @@ module IdentityAccess
         SQL
       end
 
+      # ---- the terminal checkpoint (S-07-009) ------------------------------------
+      #
+      # THE THREE `crawls` WRITERS LIVE TOGETHER, DELIBERATELY. `start`, `fail` and `terminalize` are
+      # the whole of what production does to this row, and keeping them adjacent is the same reasoning
+      # ADR-095 recorded after the lease rule was found stated three different ways in three places: a
+      # rule split across writers drifts, and the drift is invisible until it matters.
+
+      # :458 — "TERMINAL SELECTION OCCURS ONCE AT A SERIALIZED CHECKPOINT." This is the serialization,
+      # and it is a ROW lock rather than an advisory one: the checkpoint decides about the Crawl row
+      # itself, so locking that row is both the narrowest and the most direct expression of the rule.
+      # `FOR UPDATE` blocks rather than skips, because a second checkpoint arriving concurrently must
+      # SEE the first one's decision — and then find the Crawl terminal — rather than derive its own.
+      def lock_crawl(organization_id, crawl_id)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
+          SELECT id, state, state_version, started_at, deadline_at, project_id,
+                 entitlement_reservation_id, entitlement_decision_id
+          FROM crawls WHERE organization_id = $1::uuid AND id = $2::uuid
+          FOR UPDATE
+        SQL
+      end
+
+      # `running -> completed | failed`, guarded on both the state and the expected version, so a
+      # checkpoint that lost its race writes nothing and LEARNS that it did. `coverage_status` is NULL
+      # for `failed`, which is exactly the shape `crawls_terminal_shape` scopes by state (ADR-097).
+      def terminalize(id, expected_version, now, state:, completion_reason:, coverage_status:)
+        params = [id, expected_version, iso(now), state, completion_reason, coverage_status]
+        exec(<<~SQL, params).cmd_tuples
+          UPDATE crawls
+          SET state = $4, terminal_at = $3::timestamptz, completion_reason = $5, coverage_status = $6,
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND state = 'running' AND state_version = $2
+        SQL
+      end
+
+      # EVERYTHING :458 COUNTS, IN ONE STATEMENT AND ONE SNAPSHOT. Eight separate reads would let the
+      # run change between them — a pass committing an outcome between the document count and the
+      # coverage count would produce a selection that no single state of the database ever justified.
+      # One statement under the Crawl row lock cannot.
+      #
+      # Each subquery is one ratified sentence:
+      #   `documents`      :453 "a run is failed when it yields zero valid Documents"
+      #   `roots_*`        :452 "a Source root succeeds only when its DEPTH-ZERO URL ultimately creates
+      #                    a valid Document"; the join to `sources.state = 'active'` is :453's "every
+      #                    ACTIVE Source root", re-read now rather than taken from the pinned set
+      #   `fetch_failures` :452 "`content_fetch_failed` ... remains in the denominator"
+      #   `uncovered`      :458 "every in-scope candidate ... reached a terminal COVERED outcome".
+      #                    `excluded` rows are OUTSIDE the denominator and are deliberately not counted
+      #   `unevaluated`    :458 "any in-scope candidate NOT EVALUATED because of depth, sitemap, queue,
+      #                    page, byte, response, request, or wall-clock bound" — both the candidates a
+      #                    bound discarded and the ones the run simply never reached
+      #   `unresolved`     :450 `sitemap_unavailable` ("coverage is partial") and :452
+      #                    `robots_unavailable_fail_closed` ("makes that Source root failed")
+      #   `hard_limits`    :442 "at any other hard limit ... set `coverage_status=partial` and
+      #                    `completion_reason=limit_reached`"
+      def terminal_facts(organization_id, crawl_id, project_id)
+        exec(<<~SQL, [organization_id, crawl_id, project_id]).to_a.first
+          WITH roots AS (
+            SELECT e.id
+            FROM crawl_frontier_entries e
+            JOIN sources s ON s.organization_id = e.organization_id
+                          AND s.project_id = e.project_id AND s.id = e.source_id
+            WHERE e.organization_id = $1::uuid AND e.crawl_id = $2::uuid
+              AND e.depth = 0 AND e.origin = 'root' AND s.state = 'active'
+          )
+          SELECT
+            (SELECT COUNT(*) FROM crawl_terminal_outcomes o
+              WHERE o.organization_id = $1::uuid AND o.crawl_id = $2::uuid
+                AND o.outcome = 'document_created') AS documents,
+            (SELECT COUNT(*) FROM roots) AS roots_total,
+            (SELECT COUNT(*) FROM roots r
+              JOIN crawl_terminal_outcomes o ON o.crawl_frontier_entry_id = r.id
+             WHERE o.organization_id = $1::uuid AND o.outcome = 'document_created') AS roots_succeeded,
+            (SELECT COUNT(*) FROM crawl_terminal_outcomes o
+              WHERE o.organization_id = $1::uuid AND o.crawl_id = $2::uuid
+                AND o.outcome = 'content_fetch_failed') AS fetch_failures,
+            (SELECT COUNT(*) FROM crawl_terminal_outcomes o
+              WHERE o.organization_id = $1::uuid AND o.crawl_id = $2::uuid
+                AND o.coverage_effect = 'not_covered') AS uncovered,
+            (SELECT COUNT(*) FROM crawl_frontier_entries e
+              WHERE e.organization_id = $1::uuid AND e.crawl_id = $2::uuid
+                AND (e.state IN ('discovered','queued','in_progress','fetched_pending_commit')
+                     OR (e.state = 'discarded' AND e.reason IS NOT NULL))) AS unevaluated,
+            (SELECT COUNT(*) FROM crawl_host_gates g
+              WHERE g.organization_id = $1::uuid AND g.crawl_id = $2::uuid
+                AND (g.sitemap_state = 'unavailable' OR g.robots_state = 'unavailable')) AS unresolved,
+            (SELECT COUNT(*) FROM crawl_limit_decisions d
+              WHERE d.organization_id = $1::uuid AND d.project_id = $3::uuid AND d.crawl_id = $2::uuid
+                AND d.threshold_kind = 'hard') AS hard_limits
+        SQL
+      end
+
+      # FU-9's TRANSFERRED OBLIGATION (ADR-096). Every host gate this run left `sitemap_state='pending'`.
+      #
+      # `Workflows::Wf005::DiscoverSitemaps` writes :450's terminal sitemap outcome only once the run has
+      # EXPIRED, and `CrawlDriver#advance` halts on the same wall clock BEFORE it calls discovery with the
+      # same `now` — so a gate under sustained host contention stayed `pending` for ever and :450's
+      # `sitemap_unavailable` was unreachable on any production path. The checkpoint is the only place
+      # left that can decide it honestly: at this instant no candidate can ever be attempted, which is
+      # exactly the "after retries/validation" premise :450 conditions the outcome on.
+      #
+      # THE CHECKPOINT DOES NOT WRITE THE OUTCOME ITSELF. `f1_crawl_host_gates_sitemap_guard` admits
+      # `pending -> in_progress -> unavailable` and nothing wider, so the decision goes through the
+      # ACCEPTED claim/terminalize surface (`CrawlHostGateStore#begin_sitemaps` then
+      # `#terminalize_sitemaps`) exactly as a discovery pass does. That is not a workaround for the
+      # guard, it is the reason the guard is right: a worker that still holds the claim BLOCKS the
+      # checkpoint from writing over the decision it is in the middle of making.
+      def pending_sitemap_gates(organization_id, crawl_id)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a
+          SELECT id, state_version, robots_state, sitemap_state,
+                 sitemap_candidates::text AS sitemap_candidates
+          FROM crawl_host_gates
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND sitemap_state = 'pending'
+          ORDER BY id
+        SQL
+      end
+
       # The one pending initial Evaluation of an accepted root start, keyed by
       # `(crawl_id, kind='initial')`. `orchestration_slot_active` stays FALSE: the slot is the
       # WF-011 reassessment/retry single-flight (POSTGRESQL_SCHEMA.md :340), and OD-018's initial

@@ -150,7 +150,39 @@ module Workflows
           end
           return {} unless pass.advances?
 
-          Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common)
+          link = Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common)
+          link.merge(terminal_checkpoint(common, link))
+        end
+
+        # A RUN THAT HAS FINISHED ITS WORK REACHES ITS CHECKPOINT NOW, NOT FORTY MINUTES FROM NOW
+        # (DECISIONS ADR-101).
+        #
+        # The accepted start already scheduled a `crawl_terminal_deadline` at `crawls.deadline_at`, which
+        # is :139's "exact 60-minute terminal checkpoint" and is the bound. This is the other instant the
+        # same checkpoint has to be reachable at, and it was forced by evidence rather than chosen for
+        # latency: :551 caps the entitlement lease at fifteen minutes since the last accepted heartbeat,
+        # and `Entitlement::Service#commit` RELEASES rather than commits at or after that instant — so on
+        # a deadline-only checkpoint every run that finished its work before minute forty-five, which is
+        # every ordinary run, released its reservation and `crawl.start` was never committed against any
+        # customer's entitlement. That was demonstrated (PROOF 60) before this existed.
+        #
+        # ONLY ON A GENUINELY DRAINED FRONTIER. A PINNED one is FU-22's stranded claim, which S-07-011
+        # will recover; terminalizing it here would foreclose that recovery on the strength of a
+        # condition this tranche does not own. A run past its deadline has its own checkpoint due
+        # already, and a HALTED pass creates nothing at all (:442 — "stop scheduling affected work").
+        #
+        # The two actions are DISTINCT IDENTITIES (the preimage includes `due_at`), so both exist and
+        # both fire; :458's "once" is enforced by the Crawl row lock and the state machine, not by there
+        # being only one delivery.
+        def terminal_checkpoint(common, link)
+          return {} unless link[:action_id].nil? && link[:pinned] != true && link[:beyond_deadline] != true
+
+          { terminal_checkpoint_action_id: Workflows::Wf005::CrawlTerminalDeadlineSchedule.schedule(
+            pg: common[:pg], organization_id: common[:organization_id], project_id: common[:project_id],
+            crawl_id: common[:crawl_id], due_at: common[:now], now: common[:now],
+            correlation_id: common[:correlation_id], causation_id: common[:causation_id],
+            command_id: common[:command_id]
+          ) }
         end
 
         def payload_for(entry, pass, link)
@@ -181,7 +213,10 @@ module Workflows
             # Whether this pass retired the entry it claimed and so released :454's depth seal. False on
             # a pass that claimed nothing, and false on a redelivery whose entry another pass retired —
             # the compare-and-set reports that rather than rewriting a decision.
-            "frontier_seal_released" => pass.released
+            "frontier_seal_released" => pass.released,
+            # The checkpoint a drained run creates for itself, so a reader can see that the run reached
+            # its terminal selection rather than waiting out a deadline it had no work left to fill.
+            "terminal_checkpoint_action_id" => link[:terminal_checkpoint_action_id]
           }.merge(terminal_fields(pass))
         end
 

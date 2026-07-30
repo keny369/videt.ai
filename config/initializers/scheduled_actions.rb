@@ -68,4 +68,17 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf005::Handlers::RecordFetchAttempt,
     command: Workflows::Wf005::Commands::RecordFetchAttempt
   )
+  # The terminal checkpoint (S-07-009). Registered as `CompleteCrawl` because that is the operation
+  # this kind's job performs when the run has anything to show for itself; :377 lets the SAME job
+  # select `FailCrawl` instead "solely from persisted Crawl/deadline state", which the handler does
+  # and which its audit record and event both name. `CancelCrawl` is deliberately not here: it is an
+  # actor command with its own permission and route (API_CONTRACTS.md :279), and :458 settles a
+  # cancellation by order of commit rather than at this checkpoint.
+  registry.register(
+    action_kind: "crawl_terminal_deadline",
+    action_schema_version: "1.0",
+    operation: "CompleteCrawl",
+    handler: Workflows::Wf005::Handlers::CompleteCrawl,
+    command: Workflows::Wf005::Commands::CompleteCrawl
+  )
 end
