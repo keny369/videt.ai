@@ -2282,3 +2282,63 @@ If any condition fails, the controller stops and escalates under HUMAN_ESCALATIO
 
 Authority And Precedence:
 Owner decision, taken after the observed episode rather than in anticipation of it. Operates within standing delegation ADR-061 and does not alter it; ADR-080's rule that acceptance requires every lens to have reported is untouched, and a repair under this rule is not an acceptance. Restates nothing in AUTONOMY_POLICY that it contradicts: the operational statement is added there under this ADR's number, following the pattern ADR-061 already set. Allocated the next unused number after ADR-083.
+
+## ADR-085: FU-16 Resolved — The First `crawl_fetch_due` Targets The Selected Frontier Entry And Admission Happens Only At Execution
+
+Status: Accepted (owner decision, 2026-07-30; recorded by the implementation agent from the owner's ruling)
+Date: 2026-07-30
+Owner: owner ruling; HD-S07-FU16-FIRST-HANDOFF
+Reversibility: Integration branch only; `main` untouched. Resolves FU-16, which had blocked S-07-012 (3/n).
+
+The question. S-07-012 (3/n) — StartCrawl's first fetch handoff — was built and then WITHDRAWN rather than committed, because the two available shapes differ in reservation lifetime, recovery semantics and which component creates `fetch_attempts` rows. FU-16 recorded the fork and the evidence: (A) pre-admit at start, closest to BACKGROUND_PROCESSING.md :138's "one selected PERSISTED fetch attempt", but holding a byte reservation and an `in_progress` frontier entry across the whole scheduling latency and making StartCrawl a second producer of attempt rows; (B) target the frontier entry and admit at execution.
+
+THE RULING IS (B), in the owner's terms:
+
+* StartCrawl schedules the first `crawl_fetch_due` action against the SELECTED FRONTIER ENTRY.
+* Fetch admission remains the SOLE PRODUCER of `fetch_attempts`.
+* Admission occurs ONLY at execution.
+* The retry semantics proven by accepted S-07-007 remain UNCHANGED.
+* No second producer of `fetch_attempts` is introduced.
+
+Why this is the stronger answer, beyond the reservation-lifetime argument FU-16 already recorded. The ratified catalogue itself distinguishes content fetch from every other attempt-bearing work type. :140-143 give `ingestion_attempt_due`, `parsing_attempt_due`, `indexing_attempt_due` and `check_attempt_due` as "initial or declared 30/120-second retry" — those retries ARE scheduled actions. :138 gives `crawl_fetch_due` as "one selected persisted fetch attempt, including an immediate first attempt", and says nothing about retries, because :444's content-fetch retries are the in-process loop S-07-007 built and proved. (A) would have moved those retries onto the scheduler, which is why adapting `spec/acceptance/wf005_content_fetch_spec.rb:426` was a coverage loss rather than a test update: with attempt #1 pre-created, `FetchContent`'s own loop starts at #2 and one of the two proven delays [30000, 120000] disappears. The catalogue does not ask for that move and the accepted proof forbids it.
+
+What still satisfies :198. The direct claim owner for `crawl_fetch_due` is recorded as "Fetch Attempt" and :185 makes `target_id` the claim-owner row ID. Under (B) the durable idempotency authority is unchanged — it is the attempt identity `(crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number)` under its `ON CONFLICT`, which is derived from the frontier entry and the attempt number and holds whoever creates the row. What (B) changes is WHEN the row exists: the admitting execution creates it, so at scheduling time there is nothing to name but the entry the admission will claim. The frontier entry is a genuine claim owner — `queued -> in_progress` under the frontier's own advisory lock is the claim — so `target_id` still names the row the execution claims. The residual naming divergence between :138/:185's prose and this shape is recorded as a follow-up for prose reconciliation, not resolved by inventing a row to point at.
+
+The principle the owner added, and which decided it: OPTIMISE FOR REDUCING FUTURE COMPLEXITY, NOT TODAY'S LINES OF CODE. (A) worked. It also created a second producer of an append-only-in-practice row and a more complex ownership model, and for a platform expected to carry tens or hundreds of thousands of organisations, simplicity of ownership boundaries predicts long-term scalability better than any single function's speed. Systems at scale fail on coordination complexity, contention and operational ambiguity.
+
+Consequences carried into S-07-012:
+- `crawl_fetch_due` carries `target_type = 'crawl_frontier_entry'`.
+- (2/n)'s attempt-prepare limb is REMOVED, not retained beside the new one: `FetchAttemptDueSchedule`, `FetchAttemptStore#prepare`, `#claim_prepared`, `#submission_started` and `FetchContent#record_persisted_attempt` existed only to make a pre-created attempt executable. Keeping them would be the second producer the ruling forbids.
+- `FetchContent#call` — the accepted S-07-007 entry point, with its in-process :444 loop — is what the handler drives, consuming Admission's reservation as S-07-012 (1/n) already made it do.
+
+Authority And Precedence:
+Owner decision under AUTONOMY_POLICY "Human decision required" item 8 (product semantics with more than one materially different valid interpretation), which is the class FU-16 was raised under. Operates within standing delegation ADR-061. Allocated the next unused number after ADR-084.
+
+## ADR-086: Development Cadence — Autonomous Continuation Between Named Architectural Stop Conditions
+
+Status: Accepted (owner decision, 2026-07-30; recorded by the implementation agent from the owner's direction)
+Date: 2026-07-30
+Owner: owner ruling
+Reversibility: Governance only. Supersedes nothing; narrows when the controller returns for review.
+
+The change. The controller no longer stops after every implementation unit for strategic confirmation. It continues automatically through the eligible work BUILD_PLAN and BUILD_STATE identify, completes coherent blocks of related work, and returns for independent adversarial review at MEANINGFUL MILESTONES rather than every increment. Repository gates still run continuously after each unit; what changes is the review frequency, not the verification frequency.
+
+THE STOP CONDITIONS ARE NAMED AND EXHAUSTIVE. The controller stops immediately and requests review on encountering any of:
+
+1. a change to transaction boundaries;
+2. a second producer of an immutable entity;
+3. changes to authorization or RLS semantics;
+4. changes to identity or idempotency ownership;
+5. changes to immutable ledger semantics;
+6. concurrency primitives or locking strategy;
+7. changes that invalidate an accepted proof or accepted contract;
+8. repository governance requiring a new ADR or owner decision.
+
+Everything else is normal implementation work. In particular, the controller does NOT stop merely because several implementation choices exist, when one is already implied by a repository contract, an accepted ADR or an established architectural principle.
+
+The standard does not move. Professional-grade correctness, scalability, concurrency behaviour, latency and operational robustness take precedence over implementation speed. Every completed unit adds or strengthens tests, mutation-tests behavioural invariants where the repository requires it, runs the required gates, and commits with a precise message. Each change prefers the smallest repository-consistent form, maintains or improves existing performance characteristics, avoids unnecessary allocations, database round trips and lock duration, and preserves deterministic behaviour under concurrency, recovery semantics and every accepted guarantee.
+
+And the principle that decided ADR-085 is now standing: OPTIMISE FOR REDUCING FUTURE COMPLEXITY, NOT TODAY'S LINES OF CODE. Simplicity of ownership boundaries — one producer per entity, one owner per reservation, one authority per identity — is a stronger predictor of behaviour at scale than local efficiency.
+
+Authority And Precedence:
+Owner decision. Operates within standing delegation ADR-061 and does not alter it; ADR-080's rule that acceptance requires every lens to have reported is untouched, as is ADR-084's blocking-defect repair authority. The operational statement is added to AUTONOMY_POLICY under this number, following the pattern ADR-061 and ADR-084 set. Allocated the next unused number after ADR-085.

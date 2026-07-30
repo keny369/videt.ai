@@ -12,6 +12,27 @@ Within an owner-AUTHORISED block, the controller runs each authorised sub-tranch
 
 `human_gate_before` is set only where a real owner decision is required (a new block, a decomposition, or a genuine contract ambiguity). `human_gate_after` is reserved for a mandatory-gate failure or an acceptance criterion that cannot be objectively satisfied. The controller returns to the owner ONLY for: (1) a genuine repository ambiguity with two materially different valid interpretations affecting behaviour or security; (2) a contract or scope change requiring owner approval; (3) a mandatory verification gate failing or a repository invariant that cannot be satisfied; or when the current authorised block is exhausted and the next requires fresh authorisation.
 
+## Development cadence (DECISIONS ADR-086)
+
+The controller does NOT stop after every implementation unit for strategic confirmation. It continues automatically through the eligible work BUILD_PLAN and BUILD_STATE identify, completes COHERENT BLOCKS of related work, and requests independent adversarial review at meaningful MILESTONES rather than every increment. Repository gates still run continuously after each unit: what changes is the review frequency, never the verification frequency.
+
+It STOPS IMMEDIATELY and requests review on encountering any of these architectural stop conditions:
+
+1. a change to transaction boundaries;
+2. a second producer of an immutable entity;
+3. changes to authorization or RLS semantics;
+4. changes to identity or idempotency ownership;
+5. changes to immutable ledger semantics;
+6. concurrency primitives or locking strategy;
+7. changes that invalidate an accepted proof or accepted contract;
+8. repository governance requiring a new ADR or owner decision.
+
+Everything else is normal implementation work. The controller does NOT stop merely because several implementation choices exist, when one is already implied by a repository contract, an accepted ADR or an established architectural principle.
+
+The standard does not move. Professional-grade correctness, scalability, concurrency behaviour, latency and operational robustness take precedence over implementation speed. Each change prefers the smallest repository-consistent form, maintains or improves existing performance characteristics, avoids unnecessary allocations, database round trips and lock duration, and preserves deterministic behaviour under concurrency, recovery semantics and every accepted guarantee. Every completed unit adds or strengthens tests, mutation-tests behavioural invariants where the repository requires it, runs the required gates, and commits with a precise message.
+
+OPTIMISE FOR REDUCING FUTURE COMPLEXITY, NOT TODAY'S LINES OF CODE. Simplicity of ownership boundaries — one producer per entity, one owner per reservation, one authority per identity — predicts behaviour at scale better than local efficiency does.
+
 ## Blocking-defect repair authority (DECISIONS ADR-084)
 
 A mandatory gate failure whose ROOT CAUSE HAS BEEN DEMONSTRATED is repaired immediately, whichever tranche owns the defect and whatever tranche is in progress, provided all of: the repair removes the blocker itself rather than merely restoring a passing gate; it is the smallest correction that does so; it does not change product semantics; it does not touch a frozen foundation (F-01 through F-04, which remain an owner decision); it does not require changing repository governance; it is committed separately from the tranche in progress; it is recorded as a follow-up in `BUILD_STATE.open_decisions`; and the full mandatory gate set passes from the resulting state, with repeated whole-suite runs recorded as stability evidence where the failure was nondeterministic.
