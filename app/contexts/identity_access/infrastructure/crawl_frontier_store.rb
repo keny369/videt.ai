@@ -241,9 +241,43 @@ module IdentityAccess
           RETURNING e.id, e.canonical_url, e.source_id, e.depth, e.origin, e.link_position,
                     e.discovering_document_url, e.scope_policy_id, e.scope_policy_version,
                     e.enqueue_order, e.state,
+                    -- The post-claim version, so the caller's later seal release is a compare-and-set
+                    -- on THIS claim rather than on a value re-read after another writer moved it.
+                    e.state_version,
                     -- :456's ordering tuple, carried to the attempt record so the run's accounting
                     -- can be replayed "in canonical dequeue/attempt order" without re-deriving it.
                     e.dequeue_key
+        SQL
+      end
+
+      # THE SEAL RELEASE (S-07-012). Retire a claimed entry whose fetch has been decided, so
+      # `sealed_depth` can advance and :454's "all depth d discoveries are SEALED before any depth d+1
+      # candidate is SELECTED" stops holding a depth whose work is finished.
+      #
+      # Guarded on `state = 'in_progress'` AND the expected `state_version`, so it is a compare-and-set
+      # on exactly the claim this caller took: a redelivered action whose entry has already been
+      # retired matches zero rows and the caller learns that rather than rewriting a decision. Nothing
+      # else about the row is touched — `reason` stays NULL, which
+      # `crawl_frontier_entries_discard_reason` requires of every non-discarded state, and `terminal`
+      # is deliberately distinct from `discarded`: the candidate WAS acted on, so :452 keeps it in the
+      # coverage denominator, where a discard is not.
+      #
+      # `commit_order` is NOT assigned here. It is :456's coordinator sequence for committing
+      # DISCOVERIES in increasing dequeue key, which arrives with concurrent fetching and link
+      # extraction (S-07-010); this driver advances one entry per pass, so a sequence it wrote would
+      # be a restatement of `enqueue_order` rather than the ordering the column exists to record.
+      #
+      # AND THIS IS NOT THE ENTRY'S TERMINAL RECORD. `crawl_terminal_outcomes` is — T-IMM, one row per
+      # frontier entry, carrying the terminal commit order, the outcome, the Document ID and the
+      # COVERAGE EFFECT (schemas/POSTGRESQL_SCHEMA.md :299). It is catalogued and unbuilt, and it
+      # belongs to the tranches that own Documents and coverage (S-07-009/S-07-010). What this
+      # statement does is release the SEAL, so the run can reach the next depth; the durable record of
+      # what happened to the URL is the `fetch_attempts` row the fetch already terminalized.
+      def terminalize(id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE crawl_frontier_entries
+          SET state = 'terminal', state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND state = 'in_progress' AND state_version = $2
         SQL
       end
 

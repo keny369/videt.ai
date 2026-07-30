@@ -192,6 +192,33 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(second.payload[:outcome]).to eq("document_created")
       expect(requests).to eq(["/"])
       expect(attempts(ctx[:crawl_id]).map { |r| r["crawl_frontier_entry_id"] }).to eq([root["id"]])
+
+      # THE SEAL RELEASED, which is what makes the depth-1 candidate reachable at all (ADR-087). Before
+      # this edge existed, the root stayed `in_progress` forever, `sealed_depth` — MIN(depth) over
+      # ('queued','in_progress','fetched_pending_commit') — stayed 0, and the sitemap URL this run
+      # discovered was permanently unselectable. The next link proves it moved.
+      expect(second.payload[:frontier_seal_released]).to be(true)
+      discovered = entries(ctx[:crawl_id]).last
+      expect(entries(ctx[:crawl_id]).map { |r| [r["depth"].to_i, r["state"]] })
+        .to eq([[0, "terminal"], [1, "queued"]])
+      expect(second.payload[:next_frontier_entry_id]).to eq(discovered["id"])
+      expect(second.payload[:frontier_drained]).to be(false)
+
+      # THE THIRD PASS fetches the depth-1 content URL the sitemap named, and the run drains.
+      requests.clear
+      third_action = action_row(second.payload[:next_action_id])
+      clear_rate_window(gate["id"])
+      third = execute(ctx, third_action, outbound_by_path("/p1" => html(path: "/p1")),
+                      at: Time.parse(third_action["due_at"]).getutc + 1)
+
+      expect(third.payload[:pass_outcome]).to eq("fetched")
+      expect(third.payload[:outcome]).to eq("document_created")
+      expect(requests).to eq(["/p1"])
+      expect(third.payload[:frontier_seal_released]).to be(true)
+      expect(third.payload[:frontier_drained]).to be(true)
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(%w[terminal terminal])
+      expect(attempts(ctx[:crawl_id]).map { |r| r["canonical_url"] })
+        .to eq(["https://shop.acme.example/", "https://shop.acme.example/p1"])
     end
 
     it "admits at execution: the entry is claimed, the reservation is the fetch's, and #1 is the attempt" do
@@ -201,7 +228,11 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(result.success?).to be(true)
       expect(result.payload[:pass_outcome]).to eq("fetched")
       root = entries(ctx[:crawl_id]).first
-      expect(root["state"]).to eq("in_progress")
+      # `terminal` and not `in_progress`: the pass claimed the entry, decided its fetch, and released
+      # :454's seal in the same pass (ADR-087). `in_progress` is the state DURING the fetch, which the
+      # attempt row below is the durable record of.
+      expect(root["state"]).to eq("terminal")
+      expect(result.payload[:frontier_seal_released]).to be(true)
       rows = attempts(ctx[:crawl_id])
       expect(rows.size).to eq(1)
       expect(rows.first["attempt_number"]).to eq("1")
@@ -281,6 +312,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       reentry = action_row(result.payload[:next_action_id])
       expect(reentry["target_id"]).to eq(entries(ctx[:crawl_id]).first["id"])
       expect(Time.parse(reentry["due_at"]).getutc).to eq(start_now + 30)
+      expect(result.payload[:frontier_seal_released]).to be(false)
     end
   end
 
@@ -389,6 +421,11 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(requests).to be_empty
       expect(attempts(ctx[:crawl_id])).to be_empty
       expect(result.payload[:next_frontier_entry_id]).to eq(roots.last["id"])
+      # IT DOES NOT STEAL THE CLAIM IT DECLINED. The other pass's entry is left exactly as it was, no
+      # seal is released, and the ledger attributes nothing to a fetch this pass never made.
+      expect(result.payload[:frontier_seal_released]).to be(false)
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(%w[in_progress queued])
+      expect(result.payload[:outcome]).to be_nil
     end
   end
 

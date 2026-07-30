@@ -108,6 +108,16 @@ RSpec.describe "Crawl-frontier invariants", type: :model do
     { org:, project: pid, crawl: insert_crawl(pid), source: sid, policy: insert_scope_policy(sid, pid) }
   end
 
+  # A state change issued as raw SQL, so what is asserted is the DATABASE guard and not a store method
+  # declining to offer an edge. Advances `state_version` by exactly one, which the guard also requires.
+  def move(id, target)
+    conn.exec_params(
+      "UPDATE crawl_frontier_entries SET state_version = state_version + 1, state = $2 WHERE id = $1::uuid",
+      [id, target])
+  end
+
+  def state_of(id) = DbInspector.one("SELECT state FROM crawl_frontier_entries WHERE id=$1::uuid", [id])["state"]
+
   describe "tenancy and least privilege" do
     { "crawl_frontier_entries" => %w[INSERT SELECT UPDATE], "crawl_frontier_occurrences" => %w[INSERT SELECT] }.each do |table, grants|
       it "forces row level security on #{table} with the tenant-context policy" do
@@ -205,13 +215,48 @@ RSpec.describe "Crawl-frontier invariants", type: :model do
         .not_to raise_error
     end
 
-    it "refuses the fetch and terminal edges later tranches own" do
+    # THE SEAL RELEASE, delivered by S-07-012 under the owner's ruling in DECISIONS ADR-087. This
+    # replaces an assertion that refused all three edges out of `in_progress` and recorded them as
+    # "later tranches'". It is deliberately STRONGER than what it replaces: it fixes the ONE edge that
+    # exists, the ONE source state it may leave, and the exhaustive set of states from which it is
+    # refused — and it still refuses `fetched_pending_commit`, whose coordinator limb (:456's "a
+    # completion with a later key waits in `fetched_pending_commit`; it cannot change selection") arrives
+    # with concurrent fetching and link extraction and remains S-07-010's.
+    it "permits ONLY in_progress -> terminal out of a claimed entry" do
       c = context
       a = insert_entry(c, url: "https://x.example/a", state: "in_progress")
-      %w[fetched_pending_commit terminal queued].each do |target|
-        expect { conn.exec_params("UPDATE crawl_frontier_entries SET state_version = state_version + 1, state=$2 WHERE id=$1::uuid", [a, target]) }
-          .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable in_progress -> #{target}/)
+      %w[fetched_pending_commit queued discovered discarded].each do |target|
+        expect { move(a, target) }
+          .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable in_progress -> #{target}/),
+              "in_progress -> #{target} was permitted"
       end
+      expect { move(a, "terminal") }.not_to raise_error
+      expect(state_of(a)).to eq("terminal")
+    end
+
+    it "refuses terminal from every state except in_progress, and refuses every edge OUT of terminal" do
+      c = context
+      # `discarded` needs its reason (`crawl_frontier_entries_discard_reason`), and
+      # `fetched_pending_commit` is INSERTED directly because no legal edge reaches it — which is the
+      # point: even a row that arrived there some other way cannot be retired by this transition.
+      { "queued" => nil, "discovered" => nil, "fetched_pending_commit" => nil, "discarded" => "queue_limit_discarded" }
+        .each_with_index do |(source, reason), i|
+          row = insert_entry(c, url: "https://x.example/from-#{i}", state: source, reason:)
+          expect { move(row, "terminal") }
+            .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable #{source} -> terminal/),
+                "#{source} -> terminal was permitted"
+        end
+
+      # A coverage-bearing terminal decision is never rewritten: no edge leaves `terminal`.
+      done = insert_entry(c, url: "https://x.example/done", state: "in_progress")
+      move(done, "terminal")
+      %w[queued in_progress fetched_pending_commit discovered discarded].each do |target|
+        expect { move(done, target) }
+          .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable terminal -> #{target}/),
+              "terminal -> #{target} was permitted"
+      end
+      # And `terminal` carries no discard reason, which the shape CHECK requires of every state but one.
+      expect(DbInspector.one("SELECT reason FROM crawl_frontier_entries WHERE id=$1::uuid", [done])["reason"]).to be_nil
     end
 
     it "freezes candidate IDENTITY and provenance in every state, and refuses DELETE" do

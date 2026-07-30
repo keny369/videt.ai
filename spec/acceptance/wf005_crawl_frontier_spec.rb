@@ -135,6 +135,15 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
   def occurrences(cid) = DbInspector.all("SELECT * FROM crawl_frontier_occurrences WHERE crawl_id = $1::uuid ORDER BY occurrence_order", [cid])
   def pinned(cid) = DbInspector.all("SELECT * FROM crawl_sources WHERE crawl_id = $1::uuid ORDER BY source_order", [cid])
 
+  # A DELIBERATELY ILLEGAL transition, issued as raw SQL so the assertion is about the DATABASE guard
+  # and not about a store method declining to offer the edge. The store has no such method, which is
+  # the point: the refusal must hold against any writer.
+  def revert_to_queued(id)
+    DbInspector.connection.exec_params(
+      "UPDATE crawl_frontier_entries SET state = 'queued', state_version = state_version + 1 WHERE id = $1::uuid",
+      [id])
+  end
+
   # Run a block against the real frontier surface inside a proved-Organization unit of work.
   def in_frontier(org)
     Platform::UnitOfWork.run do |conn|
@@ -342,9 +351,73 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
       expect(states[0]).to eq("in_progress")
       expect(states[1]).to eq("queued")
       expect(states[2]).to eq("queued")
-      # The seal releases when a depth goes terminal. That edge (in_progress -> terminal) is
-      # S-07-009's and the guard still refuses it, so within THIS tranche a claimed depth holds the
-      # seal — conservative in the safe direction, never the reverse.
+    end
+
+    it "RELEASES the seal when the claimed depth goes terminal, and one depth at a time" do
+      # The other half of :454's seal, delivered by S-07-012's run driver: the depth that has been
+      # acted on stops holding the frontier. Without this edge `sealed_depth` — MIN(depth) over
+      # ('queued','in_progress','fetched_pending_commit') — pins at the claimed depth for the rest of
+      # the run, so a Crawl whose sitemap admitted depth-1 URLs (:440) would fetch its roots and then
+      # stall with work queued. (The comment this replaced recorded the edge as S-07-009's, which
+      # predates S-07-012 existing at all; the seal release is the run driver's, because the driver is
+      # the only component that knows a fetch has been decided.)
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+
+      claimed, after_claim, after_release, second = in_frontier(org) do |frontier, store|
+        [1, 2].each do |d|
+          frontier.offer(organization_id: org, project_id: q[:g][:project_id], crawl_id: q[:crawl_id],
+                         source_id: root["source_id"], canonical_url: "https://alpha.acme.example/d#{d}",
+                         origin: "link", depth: d, now: start_now,
+                         discovering_document_url: "https://alpha.acme.example/", link_position: d,
+                         parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                         scope_policy_version: root["scope_policy_version"])
+        end
+        claimed = store.claim_next(org, q[:crawl_id], start_now)
+        blocked = store.peek_next(org, q[:crawl_id])
+        released = store.terminalize(claimed["id"], claimed["state_version"].to_i, start_now)
+        [claimed, blocked, released, store.peek_next(org, q[:crawl_id])]
+      end
+
+      expect(claimed["depth"].to_i).to eq(0)
+      # `claim_next` reports the POST-CLAIM version, so the release below is a compare-and-set on
+      # exactly this claim rather than on a value re-read after another writer moved it.
+      expect(claimed["state_version"].to_i).to eq(root["state_version"].to_i + 1)
+      expect(after_claim).to be_nil
+      expect(after_release).to eq(1)
+      # Depth 1 is now selectable, and depth 2 still is not: the seal moved by exactly one depth.
+      expect(second["depth"].to_i).to eq(1)
+      states = entries(q[:crawl_id]).to_h { |r| [r["depth"].to_i, r["state"]] }
+      expect(states[0]).to eq("terminal")
+      # `terminal` is not `discarded`: the candidate WAS acted on, so :452 keeps it in the coverage
+      # denominator, and the discard-reason CHECK requires it to carry no reason.
+      expect(entries(q[:crawl_id]).first["reason"]).to be_nil
+    end
+
+    it "refuses the seal release on a stale version, on an unclaimed entry, and never reverses it" do
+      # The release is a compare-and-set, not an assignment: a redelivered action whose entry has
+      # already been retired must learn that rather than rewrite a decision, and no other transition
+      # out of `terminal` exists.
+      q = queued(%w[https://alpha.acme.example])
+      start(q[:crawl_id])
+      org = q[:g][:organization_id]
+      root = entries(q[:crawl_id]).first
+
+      # An entry still `queued` cannot be retired: only a CLAIMED entry has been acted on.
+      expect(in_frontier(org) { |_f, store| store.terminalize(root["id"], root["state_version"].to_i, start_now) }).to eq(0)
+
+      claimed = in_frontier(org) { |_f, store| store.claim_next(org, q[:crawl_id], start_now) }
+      version = claimed["state_version"].to_i
+      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version - 1, start_now) }).to eq(0)
+      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version, start_now) }).to eq(1)
+      # The second delivery of the same release matches zero rows rather than advancing the version.
+      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version + 1, start_now) }).to eq(0)
+
+      # And the guard refuses every edge OUT of `terminal`, so coverage cannot be rewritten later.
+      expect { in_frontier(org) { |_f, _s| revert_to_queued(claimed["id"]) } }
+        .to raise_error(PG::RaiseException, /crawl_frontier_transition_unavailable terminal -> queued/)
     end
   end
 

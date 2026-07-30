@@ -313,7 +313,9 @@ BEGIN
   END IF;
   IF NEW.state IS DISTINCT FROM OLD.state THEN
     IF NOT ((OLD.state = 'discovered' AND NEW.state IN ('queued','discarded'))
-            OR (OLD.state = 'queued' AND NEW.state IN ('in_progress','discarded'))) THEN
+            OR (OLD.state = 'queued' AND NEW.state IN ('in_progress','discarded'))
+            -- The seal release: a claimed entry whose fetch has been decided.
+            OR (OLD.state = 'in_progress' AND NEW.state = 'terminal')) THEN
       RAISE EXCEPTION 'crawl_frontier_transition_unavailable % -> %', OLD.state, NEW.state
         USING ERRCODE = 'raise_exception';
     END IF;
@@ -6222,6 +6224,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120300'),
 ('20260727120290'),
 ('20260727120280'),
 ('20260727120270'),

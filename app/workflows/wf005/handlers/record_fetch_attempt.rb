@@ -143,7 +143,11 @@ module Workflows
             "next_frontier_entry_id" => link[:entry_id],
             "next_action_id" => link[:action_id],
             "next_due_at_utc" => link[:due_at]&.getutc&.iso8601(6),
-            "frontier_drained" => pass.advances? && link[:entry_id].nil?
+            "frontier_drained" => pass.advances? && link[:entry_id].nil?,
+            # Whether this pass retired the entry it claimed and so released :454's depth seal. False on
+            # a pass that claimed nothing, and false on a redelivery whose entry another pass retired —
+            # the compare-and-set reports that rather than rewriting a decision.
+            "frontier_seal_released" => pass.released
           }
         end
 

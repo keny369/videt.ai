@@ -44,8 +44,10 @@ module Workflows
     # sitemap-handed-back and `run_byte_budget_contended` are all "come back", none of them is an
     # outcome, and none of them costs the entry an attempt or the run a byte.
     class CrawlDriver
-      # What one pass did. `fetch` is the `FetchContent::Result` when a request was made.
-      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at) do
+      # What one pass did. `fetch` is the `FetchContent::Result` when a request was made; `released` is
+      # whether this pass retired its claimed entry and so released :454's depth seal.
+      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at, :released) do
+        def initialize(released: false, **) = super
         def fetched? = outcome == CrawlDriver::FETCHED
         # Link the run forward to whatever is next.
         def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED].include?(outcome)
@@ -139,7 +141,34 @@ module Workflows
         result = fetch_content.call(organization_id:, crawl_id: crawl["id"], entry: decision.entry,
                                     gate_id: gate["id"], now:, reserved_bytes: decision.reserved_bytes)
         Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry: decision.entry,
-                 fetch: result, reenter_at: nil)
+                 fetch: result, reenter_at: nil, released: release_seal(organization_id, decision.entry, now))
+      end
+
+      # THE SEAL RELEASE (DECISIONS ADR-087). The entry this pass claimed has had its fetch decided, so
+      # it stops holding :454's depth seal — `sealed_depth` is `MIN(depth)` over
+      # ('queued','in_progress','fetched_pending_commit'), and without this the depth a pass has finished
+      # with pins the frontier for the rest of the run and no depth-1 candidate is ever selectable.
+      #
+      # A COMPARE-AND-SET ON THIS PASS'S OWN CLAIM. The version comes from `Admission`'s claim, not from
+      # a re-read, so the release binds to the claim that authorised it: a stale version, an entry that
+      # was never claimed, and a second delivery each match zero rows rather than retiring an entry this
+      # pass does not own. Zero rows is NOT an error — the redelivery path below is exactly where it
+      # happens legitimately — so it is reported, not raised.
+      #
+      # IN ITS OWN TRANSACTION, BEFORE THE LEDGER AND THE NEXT LINK, and that ordering is the ADR's. The
+      # tidier alternative — retiring the entry inside the handler's terminal transaction, atomically
+      # with the ledger and the link — has the worse failure mode: a process lost between the fetch and
+      # the ledger write would leave the entry `in_progress` forever and PERMANENTLY PIN THE DEPTH.
+      # Retiring it first means a lost pass leaves the seal RELEASED and no link, and the redelivery then
+      # finds the entry terminal, records `superseded`, and links the run on. The chain repairs itself
+      # with no new recovery vocabulary, and ledger completeness is identical either way because in both
+      # cases the lost transaction is the one carrying the ledger rows.
+      def release_seal(organization_id, entry, now)
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          store.terminalize(entry["id"], entry["state_version"].to_i, now).positive?
+        end
       end
 
       # :442's wall clock and the Crawl's own state, read together because both make a request
