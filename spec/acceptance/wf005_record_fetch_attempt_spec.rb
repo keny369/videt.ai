@@ -844,6 +844,193 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     end
   end
 
+  # FU-21 — WHAT HAPPENED TO THE URL, RECORDED WHERE THE COVERAGE MEASURE LOOKS (:452, :456, :301).
+  #
+  # The frontier's `terminal` state says only that an entry was acted on and is no longer selectable. It
+  # carries no reason — `crawl_frontier_entries_discard_reason` reserves that column for `discarded` —
+  # and it does not imply a `fetch_attempts` row, because the fetch path authorizes BEFORE it claims one
+  # and :448's fail-closed host never reaches the fetch path at all. A retired entry was therefore
+  # BYTE-INDISTINGUISHABLE from a fetched covered one, and irreversibly so: the frontier guard admits no
+  # edge out of `terminal` and `crawl_terminal_outcomes` is T-IMM.
+  #
+  # These examples drive the REAL chain and then read the row. They deliberately do not assert against
+  # `CoverageClassification`'s map — PROOF 41 pins that against the live CHECK — they assert the tokens
+  # :452 states, so a classification that changed would have to change the ratified sentence too.
+  describe "every retirement records what happened to the URL (FU-21)" do
+    def terminal_outcomes(cid)
+      DbInspector.all("SELECT * FROM crawl_terminal_outcomes WHERE crawl_id=$1::uuid ORDER BY commit_order", [cid])
+    end
+
+    # The store, driven directly, so an example can put a row in the way of the pass under test.
+    def record_outcome(ctx, entry, outcome:, effect:, reason: nil)
+      Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlTerminalOutcomeStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.record(id: SecureRandom.uuid_v7, now: start_now, correlation_id: SecureRandom.uuid_v7,
+                     causation_id: ctx[:crawl_id], command_id: nil,
+                     organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+                     crawl_id: ctx[:crawl_id], entry_id: entry["id"], source_id: entry["source_id"],
+                     outcome:, reason:, coverage_effect: effect)
+      end
+    end
+
+    def chain(ctx, outbound, limit: 5)
+      action = first_action(ctx)
+      [].tap do |results|
+        limit.times do
+          results << execute(ctx, action, outbound, at: Time.parse(action["due_at"]).getutc)
+          nxt = results.last.success? && results.last.payload[:next_action_id]
+          break unless nxt
+
+          clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+          action = action_row(nxt)
+        end
+      end
+    end
+
+    it "PROOF 43 — a fetched entry retires WITH its :452 classification, and covered carries no reason" do
+      ctx = fetchable
+      body = "<html><title>ok</title></html>"
+
+      result = execute(ctx, first_action(ctx), outbound_by_path("/" => html(body:)))
+
+      expect(result.payload[:pass_outcome]).to eq("fetched")
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("terminal")
+      row = terminal_outcomes(ctx[:crawl_id]).sole
+      expect(row["crawl_frontier_entry_id"]).to eq(entries(ctx[:crawl_id]).first["id"])
+      # :452 — "an admitted content URL has a covered outcome only when it creates a valid Document".
+      expect(row["outcome"]).to eq("document_created")
+      expect(row["coverage_effect"]).to eq("covered")
+      # :456 asks for a reason from an entry that did NOT reach a covered outcome; this one has nothing
+      # to explain, and `crawl_terminal_outcomes_reason_presence` refuses a covered row that carries one.
+      expect(row["reason"]).to be_nil
+      expect(row["accounted_response_body_bytes"].to_i).to eq(body.bytesize)
+      expect(row["commit_order"].to_i).to eq(1)
+      # And the ledger reports what was STORED, so the audit record and the row cannot disagree.
+      expect(result.payload[:terminal_outcome]).to eq("document_created")
+      expect(result.payload[:coverage_effect]).to eq("covered")
+      expect(result.payload[:terminal_commit_order]).to eq(1)
+    end
+
+    it "PROOF 44 — FU-21's own case: a fail-closed host's entry retires with NO attempt, and is recorded" do
+      # THE DEFECT, EXACTLY. This entry never reaches the fetch path — :448 forbids any request against
+      # the host — so there is no `fetch_attempts` row to read the outcome from, and the frontier row it
+      # leaves behind is `terminal` with a NULL reason: the SAME row a covered fetch leaves. Before this,
+      # an unretrieved URL and a retrieved one were the same bytes.
+      ctx = gated
+      resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
+
+      result = execute(ctx, first_action(ctx), outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("retired")
+      expect(attempts(ctx[:crawl_id])).to be_empty
+      frontier = entries(ctx[:crawl_id]).sole
+      expect(frontier["state"]).to eq("terminal")
+      expect(frontier["reason"]).to be_nil
+
+      row = terminal_outcomes(ctx[:crawl_id]).sole
+      expect(row["crawl_frontier_entry_id"]).to eq(frontier["id"])
+      # :452 — "`robots_unavailable_fail_closed` makes that Source root failed and coverage partial." In
+      # the denominator, not excluded from it: the URL was genuinely not retrieved.
+      expect(row["outcome"]).to eq("robots_unavailable_fail_closed")
+      expect(row["coverage_effect"]).to eq("not_covered")
+      expect(row["reason"]).to eq("robots_unavailable_fail_closed")
+      expect(row["accounted_response_body_bytes"].to_i).to eq(0)
+    end
+
+    it "PROOF 45 — the retirement and its classification are ONE transaction" do
+      # Not "they are written together" — DEMONSTRATED, by putting a row in the way. A pre-existing
+      # outcome for this entry makes the INSERT violate `entry_once`, so if the seal release and the
+      # classification were separate transactions the entry would still end up `terminal`: irreversibly
+      # retired with no record of what happened to it, which is the defect with an extra step.
+      ctx = fetchable
+      entry = entries(ctx[:crawl_id]).first
+      record_outcome(ctx, entry, outcome: "content_absent", effect: "covered")
+
+      expect { execute(ctx, first_action(ctx), outbound_by_path("/" => html)) }
+        .to raise_error(PG::UniqueViolation, /entry_once/)
+
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("in_progress")
+      expect(terminal_outcomes(ctx[:crawl_id]).sole["outcome"]).to eq("content_absent")
+    end
+
+    it "PROOF 46 — a superseded pass records nothing rather than a second opinion" do
+      # :301's "unique frontier entry" is what makes this safe, but the constraint must never be the
+      # thing that stops it: a redelivery whose entry another pass already retired must WRITE NOTHING,
+      # not raise. The compare-and-set on the claim is the gate, and no outcome is reached without it.
+      ctx = gated(hosts: %w[shop.acme.example zeta.acme.example])
+      action = first_action(ctx)
+      resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
+      # Another pass claimed the fail-closed root and was lost, so `peek_next` returns the OTHER root.
+      in_frontier_of(ctx) do |store|
+        store.lock_frontier(ctx[:crawl_id])
+        store.claim_next(ctx[:g][:organization_id], ctx[:crawl_id], start_now)
+      end
+
+      result = execute(ctx, action, outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("superseded")
+      expect(terminal_outcomes(ctx[:crawl_id])).to be_empty
+      expect(result.payload).not_to have_key(:coverage_effect)
+    end
+
+    it "PROOF 47 — a pass that decides nothing classifies nothing" do
+      # A deferred pass has no opinion about the URL: it made no request, retired nothing and released no
+      # seal. Recording an outcome here would put a URL the run is still going to fetch into the coverage
+      # measure — and the record is irreversible, so it would stay wrong.
+      ctx = fetchable
+      seed_leases(gate_row(ctx[:crawl_id])["id"], 8)
+
+      result = execute(ctx, first_action(ctx), outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("deferred")
+      expect(terminal_outcomes(ctx[:crawl_id])).to be_empty
+      expect(result.payload).not_to have_key(:terminal_outcome)
+    end
+
+    it "PROOF 48 — the byte total is summed from the COMMITTED attempts, not from the last pass" do
+      # :301 says "accounted byte totalS", and a URL that took :444's retries has more than one attempt.
+      # The discriminator is exact rather than incidental: `FetchContent` classifies an HTTP error
+      # WITHOUT a measurement, so `Result#accounted_bytes` is 0 for the 503 — while the attempt row it
+      # commits records the real figure. A total taken from the retiring pass's own result would record
+      # only the 200's bytes; a total summed from the attempt rows records both.
+      ctx = fetchable
+      failed_body = "service unavailable, please retry"
+      ok_body = "<html><title>ok</title></html>"
+      passes = chain(ctx, outbound_by_path("/" => [html(status: 503, body: failed_body, type: "text/plain"),
+                                                   html(body: ok_body)]), limit: 2)
+
+      expect(passes.map { |r| r.payload[:pass_outcome] }).to eq(%w[retrying fetched])
+      committed = attempts(ctx[:crawl_id]).map { |r| r["accounted_response_bytes"].to_i }
+      expect(committed).to eq([failed_body.bytesize, ok_body.bytesize])
+
+      row = terminal_outcomes(ctx[:crawl_id]).sole
+      expect(row["accounted_response_body_bytes"].to_i).to eq(committed.sum)
+      expect(row["accounted_response_body_bytes"].to_i).to be > ok_body.bytesize
+      # And the run's own counter agrees, which is what makes :442's "run-wide accounted response-body
+      # bytes are exactly sum(accounted_response_bytes_i)" reconcilable against this table.
+      expect(counters(ctx[:crawl_id])["committed_response_bytes"].to_i).to eq(committed.sum)
+    end
+
+    it "PROOF 49 — commit order is the run's retirement sequence, assigned by the database" do
+      # :456 — "committed in dequeue sequence". Two entries at two depths, retired by two passes, take 1
+      # then 2; the sequence is `MAX + 1` under the same per-Crawl frontier lock that makes admission
+      # happen in dequeue order, so it is not a restatement of the writer's own counter.
+      ctx = fetchable
+      root = entries(ctx[:crawl_id]).first
+      offer_depth_one(ctx, root)
+
+      passes = chain(ctx, outbound_by_path("/" => html, "/deeper" => html(path: "/deeper")), limit: 2)
+
+      expect(passes.map { |r| r.payload[:pass_outcome] }).to eq(%w[fetched fetched])
+      rows = terminal_outcomes(ctx[:crawl_id])
+      expect(rows.map { |r| r["commit_order"].to_i }).to eq([1, 2])
+      expect(rows.map { |r| r["crawl_frontier_entry_id"] })
+        .to eq(entries(ctx[:crawl_id]).map { |e| e["id"] })
+      expect(passes.map { |r| r.payload[:terminal_commit_order] }).to eq([1, 2])
+    end
+  end
+
   describe "run-scoped authorization is the FIRST effectful boundary (MTX-030)" do
     # "An authorization established at queue time is never trusted at execution time." The pass's first
     # effects are a `crawl_host_gates` row, a robots request and a WRITE-ONCE sitemap outcome, and all

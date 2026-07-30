@@ -45,9 +45,11 @@ module Workflows
     # outcome, and none of them costs the entry an attempt or the run a byte.
     class CrawlDriver
       # What one pass did. `fetch` is the `FetchContent::Result` when a request was made; `released` is
-      # whether this pass retired its claimed entry and so released :454's depth seal.
-      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at, :released) do
-        def initialize(released: false, **) = super
+      # whether this pass retired its claimed entry and so released :454's depth seal; `terminal` is the
+      # `crawl_terminal_outcomes` row it wrote in the same transaction, read back from the INSERT so the
+      # pass reports the classification and commit order that were STORED.
+      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at, :released, :terminal) do
+        def initialize(released: false, terminal: nil, **) = super
         def fetched? = outcome == CrawlDriver::FETCHED
         # Link the run forward to whatever is next.
         def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED, CrawlDriver::RETIRED].include?(outcome)
@@ -92,10 +94,14 @@ module Workflows
 
       ROBOTS_RESOLVING = "robots_resolving"
       # Robots is terminal and NOT fetchable — :448's fail-closed. No request may be made against the
-      # host, and the entry stays `queued` rather than being discarded: nothing about it was decided,
-      # and discarding it would remove a genuinely unfetched in-scope candidate from :452's coverage
-      # denominator, making coverage read better than reality.
-      ROBOTS_FAIL_CLOSED = "robots_unavailable_fail_closed"
+      # host, and the entry is retired rather than discarded: a discard would remove a genuinely
+      # unfetched in-scope candidate from :452's coverage denominator, making coverage read better than
+      # reality.
+      #
+      # BOUND TO THE COVERAGE VOCABULARY, not restated beside it. This is the pass's reason code and
+      # `CoverageClassification::ROBOTS_UNAVAILABLE` is :452's outcome token, and they are the same token
+      # because :452 names exactly one for this condition. Two literals could drift; this cannot.
+      ROBOTS_FAIL_CLOSED = CoverageClassification::ROBOTS_UNAVAILABLE
       # `Admission` refuses in :541's order and reaches the wall clock before it peeks, so it always has a
       # more precise reason than this. Retained as the fail-closed fallback for a decision that declines
       # without one, and named for the run rather than for the clock because that is what would be true.
@@ -279,8 +285,13 @@ module Workflows
         end
 
         release_remainder(organization_id, crawl, execution, now)
+        # :452 CLASSIFIES THE FETCH'S OWN OUTCOME, so the entry's terminal record is derived from what
+        # the fetch decided rather than re-decided here. `FetchContent::Result#outcome` is already one of
+        # :452's five tokens for an admitted content URL.
+        decision = CoverageClassification.of(outcome: result.outcome, reason: result.reason_code)
+        recorded = retire(organization_id, crawl, entry, decision, now)
         Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry:, fetch: result,
-                 reenter_at: nil, released: release_seal(organization_id, entry, now))
+                 reenter_at: nil, released: !recorded.nil?, terminal: recorded)
       end
 
       # :444's instant, or nil when no retry is owed or the run cannot outlast it.
@@ -307,16 +318,33 @@ module Workflows
         end
       end
 
-      # THE SEAL RELEASE (DECISIONS ADR-087). The entry this pass claimed has had its fetch decided, so
-      # it stops holding :454's depth seal — `sealed_depth` is `MIN(depth)` over
-      # ('queued','in_progress','fetched_pending_commit'), and without this the depth a pass has finished
-      # with pins the frontier for the rest of the run and no depth-1 candidate is ever selectable.
+      # THE SEAL RELEASE AND THE ENTRY'S TERMINAL RECORD, IN ONE TRANSACTION (ADR-087; FU-21).
+      #
+      # THE SEAL. The entry this pass claimed has had its fetch decided, so it stops holding :454's depth
+      # seal — `sealed_depth` is `MIN(depth)` over ('queued','in_progress','fetched_pending_commit'), and
+      # without this the depth a pass has finished with pins the frontier for the rest of the run and no
+      # depth-1 candidate is ever selectable.
+      #
+      # THE RECORD, WHICH IS WHAT FU-21 WAS ABOUT. `terminal` says only that the entry was acted on: it
+      # carries no reason, and it does not imply an attempt row, because the fetch path authorizes before
+      # it claims one. A retired entry was therefore byte-indistinguishable from a fetched covered one,
+      # and irreversibly so — the frontier guard admits no edge out of `terminal`. One
+      # `crawl_terminal_outcomes` row per retirement is what makes the two distinguishable, and it is
+      # written HERE rather than anywhere later because the same commit must carry both: a retirement
+      # without its classification is the defect, and any ordering that can produce one produces it.
       #
       # A COMPARE-AND-SET ON THIS PASS'S OWN CLAIM. The version comes from `Admission`'s claim, not from
       # a re-read, so the release binds to the claim that authorised it: a stale version, an entry that
       # was never claimed, and a second delivery each match zero rows rather than retiring an entry this
-      # pass does not own. Zero rows is NOT an error — the redelivery path below is exactly where it
-      # happens legitimately — so it is reported, not raised.
+      # pass does not own. Zero rows is NOT an error — the redelivery path is exactly where it happens
+      # legitimately — so it is reported, not raised, AND NO OUTCOME IS WRITTEN. That is what makes a
+      # `superseded` redelivery record nothing rather than a second opinion about an entry another pass
+      # already classified.
+      #
+      # THE FRONTIER LOCK IS TAKEN FIRST, for the commit order. `commit_order` is `MAX + 1` over the
+      # run's rows, so it needs the same serialization the dequeue already has; taking the per-Crawl
+      # advisory lock the admission path takes, and taking it FIRST as that path does, keeps one lock
+      # order across the subsystem. The transaction holds no network call and no other lock.
       #
       # IN ITS OWN TRANSACTION, BEFORE THE LEDGER AND THE NEXT LINK, and that ordering is the ADR's. The
       # tidier alternative — retiring the entry inside the handler's terminal transaction, atomically
@@ -326,12 +354,30 @@ module Workflows
       # finds the entry terminal, records `superseded`, and links the run on. The chain repairs itself
       # with no new recovery vocabulary, and ledger completeness is identical either way because in both
       # cases the lost transaction is the one carrying the ledger rows.
-      def release_seal(organization_id, entry, now)
+      def retire(organization_id, crawl, entry, decision, now)
         Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+          raw = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          store.terminalize(organization_id, entry["id"], entry["state_version"].to_i, now).positive?
+          store.lock_frontier(crawl["id"])
+          next nil unless store.terminalize(organization_id, entry["id"],
+                                            entry["state_version"].to_i, now).positive?
+
+          record_outcome(raw, organization_id, crawl, entry, decision, now)
         end
+      end
+
+      # The row itself. `causation_id` is the Crawl, as every other WF-005 record this driver's surfaces
+      # write uses it, and `command_id` is deliberately absent: the driver is one pass of a run, and the
+      # command that carries this pass belongs to the handler's terminal transaction, not to a record
+      # that must survive whether or not that transaction commits.
+      def record_outcome(pg, organization_id, crawl, entry, decision, now)
+        store = IdentityAccess::Infrastructure::CrawlTerminalOutcomeStore.new(pg)
+        store.record(id: @ids.generate, now:, correlation_id: @correlation_id, causation_id: crawl["id"],
+                     command_id: nil, organization_id:, project_id: crawl["project_id"],
+                     crawl_id: crawl["id"], entry_id: entry["id"], source_id: entry["source_id"],
+                     outcome: decision.outcome, reason: decision.reason,
+                     coverage_effect: decision.coverage_effect)
       end
 
       # :442's wall clock, and only that: the Crawl's state, the Organization, the Project and the
@@ -388,26 +434,36 @@ module Workflows
       # under the frontier's own advisory lock, then the `in_progress -> terminal` compare-and-set. No
       # request is made, no attempt row is created and no byte is reserved. `terminal` rather than
       # `discarded` is what :452 needs — a discard leaves the coverage denominator, and this URL was
-      # genuinely not retrieved — and the distinguishing fact is durable on the gate itself, whose
-      # `robots_terminal_reason` is `robots_unavailable_fail_closed`, which is the token :452 reads.
+      # genuinely not retrieved.
+      #
+      # THIS IS FU-21'S EXACT CASE, AND IT IS WHY THE OUTCOME ROW CANNOT BE DERIVED FROM `fetch_attempts`.
+      # There is no attempt: the run never requested the URL, because :448 forbids requesting anything on
+      # this host. The gate's own `robots_terminal_reason` carries the fact, but per-host, and :452 asks
+      # the question per-URL — so the entry records its own `robots_unavailable_fail_closed` outcome, in
+      # the same transaction that retires it, with the byte total of zero it honestly has.
       def retire_unfetchable(organization_id, crawl, entry, reason, now)
-        retired = Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+        decision = CoverageClassification.of(outcome: CoverageClassification::ROBOTS_UNAVAILABLE, reason:)
+        recorded = Platform::UnitOfWork.run do |conn|
+          raw = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           store.lock_frontier(crawl["id"])
           candidate = store.peek_next(organization_id, crawl["id"])
           # Claim ONLY the named entry, for the same reason `claim_entry` does: retiring whatever happened
           # to be next would retire an entry this pass was never given.
-          next false unless candidate && candidate["id"] == entry["id"]
+          next nil unless candidate && candidate["id"] == entry["id"]
 
           claimed = store.claim_next(organization_id, crawl["id"], now)
-          next false unless claimed && claimed["id"] == entry["id"]
+          next nil unless claimed && claimed["id"] == entry["id"]
+          next nil unless store.terminalize(organization_id, claimed["id"],
+                                            claimed["state_version"].to_i, now).positive?
 
-          store.terminalize(organization_id, claimed["id"], claimed["state_version"].to_i, now).positive?
+          record_outcome(raw, organization_id, crawl, claimed, decision, now)
         end
-        return superseded(entry) unless retired
+        return superseded(entry) if recorded.nil?
 
-        Pass.new(outcome: RETIRED, reason_code: reason, entry:, fetch: nil, reenter_at: nil, released: true)
+        Pass.new(outcome: RETIRED, reason_code: reason, entry:, fetch: nil, reenter_at: nil,
+                 released: true, terminal: recorded)
       end
 
       # The :444 delay the robots result names — the fixed 30s/120s schedule, or a `Retry-After` the

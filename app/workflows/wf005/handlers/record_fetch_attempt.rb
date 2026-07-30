@@ -182,7 +182,22 @@ module Workflows
             # a pass that claimed nothing, and false on a redelivery whose entry another pass retired —
             # the compare-and-set reports that rather than rewriting a decision.
             "frontier_seal_released" => pass.released
-          }
+          }.merge(terminal_fields(pass))
+        end
+
+        # :452'S CLASSIFICATION OF THE RETIRED ENTRY, READ BACK FROM THE ROW THAT WAS WRITTEN (FU-21).
+        #
+        # Absent entirely on a pass that retired nothing, which is the honest shape: a deferred or
+        # superseded pass has no opinion about the URL's coverage, and a payload carrying four nulls
+        # would read as one that does. Every value here comes from the INSERT's `RETURNING`, so the
+        # ledger cannot describe a classification the database did not accept.
+        def terminal_fields(pass)
+          row = pass.terminal
+          return {} if row.nil?
+
+          { "terminal_outcome" => row["outcome"], "coverage_effect" => row["coverage_effect"],
+            "terminal_reason" => row["reason"], "terminal_commit_order" => row["commit_order"].to_i,
+            "terminal_accounted_response_bytes" => row["accounted_response_body_bytes"].to_i }
         end
 
         def deny(store, command, ctx, org, now, reason)

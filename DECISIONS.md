@@ -2644,3 +2644,27 @@ One reading is recorded because it is a judgement, not a fact: `state <> 'comple
 
 Authority And Precedence:
 Resolves FU-11. Corrects, in place, the pass-three prescription recorded against it, which stands refuted rather than merely superseded. Does not touch the three genuine three-valued-logic holes found by the same sweep, which remain open under FU-12. S-07-009's second precondition, FU-21, is unaffected and next. Allocated the next unused number after ADR-096.
+
+## ADR-098: FU-21 Closed — Every Retirement Records What Happened To The URL, In The Transaction That Retires It
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; S-07-009's second precondition
+Reversibility: Integration branch only. No schema change — the table landed at S-07-009 (2/n). Two driver call sites and one new store; revertible by removing them.
+
+The defect, restated so the closure can be checked against it. A terminal frontier entry can carry no `fetch_attempts` row, so a covered URL was indistinguishable from an unretrieved one. `Workflows::Wf005::FetchContent` authorizes BEFORE it claims an attempt row, and :448's fail-closed robots host never reaches the fetch path at all, so an entry could be retired with no attempt and a NULL `reason` — the SAME bytes a fetched covered entry leaves, and irreversible, because the frontier guard admits no edge out of `terminal`.
+
+**THE TABLE WAS NOT THE FIX, AND THE PREVIOUS COMMIT SAID SO.** S-07-009 (2/n) built `crawl_terminal_outcomes` and left FU-21 open on its own terms: "FU-21 closes when the driver writes, not when the table exists." This is the driver writing. `Workflows::Wf005::CrawlDriver` now records exactly one outcome per entry it retires, on both retirement paths — the decided fetch and :448's fail-closed host — and on neither of the paths that retire nothing.
+
+**IN THE SAME TRANSACTION AS THE SEAL RELEASE, AND THAT IS DEMONSTRATED RATHER THAN ASSERTED.** PROOF 45 puts a conflicting row in the way so the INSERT must fail, and requires the entry to be left `in_progress`. Under the tidier two-transaction form the entry ends `terminal` with no classification — which is the original defect with an extra step, and irreversibly so. The compare-and-set on the claim is what gates the write, so a `superseded` redelivery reaches no INSERT at all and records nothing rather than a second opinion (PROOF 46); the `entry_once` constraint is the backstop, never the mechanism.
+
+**TWO FIELDS ARE DERIVED IN SQL, DELIBERATELY.** `commit_order` is `MAX + 1` per run under the same per-Crawl frontier advisory lock that already makes admission happen in dequeue order, so :456's commit sequence is the dequeue sequence by construction rather than by a counter the writer keeps. `accounted_response_body_bytes` is SUMMED from the entry's committed content attempts, not taken from the retiring pass's own figure: :301 says "accounted byte totalS", a retried URL has more than one attempt, and the discriminator is exact — `FetchContent` classifies an HTTP error WITHOUT a measurement, so `Result#accounted_bytes` is 0 for a 503 whose attempt row records the real number. PROOF 48 fails under the last-attempt form.
+
+`CoverageClassification` is the one duplication the design could not avoid: the CHECK's vocabulary lives in a migration class, which is not loadable at runtime. PROOF 41 rebuilds the map from the LIVE `pg_constraint` definition and asserts it against the module in both directions, and PROOF 42 pins the separately-declared `EnsureRobots::FAIL_CLOSED` token against the same catalogue — the failure if those drifted is silent where it matters least and fatal where it matters most, because a fail-closed host's entry could then not be retired at all.
+
+Proof standard. PROOFs 41-42 (catalogue agreement) and 43-49 (the driver, over the production-real chain). Three mutations: the classification moved to a second transaction fails PROOF 45 on the atomicity property alone; the byte total taken from the last attempt fails PROOF 48; the fail-closed path writing nothing fails PROOF 44 AND two pre-existing accepted examples, which is the sharper signal.
+
+What this does NOT claim. Nothing reads these rows yet — the terminal checkpoint that derives `crawls.coverage_status` and `crawls.completion_reason` from them is the next slice of this block. `document_id` stays NULL because Documents are S-07-010's, so `document_created` records CANDIDATE coverage exactly as the accepted migration recorded it. FU-22's stranded `in_progress` claim is untouched and remains S-07-011's.
+
+Authority And Precedence:
+Resolves FU-21. WORKFLOW_SPECIFICATIONS.md :452/:454/:456 and schemas/POSTGRESQL_SCHEMA.md :301 govern; DECISIONS ADR-087 governs the ordering of the seal release against the ledger, which is unchanged. Allocated the next unused number after ADR-097.

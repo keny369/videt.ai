@@ -294,5 +294,42 @@ RSpec.describe "Crawl terminal-outcome invariants", type: :model do
       SQL
       expect(granted).to eq(%w[INSERT SELECT])
     end
+    it "PROOF 41 — the application's classification map and the live CHECK are the same map" do
+      # THE ONE DUPLICATION THIS DESIGN COULD NOT AVOID. The CHECK's vocabulary lives in a MIGRATION
+      # class, which is not loadable at runtime, so `Workflows::Wf005::CoverageClassification::EFFECTS`
+      # cannot import it — and a token classified one way by the writer and another by the constraint
+      # would either be refused at INSERT (loud) or, far worse, admitted by a constraint that had been
+      # widened without the writer noticing. This reads the LIVE constraint and rebuilds the map from it.
+      definition = constraint("crawl_terminal_outcomes_coverage_agreement")
+      catalogued = definition.scan(
+        /\(outcome = (?:ANY \(ARRAY\[(.*?)\]\)|('\w+'::text))\) AND \(coverage_effect = '(\w+)'::text\)/
+      ).each_with_object({}) do |(list, single, effect), map|
+        (list || single).scan(/'(\w+)'/).flatten.each { |token| map[token] = effect }
+      end
+      expect(catalogued).not_to be_empty, "the coverage agreement is not in the expected shape: #{definition}"
+
+      expect(catalogued).to eq(Workflows::Wf005::CoverageClassification::EFFECTS)
+
+      # And the three effect names the writer uses are the three the column admits, so a classification
+      # the map produces can never be an effect the enum refuses.
+      enum = constraint("crawl_terminal_outcomes_coverage_effect_check").scan(/'(\w+)'/).flatten
+      expect(enum).to match_array([Workflows::Wf005::CoverageClassification::COVERED,
+                                   Workflows::Wf005::CoverageClassification::NOT_COVERED,
+                                   Workflows::Wf005::CoverageClassification::EXCLUDED])
+    end
+
+    it "PROOF 42 — the robots fail-closed token the GATE stores is a token this table admits" do
+      # `EnsureRobots::FAIL_CLOSED` is written to `crawl_host_gates.robots_terminal_reason` and handed to
+      # the driver as the retirement reason; :452 names the same token as a coverage outcome. They are
+      # separate literals in separate modules, and the failure if they drifted is silent in the module
+      # that matters least and fatal in the one that matters most — a fail-closed host's entry could not
+      # be retired at all, which strands the claim and pins the frontier.
+      expect(coverage_sentence).to include("`robots_unavailable_fail_closed` makes that Source root failed")
+
+      vocabulary = constraint("crawl_terminal_outcomes_outcome_check").scan(/'(\w+)'/).flatten
+      expect(vocabulary).to include(Workflows::Wf005::EnsureRobots::FAIL_CLOSED)
+      expect(Workflows::Wf005::CoverageClassification::EFFECTS[Workflows::Wf005::EnsureRobots::FAIL_CLOSED])
+        .to eq(Workflows::Wf005::CoverageClassification::NOT_COVERED)
+    end
   end
 end
