@@ -131,6 +131,11 @@ module Workflows
         denial = admission.authorize_run(organization_id:, crawl:, now:)
         return halted(denial, entry:) if denial
 
+        # :551's RENEWABLE LEASE, RENEWED BY THE WORKLOAD THAT HOLDS IT. Immediately after the run is
+        # known live and before this pass's first effect, so a pass cannot begin work on a lease it is
+        # about to outlive. See `renew_entitlement_lease`.
+        renew_entitlement_lease(organization_id, crawl, now)
+
         return halted(admission_reason(organization_id, crawl_id, entry, now)) unless within_wall_clock?(crawl, now)
 
         host = FetchAuthorization.host_of(entry["canonical_url"])
@@ -503,6 +508,74 @@ module Workflows
           store.pacing_remaining_ms(organization_id, gate["id"])
         end
         now + (remaining / 1000.0) if remaining.to_i.positive?
+      end
+
+      # WHO IS RENEWING. The heartbeat row records the process that held the lease; this is one pass of
+      # one `crawl_fetch_due` delivery, so the correlation identifier IS the honest answer — it is what
+      # every other record this pass writes is keyed by, and it is what an operator would search on.
+      HEARTBEAT_PROCESS = "wf005-crawl-driver"
+
+      # :551's RENEWABLE LEASE, RENEWED BY THE WORKLOAD THAT HOLDS IT (FU-31).
+      #
+      # ":551 — Once execution starts, it holds a renewable lease with a HEARTBEAT AT LEAST EVERY 5
+      # MINUTES. ... At exactly 15 minutes since the last accepted heartbeat or the maximum execution
+      # instant, the lease-expiry handler wins over a new heartbeat or protected side effect. It commits
+      # exactly once ONLY IF the durable commit point committed STRICTLY BEFORE that instant; otherwise
+      # it releases exactly once."
+      #
+      # `Platform::Entitlement::Service#heartbeat` existed from F-05 with NO CALLER ANYWHERE, and both
+      # consequences were live rather than theoretical. `start_execution` sets `lease_due = now + 15
+      # minutes`; `Admission#authorize_run` and `FetchAuthorization` both require
+      # `reservation_executing?`, which tests `lease_due > now` — so from 15 minutes every pass halted
+      # with `admission_entitlement_not_executing`, :442's 60-minute wall clock was unreachable, and the
+      # terminal checkpoint would fire on a run that had stopped 45 minutes earlier. And the
+      # checkpoint's "commit or release EXACTLY ONCE" would always have taken the RELEASE limb, because
+      # `Service#commit` releases at or after the effective deadline — so a completed Crawl carrying
+      # valid Documents was never going to be counted against the customer's entitlement.
+      #
+      # ON CADENCE, NOT PER PASS, AND THE CADENCE IS READ FROM COMMITTED STATE. `last_heartbeat_at` is
+      # on the reservation row, so two deliveries of one action compute the same answer and a process
+      # loss cannot reset it. Renewing per pass would write one immutable heartbeat row per fetch, which
+      # is the write amplification F-04's `LeaseKeeper` already refused for exactly this reason; :551's
+      # own five-minute interval is the cadence, and it divides the fifteen-minute lease three times.
+      #
+      # AFTER `authorize_run`, DELIBERATELY. A lease already past its deadline must not be renewed, and
+      # `authorize_run` is what establishes that the run is live. `heartbeat` refuses past the deadline
+      # on its own too, so the two rules AGREE rather than one relying on the other.
+      #
+      # NO EVENT. `EntitlementLeaseRenewed` is a WF-015 event on the `entitlement_reservation`
+      # aggregate, owned by S-22, and BUILD_PLAN says in terms that "S-07 consumers invoke F-05 and
+      # record their OWN WF-005 outcomes; they never emit these".
+      def renew_entitlement_lease(organization_id, crawl, now)
+        reservation_id = crawl["entitlement_reservation_id"]
+        return nil if reservation_id.nil?
+
+        Platform::UnitOfWork.run do |conn|
+          pg = conn.raw_connection
+          IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
+                                                            .enter_org_context(org: organization_id,
+                                                                               correlation_id: @correlation_id)
+          reservation = Platform::Entitlement::Store.new(pg).reservation(organization_id, reservation_id)
+          next nil unless heartbeat_due?(reservation, now)
+
+          Platform::Entitlement::Service.new(pg).heartbeat(
+            organization_id:, reservation_id:, now:, ids: { heartbeat: @ids.generate },
+            worker_process_identity: "#{HEARTBEAT_PROCESS}:#{@correlation_id}",
+            worker_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor
+          )
+        end
+      end
+
+      # :551's "at least every 5 minutes", measured from the last ACCEPTED heartbeat. A reservation that
+      # is not `executing` is not this pass's to renew — `authorize_run` has already refused such a run,
+      # so reaching here with one would be a race, and the honest response to a race is to do nothing.
+      def heartbeat_due?(reservation, now)
+        return false unless reservation && reservation["state"] == "executing"
+
+        last = reservation["last_heartbeat_at"]
+        return true if last.nil?
+
+        Time.parse(last.to_s).utc + Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS <= now.utc
       end
 
       def load_crawl(organization_id, crawl_id)

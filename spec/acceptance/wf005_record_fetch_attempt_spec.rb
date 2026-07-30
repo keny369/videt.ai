@@ -1031,6 +1031,132 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     end
   end
 
+  # FU-31 — :551's RENEWABLE LEASE, RENEWED BY THE WORKLOAD THAT HOLDS IT.
+  #
+  # "Once execution starts, it holds a renewable lease with a heartbeat at least every 5 minutes. ... At
+  # exactly 15 minutes since the last accepted heartbeat or the maximum execution instant, the
+  # lease-expiry handler wins over a new heartbeat or protected side effect."
+  #
+  # `Platform::Entitlement::Service#heartbeat` had NO CALLER anywhere in the repository, and the
+  # consequence was not theoretical: `start_execution` sets `lease_due = now + 15 minutes` and nothing
+  # renewed it, so :442's 60-minute wall clock was unreachable and the terminal checkpoint's "commit or
+  # release exactly once" would always have taken the release limb.
+  describe "the run renews its own entitlement lease (:551, FU-31)" do
+    # METHODS, NOT CONSTANTS, and the reason is worth recording because the suite found it: a constant
+    # assigned inside a `describe do ... end` block binds to the TOP-LEVEL cref, not to the example
+    # group, so a `LEASE` here and the `LEASE` in `spec/platform/scheduled_actions/lease_keeper_spec.rb` are
+    # ONE global constant. Under `config.order = :random` whichever file loaded last won, so these
+    # examples passed alone and failed in the suite with a 30-second lease. `ROBOTS_ALLOW_ALL` above is
+    # the same hazard already in the file; these do not add to it.
+    def cadence = Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS
+    def lease_seconds = Platform::Entitlement::InterimPolicy::LEASE_RENEWAL_SECONDS
+
+    def reservation(ctx)
+      DbInspector.one(<<~SQL, [ctx[:crawl_id]])
+        SELECT r.* FROM entitlement_reservations r
+        JOIN crawls c ON c.entitlement_reservation_id = r.id
+        WHERE c.id = $1::uuid
+      SQL
+    end
+
+    def heartbeats(ctx)
+      DbInspector.all(<<~SQL, [ctx[:crawl_id]])
+        SELECT h.* FROM entitlement_lease_heartbeats h
+        JOIN crawls c ON c.entitlement_reservation_id = h.entitlement_reservation_id
+        WHERE c.id = $1::uuid ORDER BY h.heartbeat_generation
+      SQL
+    end
+
+    it "PROOF 54 — THE DEFECT: without a renewal the run is dead at 15 minutes, not at 60" do
+      # The regression this whole item turns on, asserted FIRST so the renewal below is demonstrably
+      # load-bearing rather than cosmetic. This pass makes no renewal possible — sixteen minutes have
+      # passed since the start and the lease lapsed at fifteen — so the run halts, and it halts on the
+      # ENTITLEMENT, four minutes into a sixty-minute budget.
+      ctx = fetchable
+      lapsed = start_now + lease_seconds + 60
+
+      result = execute(ctx, first_action(ctx), outbound_by_path({}), at: lapsed)
+
+      expect(result.payload[:pass_outcome]).to eq("halted")
+      expect(result.payload[:reason_code]).to eq("admission_entitlement_not_executing")
+      expect(requests).to be_empty
+      # :442's clock had 44 minutes left, and the run is over.
+      crawl = DbInspector.one("SELECT * FROM crawls WHERE id = $1::uuid", [ctx[:crawl_id]])
+      expect(Time.parse(crawl["deadline_at"]).getutc).to be > lapsed
+      expect(result.payload[:next_action_id]).to be_nil
+    end
+
+    it "PROOF 55 — a pass past the cadence renews the lease from ITS OWN instant" do
+      ctx = fetchable
+      expect(Time.parse(reservation(ctx)["lease_due"]).getutc).to eq(start_now + lease_seconds)
+      at = start_now + cadence + 60
+
+      execute(ctx, first_action(ctx), outbound_by_path("/" => html), at:)
+
+      row = reservation(ctx)
+      # :551 measures the fifteen minutes from the accepted heartbeat, not from the start.
+      expect(Time.parse(row["lease_due"]).getutc).to eq(at + lease_seconds)
+      expect(Time.parse(row["last_heartbeat_at"]).getutc).to eq(at)
+      expect(row["state"]).to eq("executing")
+      hb = heartbeats(ctx).sole
+      expect(hb["heartbeat_generation"].to_i).to eq(1)
+      expect(hb["worker_process_identity"]).to start_with("wf005-crawl-driver:")
+      expect(hb["status"]).to eq("renewed")
+    end
+
+    it "PROOF 56 — inside the cadence it writes NOTHING, so a fast run does not amplify" do
+      # :551 asks for a heartbeat "at least every 5 minutes"; one per pass would write an immutable row
+      # per fetch, which is the amplification F-04's LeaseKeeper already refused. The cadence is read
+      # from `last_heartbeat_at` on the committed row, so two deliveries of one action agree.
+      ctx = fetchable
+
+      execute(ctx, first_action(ctx), outbound_by_path("/" => html), at: start_now + 60)
+
+      expect(heartbeats(ctx)).to be_empty
+      expect(Time.parse(reservation(ctx)["lease_due"]).getutc).to eq(start_now + lease_seconds)
+    end
+
+    it "PROOF 57 — a chain of passes outlives the 15-minute lease and keeps its 60-minute budget" do
+      # END TO END, over the real handler: passes six minutes apart, driven until the frontier has
+      # nothing left, spanning well past the fifteen-minute lease PROOF 54 shows kills an unrenewed run.
+      # Each pass renews from its own instant, so the run is still admitting where it used to be dead.
+      ctx = fetchable(hosts: %w[shop.acme.example zeta.acme.example gamma.acme.example])
+      action = first_action(ctx)
+      outbound = outbound_by_path("/" => html, "/robots.txt" => html(body: ROBOTS_ALLOW_ALL, type: "text/plain"),
+                                  "/sitemap.xml" => sitemap_missing)
+      outcomes = []
+      6.times do |i|
+        at = start_now + (i * (cadence + 60))
+        clear_rate_window(gate_row(ctx[:crawl_id])["id"]) if i.positive?
+        result = execute(ctx, action, outbound, at:)
+        outcomes << [at, result.payload[:pass_outcome]]
+        nxt = result.success? && result.payload[:next_action_id]
+        # STOP rather than re-deliver: a chain with nothing left replays its own idempotency record and
+        # runs no pass at all, which would read as a renewal that silently did not happen.
+        break unless nxt
+
+        action = action_row(nxt)
+      end
+
+      # No pass halted, which is the whole claim: before this, every pass from the fifteenth minute did.
+      expect(outcomes.map(&:last)).not_to include("halted")
+      last_at = outcomes.last.first
+      expect(last_at).to be > start_now + lease_seconds
+      row = reservation(ctx)
+      expect(row["state"]).to eq("executing")
+      expect(Time.parse(row["lease_due"]).getutc).to be > last_at
+      # Consecutive generations from 1 — no gap, so no renewal was lost — and each row renews from its
+      # OWN instant, which is what :551 measures the fifteen minutes from.
+      rows = heartbeats(ctx)
+      expect(rows).not_to be_empty
+      expect(rows.map { |h| h["heartbeat_generation"].to_i }).to eq((1..rows.size).to_a)
+      rows.each do |h|
+        expect(Time.parse(h["renewed_lease_expires_at"]).getutc)
+          .to eq(Time.parse(h["renewed_at"]).getutc + lease_seconds)
+      end
+    end
+  end
+
   describe "run-scoped authorization is the FIRST effectful boundary (MTX-030)" do
     # "An authorization established at queue time is never trusted at execution time." The pass's first
     # effects are a `crawl_host_gates` row, a robots request and a WRITE-ONCE sitemap outcome, and all

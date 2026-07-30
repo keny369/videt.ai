@@ -2696,3 +2696,25 @@ What this does NOT do. Nothing takes these edges yet — the checkpoint, `crawl_
 
 Authority And Precedence:
 WORKFLOW_SPECIFICATIONS.md :736 fixes the edge set; :458 and :735 and MTX-030 fix the terminal freeze; :442 and BACKGROUND_PROCESSING.md :139 fix the clock freeze. `schemas/POSTGRESQL_SCHEMA.md` is reconciled beside the `crawls` row. Allocated the next unused number after ADR-098.
+
+## ADR-100: FU-31 Resolved — The Run Renews Its Own Entitlement Lease, And Why Nothing Did
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; found and taken inside S-07-009 because the checkpoint it blocks is S-07-009's
+Reversibility: Integration branch only. One call and two private methods on `Wf005::CrawlDriver`; no schema change, no change to F-05.
+
+`Platform::Entitlement::Service#heartbeat` was built by F-05 and HAD NO CALLER ANYWHERE IN THE REPOSITORY. WORKFLOW_SPECIFICATIONS.md :551 requires that "once execution starts, it holds a renewable lease with a heartbeat at least every 5 minutes"; `start_execution` sets `lease_due = now + 15 minutes` and nothing renewed it.
+
+**TWO CONSEQUENCES, BOTH LIVE, AND THE FIRST IS THE ONE THAT MATTERS.** `Admission#authorize_run` and `FetchAuthorization` both require `reservation_executing?`, which tests `lease_due > now` — so from the fifteenth minute EVERY pass halted with `admission_entitlement_not_executing`, :442's sixty-minute wall clock was unreachable, and a `crawl_terminal_deadline` checkpoint would have fired on a run that stopped forty-five minutes earlier. PROOF 54 asserts exactly that as the regression: a pass at minute sixteen halts on the entitlement with forty-four minutes of budget left. The second consequence is quieter and worse: `Service#commit` RELEASES at or after the effective deadline, so the checkpoint's ratified "commit or release its reservation exactly once" would have satisfied its form and inverted its substance — a completed Crawl with valid Documents never counted against the customer's entitlement.
+
+**WHY IT WENT MISSING, RECORDED SO THE GAP CLASS IS VISIBLE.** BUILD_PLAN gives S-22/WF-015 the `EntitlementLeaseRenewed` EVENT and says in terms that "S-07 consumers invoke F-05 and record their OWN WF-005 outcomes; they never emit these". So the EVENT was assigned and the INVOCATION was not, and each side could reasonably read the other as owning it. The caller has to be the workload that holds the lease, which is the run driver.
+
+**ON CADENCE, NOT PER PASS, AND THE CADENCE IS READ FROM COMMITTED STATE.** `last_heartbeat_at` lives on the reservation row, so two deliveries of one action compute the same answer and a process loss cannot reset it. Renewing per pass would write one immutable heartbeat row per fetch — the write amplification F-04's `LeaseKeeper` already refused for this exact reason — and :551's own five-minute interval divides the fifteen-minute lease three times over. Placed AFTER `authorize_run`: a lease already past its deadline must not be renewed, and `heartbeat` refuses past the deadline on its own, so the two rules agree rather than one relying on the other. No event is emitted, per BUILD_PLAN.
+
+Proof standard. PROOF 54 is the defect, asserted first so the renewal is demonstrably load-bearing. PROOF 55 pins the renewal to the pass's OWN instant, which is what :551 measures the fifteen minutes from. PROOF 56 pins the cadence: a pass one minute in writes nothing. PROOF 57 drives the real handler over a chain of passes six minutes apart until the frontier drains, spanning well past the lease, and asserts no pass halted, the reservation is still `executing`, and the heartbeat generations are consecutive from 1 with no gap. Two mutations: removing the renewal fails PROOFs 55 and 57; renewing unconditionally fails PROOFs 56 and 57.
+
+What this does NOT claim. The heartbeat is per PASS-ON-CADENCE, not a background timer: a run whose passes are more than fifteen minutes apart still loses its lease, and correctly so, because :551's expiry is what reclaims a lease whose holder has gone. The chain's own maximum gap is :444's 120-second retry, so this is bounded by construction rather than by hope. `entitlement_lease_expire` (the reclaim side) remains unbuilt and is S-22's.
+
+Authority And Precedence:
+Resolves FU-31. WORKFLOW_SPECIFICATIONS.md :551 governs the lease and its cadence; MTX-030 governs the checkpoint's commit/release that this unblocks; BUILD_PLAN S-22 governs the event, which is deliberately not emitted here. Allocated the next unused number after ADR-099.

@@ -239,11 +239,18 @@ RSpec.describe "Crawl-start invariants", type: :model do
   # PROOF 50 rather than deleted: what it recorded was true of the guard S-07-003 left, and what
   # replaces it enumerates the whole cross product instead of a chosen few.
   describe "the exact Crawl state edges the guard permits (:736)" do
-    CRAWL_STATES = %w[queued running completed failed canceled].freeze
+    # METHODS, NOT CONSTANTS. A constant assigned inside a `describe do ... end` block binds to the
+    # TOP-LEVEL cref rather than to the example group, so two spec files naming one constant share it and
+    # `config.order = :random` decides which definition wins. The suite caught exactly that with a
+    # `LEASE` in this tranche; these are written so they cannot repeat it.
+    def crawl_states = %w[queued running completed failed canceled]
+
     # :736 — "Crawl.Queued -> Crawl.Running, Crawl.Failed on the exact pre-execution gate, or
     # Crawl.Canceled; Crawl.Running -> Crawl.Completed, Crawl.Failed, or Crawl.Canceled."
-    PERMITTED_EDGES = [%w[queued running], %w[queued failed], %w[queued canceled],
-                       %w[running completed], %w[running failed], %w[running canceled]].freeze
+    def permitted_edges
+      [%w[queued running], %w[queued failed], %w[queued canceled],
+       %w[running completed], %w[running failed], %w[running canceled]]
+    end
 
     # A VALID row in any state — `crawls_terminal_shape` requires a reason of every terminal state and
     # coverage of `completed`, so a starting row that ignored it could not be inserted at all.
@@ -278,7 +285,7 @@ RSpec.describe "Crawl-start invariants", type: :model do
 
     it "PROOF 50 — exactly the six edges :736 names, over the whole cross product" do
       pid = draft_project
-      observed = CRAWL_STATES.product(CRAWL_STATES).reject { |from, to| from == to }.map do |from, to|
+      observed = crawl_states.product(crawl_states).reject { |from, to| from == to }.map do |from, to|
         cid = in_state(pid, from)
         begin
           move(cid, to)
@@ -289,11 +296,11 @@ RSpec.describe "Crawl-start invariants", type: :model do
       end
 
       expect(observed.select { |_f, _t, err| err.nil? }.map { |f, t, _| [f, t] })
-        .to match_array(PERMITTED_EDGES)
+        .to match_array(permitted_edges)
       # And every refusal names the rule that refused it. An edge out of a terminal state is refused
       # because the ROW IS FINISHED, not because that particular pair is unlisted — the stronger fact,
       # and the one PROOF 51 turns on.
-      observed.reject { |f, t, _| PERMITTED_EDGES.include?([f, t]) }.each do |from, to, err|
+      observed.reject { |f, t, _| permitted_edges.include?([f, t]) }.each do |from, to, err|
         expected = %w[completed failed canceled].include?(from) ? "crawl_terminal_immutable" : "crawl_transition_unavailable"
         expect(err).to eq(expected), "#{from} -> #{to} was refused as #{err.inspect}"
       end
