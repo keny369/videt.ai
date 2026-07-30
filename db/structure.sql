@@ -5475,6 +5475,14 @@ ALTER TABLE ONLY public.crawl_terminal_outcomes
 
 
 --
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_terminal_outcomes
+    ADD CONSTRAINT crawl_terminal_outcomes_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
 -- Name: crawls crawls_entitlement_decision_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6407,6 +6415,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120380'),
 ('20260727120370'),
 ('20260727120360'),
 ('20260727120350'),

@@ -525,6 +525,47 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     end
   end
 
+  # THE ENVELOPE THE CATALOGUE DEFINES (B3, B4).
+  describe "the terminal event carries what API_CONTRACTS defines (B3, B4)" do
+    def envelope(event) = JSON.parse([event["event_bytes"].sub(/\A\\x/, "")].pack("H*"))
+
+    it "PROOF 102 — `CrawlCompleted` carries `accepted_document_count`, and a null reason" do
+      # :956 — the `crawl_terminal` extra schema is `coverage_status`, `completion_reason` AND
+      # `accepted_document_count: uint53`. The third member was absent everywhere in the repository
+      # while the value sat one line away in the counted facts. :807 gives `CrawlCompleted` the reason
+      # source `none`, and :938 says a `none` source requires null — so this one keeps it null.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+
+      checkpoint(ctx)
+
+      body = envelope(events(ctx[:crawl_id]).sole)
+      expect(body["event_type"]).to eq("CrawlCompleted")
+      expect(body["accepted_document_count"]).to eq(1)
+      expect(body["coverage_status"]).to eq("full")
+      expect(body["completion_reason"]).to eq("completed")
+      expect(body["reason_code"]).to be_nil
+      expect(body).not_to have_key("transition_reason_code")
+    end
+
+    it "PROOF 103 — `CrawlFailed` carries the reason the catalogue's `transition` source requires" do
+      # :808 gives `CrawlFailed` the reason source `transition`; :938 requires the `state_transition`
+      # base member `transition_reason_code` and root `reason_code` "equals it exactly when the
+      # catalogue source is `transition`". Both were absent, while WF-005's OWN pre-execution
+      # `CrawlFailed` set the root reason — two producers of one event type disagreeing.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page(status: 404, body: "", type: "text/plain")))
+
+      checkpoint(ctx)
+
+      body = envelope(events(ctx[:crawl_id]).sole)
+      expect(body["event_type"]).to eq("CrawlFailed")
+      expect(body["reason_code"]).to eq("failed")
+      expect(body["transition_reason_code"]).to eq("failed")
+      expect(body["accepted_document_count"]).to eq(0)
+    end
+  end
+
   describe ":458's \"once\", and the cancellation boundary it implies" do
     it "PROOF 64 — a second delivery replays the stored decision and writes no second one" do
       ctx = fetchable

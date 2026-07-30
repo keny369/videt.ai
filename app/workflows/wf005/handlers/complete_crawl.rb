@@ -198,9 +198,7 @@ module Workflows
           write_event(store, ids[:event], ids[:audit], org, ctx, command, now, new_version, pid,
                       d[:request_sha256], d[:key_digest], event_type(selection), "state_transition",
                       TARGET_TYPE, crawl["id"],
-                      { "from_state" => "running", "to_state" => selection.state,
-                        "crawl_id" => crawl["id"], "completion_reason" => selection.completion_reason,
-                        "coverage_status" => selection.coverage_status })
+                      terminal_envelope(selection, crawl, facts))
           write_result(store, ids, command, ctx, org, now, payload, target_id: crawl["id"])
           write_idempotency(store, ids[:idem], org, command, d[:key_digest], d[:request_sha256],
                             ids[:execution], ids[:result], now)
@@ -210,6 +208,29 @@ module Workflows
                                           payload: payload.transform_keys(&:to_sym))
         rescue LostRace
           raise Platform::InvariantViolation, "crawl terminal checkpoint lost its serialized transition"
+        end
+
+        # THE `crawl_terminal` EXTRA SCHEMA IS THREE MEMBERS, NOT TWO (ADR-110). API_CONTRACTS.md :956:
+        # "`coverage_status` …, `completion_reason` …, AND `accepted_document_count: uint53`; values are
+        # null/zero before terminal derivation." The count was computed two lines earlier and discarded.
+        #
+        # AND THE REASON THE CATALOGUE ASKS FOR. :808 gives `CrawlFailed` and `CrawlCanceled` the reason
+        # source `transition`; :938 then requires the `state_transition` base member
+        # `transition_reason_code`, and that root `reason_code` "equals it exactly when the catalogue
+        # source is `transition`". Both were absent, while WF-005's OWN pre-execution `CrawlFailed` in
+        # `Handlers::StartCrawl` set the root reason — two producers of one event type disagreeing, and
+        # `CrawlStartStore`'s own comment asserting the machine reason "is retained where the contract
+        # puts it — the `CrawlFailed` envelope". `CrawlCompleted` keeps both null: :807 gives it the
+        # source `none`, and :938 says a `none` source requires null.
+        def terminal_envelope(selection, crawl, facts)
+          base = { "from_state" => "running", "to_state" => selection.state,
+                   "crawl_id" => crawl["id"], "completion_reason" => selection.completion_reason,
+                   "coverage_status" => selection.coverage_status,
+                   "accepted_document_count" => facts.documents }
+          return base if selection.state == TerminalSelection::COMPLETED
+
+          base.merge("reason_code" => selection.completion_reason,
+                     "transition_reason_code" => selection.completion_reason)
         end
 
         # :453's two events. `CrawlCompleted` and `CrawlFailed` are both `crawl_terminal` profile rows in

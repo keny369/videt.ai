@@ -142,8 +142,15 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(reservation(ctx[:crawl_id])["terminal_reason"]).to eq("crawl_canceled")
       event = events(ctx[:crawl_id]).sole
       expect(event["event_type"]).to eq("CrawlCanceled")
-      expect(envelope(event)["from_state"]).to eq("running")
-      expect(envelope(event)["to_state"]).to eq("canceled")
+      body = envelope(event)
+      expect(body["from_state"]).to eq("running")
+      expect(body["to_state"]).to eq("canceled")
+      # :808 gives `CrawlCanceled` the reason source `transition`, so :938 requires the base member and
+      # a root reason equal to it; :956 makes `accepted_document_count` the third `crawl_terminal`
+      # member, zero for a run that accepted none (ADR-110).
+      expect(body["reason_code"]).to eq("canceled")
+      expect(body["transition_reason_code"]).to eq("canceled")
+      expect(body["accepted_document_count"]).to eq(0)
     end
 
     it "PROOF 81 — a QUEUED Crawl cancels too, and has no reservation to release" do

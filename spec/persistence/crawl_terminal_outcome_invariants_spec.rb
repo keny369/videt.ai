@@ -268,17 +268,43 @@ RSpec.describe "Crawl terminal-outcome invariants", type: :model do
         .to raise_error(PG::RaiseException, /crawl_terminal_outcome_immutable/)
     end
 
-    it "PROOF 39 — the Project-owned links carry all three columns (:128), so coverage cannot cross a Project" do
-      # FU-7 records that this rule has been violated silently in three consecutive tranches, each time
-      # found by review rather than by a mechanism. Asserted from the catalogue rather than by reading
-      # the migration, so it is the DATABASE that is checked.
-      arities = conn.exec_params(<<~SQL).map { |r| [r.fetch("conname"), r.fetch("cols").to_i] }.to_h
-        SELECT conname, array_length(conkey, 1) AS cols
-        FROM pg_constraint
-        WHERE conrelid = 'crawl_terminal_outcomes'::regclass AND contype = 'f'
+    it "PROOF 39 — every Project-owned link EXISTS and carries all three columns (:128)" do
+      # REWRITTEN, AND THE REWRITE IS THE POINT (ADR-110). The first version enumerated the foreign keys
+      # that EXIST and asserted arity 3 on each. An absent foreign key has no arity, so it was
+      # structurally incapable of seeing the one that was missing — `source_id` had none at all — and it
+      # passed while its own title was false. A check that reads what is there cannot find what is not.
+      #
+      # This asserts the expected link SET first, from the columns that name a Project-owned parent, and
+      # only then the arity :128 requires. FU-7 records this defect class appearing silently in three
+      # consecutive tranches; `source_id` here was the fourth, asserted-as-satisfied by the proof.
+      links = conn.exec_params(<<~SQL).to_h { |r| [r.fetch("columns"), r.fetch("cols").to_i] }
+        SELECT (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS columns,
+               array_length(c.conkey, 1) AS cols
+        FROM pg_constraint c
+        WHERE c.conrelid = 'crawl_terminal_outcomes'::regclass AND c.contype = 'f'
       SQL
-      expect(arities).not_to be_empty
-      arities.each { |name, cols| expect(cols).to eq(3), "#{name} links with #{cols} columns, not three" }
+
+      expect(links.keys).to match_array(["organization_id,project_id,crawl_id",
+                                         "organization_id,project_id,crawl_frontier_entry_id",
+                                         "organization_id,project_id,source_id"])
+      links.each { |name, cols| expect(cols).to eq(3), "#{name} links with #{cols} columns, not three" }
+    end
+
+    it "PROOF 39b — the `source_id` link REFUSES a cross-Project and a fabricated Source" do
+      # The behavioural half, because a catalogue assertion says the constraint exists and this says what
+      # it does. Both shapes were ADMITTED before the link was added.
+      f = fixture
+      other_project = draft_project
+      foreign_source = insert_source(other_project)
+
+      expect { insert_outcome(f[:pid], f[:crawl], f[:entry], foreign_source) }
+        .to raise_error(PG::ForeignKeyViolation, /source_fk/)
+      expect { insert_outcome(f[:pid], f[:crawl], f[:entry], SecureRandom.uuid_v7) }
+        .to raise_error(PG::ForeignKeyViolation, /source_fk/)
+      # And the Source that genuinely belongs to this Project is admitted.
+      expect { insert_outcome(f[:pid], f[:crawl], f[:entry], f[:source]) }.not_to raise_error
     end
 
     it "PROOF 40 — forced RLS, and the runtime role may never rewrite an outcome" do

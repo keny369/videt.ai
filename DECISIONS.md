@@ -2931,3 +2931,23 @@ PROOFs 100 and 101 race `CompleteCrawl` and `CancelCrawl` against each other in 
 
 Authority And Precedence:
 Repairs B10 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the serialized checkpoint and the `crawl_already_terminal` token. No production behaviour changes. Allocated the next unused number after ADR-108.
+
+## ADR-110: B3, B4 And B5 Repaired — The Envelope The Catalogue Defines, And The Link That Was Never There
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of three ADR-080 acceptance-round findings
+Reversibility: Integration branch only. One migration (reversible, exercised), three envelope changes, one rewritten proof.
+
+**B4 — the `crawl_terminal` extra schema is three members and the repository emitted two.** API_CONTRACTS.md :956: "`coverage_status` …, `completion_reason` …, AND `accepted_document_count: uint53`; values are null/zero before terminal derivation." `grep` over the repository returned nothing. The checkpoint computed the value — `facts.documents` — two lines before building the envelope and discarded it. Added to all three terminal events this block owns. `CrawlQueued` and `CrawlStarted` carry the same profile, also omit it, and both predate this range; that is recorded as FU-33 rather than repaired inside an acceptance round, because editing accepted blocks is a separate decision.
+
+**B3 — two producers of `CrawlFailed` disagreed.** :808 gives `CrawlFailed` and `CrawlCanceled` the reason source `transition`; :938 requires the `state_transition` base member `transition_reason_code`, and that root `reason_code` "equals it exactly when the catalogue source is `transition`". Both terminal envelopes supplied neither — while WF-005's OWN pre-execution `CrawlFailed` in `Handlers::StartCrawl` set the root reason, and `CrawlStartStore`'s own comment asserted the machine reason "is retained where the contract puts it — the `CrawlFailed` envelope". `CrawlCompleted` correctly keeps both null: :807 gives it the source `none`, and :938 says a `none` source requires null.
+
+**B5 — `source_id` was a Project-owned link with no foreign key at all, and the proof written to catch that could not see it.** `20260727120350` declared the column, constrained the other two, and omitted the third under a comment invoking :128 and FU-7 BY NAME. It was the only table in the schema carrying `source_id` without one; nine siblings have it. Probed as `f1_web`, it admitted both a cross-Project `source_id` and a fabricated UUID.
+
+**The proof's blindness is the more important half.** PROOF 39 enumerated `pg_constraint … contype='f'` and asserted arity 3 on each row returned. **An absent foreign key has no arity**, so it passed on the two that existed while its own title — "so coverage cannot cross a Project" — was false. It now asserts the expected link SET first, derived from the columns that name a Project-owned parent, and only then the arity. A check that reads what is there cannot find what is missing, and this is the shape of check that must be preferred wherever :128 is asserted.
+
+Proof standard. PROOF 102 (`CrawlCompleted` carries the count and a null reason), PROOF 103 (`CrawlFailed` carries both reason fields), PROOF 80 extended for `CrawlCanceled`, PROOF 39 rewritten as a link-set assertion and PROOF 39b for its behaviour. Three mutations: dropping the foreign key fails PROOFs 39 and 39b; dropping `accepted_document_count` fails PROOFs 102 and 103; dropping the transition reason fails PROOF 103. Migration reversibility exercised down and up.
+
+Authority And Precedence:
+Repairs B3, B4 and B5 of `S-07-009_ACCEPTANCE_REVIEW.md`. API_CONTRACTS.md :807-808, :938 and :956 govern the envelope; POSTGRESQL_SCHEMA.md :128 governs the link, and its `crawl_terminal_outcomes` row is reconciled. Opens FU-33 for the two pre-existing omissions. Allocated the next unused number after ADR-109.

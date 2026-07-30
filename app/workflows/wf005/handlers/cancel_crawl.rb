@@ -174,9 +174,17 @@ module Workflows
                       to_state: "canceled", outcome: "success", reason_code: COMPLETION_REASON, payload:, now:)
           write_event(store, ids, org, ctx, command, actor, now, new_version, crawl["id"], d[:request_sha256],
                       key_digest, "CrawlCanceled", "state_transition",
+                      # :808 gives `CrawlCanceled` the reason source `transition`, so :938 requires the
+                      # `state_transition` base member `transition_reason_code` and root `reason_code`
+                      # equal to it. :956 makes `accepted_document_count` the third member of the
+                      # `crawl_terminal` extra schema; a cancelled run accepted none, and :956 says the
+                      # values are "null/zero before terminal derivation" (ADR-110).
                       { "project_id" => command.project_id, "crawl_id" => crawl["id"],
                         "from_state" => from_state, "to_state" => "canceled",
-                        "completion_reason" => COMPLETION_REASON })
+                        "completion_reason" => COMPLETION_REASON,
+                        "accepted_document_count" => 0,
+                        "reason_code" => COMPLETION_REASON,
+                        "transition_reason_code" => COMPLETION_REASON })
           write_result_success(store, ids, command, ctx, org, actor, now, payload, crawl["id"])
           write_idempotency(store, ids[:idem], org, command, crawl["id"], key_digest, d[:request_sha256],
                             ids[:execution], ids[:result], now)
