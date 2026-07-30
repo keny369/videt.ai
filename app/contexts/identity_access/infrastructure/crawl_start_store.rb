@@ -236,6 +236,21 @@ module IdentityAccess
         SQL
       end
 
+      # ":442 — record … AFFECTED SOURCE AND URL COUNTS" for the wall-clock crossing the checkpoint
+      # observes. The candidates the clock abandoned are the ones still unevaluated at this instant, and
+      # the Sources affected are the distinct Sources those candidates belong to — read, not assumed.
+      # The same population `terminal_facts` counts as `unevaluated`, so the decision a customer reads
+      # and the coverage number they read cannot describe different sets.
+      def unevaluated_reach(organization_id, crawl_id)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
+          SELECT COUNT(*) AS urls, COUNT(DISTINCT source_id) AS sources
+          FROM crawl_frontier_entries
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+            AND (state IN ('discovered','queued','in_progress','fetched_pending_commit')
+                 OR (state = 'discarded' AND reason IS NOT NULL))
+        SQL
+      end
+
       # FU-9's TRANSFERRED OBLIGATION (ADR-096). Every host gate this run left `sitemap_state='pending'`.
       #
       # `Workflows::Wf005::DiscoverSitemaps` writes :450's terminal sitemap outcome only once the run has

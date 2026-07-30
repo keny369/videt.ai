@@ -320,6 +320,97 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     end
   end
 
+  describe ":442's wall clock, recorded where it actually ends the run (B2)" do
+    def decisions(cid)
+      DbInspector.all(<<~SQL, [cid])
+        SELECT * FROM crawl_limit_decisions WHERE crawl_id = $1::uuid
+        ORDER BY limit_dimension, threshold_kind
+      SQL
+    end
+
+    def limit_events(cid)
+      DbInspector.all(<<~SQL, [cid])
+        SELECT * FROM event_registry WHERE aggregate_id = $1::uuid
+          AND event_type IN ('CrawlLimitReached','CrawlSoftLimitApproaching') ORDER BY created_at
+      SQL
+    end
+
+    it "PROOF 95 — a run ended BY its own deadline records the wall-clock crossing and `limit_reached`" do
+      # `Admission` records this when a PASS arrives past the deadline. The case the deadline action
+      # EXISTS for is the one where no pass ever does — FU-22's pinned run, and any run whose chain
+      # stopped — so the run ended by its own sixty minutes recorded nothing about them, and :458's
+      # "records its exact limit reason" had no reason to record.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+      root = entries(ctx[:crawl_id]).first
+      in_frontier(ctx) do |store|
+        Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
+          .offer(organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+                 crawl_id: ctx[:crawl_id], source_id: root["source_id"],
+                 canonical_url: "https://#{ctx[:host]}/deeper", origin: "sitemap", depth: 1, now: start_now,
+                 discovering_document_url: "", link_position: 0, parent_entry_id: root["id"],
+                 scope_policy_id: root["scope_policy_id"], scope_policy_version: root["scope_policy_version"])
+      end
+      expect(decisions(ctx[:crawl_id])).to be_empty
+
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]))
+
+      crawl = crawl_row(ctx[:crawl_id])
+      # :442 — "set `coverage_status=partial` and `completion_reason=limit_reached`". :458 puts
+      # `limit_reached` ABOVE `partial_source_failure`, which is what this run would otherwise have read.
+      expect(crawl["completion_reason"]).to eq("limit_reached")
+      expect(crawl["coverage_status"]).to eq("partial")
+      expect(result.payload[:hard_limit_decisions]).to eq(1)
+
+      hard = decisions(ctx[:crawl_id]).find { |r| r["threshold_kind"] == "hard" }
+      expect(hard).not_to be_nil
+      expect(hard["limit_dimension"]).to eq("wall_clock_run_duration")
+      expect(hard["configured_value"].to_i).to eq(60)
+      expect(hard["observed_value"].to_i).to eq(60)
+      # ":442 — record … AFFECTED SOURCE AND URL COUNTS." The clock abandoned the depth-1 candidate, and
+      # the counts are read from the frontier rather than assumed.
+      expect(hard["affected_url_count"].to_i).to eq(1)
+      expect(hard["affected_source_count"].to_i).to eq(1)
+      # ":442 — emit `CrawlLimitReached` exactly once per dimension and run."
+      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(1)
+    end
+
+    it "PROOF 96 — a checkpoint INSIDE the deadline records no wall-clock crossing at all" do
+      # The other side of the comparison. Without it the limb could become "every checkpoint records a
+      # hard limit", which would make every drained run read `limit_reached`.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+
+      result = checkpoint(ctx)
+
+      expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("completed")
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      expect(decisions(ctx[:crawl_id])).to be_empty
+      expect(limit_events(ctx[:crawl_id])).to be_empty
+    end
+
+    it "PROOF 97 — a pass that already recorded the crossing is not double-counted" do
+      # `crawl_limit_decisions` is unique on `(crawl_id, limit_dimension, threshold_kind)`, so the
+      # checkpoint's observation is idempotent against a pass that already made it — which is what keeps
+      # :442's "exactly once per dimension and run" true with two observation points.
+      ctx = fetchable
+      action = link_first(ctx)
+      expired = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc + 60)
+      execute_fetch(ctx, action, outbound_by_path({}), at: expired)
+      expect(decisions(ctx[:crawl_id]).count { |r| r["threshold_kind"] == "hard" }).to eq(1)
+
+      checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at: expired)
+
+      expect(decisions(ctx[:crawl_id]).count { |r| r["threshold_kind"] == "hard" }).to eq(1)
+      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(1)
+      # `failed`, not `limit_reached`, and that is :458's precedence rather than a defect: this run
+      # halted on the wall clock before fetching anything, so it yielded zero valid Documents, and
+      # `failed` outranks `limit_reached`. The decision row is still written and still counted once —
+      # which is the property this example is about.
+      expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("failed")
+    end
+  end
+
   describe ":458's \"once\", and the cancellation boundary it implies" do
     it "PROOF 64 — a second delivery replays the stored decision and writes no second one" do
       ctx = fetchable

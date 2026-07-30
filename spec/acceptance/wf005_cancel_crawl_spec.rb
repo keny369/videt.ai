@@ -35,6 +35,35 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
 
   def envelope(event) = JSON.parse([event["event_bytes"].sub(/\A\\x/, "")].pack("H*"))
 
+  # The command alone, so an example can choose the instant it is issued at. `expected_state_version` is
+  # read at build time, which is what a real caller does.
+  def cancel_command(ctx, key:, session: nil)
+    Workflows::Wf005::Commands::CancelCrawl.new(
+      command_id: SecureRandom.uuid_v7, idempotency_key: key, schema_version: "1.0",
+      session_id: session || ctx[:g][:session_id], organization_id: ctx[:g][:organization_id],
+      project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+      expected_state_version: crawl_row(ctx[:crawl_id])["state_version"].to_i, requested_at_utc: act_now
+    )
+  end
+
+  # A session an actor genuinely holds AT the instant under test. The bootstrap session is issued at
+  # `fixed_now - 300` and is `session_invalid` an hour later, which is correct behaviour and not the
+  # property these examples are about — a cancellation at the sixty-minute boundary is issued by someone
+  # who signed in near it. A MarketingOperator, because :147 allows the role `crawl.cancel` (PROOF 85)
+  # and `one_bootstrap_admin_per_organization` admits only the one bootstrap admin the chain created.
+  def session_at(ctx, at)
+    TenantSeeder.seed_authorized_admin(organization_id: ctx[:g][:organization_id],
+                                       canonical_role: "MarketingOperator",
+                                       with_policy: false, issued_at: at - 60)[:session_id]
+  end
+
+  # An actor context whose clock is the instant under test. `CancelCrawl` reads `now` from the context,
+  # so this is how a cancellation issued at the boundary is expressed without falsifying a column.
+  def executor_ctx_for_actor(at)
+    Platform::RequestContext.for_actor(clock: Platform::Clock.fixed(at), ids: Platform::Ids.system,
+                                       correlation_id: SecureRandom.uuid_v7)
+  end
+
   def cancel(ctx, session: nil, version: nil, key: "cc-#{SecureRandom.hex(6)}", crawl_id: nil)
     cid = crawl_id || ctx[:crawl_id]
     Workflows::Wf005::Handlers::CancelCrawl.new.call(
@@ -151,6 +180,57 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(result.failure.reason_code).to eq("crawl_already_terminal")
       expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("completed")
       expect(events(ctx[:crawl_id])).to be_empty
+    end
+
+    it "PROOF 93 — at and after the 60-minute boundary the WALL CLOCK wins, not the cancellation" do
+      # :458's THIRD sentence, which the first implementation stopped short of: "At exactly the 60-minute
+      # boundary the wall-clock terminal handler wins over a simultaneous cancellation." The two
+      # sentences before it are settled by commit order; this one is an ASYMMETRY at an instant, and
+      # without it whether a cancellation at minute sixty-one won was decided by whether the transport
+      # had yet delivered `crawl_terminal_deadline`.
+      ctx = running_crawl
+      deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+
+      # AT the boundary — the exact case the sentence names, so `>=` and not `>`.
+      at_boundary = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline)),
+        request_context: executor_ctx_for_actor(deadline)
+      )
+      expect(at_boundary.success?).to be(false)
+      expect(at_boundary.failure.reason_code).to eq("crawl_already_terminal")
+
+      # And past it. The run is still `running` — the wall-clock handler has not arrived yet — and that
+      # is precisely the window this closes.
+      past = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline + 60)),
+        request_context: executor_ctx_for_actor(deadline + 60)
+      )
+      expect(past.failure.reason_code).to eq("crawl_already_terminal")
+
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["state"]).to eq("running")
+      expect(events(ctx[:crawl_id])).to be_empty
+      # THE METERING ESCAPE THIS CLOSES. :551 releases a reservation for a cancellation before the
+      # durable commit point and the checkpoint COMMITS one for a completed run, so a `crawl.cancel`
+      # holder who could cancel after the clock could choose the release limb over the commit — for
+      # every run, from an ordinary MarketingOperator's authority.
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("executing")
+    end
+
+    it "PROOF 94 — a cancellation one second BEFORE the boundary still wins, so the limb is a boundary" do
+      # The other side of the same instant. Without this, `>=` and `> now + anything` are
+      # indistinguishable and the limb could silently become "cancellation is unavailable near the end".
+      ctx = running_crawl
+      deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+
+      result = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline - 1)),
+        request_context: executor_ctx_for_actor(deadline - 1)
+      )
+
+      expect(result.success?).to be(true)
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("canceled")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
     end
 
     it "PROOF 83 — a stale expected state version changes nothing" do

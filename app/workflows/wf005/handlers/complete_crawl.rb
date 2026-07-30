@@ -162,6 +162,8 @@ module Workflows
 
           gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(d[:pg])
           sitemaps = resolve_pending_sitemaps(store, gates, org, crawl, now)
+          # BEFORE THE COUNT, because the count reads its result.
+          wall_clock = observe_wall_clock(d, crawl)
           facts = count_facts(store, org, crawl, pid)
           selection = TerminalSelection.derive(facts)
 
@@ -250,6 +252,56 @@ module Workflows
                                        reason: DiscoverSitemaps::UNAVAILABLE,
                                        documents: 0, max_depth: 0).to_i.positive?
           end
+        end
+
+        # :442's WALL CLOCK, OBSERVED WHERE IT ACTUALLY ENDS THE RUN (DECISIONS ADR-107).
+        #
+        # `Admission` records this crossing when a PASS arrives past the deadline. But the case this
+        # action exists for is the one where no pass ever does — FU-22's pinned run, and any run whose
+        # chain simply stopped — so the run that was ended BY its own sixty minutes recorded nothing
+        # about them. :458 requires that "any in-scope candidate not evaluated because of … wall-clock
+        # bound makes coverage partial AND RECORDS ITS EXACT LIMIT REASON", and the reason has to exist
+        # somewhere to be recorded.
+        #
+        # THE DECISION TABLE IS THE IDEMPOTENCE. `crawl_limit_decisions` is unique on
+        # `(crawl_id, limit_dimension, threshold_kind)`, so a pass that already observed the crossing
+        # makes this a no-op returning `replayed`, and `CrawlLimitReached` still fires exactly once per
+        # dimension and run. Nothing here counts or decides — the count below reads the decision table
+        # like any other, so the selection is derived from one source whether a pass or this recorded it.
+        #
+        # Both thresholds, independently, for the reason `Admission#wall_clock` already records: a run
+        # that crossed the hard bound genuinely crossed the soft one on the way past it, and gating the
+        # soft limb behind the hard one loses it permanently for a run whose only crossing was the hard.
+        def observe_wall_clock(d, crawl)
+          deadline = crawl["deadline_at"]
+          return false if deadline.nil? || d[:now] < Time.parse(deadline.to_s).utc
+
+          limits = EffectiveLimits.resolve(d[:store].active_crawl_policies(d[:org], crawl["project_id"]))
+          observer = LimitDecisions.new(ids: d[:ctx].ids, correlation_id: d[:ctx].correlation_id)
+                                   .for(d[:pg], organization_id: d[:org], project_id: crawl["project_id"],
+                                        crawl_id: crawl["id"], limits:)
+          elapsed = elapsed_minutes(crawl, d[:now])
+          soft = limits.configured(Admission::WALL_CLOCK_DIMENSION, LimitDimensions::SOFT)
+          observer.soft(Admission::WALL_CLOCK_DIMENSION, elapsed, now: d[:now]) if elapsed >= soft
+          # ":442 — record dimension, configured value, observed value, AFFECTED SOURCE AND URL COUNTS."
+          # The wall clock abandons whatever the run still had, so the affected counts are the run's own
+          # unevaluated candidates and the Sources they belong to, read from the frontier rather than
+          # assumed.
+          observer.hard(Admission::WALL_CLOCK_DIMENSION, elapsed, now: d[:now],
+                        affected: affected_by_wall_clock(d, crawl))
+          true
+        end
+
+        def elapsed_minutes(crawl, now)
+          started = crawl["started_at"]
+          return 0 if started.nil?
+
+          ((now.utc - Time.parse(started.to_s).utc) / 60).floor
+        end
+
+        def affected_by_wall_clock(d, crawl)
+          row = d[:store].unevaluated_reach(d[:org], crawl["id"])
+          LimitDecisions::Affected.new(sources: row["sources"].to_i, urls: row["urls"].to_i)
         end
 
         def count_facts(store, org, crawl, project_id)

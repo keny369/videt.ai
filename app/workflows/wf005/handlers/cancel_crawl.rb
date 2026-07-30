@@ -15,6 +15,10 @@ module Workflows
       # `running` Crawl to `canceled` with :456's `canceled` completion reason, releases its entitlement
       # reservation, and emits `CrawlCanceled`.
       #
+      # :458 HAS THREE SENTENCES ABOUT THE BOUNDARY AND THIS HANDLER CARRIES ALL THREE (ADR-107). The
+      # third — "at exactly the 60-minute boundary the wall-clock terminal handler wins over a
+      # simultaneous cancellation" — is the `deadline_at` limb in `process`; the first two are below.
+      #
       # :458'S BOUNDARY IS COMMIT ORDER, AND THE ROW LOCK IS WHAT MAKES IT A FACT. "A cancellation
       # committed STRICTLY BEFORE that checkpoint yields `Crawl.Canceled`; a cancellation at or after
       # the checkpoint is rejected as `crawl_already_terminal`." Both sides take `SELECT ... FOR UPDATE`
@@ -107,6 +111,25 @@ module Workflows
 
           # :458's own token, for the run that had its one terminal selection first.
           if %w[completed failed canceled].include?(crawl["state"])
+            return denied(d, "crawl_already_terminal")
+          end
+          # :458's THIRD SENTENCE, which the first implementation of this handler stopped short of
+          # (DECISIONS ADR-107): "At exactly the 60-minute boundary the WALL-CLOCK TERMINAL HANDLER WINS
+          # over a simultaneous cancellation."
+          #
+          # The two sentences before it are settled by commit order, and the row lock above makes that a
+          # fact. This one cannot be: it is an ASYMMETRY at an instant, and without it whether a
+          # cancellation at minute sixty-one wins was decided purely by whether the transport had got
+          # round to delivering `crawl_terminal_deadline` yet. `>=`, not `>`, because "at exactly the
+          # boundary" is the case the sentence exists to settle.
+          #
+          # IT IS ALSO WHAT STOPS A METERING ESCAPE. :551 releases a reservation for a cancellation
+          # before the durable commit point; the checkpoint COMMITS one for a completed run. Without
+          # this limb a `crawl.cancel` holder could let a run consume its full sixty minutes and then
+          # cancel ahead of the checkpoint, choosing the release limb over the commit — repeatedly, and
+          # from an ordinary MarketingOperator's authority.
+          deadline = crawl["deadline_at"]
+          if deadline && d[:now] >= Time.parse(deadline.to_s).utc
             return denied(d, "crawl_already_terminal")
           end
           # MTX-030's request schema carries the expected state version; a cancellation holding a

@@ -2861,3 +2861,29 @@ Proof standard. PROOF 92 suspends the winner INSIDE its heartbeat, holding the r
 
 Authority And Precedence:
 Repairs B8 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :551 governs the renewable lease and its cadence; ADR-100 introduced the caller this corrects. Allocated the next unused number after ADR-105.
+
+## ADR-107: B1 And B2 Repaired — :458's Third Sentence, And The Wall Clock Recorded Where It Ends The Run
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of two ADR-080 acceptance-round findings
+Reversibility: Integration branch only. One limb on `Handlers::CancelCrawl`, one observation on `Handlers::CompleteCrawl`, one reader on `CrawlStartStore`; no schema change.
+
+Two findings, one omission: neither the cancel path nor the checkpoint compared `now` with `crawls.deadline_at`, which `lock_crawl` returns to both.
+
+**B1 — :458 HAS THREE SENTENCES ABOUT THE BOUNDARY AND THE IMPLEMENTATION CARRIED TWO.** The third reads: "At exactly the 60-minute boundary the WALL-CLOCK TERMINAL HANDLER WINS over a simultaneous cancellation." ADR-102 quotes the first two and stops at the second full stop, and so did the handler. The first two are settled by commit order and the row lock makes that a fact; the third cannot be, because it is an ASYMMETRY at an instant. Without it, whether a cancellation at minute sixty-one won was decided purely by whether the transport had yet delivered `crawl_terminal_deadline`.
+
+**It is also a metering escape, which is why the security lens owned it.** :551 releases a reservation for a cancellation before the durable commit point; the checkpoint COMMITS one for a completed run. A `crawl.cancel` holder could therefore let a run consume its full sixty minutes of work and then cancel ahead of the checkpoint, choosing the release limb over the commit — repeatedly, from an ordinary MarketingOperator's authority. `>=`, not `>`, because "at exactly the boundary" is the case the sentence exists to settle; the mutation to `>` fails PROOF 93.
+
+**B2 — A RUN ENDED BY ITS OWN WALL CLOCK RECORDED NOTHING ABOUT IT.** `Admission` observes the crossing when a PASS arrives past the deadline. The case the deadline action EXISTS for is the one where no pass ever does — FU-22's pinned run, and any run whose chain simply stopped — so :458's "any in-scope candidate not evaluated because of … wall-clock bound makes coverage partial AND RECORDS ITS EXACT LIMIT REASON" had no reason to record, and the run read `partial_source_failure` where :442 requires `limit_reached`.
+
+The checkpoint now observes both thresholds before it counts, through the existing `Wf005::LimitDecisions`. **The decision table is the idempotence**: `crawl_limit_decisions` is unique on `(crawl_id, limit_dimension, threshold_kind)`, so a pass that already observed the crossing makes this a no-op and `CrawlLimitReached` still fires exactly once per dimension and run (PROOF 97). Nothing here counts or decides — the count reads the decision table like any other source, so the selection is derived identically whether a pass or the checkpoint recorded it. Both thresholds independently, for the reason `Admission#wall_clock` already records: a run that crossed the hard bound crossed the soft one on the way past it.
+
+":442 — record … AFFECTED SOURCE AND URL COUNTS" is answered from the frontier rather than assumed: `CrawlStartStore#unevaluated_reach` counts the candidates the clock abandoned and the distinct Sources they belong to, over the SAME population `terminal_facts` counts as `unevaluated`, so the decision a customer reads and the coverage number they read cannot describe different sets.
+
+Proof standard. PROOFs 93 and 94 bracket the instant from both sides — refused AT the boundary and one second past it, admitted one second before — so the limb is a boundary rather than "cancellation is unavailable near the end". PROOFs 95-97 cover the crossing recorded, the crossing correctly NOT recorded inside the deadline, and the idempotence against a pass that already made it. PROOF 97 records that its run reads `failed` rather than `limit_reached`, which is :458's precedence and not a defect: it halted on the clock before fetching, so it yielded zero valid Documents. Three mutations: removing the cancel limb fails PROOF 93; weakening `>=` to `>` fails PROOF 93; removing the checkpoint's observation fails PROOF 95.
+
+A harness note worth recording: these examples seed a session AT the instant under test. The bootstrap session is issued at `fixed_now - 300` and is correctly `session_invalid` an hour later, which is real behaviour and not the property under test — a cancellation at the sixty-minute boundary is issued by someone who signed in near it.
+
+Authority And Precedence:
+Repairs B1 and B2 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the boundary and the precedence, :442 the wall clock and what a hard limit records, :551 the release-versus-commit the escape exploited. Corrects ADR-102, which quoted :458 incompletely. Allocated the next unused number after ADR-106.
