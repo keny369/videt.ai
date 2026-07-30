@@ -322,11 +322,14 @@ RSpec.describe "Crawl-start invariants", type: :model do
         .to raise_error(PG::RaiseException, /crawl_immutable/)
     end
 
-    it "PROOF 52 — the run's METERING IDENTITY is fixed at the accepted start" do
-      # POSTGRESQL_SCHEMA.md :338 declares both columns "NULL until start"; once stamped they name the
-      # reservation the terminal checkpoint commits or releases "EXACTLY ONCE" (MTX-030). Swapping
-      # either is an UPDATE that changes no state, so it would otherwise pass every check on this table.
-      # `started_at` and `deadline_at` are deliberately NOT frozen here — see FU-30.
+    it "PROOF 52 — the run's CLOCK and its metering identity are both fixed at the accepted start" do
+      # :442 starts wall-clock duration "at the atomic `Queued -> Running` transition" and
+      # BACKGROUND_PROCESSING.md :139 fires `crawl_terminal_deadline` at exactly `deadline_at`, so a
+      # movable deadline makes the sixty-minute ceiling ADVISORY: it could be moved by an UPDATE that
+      # changes no state and therefore meets no other check on this table. POSTGRESQL_SCHEMA.md :338
+      # declares the metering columns "NULL until start"; once stamped they name the reservation the
+      # checkpoint commits or releases "EXACTLY ONCE" (MTX-030). FU-30 closed the first pair; ADR-099
+      # had closed the second.
       pid = draft_project
       cid = insert_crawl(pid)
       metering = insert_reservation
@@ -337,18 +340,62 @@ RSpec.describe "Crawl-start invariants", type: :model do
       SQL
       other = insert_reservation
 
-      ["entitlement_decision_id = '#{other[:decision_id]}'::uuid",
+      ["deadline_at = now() + interval '600 minutes'", "deadline_at = NULL", "started_at = now()",
+       "entitlement_decision_id = '#{other[:decision_id]}'::uuid",
        "entitlement_reservation_id = '#{other[:reservation_id]}'::uuid"].each do |assignment|
         expect { conn.exec_params("UPDATE crawls SET #{assignment} WHERE id = $1::uuid", [cid]) }
           .to raise_error(PG::RaiseException, /crawl_run_identity_immutable/), assignment
       end
-      # And a `running` Crawl is otherwise still mutable, so the freeze is scoped rather than a second
-      # terminal rule applied early. `deadline_at` IS still writable, which is FU-30's open item and is
-      # asserted here so the gap is visible rather than assumed absent.
+      # And a `running` Crawl is otherwise still mutable, so the freeze is scoped to the four columns
+      # rather than being a second terminal rule applied early.
       expect { conn.exec_params("UPDATE crawls SET limit_counters = '{\"x\":1}'::jsonb WHERE id = $1::uuid", [cid]) }
         .not_to raise_error
-      expect { conn.exec_params("UPDATE crawls SET deadline_at = now() + interval '600 minutes' WHERE id = $1::uuid", [cid]) }
-        .not_to raise_error
+    end
+
+    it "PROOF 90 — the ceiling is unwritable BY THE PRODUCTION ROLE, read from the catalogue" do
+      # PROOF 52 asserts the rule through the BYPASSRLS superuser, which is the strongest caller there
+      # is. This asserts the thing a reviewer actually needs: that the role production runs as cannot do
+      # it either, and that the mechanism is present in the catalogue rather than in a comment.
+      #
+      # The trigger is the mechanism and a column-level REVOKE could not be, because the accepted start
+      # WRITES both columns through the same UPDATE privilege — the rule is "not after `started_at` is
+      # set", which is a predicate over the row and only a trigger can express it. So the catalogue facts
+      # are: the guard exists, it is ENABLED (`tgenabled = 'O'`, not disabled or replica-only), it fires
+      # on UPDATE, and its source names the two columns.
+      trigger = conn.exec_params(<<~SQL).first
+        SELECT t.tgname, t.tgenabled, t.tgtype, p.prosrc
+        FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+        WHERE t.tgrelid = 'crawls'::regclass AND NOT t.tgisinternal
+      SQL
+      expect(trigger).not_to be_nil
+      expect(trigger.fetch("tgenabled")).to eq("O")
+      # tgtype bit 4 is UPDATE (pg_trigger: ROW=1, BEFORE=2, INSERT=4, DELETE=8, UPDATE=16).
+      expect(trigger.fetch("tgtype").to_i & 16).to be_positive
+      expect(trigger.fetch("prosrc")).to include("crawl_run_identity_immutable")
+      expect(trigger.fetch("prosrc")).to include("NEW.deadline_at IS DISTINCT FROM OLD.deadline_at")
+
+      # And behaviourally, as `f1_web` — the role the application actually runs as, which holds UPDATE
+      # on this table and needs it for every state transition.
+      pid = draft_project
+      cid = insert_crawl(pid)
+      metering = insert_reservation
+      Platform::UnitOfWork.run do |c|
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(c.raw_connection)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        store.start(cid, 0, Time.now.utc, Time.now.utc + 3600, metering[:decision_id], metering[:reservation_id])
+      end
+      moved = Platform::UnitOfWork.run do |c|
+        pg = c.raw_connection
+        IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+                                                       .enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        begin
+          pg.exec_params("UPDATE crawls SET deadline_at = now() + interval '600 minutes' WHERE id = $1::uuid", [cid])
+          :written
+        rescue PG::RaiseException => e
+          e.message[/crawl_\w+/]
+        end
+      end
+      expect(moved).to eq("crawl_run_identity_immutable")
     end
 
     it "PROOF 53 — the accepted start still stamps all four in ONE statement, through the real store" do

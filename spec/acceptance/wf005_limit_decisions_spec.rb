@@ -22,8 +22,8 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
   WALL_CLOCK = "wall_clock_run_duration"
 
   def admission = Workflows::Wf005::Admission.new
-  def claim(ctx) = admission.claim_next(organization_id: ctx[:g][:organization_id],
-                                        crawl_id: ctx[:crawl_id], now: start_now)
+  def claim(ctx, now: start_now) = admission.claim_next(organization_id: ctx[:g][:organization_id],
+                                                        crawl_id: ctx[:crawl_id], now:)
 
   def decisions(cid) = DbInspector.all(
     "SELECT * FROM crawl_limit_decisions WHERE crawl_id=$1::uuid ORDER BY limit_dimension, threshold_kind", [cid]
@@ -366,15 +366,20 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
 
     it "emits the wall-clock HARD limit when the deadline has passed" do
       ctx = running_crawl
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1
-         WHERE id = $1::uuid", [ctx[:crawl_id], start_now - 1])
-
-      expect(claim(ctx).reason_code).to eq("wall_clock_exhausted")
-      row = decisions(ctx[:crawl_id]).sole
-      expect(row["limit_dimension"]).to eq(WALL_CLOCK)
-      expect(row["threshold_kind"]).to eq("hard")
+      # SIXTY-ONE MINUTES OF ELAPSED TIME, not a rewritten ceiling: `deadline_at` and `started_at` are
+      # frozen after the accepted start (FU-30), and `age_run_to` keeps :551's lease alive across the
+      # span through the same heartbeat every pass performs.
+      expect(claim(ctx, now: age_run_to(ctx, start_now + (61 * 60))).reason_code).to eq("wall_clock_exhausted")
+      # SELECTED, NOT `.sole`, AND THE CHANGE IS A CONSEQUENCE OF REMOVING A FICTION. This example used
+      # to move `deadline_at` back by one second while leaving `started_at` where it was, so the run was
+      # "past its deadline" at ZERO elapsed minutes and only the hard limb fired. No real run is that
+      # shape: with :442's ratified 45/60 pair, past the deadline IMPLIES past the soft bound, so a
+      # genuinely expired run always carries both. That both fire is the next example's property; this
+      # one is about what the HARD decision records, so it names the row it is about.
+      row = decisions(ctx[:crawl_id]).find { |d| d["limit_dimension"] == WALL_CLOCK && d["threshold_kind"] == "hard" }
+      expect(row).not_to be_nil
       expect(row["configured_value"].to_i).to eq(60)
+      expect(row["observed_value"].to_i).to eq(61)
     end
 
     it "emits BOTH wall-clock crossings on the first admission past the deadline" do
@@ -382,12 +387,8 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
       # landed past 60 never emitted `CrawlSoftLimitApproaching` at all — and `claim_next` returns
       # early on every later call, so the branch was never re-entered.
       ctx = running_crawl
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET started_at = $2::timestamptz, deadline_at = $3::timestamptz,
-           state_version = state_version + 1 WHERE id = $1::uuid",
-        [ctx[:crawl_id], start_now - (61 * 60), start_now - 60])
 
-      expect(claim(ctx).reason_code).to eq("wall_clock_exhausted")
+      expect(claim(ctx, now: age_run_to(ctx, start_now + (61 * 60))).reason_code).to eq("wall_clock_exhausted")
 
       rows = decisions(ctx[:crawl_id]).select { |d| d["limit_dimension"] == WALL_CLOCK }
       expect(rows.map { |d| d["threshold_kind"] }.sort).to eq(%w[hard soft])
@@ -398,12 +399,8 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
 
     it "emits the wall-clock SOFT limit at the soft bound while the run is still admitting" do
       ctx = running_crawl
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET started_at = $2::timestamptz, deadline_at = $3::timestamptz,
-           state_version = state_version + 1 WHERE id = $1::uuid",
-        [ctx[:crawl_id], start_now - (46 * 60), start_now + 600])
 
-      expect(claim(ctx).admitted?).to be(true)
+      expect(claim(ctx, now: age_run_to(ctx, start_now + (46 * 60))).admitted?).to be(true)
       row = decisions(ctx[:crawl_id]).sole
       expect(row["limit_dimension"]).to eq(WALL_CLOCK)
       expect(row["threshold_kind"]).to eq("soft")

@@ -131,6 +131,49 @@ module Wf005CrawlChain
     { g:, crawl_id:, source_id: sid, source_ids: ids, host: hosts.first }
   end
 
+  # ---- an OLD run, expressed the way production makes one ---------------------
+  #
+  # `crawls.deadline_at` and `started_at` are FROZEN after the accepted start (FU-30, ADR-104), because
+  # :442 fixes the wall clock at the `Queued -> Running` transition and `crawl_terminal_deadline` fires
+  # at exactly that instant: a movable column makes the sixty-minute ceiling advisory. Six examples used
+  # to simulate an expired run by writing the column backwards, which is a fiction no production
+  # authority can produce.
+  #
+  # What replaces it is what actually happens: TIME PASSES. The examples advance the injected clock, and
+  # this keeps :551's entitlement lease alive across that span through `Entitlement::Service#heartbeat`
+  # — the SAME production surface every pass uses since FU-31, at the SAME five-minute cadence :551
+  # names. It is needed because these examples drive `Admission`, `DiscoverSitemaps` or one pass
+  # directly rather than running the chain, so nothing else renews the lease; a run cannot honestly be
+  # sixty-one minutes old holding a lease nothing renewed, and before FU-31 it could not be old at all.
+  #
+  # Returns the instant, so a call site reads `at: age_run_to(ctx, start_now + 3660)`.
+  def age_run_to(ctx, instant)
+    org = ctx[:g][:organization_id]
+    reservation = DbInspector.one(<<~SQL, [ctx[:crawl_id]])
+      SELECT r.id FROM entitlement_reservations r
+      JOIN crawls c ON c.entitlement_reservation_id = r.id WHERE c.id = $1::uuid
+    SQL
+    return instant if reservation.nil?
+
+    at = start_now
+    cadence = Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS
+    while at < instant
+      at = [at + cadence, instant].min
+      Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
+                                                          .enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        Platform::Entitlement::Service.new(pg).heartbeat(
+          organization_id: org, reservation_id: reservation["id"],
+          worker_process_identity: "wf005-crawl-chain", now: at,
+          worker_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+          ids: { heartbeat: Platform::Ids.system.generate }
+        )
+      end
+    end
+    instant
+  end
+
   # ---- harness ---------------------------------------------------------------
 
   def project_row(pid) = DbInspector.one("SELECT * FROM projects WHERE id = $1::uuid", [pid])

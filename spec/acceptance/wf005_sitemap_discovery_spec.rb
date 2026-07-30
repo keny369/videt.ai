@@ -386,7 +386,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     # traversal. A no-op pacer means no simulated time passes, so the refusal never clears — which
     # is exactly the sustained-contention shape, produced by the gate's own predicates rather than
     # by a stub.
-    def contended(ctx)
+    def contended(ctx, at: start_now)
       # :438's nonexceedable per-host concurrency ceiling, all of it held.
       seed_leases(gate_row(ctx[:crawl_id])["id"],
                   Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("concurrency_per_host").fetch("hard"))
@@ -394,7 +394,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
         "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }
       ), pacer: ->(_ms) {}).call(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-        canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
+        canonical_host: ctx[:host], source_id: ctx[:source_id], now: at)
     end
 
     it "does NOT record `sitemap_unavailable` for a host it never reached" do
@@ -914,11 +914,12 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       # true rather than premature — and the run already carries a `wall_clock_run_duration`
       # decision explaining it. Without this limb the release would be unbounded.
       ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml"])
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1
-         WHERE id = $1::uuid", [ctx[:crawl_id], start_now - 1])
+      # The run is past its own deadline because time passed, not because the ceiling moved: FU-30
+      # freezes `deadline_at` after the accepted start.
+      deadline = Time.parse(DbInspector.one("SELECT deadline_at FROM crawls WHERE id=$1::uuid",
+                                            [ctx[:crawl_id]])["deadline_at"]).getutc
 
-      result = contended(ctx)
+      result = contended(ctx, at: age_run_to(ctx, deadline + 60))
 
       expect(result.state).to eq("unavailable")
       expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("unavailable")

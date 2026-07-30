@@ -80,6 +80,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
   def entries(cid) = DbInspector.all("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key", [cid])
   def attempts(cid) = DbInspector.all("SELECT * FROM fetch_attempts WHERE crawl_id=$1::uuid ORDER BY attempt_number", [cid])
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
+  def crawl_row(cid) = DbInspector.one("SELECT * FROM crawls WHERE id = $1::uuid", [cid])
   def action_row(id) = DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [id])
 
   def fetch_actions(cid)
@@ -705,11 +706,11 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       # `Admission`'s, which is the ratified observation point and refuses before it peeks.
       ctx = fetchable
       action = first_action(ctx)
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1 WHERE id = $1::uuid",
-        [ctx[:crawl_id], (start_now - 1).utc.iso8601(6)])
+      # The run is genuinely past its own deadline, because TIME PASSED. `deadline_at` is frozen after
+      # the accepted start (FU-30), so an expired run cannot be faked by rewriting the ceiling.
+      expired = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc + 60)
 
-      result = execute(ctx, action, outbound_by_path({}))
+      result = execute(ctx, action, outbound_by_path({}), at: expired)
 
       expect(result.success?).to be(true)
       expect(result.payload[:pass_outcome]).to eq("halted")
@@ -733,11 +734,9 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       # the example rather than being absorbed.
       ctx = gated
       action = first_action(ctx)
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1 WHERE id = $1::uuid",
-        [ctx[:crawl_id], (start_now - 1).utc.iso8601(6)])
+      expired = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc + 60)
 
-      result = execute(ctx, action, outbound_by_path({}))
+      result = execute(ctx, action, outbound_by_path({}), at: expired)
 
       expect(result.payload[:pass_outcome]).to eq("halted")
       expect(result.payload[:reason_code]).to eq(Workflows::Wf005::Admission::WALL_CLOCK)

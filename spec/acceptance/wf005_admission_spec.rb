@@ -20,8 +20,8 @@ RSpec.describe "WF-005 admission", type: :acceptance,
 
   def admission = Workflows::Wf005::Admission.new
 
-  def claim(ctx) = admission.claim_next(organization_id: ctx[:g][:organization_id],
-                                        crawl_id: ctx[:crawl_id], now: start_now)
+  def claim(ctx, now: start_now) = admission.claim_next(organization_id: ctx[:g][:organization_id],
+                                                        crawl_id: ctx[:crawl_id], now:)
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
   def attempts(cid) = DbInspector.all("SELECT * FROM fetch_attempts WHERE crawl_id=$1::uuid ORDER BY attempt_number", [cid])
@@ -460,11 +460,12 @@ RSpec.describe "WF-005 admission", type: :acceptance,
   describe "the wall clock (:442 — 'At 60 elapsed minutes, no new request starts')" do
     it "refuses admission once the run's deadline has passed" do
       ctx = running_crawl
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1
-         WHERE id = $1::uuid", [ctx[:crawl_id], start_now - 1])
+      # Past the run's OWN deadline, reached by advancing the clock rather than by moving the ceiling:
+      # `deadline_at` is frozen after the accepted start (FU-30).
+      deadline = Time.parse(DbInspector.one("SELECT deadline_at FROM crawls WHERE id=$1::uuid",
+                                            [ctx[:crawl_id]])["deadline_at"]).getutc
 
-      decision = claim(ctx)
+      decision = claim(ctx, now: age_run_to(ctx, deadline + 60))
       expect(decision.limited?).to be(true)
       expect(decision.reason_code).to eq("wall_clock_exhausted")
       # Checked BEFORE the claim: an expired run does not take work out of the frontier only to
@@ -475,11 +476,10 @@ RSpec.describe "WF-005 admission", type: :acceptance,
     end
 
     it "admits while the deadline is still ahead" do
-      ctx = running_crawl
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1
-         WHERE id = $1::uuid", [ctx[:crawl_id], start_now + 600])
-      expect(claim(ctx).admitted?).to be(true)
+      # No setup at all: an accepted start resolves a sixty-minute deadline, so the run is ALREADY
+      # inside it. The example used to push the deadline forward, which proved nothing the real one did
+      # not already establish.
+      expect(claim(running_crawl).admitted?).to be(true)
     end
   end
 end

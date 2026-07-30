@@ -544,8 +544,8 @@ BEGIN
     RAISE EXCEPTION 'crawl_immutable' USING ERRCODE = 'raise_exception';
   END IF;
   IF OLD.state IN ('completed','failed','canceled') THEN
-      RAISE EXCEPTION 'crawl_terminal_immutable' USING ERRCODE = 'raise_exception';
-    END IF;
+    RAISE EXCEPTION 'crawl_terminal_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
   IF NEW.id IS DISTINCT FROM OLD.id
      OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
      OR NEW.project_id IS DISTINCT FROM OLD.project_id
@@ -564,13 +564,15 @@ BEGIN
     RAISE EXCEPTION 'crawl_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
   IF OLD.started_at IS NOT NULL
-       AND (NEW.entitlement_decision_id IS DISTINCT FROM OLD.entitlement_decision_id
+     AND (NEW.started_at IS DISTINCT FROM OLD.started_at
+            OR NEW.deadline_at IS DISTINCT FROM OLD.deadline_at
+            OR NEW.entitlement_decision_id IS DISTINCT FROM OLD.entitlement_decision_id
             OR NEW.entitlement_reservation_id IS DISTINCT FROM OLD.entitlement_reservation_id) THEN
-      RAISE EXCEPTION 'crawl_run_identity_immutable' USING ERRCODE = 'raise_exception';
-    END IF;
+    RAISE EXCEPTION 'crawl_run_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
   IF NEW.state IS DISTINCT FROM OLD.state THEN
     IF NOT ((OLD.state = 'queued'  AND NEW.state IN ('running','failed','canceled'))
-   OR (OLD.state = 'running' AND NEW.state IN ('completed','failed','canceled'))) THEN
+            OR (OLD.state = 'running' AND NEW.state IN ('completed','failed','canceled'))) THEN
       RAISE EXCEPTION 'crawl_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
     END IF;
   END IF;
@@ -6405,6 +6407,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120370'),
 ('20260727120360'),
 ('20260727120350'),
 ('20260727120340'),

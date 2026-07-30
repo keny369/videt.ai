@@ -2796,3 +2796,25 @@ Two mutations: the blanket rescue fails PROOF 89; the pre-repair `raise LostRace
 
 Authority And Precedence:
 Repairs a defect found at the S-07-009 acceptance boundary, in code accepted at S-07-003 and code written at S-07-009 (7/n). WORKFLOW_SPECIFICATIONS.md :736 governs the edge set; the `crawl_not_queued` token is S-07-003's own and is reused rather than added to. Allocated the next unused number after ADR-102.
+
+## ADR-104: FU-30 Resolved — The Run's Clock Is Not Renegotiable, And The Harness Now Ages A Run The Way Production Does
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: owner instruction at the S-07-009 acceptance boundary
+Reversibility: Integration branch only. One trigger function replaced by `CREATE OR REPLACE`; `down` restores ADR-099's form verbatim. Exercised down and up on both databases.
+
+`crawls.started_at` and `crawls.deadline_at` were writable after the accepted start. ADR-099 froze the metering identity for the same reason and deliberately left these two, recording the cost as FU-30: the rule broke six pre-existing accepted examples whose harnesses simulate an expired run by writing `deadline_at` backwards. FU-31 has since removed the obstacle that made the replacement impossible, so this is that repair.
+
+**WHY IT IS NOT MERELY UNTIDY TEST SUPPORT.** :442 starts wall-clock duration "at the atomic `Crawl.Queued -> Crawl.Running` transition" and BACKGROUND_PROCESSING.md :139 fires `crawl_terminal_deadline` at exactly `deadline_at`. Both are statements about a FIXED instant. A movable column makes the ceiling advisory: the run's bound, the instant its terminal checkpoint was scheduled for, and the elapsed figure every `wall_clock_run_duration` decision records would all derive from a value anything holding UPDATE could move afterwards, without changing `state` and therefore without meeting any other check on the table.
+
+**A COLUMN-LEVEL REVOKE COULD NOT EXPRESS IT**, and that is worth stating because it is the obvious first answer. The accepted start WRITES both columns through the same UPDATE privilege the state machine needs, so the rule is not "this role may not write this column" but "not after `started_at` is set" — a predicate over the row, which only the trigger can carry. PROOF 90 therefore asserts the catalogue facts that make the mechanism real: the trigger exists, `tgenabled = 'O'`, its type bits include UPDATE, and its source names the column; then it drives a real UPDATE as the runtime role and requires the refusal.
+
+**THE HARNESS NOW AGES A RUN THE WAY PRODUCTION AGES ONE.** All eight mutation sites across four spec files are gone. What replaces them is time passing: the examples advance the injected clock, and `Wf005CrawlChain#age_run_to` keeps :551's entitlement lease alive across the span through `Platform::Entitlement::Service#heartbeat` — the same production surface every pass has used since FU-31, at the same five-minute cadence :551 names. It is needed only because those examples drive `Admission`, `DiscoverSitemaps` or one pass directly rather than running the chain, so nothing else renews the lease. Before FU-31 this replacement was not available at all: a run could not honestly be sixty-one minutes old, because nothing renewed the lease and admission refused from minute fifteen. FU-30 was correctly blocked on FU-31 and is correctly taken after it.
+
+**ONE ACCEPTED EXAMPLE CHANGED WHAT IT ASSERTS, AND THE CHANGE IS A CONSEQUENCE OF REMOVING A FICTION.** "Emits the wall-clock HARD limit when the deadline has passed" used `.sole` on the decision set. It could only do that because its fixture moved `deadline_at` back one second while leaving `started_at` where it was, producing a run that was past its deadline at ZERO elapsed minutes. No real run is that shape: with :442's ratified 45/60 pair, past the deadline IMPLIES past the soft bound, so a genuinely expired run always carries both crossings. The example now names the row it is about and additionally asserts `observed_value == 61`, which the old fixture could not have shown. That both fire is the next example's property and is unchanged.
+
+Proof standard. PROOF 52 extended to both columns and both directions (`deadline_at = NULL` included, since erasing a ceiling is as effective as moving it), PROOF 90 for the catalogue and the runtime role. One mutation: leaving the clock writable fails PROOFs 52 and 90. `schemas/POSTGRESQL_SCHEMA.md` is reconciled beside the `crawls` row.
+
+Authority And Precedence:
+Resolves FU-30, which ADR-099 opened and recorded rather than took. WORKFLOW_SPECIFICATIONS.md :442 and BACKGROUND_PROCESSING.md :139 govern the fixed instant; POSTGRESQL_SCHEMA.md :338 governs the metering columns ADR-099 already froze. Allocated the next unused number after ADR-103.
