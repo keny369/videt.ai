@@ -24,6 +24,10 @@ module IdentityAccess
       # reclaimed out from under itself.
       LEASE_SECONDS = 300
 
+      # The reason `sweep_expired` writes. Named because a CALLER has to recognise it: a swept attempt looks
+      # resumable — terminal, retryable, zero accounted — while its reservation has already been released.
+      LEASE_EXPIRED_REASON = "attempt_lease_expired"
+
       def initialize(pg_connection)
         @pg = pg_connection
       end
@@ -80,14 +84,18 @@ module IdentityAccess
                   result[:expanded_body_bytes], result[:limit_probe_bytes].to_i, result[:media_type],
                   result[:redirect_count], result[:final_url],
                   result[:body_sha256] && bytea(result[:body_sha256]), result[:retryable],
-                  result[:latency_ms]]
+                  result[:latency_ms], iso(result[:completed_at] || now)]
         query(<<~SQL, params).cmd_tuples
           UPDATE fetch_attempts
           SET outcome = $4, reason_code = $5, http_status = $6, accounted_response_bytes = $7,
               received_body_bytes = $8, expanded_body_bytes = $9, limit_probe_bytes = $10,
               media_type = $11, redirect_count = $12, final_url = $13, body_sha256 = $14,
               retryable = $15, latency_ms = $16, terminal_at = $3::timestamptz,
-              completed_at = $3::timestamptz,
+              -- COMPLETION IS NOT THE PASS'S START. `terminal_at` records when the decision was written;
+              -- `completed_at` records when the attempt finished, which is what :444 measures its retry
+              -- delays from. They coincided while every value came from one injected instant, and that
+              -- became wrong the moment a persisted `due_at` was derived from this column.
+              completed_at = $17::timestamptz,
               claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,
               checkpoint_version = checkpoint_version + 1, updated_at = $3::timestamptz
           WHERE id = $1::uuid AND checkpoint_version = $2 AND outcome IS NULL
@@ -104,7 +112,7 @@ module IdentityAccess
       def sweep_expired(organization_id, crawl_id, now)
         query(<<~SQL, [organization_id, crawl_id, iso(now)]).to_a
           UPDATE fetch_attempts
-          SET outcome = 'timed_out', reason_code = 'attempt_lease_expired',
+          SET outcome = 'timed_out', reason_code = '#{LEASE_EXPIRED_REASON}',
               terminal_at = $3::timestamptz, completed_at = $3::timestamptz, retryable = true,
               accounted_response_bytes = 0, limit_probe_bytes = 0,
               claim_owner = NULL, claimed_at = NULL, lease_expires_at = NULL,

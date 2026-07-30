@@ -43,7 +43,8 @@ module Workflows
 
           pass = Workflows::Wf005::CrawlDriver.new(
             outbound:, ids: ctx.ids, correlation_id: ctx.correlation_id, pacer:
-          ).advance(organization_id: prepared[:org], entry: prepared[:entry], now: prepared[:now])
+          ).advance(organization_id: prepared[:org], entry: prepared[:entry], now: prepared[:now],
+                    due_at: command.due_at)
 
           finalize_execution(command, ctx, prepared, pass)
         end
@@ -150,7 +151,8 @@ module Workflows
             # which is also true when the frontier still holds work that is not SELECTABLE — a stranded
             # `in_progress` claim pinning `sealed_depth`, or a candidate whose Source left `active`
             # mid-run. Both were reported as a completed crawl. The three facts are now distinct.
-            "frontier_drained" => pass.advances? && link[:action_id].nil? && !link[:pinned],
+            "frontier_drained" => pass.advances? && link[:action_id].nil? && !link[:pinned] &&
+                                  !link[:beyond_deadline],
             "frontier_pinned" => link[:pinned] == true,
             "beyond_run_deadline" => link[:beyond_deadline] == true,
             # Whether this pass retired the entry it claimed and so released :454's depth seal. False on

@@ -362,15 +362,23 @@ module IdentityAccess
         SQL
       end
 
-      # One entry by ID. `project_id`, `crawl_id`, `source_id` and `canonical_url` are here because a
-      # `crawl_fetch_due` action carries only the entry ID and the run driver resolves everything else
-      # from the row — and because the guard freezes all four for the life of the entry, so a caller
-      # may carry them across a transaction boundary without their going stale.
+      # One entry by ID. `project_id`, `crawl_id`, `source_id`, `canonical_url` and the scope-policy pair are
+      # here because a `crawl_fetch_due` action carries only the entry ID and the run driver resolves
+      # everything else from the row — and because the guard freezes every one of them for the life of the
+      # entry, so a caller may carry them across a transaction boundary without their going stale.
+      #
+      # THE SCOPE-POLICY PAIR IS NOT OPTIONAL. `FetchContent#claim_attempt` reads `scope_policy_id` and
+      # `scope_policy_version` off whatever entry it is handed and writes them into the T-IMM attempt row.
+      # `claim_next` returns them; this reader did not, so every RESUMED retry persisted NULL/NULL — and for
+      # exactly the URLs that needed retries, the immutable record of a request that left the platform could
+      # no longer be reconciled against the policy version that permitted it. Both columns are nullable, so
+      # nothing failed and nothing complained. Found by the security lens, proven on two consecutive passes.
       def entry(organization_id, id)
         exec(<<~SQL, [organization_id, id]).to_a.first
           SELECT id, state, state_version, dequeue_key, depth, origin,
                  discovering_document_url, link_position, parent_entry_id,
-                 project_id, crawl_id, source_id, canonical_url
+                 project_id, crawl_id, source_id, canonical_url,
+                 scope_policy_id, scope_policy_version
           FROM crawl_frontier_entries WHERE organization_id = $1::uuid AND id = $2::uuid
         SQL
       end

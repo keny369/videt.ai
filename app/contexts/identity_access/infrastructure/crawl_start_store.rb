@@ -265,19 +265,35 @@ module IdentityAccess
         SQL
       end
 
+      # RETURNS THE ROW COUNT, and tolerates a concurrent delivery that got there first.
+      #
+      # This was a bare INSERT against `idempotency_scope_key`, and the unique violation it raised did not
+      # merely fail the duplicate — IT ROLLED BACK THE WINNING DELIVERY'S ENTIRE TERMINAL TRANSACTION. Two
+      # independent reviewers demonstrated the consequence for `crawl_fetch_due`, where the terminal
+      # transaction also carries the run's only forward link: a real request left the platform, its attempt
+      # row committed, and then its ledger AND the link vanished — leaving the frontier entry claimed, the
+      # whole per-URL byte reservation charged with nothing accounted, and NO scheduled action for the run.
+      # The crawl was dead and the surviving ledger described the delivery that had done nothing.
+      #
+      # Concurrent duplicate deliveries are ORDINARY: the transport recovers an expired worker lease and
+      # re-dispatches, and the idempotency record cannot prevent that because it is written at the END of the
+      # work it protects. So the first committer owns the replayable outcome, the second learns it lost from
+      # a zero row count, and neither destroys the other. Product-side duplication is prevented where it
+      # actually can be — the frontier claim, the attempt identity's `ON CONFLICT`, and the byte reservation.
       def insert_idempotency(row)
         params = [
           row[:id], row[:created_at], row[:organization_id], row[:command_type], row[:target_type],
           row[:target_id], bytea(row[:key_digest]), bytea(row[:request_sha256]),
           row[:command_execution_id], row[:command_result_id], row[:retain_until]
         ]
-        exec(<<~SQL, params)
+        exec(<<~SQL, params).cmd_tuples
           INSERT INTO idempotency_records
             (id, state_version, lock_version, created_at, updated_at, scope_kind, organization_id,
              command_type, target_type, target_id, key_digest, request_sha256,
              command_execution_id, command_result_id, retain_until)
           VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,'organization',$3::uuid,
                   $4,$5,$6::uuid,$7,$8,$9::uuid,$10::uuid,$11::timestamptz)
+          ON CONFLICT DO NOTHING
         SQL
       end
 

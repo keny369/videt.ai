@@ -333,6 +333,17 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(reentry["target_id"]).to eq(rows.first["crawl_frontier_entry_id"])
       expect(Time.parse(reentry["due_at"]).getutc)
         .to eq(Time.parse(rows.first["completed_at"]).getutc + 30)
+      # AND `completed_at` IS THE ATTEMPT'S COMPLETION, not the pass's start instant. :444 measures from
+      # "completion of the failed attempt", and every other timestamp here comes from the injected clock
+      # captured before the pass began — so a hard-timeout attempt used to come due a full request timeout
+      # EARLY. The recorded latency is what makes the column mean its name.
+      # A timed-out attempt ran to the hard request bound by definition — the rule the limit observer
+      # already applies for the same reason — so its completion is the bound, not the pass's start. Before
+      # this, the retry came due a full 15 seconds early.
+      timeout_s = Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
+                  .fetch("request_timeout_seconds").fetch("hard")
+      expect(Time.parse(rows.first["completed_at"]).getutc).to eq(start_now + timeout_s)
+      expect(Time.parse(reentry["due_at"]).getutc).to eq(start_now + timeout_s + 30)
       # THE WORKER DID NOT WAIT IT OUT. Generous by three orders of magnitude against the 30 s the
       # in-process loop used to sleep: this asserts the delay was not taken, not that the database is fast.
       expect(elapsed).to be < 5.0
@@ -407,14 +418,17 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(fetch_actions(ctx[:crawl_id]).size).to eq(2)
     end
 
-    it "PROOF 5b — the retry instant is DERIVED, so two computations of it collapse to one action" do
-      # Why the instant comes from the attempt's committed `completed_at` and not from the executing
-      # worker's clock: the ratified ScheduledAction identity includes `due_at`, so a derived instant makes
-      # two deliveries compute the SAME identity and the second REPLAYS. Taken from `now`, two concurrent
-      # deliveries would compute two instants, create two actions and fork the run into two chains.
+    it "PROOF 5b — the retry instant is DERIVED, and a re-derivation of it links no second action" do
+      # WHAT THIS DOES AND DOES NOT PROVE, stated because the first version of it overclaimed. It proves the
+      # instant is a function of committed state, so ANY party deriving it lands on the same
+      # ScheduledAction identity and the second link replays. It does NOT prove that two concurrent
+      # deliveries race here: review established they cannot, because the attempt identity's `ON CONFLICT`
+      # stops the second delivery before it reaches a retry decision. Single-linking is therefore enforced
+      # by the attempt identity first and by this determinism second, and both are recorded that way.
       ctx = fetchable
       execute(ctx, first_action(ctx), outbound_by_path("/" => timeout))
       attempt = attempts(ctx[:crawl_id]).first
+      # Derived from the row, exactly as the driver derives it — not from any clock this example holds.
       at = Time.parse(attempt["completed_at"]).getutc + 30
 
       again = Platform::UnitOfWork.run do |conn|
@@ -432,40 +446,178 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(fetch_actions(ctx[:crawl_id]).size).to eq(2)
     end
 
-    it "PROOF 6 — every delivery completes well inside the ordinary worker lease" do
-      # The whole point of ADR-089. No heartbeat and no per-kind lease extension is needed, because no
-      # delivery waits: the sum of a full three-attempt chain is now bounded by its three requests.
-      ctx = fetchable
-      spent = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      passes = run_chain(ctx, outbound_by_path("/" => timeout))
-      spent = Process.clock_gettime(Process::CLOCK_MONOTONIC) - spent
-
-      expect(passes.size).to eq(3)
-      # Three deliveries, together, inside ONE lease — where a single delivery used to need six of them.
-      expect(spent).to be < Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
-    end
-
-    it "PROOF 7 — a retry that would fall past the run deadline is not created, and strands nothing" do
+    it "PROOF 8 — a pass that performed NO attempt retires nothing and hands back nothing" do
+      # Two deliveries of one action can be in flight, and the one whose host-gate claim is refused used to
+      # release the in-flight winner's reservation and retire its entry — a `PG::CheckViolation` escaping the
+      # workflow and an entry terminal after 2 of 3 attempts. A pass that made no request now decides
+      # nothing: no release, no retirement, no seal, and it comes back.
       ctx = fetchable
       action = first_action(ctx)
-      # The run ends before :444's 30 seconds would elapse, so the re-entry could only arrive to be
-      # refused. Treated as exhaustion instead: released, retired, nothing left holding the seal.
-      DbInspector.connection.exec_params(
-        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1 WHERE id = $1::uuid",
-        [ctx[:crawl_id], (start_now + 10).utc.iso8601(6)])
+      # The host gate is at its rate ceiling, so this pass's content claim is refused before any request.
+      seed_leases(gate_row(ctx[:crawl_id])["id"], 8)
 
-      result = execute(ctx, action, outbound_by_path("/" => timeout))
+      result = execute(ctx, action, outbound_by_path({}))
 
-      expect(result.payload[:pass_outcome]).to eq("fetched")
-      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(["1"])
+      expect(result.payload[:pass_outcome]).to eq("deferred")
+      expect(requests).to be_empty
+      expect(attempts(ctx[:crawl_id])).to be_empty
+      expect(result.payload[:frontier_seal_released]).to be(false)
+      # The entry was admitted by this pass, so it is claimed — but nothing was retired and the reservation
+      # it paid for is still the run's to spend on the retry.
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("in_progress")
       row = counters(ctx[:crawl_id])
-      expect(row["reserved_response_bytes"].to_i).to eq(row["committed_response_bytes"].to_i)
-      expect(result.payload[:frontier_seal_released]).to be(true)
-      expect(entries(ctx[:crawl_id]).first["state"]).to eq("terminal")
-      # No re-entry, and no attempt-targeted action anywhere.
-      expect(fetch_actions(ctx[:crawl_id]).size).to eq(1)
-      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE target_type = 'fetch_attempt'"))
-        .to be_empty
+      expect(row["reserved_response_bytes"].to_i)
+        .to eq(Workflows::Wf005::ByteAccounting::PER_URL_CEILING)
+      expect(row["committed_response_bytes"].to_i).to eq(0)
+      expect(result.payload[:next_action_id]).not_to be_nil
+    end
+
+    it "PROOF 9 — every attempt of a retried URL records the scope policy that authorized it" do
+      # The T-IMM attempt row is the record of a request that left the platform, and the pinned Source Scope
+      # Policy version is part of the input that permitted it. The resume path read the entry through a
+      # SELECT that omitted both columns, so attempts 2 and 3 persisted NULL/NULL — silently, because both
+      # columns are nullable, and unrewritably, because the row is write-once.
+      ctx = fetchable
+      run_chain(ctx, outbound_by_path("/" => timeout))
+
+      rows = attempts(ctx[:crawl_id])
+      expect(rows.map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
+      expect(rows.map { |r| r["scope_policy_id"] }.compact.size).to eq(3)
+      expect(rows.map { |r| r["scope_policy_version"] }.uniq).to eq(["source-scope-interim-v1"])
+      # And the ordering tuple :456 replays by is on every one of them.
+      expect(rows.map { |r| r["dequeue_key"] }.compact.size).to eq(3)
+    end
+
+    it "PROOF 10 — a resume is admitted only for the stage it was scheduled for" do
+      # Without this, two deliveries in flight between one pass's settle and its terminal transaction both
+      # qualify as resumable, then compute DIFFERENT attempt numbers and fetch one URL concurrently on one
+      # reservation — which the attempt identity cannot catch, because the numbers differ. The action's own
+      # `due_at` is :444's instant for exactly one attempt.
+      ctx = fetchable
+      first = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout))
+      reentry = action_row(first.payload[:next_action_id])
+      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      # An action for the SAME entry at an instant that is not this stage's: it must not resume.
+      wrong_stage = action_row(
+        Platform::UnitOfWork.run do |conn|
+          pg = conn.raw_connection
+          IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
+            .enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+          Workflows::Wf005::CrawlFetchDueSchedule.reenter(
+            pg:, organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+            crawl_id: ctx[:crawl_id], entry_id: entries(ctx[:crawl_id]).first["id"],
+            at: Time.parse(reentry["due_at"]).getutc + 7, now: start_now,
+            correlation_id: SecureRandom.uuid_v7
+          )[:action_id]
+        end
+      )
+
+      requests.clear
+      result = execute(ctx, wrong_stage, outbound_by_path({}),
+                       at: Time.parse(wrong_stage["due_at"]).getutc)
+
+      expect(result.payload[:pass_outcome]).to eq("superseded")
+      expect(requests).to be_empty
+      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(["1"])
+    end
+
+    it "PROOF 12 — a duplicate idempotency write LOSES rather than destroying the other delivery" do
+      # THE DEFECT THIS CLOSES, demonstrated by the concurrency and security lenses with two connections.
+      # `insert_idempotency` was a bare INSERT against `idempotency_scope_key`, so the second delivery to
+      # commit did not merely lose — its unique violation ROLLED BACK THE OTHER DELIVERY'S ENTIRE TERMINAL
+      # TRANSACTION, and for `crawl_fetch_due` that transaction also carries the run's only forward link.
+      # Observed end state was a dead run: entry claimed, the whole per-URL reservation charged with nothing
+      # accounted, a real request with no ledger row, and no scheduled action anywhere. Two concurrent
+      # deliveries of one action are ORDINARY — the transport recovers an expired worker lease and
+      # re-dispatches — and the idempotency record cannot prevent that, because it is written at the END of
+      # the work it protects.
+      #
+      # ASSERTED AT THE STORE, deliberately. The interleaving needs two connections and injected latency;
+      # what the repair actually is, is that the second write LOSES QUIETLY instead of raising. That is
+      # exactly what this asserts, and it is what the reviewers' reproduction turned on.
+      ctx = fetchable
+      result = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout))
+      expect(result.payload[:pass_outcome]).to eq("retrying")
+
+      row = DbInspector.one(<<~SQL, [ctx[:crawl_id]])
+        SELECT i.* FROM idempotency_records i
+        JOIN crawl_frontier_entries e ON e.id = i.target_id
+        WHERE i.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+      expect(row).to be_present
+
+      second = Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.insert_idempotency(
+          id: Platform::Ids.system.generate, created_at: start_now.iso8601(6),
+          organization_id: row["organization_id"], command_type: row["command_type"],
+          target_type: row["target_type"], target_id: row["target_id"],
+          key_digest: [row["key_digest"].sub(/\A\\x/, "")].pack("H*"),
+          request_sha256: [row["request_sha256"].sub(/\A\\x/, "")].pack("H*"),
+          command_execution_id: row["command_execution_id"], command_result_id: row["command_result_id"],
+          retain_until: row["retain_until"]
+        )
+      end
+
+      # ZERO ROWS, NOT AN EXCEPTION. The losing delivery learns it lost; it does not take the winner with it.
+      expect(second).to eq(0)
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]]).size).to eq(1)
+        SELECT i.id FROM idempotency_records i
+        JOIN crawl_frontier_entries e ON e.id = i.target_id
+        WHERE i.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+      # And the winner's forward link is intact, which is the thing the abort used to destroy.
+      expect(action_row(result.payload[:next_action_id])["status"]).to eq("pending")
+    end
+
+    it "PROOF 11 — the swept-attempt guard matches the reason the sweep actually writes" do
+      # WHY THIS IS THE PROVABLE HALF, and what is not. `sweep_expired` terminalizes a lost attempt as
+      # `timed_out` / retryable / zero-accounted AND releases its reservation, which satisfies every other
+      # resume condition — so `resumable_retry` refuses on the sweep's reason code. Reaching that state
+      # through the driver is NOT possible today: the attempt row is write-once (the guard refuses a
+      # rewrite, verified), the sweep only runs inside `one_attempt`, and with one live chain no pass can
+      # sweep between another's loss and its redelivery. So the refusal itself is untested by construction
+      # and recorded in FU-24, like FU-23's latent guards.
+      #
+      # WHAT IS LOAD-BEARING AND IS TESTED: the guard compares against a constant, and the sweep writes it.
+      # If the sweep's reason ever changed, the guard would silently stop matching and the resume would
+      # spend released bytes. That coupling is what this asserts.
+      ctx = fetchable
+      entry = entries(ctx[:crawl_id]).first
+      swept = Platform::UnitOfWork.run do |conn|
+        raw = conn.raw_connection
+        store = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        gate = gate_row(ctx[:crawl_id])
+        # Claimed far enough in the past that its 300-second lease has already expired.
+        store.claim(id: Platform::Ids.system.generate, now: start_now - 600,
+                    correlation_id: SecureRandom.uuid_v7, causation_id: SecureRandom.uuid_v7,
+                    command_id: nil, organization_id: ctx[:g][:organization_id],
+                    project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+                    crawl_host_gate_id: gate["id"], source_id: entry["source_id"],
+                    frontier_entry_id: entry["id"], kind: "content", attempt_number: 1,
+                    canonical_url: entry["canonical_url"], canonical_host: ctx[:host], depth: 0,
+                    dequeue_key: nil, scope_policy_id: entry["scope_policy_id"],
+                    scope_policy_version: entry["scope_policy_version"], crawl_policy_id: nil,
+                    crawl_policy_version: nil, reserved_bytes: 1024,
+                    claim_owner: Platform::Ids.system.generate, deadline_at: start_now)
+        store.sweep_expired(ctx[:g][:organization_id], ctx[:crawl_id], start_now)
+      end
+
+      expect(swept.size).to eq(1)
+      row = attempts(ctx[:crawl_id]).first
+      expect(row["outcome"]).to eq("timed_out")
+      expect(row["reason_code"])
+        .to eq(IdentityAccess::Infrastructure::FetchAttemptStore::LEASE_EXPIRED_REASON)
+      expect(Platform::PgBool.true?(row["retryable"])).to be(true)
+      expect(row["accounted_response_bytes"].to_i).to eq(0)
+      # And the row is write-once, which is why the state above cannot be fabricated into a resume.
+      expect {
+        DbInspector.connection.exec_params(
+          "UPDATE fetch_attempts SET reason_code = 'other', checkpoint_version = checkpoint_version + 1 WHERE id = $1::uuid",
+          [row["id"]])
+      }.to raise_error(PG::RaiseException, /fetch_attempt_result_frozen/)
     end
   end
 

@@ -114,7 +114,9 @@ module Workflows
       # its own injected clock, so adding the remainder keeps one time base instead of mixing two.
       def host_ready_at(pg, organization_id, crawl_id, candidate, now)
         host = FetchAuthorization.host_of(candidate["canonical_url"])
-        return nil if host.nil?
+        # `host_of` returns "" and never nil for a hostless URL, so a `.nil?` test here was unreachable —
+        # the same defect its twin in the driver had.
+        return nil if host.to_s.empty?
 
         gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
         gate = gates.gate(organization_id, crawl_id, host)

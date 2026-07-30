@@ -10,14 +10,15 @@ module Platform
   # written `... == "t"` was always false on the connection it actually ran on, so a PINNED crawl frontier
   # went on reporting itself DRAINED, which is the very statement the check had just been added to stop.
   #
-  # A wrong boolean read has no failure mode that looks like a failure, so it gets one implementation and
-  # both encodings, rather than four sites each remembering to write `== true || == "t"`.
+  # A wrong boolean read has no failure mode that looks like a failure, so the sites that MUST cross the
+  # two encodings go through one implementation. It is not yet the repository's only such reader: a dozen
+  # pre-existing `truthy`/`== "t"` helpers remain on connections whose encoding never varies, and folding
+  # them in is a separate sweep, not a claim this file gets to make.
   module PgBool
     module_function
 
     TRUE_VALUES = [true, "t", "true", "1"].freeze
 
     def true?(value) = TRUE_VALUES.include?(value)
-    def false?(value) = !value.nil? && !true?(value)
   end
 end

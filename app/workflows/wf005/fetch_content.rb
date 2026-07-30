@@ -102,8 +102,16 @@ module Workflows
       # this worker's clock. `remaining_reserved` is what is still held of the admission's reservation,
       # and nil once nothing is.
       Execution = Data.define(:result, :attempt_number, :completed_at, :remaining_reserved,
-                              :retry_after_ms) do
+                              :retry_after_ms, :performed) do
+        def initialize(performed: false, **) = super
         def retry_owed? = !retry_after_ms.nil?
+        # DID THIS EXECUTION TERMINALIZE AN ATTEMPT OF ITS OWN? False when the host gate refused, when
+        # execution-time authorization refused, and when another delivery had already claimed this attempt
+        # number. The caller must not retire the entry, release the reservation or release the depth seal
+        # on the strength of a pass that decided NOTHING: under one-attempt-per-execution two deliveries of
+        # one action can both be in flight, and the one that made no request was retiring the other one's
+        # entry and handing back the other one's reservation mid-fetch. Demonstrated by review, twice.
+        def performed? = performed
       end
 
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
@@ -156,7 +164,13 @@ module Workflows
         # NAMED EXPLICITLY, never `remaining_reserved:`. Ruby hoists the local being assigned on the left of
         # this very statement, so the shorthand would pass nil — silently dropping the carried reservation
         # and taking a SECOND run-wide one. The accepted S-07-012 (1/n) examples caught it.
-        last, remaining_reserved = one_attempt(context, entry, number, remaining_reserved: reserved_bytes)
+        last, remaining_reserved, performed = one_attempt(context, entry, number,
+                                                          remaining_reserved: reserved_bytes)
+        # A PASS THAT PERFORMED NOTHING DECIDES NOTHING. It carries the reservation back untouched and owes
+        # no retry: the caller re-enters, and the delivery that IS performing this attempt keeps its claim,
+        # its reservation and the depth seal.
+        return execution(last, number, nil, remaining_reserved) unless performed
+
         settled = terminal_attempt(context)
 
         # :444 gives "one initial attempt plus AT MOST TWO RETRIES", so the third attempt owes no delay:
@@ -172,15 +186,15 @@ module Workflows
           # three reviewers. The AMOUNT is belt-and-braces: `release_bytes` floors at
           # `GREATEST(committed_response_bytes, ...)`, so the control is that it releases at all.
           release_and(context, remaining_reserved, nil) if remaining_reserved.to_i.positive?
-          return execution(last, number, settled && settled["completed_at"], nil)
+          return execution(last, number, settled && settled["completed_at"], nil, performed: true)
         end
         execution(last, number, settled && settled["completed_at"], remaining_reserved,
-                  FetchRetryPolicy.delay_ms(number, @last_outcome))
+                  FetchRetryPolicy.delay_ms(number, @last_outcome), performed: true)
       end
 
-      def execution(result, number, completed_at, remaining, retry_after_ms = nil)
+      def execution(result, number, completed_at, remaining, retry_after_ms = nil, performed: false)
         Execution.new(result:, attempt_number: number, completed_at:, remaining_reserved: remaining,
-                      retry_after_ms:)
+                      retry_after_ms:, performed:)
       end
 
       # The row this pass just terminalized, re-read so `completed_at` comes from COMMITTED state. :444
@@ -197,23 +211,28 @@ module Workflows
 
       def one_attempt(context, entry, number, remaining_reserved:)
         if !remaining_reserved.nil? && remaining_reserved <= 0
-          return [limit_discarded(REASONS[:budget_exhausted]), nil]
+          return [limit_discarded(REASONS[:budget_exhausted]), nil, false]
         end
 
         claim = claim_slot(context)
         unless claim&.granted?
           result = deferred(claim)
-          return [release_and(context, remaining_reserved, result), nil] unless remaining_reserved.nil?
+          # A CARRIED RESERVATION IS NOT THIS PASS'S TO HAND BACK. It belongs to the admission that took it,
+          # and another delivery of this same action may be spending it right now: releasing it lowered the
+          # in-flight winner's headroom and made its `commit_bytes` violate `committed <= reserved`, so a
+          # `PG::CheckViolation` escaped the workflow and real bytes that left the platform went unaccounted.
+          # Demonstrated by the concurrency lens. A genuinely lost holder is reclaimed by `sweep_expired`.
+          return [result, remaining_reserved, false] unless remaining_reserved.nil?
 
-          return [result, nil]
+          return [result, nil, false]
         end
 
         begin
           unless authorized?(context)
             result = excluded(REASONS[:unauthorized])
-            return [release_and(context, remaining_reserved, result), nil] unless remaining_reserved.nil?
+            return [result, remaining_reserved, false] unless remaining_reserved.nil?
 
-            return [result, nil]
+            return [result, nil, false]
           end
 
           # SEARCH_CRAWL_RETRIEVAL :82 — "the same attempt identity is completed OR TIMED OUT, never
@@ -229,7 +248,7 @@ module Workflows
           bounds = limits.byte_bounds
           reserved = remaining_reserved
           reserved ||= reserve_bytes(context, bounds)
-          return [limit_discarded(REASONS[:budget_exhausted]), nil] if reserved.nil?
+          return [limit_discarded(REASONS[:budget_exhausted]), nil, false] if reserved.nil?
 
           attempt = claim_attempt(context, entry, number, reserved, bounds)
           # A LOST RACE FOR THIS ATTEMPT NUMBER RELEASES NOTHING WHEN THE RESERVATION WAS CARRIED IN.
@@ -244,9 +263,9 @@ module Workflows
           # precisely that. When this call took its OWN reservation there is no other holder, so it
           # releases as before.
           if attempt.nil?
-            return [excluded(REASONS[:contended]), nil] unless remaining_reserved.nil?
+            return [excluded(REASONS[:contended]), remaining_reserved, false] unless remaining_reserved.nil?
 
-            return [release_and(context, reserved, excluded(REASONS[:contended])), nil]
+            return [release_and(context, reserved, excluded(REASONS[:contended])), nil, false]
           end
 
           perform(context, attempt, reserved, limits, hold_reservation: !remaining_reserved.nil?)
@@ -271,7 +290,7 @@ module Workflows
         release_unused = !hold_reservation || !result.retryable
         settle(context, attempt, reserved, result, outcome, measurement, limits, release_unused:)
         remaining_reserved = hold_reservation && result.retryable ? reserved - measurement&.accounted.to_i : nil
-        [result, remaining_reserved]
+        [result, remaining_reserved, true]
       end
 
       # ---- the fetch -------------------------------------------------------------
@@ -421,9 +440,7 @@ module Workflows
       def deferred(claim)
         Result.new(outcome: LIMIT_DISCARDED, reason_code: REASONS[:gate_deferred], attempt_id: nil,
                    http_status: nil, accounted_bytes: 0, probe_bytes: 0, media_type: nil, body: nil,
-                   final_url: nil, redirect_count: 0, retryable: false).tap do
-          @retry_after_ms = claim&.retry_after_ms
-        end
+                   final_url: nil, redirect_count: 0, retryable: false)
       end
 
       def media_type_of(outcome)
@@ -597,12 +614,42 @@ module Workflows
                                        final_url: result.final_url,
                                        body_sha256: result.body && Digest::SHA256.digest(result.body),
                                        retryable: result.retryable,
-                                       latency_ms: outcome.respond_to?(:latency_ms) ? outcome.latency_ms : nil)
+                                       latency_ms: outcome.respond_to?(:latency_ms) ? outcome.latency_ms : nil,
+                                       # THE ATTEMPT'S OWN COMPLETION, not the pass's start instant. Every
+                                       # other timestamp in this workflow is stamped from the injected clock
+                                       # captured before the pass began, which was harmless while nothing
+                                       # read `completed_at` — and wrong the moment :444's retry instant was
+                                       # measured from it, because a hard-timeout attempt then came due up to
+                                       # a full request timeout EARLY. :444 says "completion of the failed
+                                       # attempt", so the recorded latency is added to make the column mean
+                                       # what its name says. Still derived from committed inputs, so two
+                                       # deliveries computing the retry instant still agree.
+                                       completed_at: completion_instant(context, outcome, limits.byte_bounds))
           raise Platform::InvariantViolation, "fetch attempt terminal decision lost" if moved.to_i.zero?
 
           # The per-URL bounds are observed on the SAME transaction as the attempt they describe.
           observe_fetch_limits(raw, context, attempt, result, outcome, measurement, limits)
         end
+      end
+
+      # WHEN THE ATTEMPT ACTUALLY FINISHED, which is what :444 measures its retry delays from.
+      #
+      # Every other timestamp in this workflow is stamped from the injected clock captured before the pass
+      # began. That was harmless while nothing read `completed_at`, and wrong the moment a persisted `due_at`
+      # was derived from it: the retry came due up to a full request timeout EARLY.
+      #
+      # A TIMED-OUT ATTEMPT RAN TO THE HARD BOUND BY DEFINITION — the rule `observe_request_time` already
+      # states for the same reason — and it reports no latency, so the bound is the honest measure. Every
+      # other outcome reports the latency it took. Both are derived from committed inputs, so two parties
+      # computing the retry instant from the stored row still agree.
+      def completion_instant(context, outcome, bounds)
+        elapsed =
+          if outcome.respond_to?(:kind) && outcome.kind == :timeout
+            bounds.timeout_s
+          else
+            (outcome.respond_to?(:latency_ms) ? outcome.latency_ms.to_i : 0) / 1000.0
+          end
+        context[:now] + elapsed
       end
 
       # The three per-fetch dimensions of the ratified twelve (:425-438).

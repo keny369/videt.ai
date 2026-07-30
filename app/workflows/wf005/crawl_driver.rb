@@ -91,6 +91,9 @@ module Workflows
       # and discarding it would remove a genuinely unfetched in-scope candidate from :452's coverage
       # denominator, making coverage read better than reality.
       ROBOTS_FAIL_CLOSED = "robots_unavailable_fail_closed"
+      # `Admission` refuses in :541's order and reaches the wall clock before it peeks, so it always has a
+      # more precise reason than this. Retained as the fail-closed fallback for a decision that declines
+      # without one, and named for the run rather than for the clock because that is what would be true.
       RUN_NOT_RUNNING = "crawl_not_running"
 
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
@@ -105,7 +108,7 @@ module Workflows
       # — `crawl_id`, `project_id`, `source_id`, `canonical_url` — is frozen for the life of the entry
       # by `f1_crawl_frontier_entries_guard`, so carrying it across the caller's transaction boundary
       # cannot go stale. Everything MUTABLE is re-read here.
-      def advance(organization_id:, entry:, now:)
+      def advance(organization_id:, entry:, now:, due_at: nil)
         crawl_id = entry["crawl_id"]
         crawl = load_crawl(organization_id, crawl_id)
         # The entry's composite foreign key REQUIRES its Crawl, so absence is corruption rather than a
@@ -141,7 +144,7 @@ module Workflows
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
-        admit_or_resume(organization_id, crawl, entry, gate, now)
+        admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
       end
 
       private
@@ -154,7 +157,7 @@ module Workflows
       # attempt numbering and the depth seal are all continuous across :444's retries. `claim_entry`
       # cannot re-admit it (`peek_next` sees only `queued`), so the retry is recognised from COMMITTED
       # STATE instead: the entry's latest attempt is terminal, was retryable, and left the bound unspent.
-      def admit_or_resume(organization_id, crawl, entry, gate, now)
+      def admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
         decision = admission.claim_entry(organization_id:, crawl_id: crawl["id"],
                                          entry_id: entry["id"], now:)
         # ":442 — a lost compare-and-update on the run's byte counter is NOT a limit." The entry was
@@ -164,7 +167,7 @@ module Workflows
         return fetch_and_settle(organization_id, crawl, decision.entry, gate, now,
                                 decision.reserved_bytes) if decision.admitted?
 
-        resumable = resumable_retry(organization_id, crawl, entry)
+        resumable = resumable_retry(organization_id, crawl, entry, due_at)
         return superseded(entry) if resumable.nil?
 
         fetch_and_settle(organization_id, crawl, resumable[:entry], gate, now, resumable[:reserved])
@@ -175,7 +178,7 @@ module Workflows
       # attempt number and outcome say whether :444 owes another try. A NON-terminal latest attempt means
       # a worker is on it right now, and a claimed entry with no attempt at all belongs to a pass that has
       # not reached its fetch — neither is ours to take, and `sweep_expired` reclaims a genuinely lost one.
-      def resumable_retry(organization_id, crawl, entry)
+      def resumable_retry(organization_id, crawl, entry, due_at)
         current, latest = Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
@@ -187,11 +190,38 @@ module Workflows
         return nil unless current && current["state"] == "in_progress"
         return nil unless latest && latest["outcome"] && Platform::PgBool.true?(latest["retryable"])
         return nil unless latest["attempt_number"].to_i < FetchContent::MAX_ATTEMPTS
+        # A SWEPT ATTEMPT IS NOT A RESUMABLE ONE. `sweep_expired` terminalizes a lost attempt as
+        # `timed_out` / `retryable = true` / `accounted = 0` — which satisfies every condition above — AND
+        # has already RELEASED its reservation back to the run. Resuming from it would spend bytes the run
+        # no longer holds, against :442's "concurrent reservations MUST NOT sum above the run-wide maximum".
+        # The reservation's absence is not representable on the row, so the sweep's own reason code is what
+        # distinguishes it; recovering such an entry is FU-22's.
+        return nil if latest["reason_code"] == IdentityAccess::Infrastructure::FetchAttemptStore::LEASE_EXPIRED_REASON
+        # THE RESUME BELONGS TO THE STAGE IT WAS SCHEDULED FOR. Without this, two deliveries in flight
+        # between one pass's settle and its terminal transaction both qualify, then compute DIFFERENT
+        # attempt numbers and fetch one URL concurrently on one reservation — which the attempt identity's
+        # `ON CONFLICT` cannot catch, because the numbers differ. The action's own `due_at` is :444's instant
+        # for exactly one attempt, so requiring them to agree admits exactly one delivery per stage.
+        return nil unless due_at && stage_instant(latest) == due_at.getutc
 
+        # `reserved_bytes` minus what was accounted, and ZERO IS LEGITIMATE: a retryable response whose body
+        # exactly filled the reservation owes a retry that `one_attempt` will refuse for budget, honestly,
+        # rather than being silently converted into a superseded pass that stops the chain.
         remaining = latest["reserved_bytes"].to_i - latest["accounted_response_bytes"].to_i
-        return nil unless remaining.positive?
+        return nil if remaining.negative?
 
-        { entry: current.merge("state_version" => current["state_version"]), reserved: remaining }
+        { entry: current, reserved: remaining }
+      end
+
+      # :444's instant for the attempt just completed — the same expression `retry_due_at` uses, so the
+      # scheduled action and the resume that answers it are derived from one rule rather than two.
+      def stage_instant(attempt)
+        completed = attempt["completed_at"]
+        return nil if completed.nil?
+
+        delay = FetchRetryPolicy::DELAYS_S.fetch(attempt["attempt_number"].to_i,
+                                                 FetchRetryPolicy::DELAYS_S.values.last)
+        Time.parse(completed.to_s).utc + delay
       end
 
       # THE FETCH, AND WHAT ITS OUTCOME OWES. Exactly one attempt, then one of two dispositions:
@@ -210,6 +240,18 @@ module Workflows
         execution = fetch_content.call(organization_id:, crawl_id: crawl["id"], entry:,
                                        gate_id: gate["id"], now:, reserved_bytes:)
         result = execution.result
+
+        # A PASS THAT PERFORMED NO ATTEMPT DISPOSES OF NOTHING. The host gate refused, or execution-time
+        # authorization refused, or another delivery had already claimed this attempt number — in each case
+        # this pass made no request and decided nothing, so retiring the entry and releasing the reservation
+        # would be taking apart work another delivery is doing. Two reviewers demonstrated both halves of
+        # that: a `PG::CheckViolation` escaping the workflow when the winner's headroom was handed back
+        # mid-fetch, and an entry retired after 2 of 3 attempts by the pass that fetched nothing.
+        unless execution.performed?
+          return deferred(result.reason_code || HOST_PACED, entry:,
+                          at: host_ready_at(organization_id, gate, now))
+        end
+
         retry_at = retry_due_at(execution, crawl)
         if retry_at
           return Pass.new(outcome: RETRYING, reason_code: result.reason_code, entry:, fetch: result,
@@ -404,16 +446,14 @@ module Workflows
         @fetch_content ||= FetchContent.new(outbound: @outbound, ids: @ids, correlation_id: @correlation_id)
       end
 
-      # `pacer` is how the in-process :444 waits are taken. It is injectable for the same reason
-      # `FetchContent` and `DiscoverSitemaps` make it injectable — so a test can simulate elapsed time
-      # instead of spending it — and omitted in production, where each service uses its own default.
+      # `pacer` is how `DiscoverSitemaps` takes its in-traversal waits; it is injectable so a test can
+      # simulate elapsed time instead of spending it, and omitted in production. `FetchContent` has none:
+      # since ADR-089 nothing on the fetch path waits.
       def service(klass)
         args = { outbound: @outbound, ids: @ids, correlation_id: @correlation_id }
         args[:pacer] = @pacer if @pacer
         klass.new(**args)
       end
-
-      def instant(value) = value && Time.parse(value.to_s).utc
 
       def deferred(reason, entry:, at:)
         Pass.new(outcome: DEFERRED, reason_code: reason, entry:, fetch: nil, reenter_at: at)
