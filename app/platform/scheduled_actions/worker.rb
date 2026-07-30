@@ -98,9 +98,25 @@ module Platform
         end
       end
 
+      # A delivery that CONFIRMED it lost its lease did no product work and has no standing to terminalize
+      # the action. Releasing the claim is :297's ratified recovery — "release the transport claim and
+      # recompute the same product attempt identity" — and it is fenced on owner and generation, so a
+      # genuinely transferred action matches zero rows while a lapsed-but-unswept one correctly returns to
+      # `pending`.
+      #
+      # THIS WAS A REAL DEFECT AND ITS ABSENCE WAS RECORDED AS A FEATURE. ADR-091 asserted "the action is
+      # not settled either, and need not be — a stale worker's settle matches zero rows". False:
+      # `f1_settle_scheduled_action` carries NO lease predicate, so in the window between the lease lapsing
+      # and the sweep running, the row is still `dispatched` under this owner and generation and the settle
+      # MATCHES. A relinquished delivery therefore completed the action having done nothing, with no
+      # attempt, no ledger and no successor, and the crawl hung `running`.
+      LEASE_LOST_REASON = "scheduled_action_lease_lost"
+
       def run_handler(action, entry, correlation_id:, causation_id:)
         result = invoke(action, entry, correlation_id:, causation_id:)
-        if result.failure? && QUARANTINE_REASONS.include?(result.reason_code)
+        if result.failure? && result.reason_code == LEASE_LOST_REASON
+          release(action, LEASE_LOST_REASON)
+        elsif result.failure? && QUARANTINE_REASONS.include?(result.reason_code)
           quarantine(action, result.reason_code, result:)
         else
           settle(action, "completed", result.reason_code, result:)
@@ -164,13 +180,13 @@ module Platform
         outcome(action, status.to_sym, reason, result:)
       end
 
-      def release(action, reason, error:)
+      def release(action, reason, error: nil)
         TransportConnection.with do |pg|
           Store.new(pg).release_claim(
             action_id: action.id, owner:, generation: action.claim_generation, reason:
           )
         end
-        outcome(action, :released, reason, error: error.class.name)
+        outcome(action, :released, reason, error: error&.class&.name)
       end
 
       def outcome(action, disposition, reason, result: nil, error: nil)

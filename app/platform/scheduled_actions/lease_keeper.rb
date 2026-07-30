@@ -36,10 +36,14 @@ module Platform
     #     the total slept is exactly what the caller asked for, computed against a monotonic deadline so
     #     that wake-ups neither shorten nor lengthen it.
     class LeaseKeeper
-      # Renew at roughly a third of the lease, so two consecutive renewals may fail before the lease is at
-      # risk. Deterministic, and expressed as a fraction of the lease it protects rather than as a second
-      # constant that could drift away from it.
+      # :288, RATIFIED AND NOT INVENTED: "Heartbeat interval is one third of the lease duration, rounded
+      # down to whole seconds and bounded from 5 through 30 seconds." A third means two consecutive
+      # renewals may fail before the lease is at risk; the floor keeps a short lease from producing a
+      # renewal storm, and the ceiling keeps a long one from leaving a wide unguarded gap. This originally
+      # implemented only the fraction, which is the sort of near-miss that reads as compliance.
       RENEWAL_FRACTION = 3
+      MIN_INTERVAL_SECONDS = 5
+      MAX_INTERVAL_SECONDS = 30
 
       HELD = :held
       LOST = :lost
@@ -67,8 +71,10 @@ module Platform
       def owned? = @state == HELD
       def lost? = @state == LOST
 
-      # The renewal interval in seconds. A lease of 30 renews every 10.
-      def interval = [lease_seconds.to_f / RENEWAL_FRACTION, 1.0].max
+      # :288's interval, in whole seconds. A lease of 30 renews every 10.
+      def interval
+        (lease_seconds.to_i / RENEWAL_FRACTION).floor.clamp(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
+      end
 
       # Renew IF the interval has elapsed. Cheap and safe to call at every boundary — the elapsed-time test
       # is what makes the write rate independent of how often callers ask.

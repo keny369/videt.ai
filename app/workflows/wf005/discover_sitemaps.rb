@@ -378,6 +378,10 @@ module Workflows
       end
 
       def fetch(url)
+        # RENEW WHERE TIME IS SPENT (F-04 FU-24). The traversal only PACES on a gate deferral or a retry, so
+        # a run of candidates that each answer slowly reaches no other boundary — two successful documents
+        # at the hard timeout already exceed a 30-second lease. A no-op without a lease.
+        Platform::ScheduledActions::Lease.renew_if_due
         @outbound.fetch(url, timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
                         max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)
       rescue StandardError
@@ -762,7 +766,8 @@ module Workflows
             last = attempt
             return attempt unless attempt.retryable
 
-            @service.pace(FetchRetryPolicy.delay_ms(index + 1, attempt.outcome))
+            break if @service.pace(FetchRetryPolicy.delay_ms(index + 1, attempt.outcome)) ==
+                     Platform::ScheduledActions::LeaseKeeper::LOST
           end
           last
         end
@@ -778,7 +783,12 @@ module Workflows
             # Wait the length the GATE reports, not a fixed constant: the interval is
             # max(base, robots Crawl-delay, ...), so pacing a `Crawl-delay: 10` host in 250 ms
             # increments merely burned the budget on a host that was perfectly reachable.
-            @service.pace(attempt.last)
+            #
+            # A CONFIRMED LEASE TRANSFER ENDS THE TRAVERSAL. The lease-aware pacer reports it, and
+            # discarding that report meant a delivery kept issuing requests after the database had told it
+            # the action belonged to someone else — with :444's interval collapsed to zero, because the
+            # wait returns immediately once ownership is gone.
+            break if @service.pace(attempt.last) == Platform::ScheduledActions::LeaseKeeper::LOST
           end
           DiscoverSitemaps::DEFERRED
         end

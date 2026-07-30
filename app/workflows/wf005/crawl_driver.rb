@@ -146,12 +146,15 @@ module Workflows
         # clock lagging the database by more than the floor makes the re-entry instant a FIXED POINT, and
         # because the ScheduledAction identity includes `due_at` the next link would REPLAY the action
         # that just ran instead of being created — and the chain would stop.
+        # BEFORE ANY DISPOSITION, not merely before the fetch. A `deferred` pass writes a ledger row and
+        # MINTS A FORWARD ACTION, so a delivery that has already lost its lease was creating a duplicate
+        # `crawl_fetch_due` and the idempotency record the winner would later collide with. Both were
+        # demonstrated. Ownership is decided once here, above every return below it.
+        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
+
         ready = host_ready_at(organization_id, gate, now)
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
-        # THE LAST BOUNDARY BEFORE ANYTHING IRREVERSIBLE. Past here the pass claims a frontier entry,
-        # reserves bytes and sends a request; a delivery whose ownership has moved must do none of them.
-        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
 
         admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
       end

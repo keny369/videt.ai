@@ -287,6 +287,125 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
     end
   end
 
+  describe "the guard ASKS, and a lost lease releases rather than completes" do
+    it "PROOF 9 — `Lease.owned?` is authoritative: a swept action is reported lost, not remembered as held" do
+      # THE DEFECT THIS CLOSES. `owned?` read a cached flag, so a pass whose lease had already lapsed and
+      # been swept saw `true` at every guard because nothing had asked the database. Found by review, which
+      # demonstrated a delivery fetching and writing after the sweep had taken its action.
+      action = dispatched_action
+      keeper = keeper_for(action)
+      # The cadence must be due, or an authoritative guard would still be answering from its last renewal.
+      keeper.instance_variable_set(:@renewed_at, keeper.send(:monotonic) - (keeper.interval * 2))
+      expire_lease(action[:id])
+      expect(Platform::ScheduledActions::TransportConnection.with { |pg|
+        Platform::ScheduledActions::Store.new(pg).release_expired_leases(limit: 10)
+      }).to eq(1)
+
+      Platform::ScheduledActions::Lease.with(keeper) do
+        expect(Platform::ScheduledActions::Lease.owned?).to be(false)
+      end
+    end
+
+    it "asks at most once per interval, so an authoritative guard is still not a poll" do
+      action = dispatched_action
+      keeper = keeper_for(action)
+      before = action_row(action[:id])["state_version"].to_i
+
+      Platform::ScheduledActions::Lease.with(keeper) do
+        200.times { expect(Platform::ScheduledActions::Lease.owned?).to be(true) }
+      end
+
+      expect(action_row(action[:id])["state_version"].to_i).to eq(before)
+    end
+
+    it "PROOF 10 — a lease-lost delivery RELEASES the claim; it never completes the action" do
+      # `f1_settle_scheduled_action` carries NO lease predicate, so in the window between a lease lapsing
+      # and the sweep running the row is still `dispatched` under this owner and a settle MATCHES. ADR-091
+      # asserted the opposite. A relinquished delivery therefore completed an action having done nothing,
+      # with no attempt, no ledger and no successor.
+      action = dispatched_action
+      # The settle a stale worker WOULD have issued does match, which is why the Worker must not issue it.
+      settled = Platform::ScheduledActions::TransportConnection.with do |pg|
+        Platform::ScheduledActions::Store.new(pg).settle(
+          action_id: action[:id], owner: action[:owner], generation: action[:generation],
+          status: "completed", reason: nil
+        )
+      end
+      expect(settled).to be(true)
+
+      # The release the Worker now issues instead returns the action to `pending` for recomputation (:297).
+      other = dispatched_action
+      released = Platform::ScheduledActions::TransportConnection.with do |pg|
+        Platform::ScheduledActions::Store.new(pg).release_claim(
+          action_id: other[:id], owner: other[:owner], generation: other[:generation],
+          reason: Platform::ScheduledActions::Worker::LEASE_LOST_REASON
+        )
+      end
+      expect(released).to be(true)
+      row = action_row(other[:id])
+      expect(row["status"]).to eq("pending")
+      expect(row["claim_owner"]).to be_nil
+      expect(row["reason"]).to eq("scheduled_action_lease_lost")
+    end
+  end
+
+  describe "the Worker's disposition for a lease-lost delivery" do
+    it "PROOF 11 — releases the claim, and never settles the action completed" do
+      # The action, the transport and the release are REAL; only the handler is stood in for, because the
+      # property under test is the Worker's branch on a lease-lost result rather than any product logic.
+      #
+      # This is the defect ADR-091 recorded as impossible: it claimed "a stale worker's settle matches zero
+      # rows". `f1_settle_scheduled_action` has NO lease predicate, so in the window between a lease lapsing
+      # and the sweep running the row is still `dispatched` under this owner and the settle MATCHES — the
+      # action was completed having done nothing, with no attempt, no ledger and no successor.
+      action = dispatched_action
+      failure = Platform::CommandResult.failure(
+        result_id: SecureRandom.uuid_v7, command_type: "wf005.record_fetch_attempt",
+        failure: Platform::Failure.new(
+          error_class: "conflict", error_code: Platform::ScheduledActions::Worker::LEASE_LOST_REASON,
+          reason_code: Platform::ScheduledActions::Worker::LEASE_LOST_REASON, severity: "warning",
+          retryable: true, recovery_action: "retry", support_reference: SecureRandom.uuid_v7
+        ),
+        audit_record_id: SecureRandom.uuid_v7, correlation_id: SecureRandom.uuid_v7
+      )
+      handler = Class.new { define_method(:call) { |**| failure } }
+      handler.define_method(:call) { |**| failure }
+      entry = Struct.new(:handler, :command).new(handler, Struct.new(:x).new(nil))
+      worker = Platform::ScheduledActions::Worker.new(owner: action[:owner])
+      allow(worker).to receive(:invoke).and_return(failure)
+      claimed = Struct.new(:id, :action_kind, :claim_generation, :executing_service_identity_id)
+                      .new(action[:id], "session_expire", action[:generation],
+                           Platform::ServiceIdentity.scheduled_action_executor)
+
+      outcome = worker.send(:run_handler, claimed, entry, correlation_id: SecureRandom.uuid_v7,
+                                                          causation_id: SecureRandom.uuid_v7)
+
+      expect(outcome.disposition).to eq(:released)
+      row = action_row(action[:id])
+      # :297's recovery — the same product attempt identity is recomputed — not a terminal completion.
+      expect(row["status"]).to eq("pending")
+      expect(row["completed_at"]).to be_nil
+      expect(row["claim_owner"]).to be_nil
+      expect(row["reason"]).to eq("scheduled_action_lease_lost")
+    end
+  end
+
+  describe ":288's ratified interval" do
+    it "is a third of the lease, floored to whole seconds and bounded from 5 through 30" do
+      # Ratified, not invented: ":288 Heartbeat interval is one third of the lease duration, rounded down to
+      # whole seconds and bounded from 5 through 30 seconds." The first implementation had the fraction and
+      # neither bound, which reads as compliance without being it.
+      action = dispatched_action
+      expect(keeper_for(action).interval).to eq(10)
+      { 3 => 5, 30 => 10, 90 => 30, 900 => 30, 20 => 6 }.each do |lease, expected|
+        keeper = described_class.new(action_id: action[:id], owner: action[:owner],
+                                     generation: action[:generation], lease_seconds: lease)
+        expect(keeper.interval).to eq(expected), "lease #{lease} gave #{keeper.interval}"
+        expect(keeper.interval).to eq(keeper.interval.floor)
+      end
+    end
+  end
+
   describe "the lease-aware execution context" do
     it "is absent outside a worker delivery, so a direct caller is never blocked by it" do
       expect(Platform::ScheduledActions::Lease.current).to be_nil

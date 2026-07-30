@@ -25,9 +25,23 @@ module Platform
         Thread.current[KEY] = previous
       end
 
-      # Does this delivery still own its action? True when there is no lease to keep, so a direct caller is
-      # never blocked by infrastructure that does not apply to it.
-      def owned? = current.nil? || current.owned?
+      # DOES THIS DELIVERY STILL OWN ITS ACTION? Authoritative: it renews if the cadence is due and then
+      # answers, so the answer is never older than one interval.
+      #
+      # It used to read a cached flag, and that was the defect at the heart of the first heartbeat: a pass
+      # whose lease had already lapsed and been swept still saw `true` at every guard, because nothing had
+      # asked the database. Elapsed-time cadence is what keeps this cheap — asking at every boundary does
+      # not write at every boundary — so the guard can be authoritative without becoming a poll.
+      #
+      # True when there is no lease to keep, so a direct caller is never blocked by infrastructure that
+      # does not apply to it.
+      def owned?
+        keeper = current
+        return true if keeper.nil?
+
+        keeper.renew_if_due
+        keeper.owned?
+      end
 
       # Renew if the cadence is due. A no-op without a lease.
       def renew_if_due = current&.renew_if_due

@@ -130,6 +130,11 @@ module Workflows
       end
 
       def fetch(canonical_host)
+        # RENEW WHERE TIME IS SPENT (F-04 FU-24). This request is bounded at the hard request timeout and
+        # nothing else on the robots path waits, so without a boundary here a pass could spend the whole
+        # lease on one call and never reach a renewal. Infrastructure, not workflow logic: a no-op when
+        # there is no lease, which is every caller that is not a worker delivery.
+        Platform::ScheduledActions::Lease.renew_if_due
         @outbound.fetch("https://#{canonical_host}#{ROBOTS_PATH}",
                         timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
                         max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)

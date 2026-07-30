@@ -107,6 +107,29 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
 
   def first_action(ctx, at: start_now) = action_row(link_first(ctx, at:)[:action_id])
 
+  # Take an action through the real scheduler-to-worker handoff and return a keeper for the resulting
+  # lease, which is the state every worker delivery actually runs in.
+  def keeper_for_dispatched(action)
+    Platform::ScheduledActions::TransportConnection.with do |pg|
+      store = Platform::ScheduledActions::Store.new(pg)
+      claimed = store.claim_due(owner: SecureRandom.uuid_v7, limit: 50,
+                                lease_seconds: Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS)
+                     .find { |a| a.id == action["id"] }
+      raise "action was not claimed" if claimed.nil?
+
+      worker_owner = SecureRandom.uuid_v7
+      dispatched = store.dispatch(work_id: claimed.work_id, expected_generation: claimed.claim_generation,
+                                  worker_owner:,
+                                  lease_seconds: Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS)
+      raise "action was not dispatched" if dispatched.nil?
+
+      Platform::ScheduledActions::LeaseKeeper.new(
+        action_id: dispatched.id, owner: worker_owner, generation: dispatched.claim_generation,
+        lease_seconds: Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+      )
+    end
+  end
+
   def in_frontier_of(ctx)
     Platform::UnitOfWork.run do |conn|
       store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
@@ -920,6 +943,124 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
         JOIN crawl_frontier_entries e ON e.id = ce.target_id
         WHERE ce.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
       SQL
+    end
+
+    it "PROOF 14 — a pass that loses its lease mid-flight mints NO forward action and NO ledger row" do
+      # Both `deferred` returns used to precede the ownership guard, so a delivery that had already lost its
+      # lease still wrote a full ledger set and MINTED A DUPLICATE `crawl_fetch_due` — including the
+      # idempotency record the winning delivery would later collide with. Demonstrated by review.
+      ctx = gated
+      action = first_action(ctx)
+      lost = Platform::ScheduledActions::LeaseKeeper.new(
+        action_id: action["id"], owner: SecureRandom.uuid_v7, generation: 0,
+        lease_seconds: Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+      )
+      # The cadence is due, so the authoritative guard genuinely asks the database rather than answering
+      # from the keeper's construction.
+      lost.instance_variable_set(:@renewed_at, lost.send(:monotonic) - 1_000)
+
+      # Robots resolves, then the pass reaches the ownership boundary — which is now ABOVE every disposition.
+      result = Platform::ScheduledActions::Lease.with(lost) do
+        execute(ctx, action, outbound_by_path("/robots.txt" => robots_allow, "/sitemap.xml" => sitemap_missing))
+      end
+
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("scheduled_action_lease_lost")
+      # NO forward action beyond the one that started the pass, and NO ledger row for this entry.
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(1)
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]])).to be_empty
+        SELECT e.id FROM command_executions ce
+        JOIN crawl_frontier_entries e ON e.id = ce.target_id
+        WHERE ce.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]])).to be_empty
+        SELECT i.id FROM idempotency_records i
+        JOIN crawl_frontier_entries e ON e.id = i.target_id
+        WHERE i.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+    end
+
+    it "PROOF 15 — the lease is renewed BEFORE each bounded request, not only where the code waits" do
+      # The first heartbeat had exactly two renewal sites — between redirect hops, and the sitemap pacer —
+      # and an ordinary pass reached NEITHER: robots and a first sitemap candidate are two bounded requests
+      # with no wait between them, so 30 seconds could elapse with zero renewals. Measured then: 2 requests,
+      # 0 heartbeat writes. The property is that a renewal boundary PRECEDES the request that spends the
+      # time, which is asserted here from inside the request itself.
+      ctx = gated
+      action = first_action(ctx)
+      # Claimed and dispatched through the REAL transport, so the keeper holds a lease that genuinely
+      # renews — the same state a worker delivery runs in.
+      keeper = keeper_for_dispatched(action)
+      keeper.instance_variable_set(:@renewed_at, keeper.send(:monotonic) - 1_000)
+      heartbeat_at_request = {}
+      # Hoisted into locals: inside `define_singleton_method` the receiver is the stub, so calling an
+      # example helper there raises — and `EnsureRobots#fetch` rescues any error as a RETRYABLE transport
+      # failure, which would silently turn a broken stub into a passing-looking deferral.
+      responses = { "/robots.txt" => robots_allow, "/sitemap.xml" => sitemap_missing }
+      action_id = action["id"]
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **_kwargs|
+          path = URI.parse(url.to_s).path
+          heartbeat_at_request[path] =
+            DbInspector.one("SELECT last_heartbeat_at FROM scheduled_actions WHERE id = $1::uuid",
+                            [action_id])["last_heartbeat_at"]
+          responses.fetch(path)
+        end
+      end
+
+      Platform::ScheduledActions::Lease.with(keeper) { execute(ctx, action, outbound) }
+
+      # AT THE MOMENT THE ROBOTS REQUEST WAS ISSUED the heartbeat had already been written — the boundary
+      # precedes the request rather than following it. One renewal covers both requests, which is the
+      # bounded cadence doing its job: more boundaries do not mean more writes.
+      expect(heartbeat_at_request["/robots.txt"]).not_to be_nil
+      expect(heartbeat_at_request.keys).to eq(["/robots.txt", "/sitemap.xml"])
+    end
+
+    it "PROOF 16 — losing the lease DURING discovery mints no action and writes no ledger" do
+      # The guard used to sit BELOW both `deferred` returns, so a delivery that lost its lease during the
+      # sitemap traversal still took a disposition: it wrote a full ledger set and minted a duplicate
+      # `crawl_fetch_due`, including the idempotency record the winner would later collide with.
+      # Demonstrated by review. Here the loss happens mid-pass, after the ownership guard has already
+      # passed once — which is the interleaving the earlier example could not reach.
+      ctx = gated
+      action = first_action(ctx)
+      keeper = keeper_for_dispatched(action)
+      action_id = action["id"]
+      sweeper = lambda do
+        DbInspector.connection.exec_params(
+          "UPDATE scheduled_actions SET lease_expires_at = now() - interval '1 second',
+             state_version = state_version + 1 WHERE id = $1::uuid", [action_id])
+        Platform::ScheduledActions::TransportConnection.with do |pg|
+          Platform::ScheduledActions::Store.new(pg).release_expired_leases(limit: 10)
+        end
+      end
+      responses = { "/robots.txt" => robots_allow, "/sitemap.xml" => sitemap_missing }
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **_kwargs|
+          path = URI.parse(url.to_s).path
+          # The lease lapses and is swept WHILE the sitemap request is in flight, and the keeper's cadence
+          # is forced due so the next guard genuinely asks.
+          if path == "/sitemap.xml"
+            sweeper.call
+            keeper.instance_variable_set(:@renewed_at, keeper.send(:monotonic) - 1_000)
+          end
+          responses.fetch(path)
+        end
+      end
+
+      result = Platform::ScheduledActions::Lease.with(keeper) { execute(ctx, action, outbound) }
+
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("scheduled_action_lease_lost")
+      # NOTHING DURABLE from a delivery that no longer owns the action.
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(1)
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]])).to be_empty
+        SELECT e.id FROM command_executions ce
+        JOIN crawl_frontier_entries e ON e.id = ce.target_id
+        WHERE ce.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+      expect(attempts(ctx[:crawl_id])).to be_empty
     end
 
     it "does not interfere when there is no lease, which is every non-worker caller" do
