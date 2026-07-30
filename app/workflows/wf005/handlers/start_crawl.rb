@@ -289,6 +289,42 @@ module Workflows
           )
           raise LostRace if seeded.admitted.zero?
 
+          # THE FIRST HANDOFF (S-07-012; DECISIONS ADR-085, owner ruling on FU-16). :138 makes
+          # `crawl_fetch_due` carry "one selected persisted fetch attempt, INCLUDING AN IMMEDIATE FIRST
+          # ATTEMPT", and until now that first link did not exist: the accepted start seeded the
+          # frontier and scheduled nothing, so no run ever advanced.
+          #
+          # It is SELECTION ONLY. The action names the frontier entry `peek_next` selects under the
+          # frontier's own advisory lock, and nothing else happens here: no attempt row, no byte
+          # reservation, no `queued -> in_progress` claim. ADMISSION HAPPENS AT EXECUTION, which is what
+          # keeps this commit's accepted shape intact — the root entry is still `queued` and this path
+          # is still outbound-silent — and what keeps the fetch path the sole producer of
+          # `fetch_attempts`. The alternative was built and withdrawn: pre-admitting here holds a
+          # reservation and an `in_progress` entry across the whole scheduling latency, makes StartCrawl
+          # a second producer, and (because `FetchContent`'s own loop would then start at attempt #2)
+          # silently costs :444 one of its two proven retries.
+          #
+          # In the SAME transaction as the `queued -> running` transition, deliberately: :378 has each
+          # link created by the terminal transaction of the step before it, so a rolled-back start
+          # leaves no link to claim and an accepted start cannot commit without one.
+          handoff = Wf005::CrawlFetchDueSchedule.link_next(
+            pg: d[:pg], organization_id: org, project_id: pid, crawl_id: crawl["id"], now:,
+            correlation_id: ctx.correlation_id, command_id: command.command_id
+          )
+          # FAIL CLOSED IF THE SELECTION COMES BACK EMPTY, because a start that committed without its
+          # first link would leave a `running` Crawl that nothing can advance — the exact condition this
+          # tranche exists to remove.
+          #
+          # Not merely defensive: the window is a READ COMMITTED visibility race INSIDE this
+          # transaction. `active_pinned_sources` was read at the gate, and `peek_next` re-reads
+          # `sources.state = 'active'` for itself, so a `DisableSource` that commits between the two is
+          # invisible to the first and visible to the second. NO FIXTURE REACHES IT — reproducing it
+          # needs a second connection committing between two statements of one transaction — so this is
+          # recorded as an uncovered guard rather than claimed as tested coverage. What IS proven is that
+          # the empty selection is producible: `CrawlFetchDueSchedule.link_next` returns `{}` on a
+          # frontier with nothing selectable, asserted in the run-driver spec's drained-frontier example.
+          raise LostRace if handoff[:entry_id].nil?
+
           payload = {
             "crawl_id" => crawl["id"], "organization_id" => org, "project_id" => pid, "state" => "running",
             "evaluation_id" => ids[:evaluation], "evaluation_kind" => EVALUATION_KIND, "evaluation_state" => "pending",
@@ -298,7 +334,10 @@ module Workflows
             "entitlement_decision" => decision.decision,
             "frontier_root_count" => seeded.admitted,
             "pinned_source_count" => seeded.pinned_total,
-            "excluded_inactive_source_count" => seeded.excluded_inactive
+            "excluded_inactive_source_count" => seeded.excluded_inactive,
+            "first_fetch_frontier_entry_id" => handoff[:entry_id],
+            "first_fetch_action_id" => handoff[:action_id],
+            "first_fetch_due_at_utc" => handoff[:due_at]&.getutc&.iso8601(6)
           }
           # WF-005 Audit and Observability requires "all policy versions AND effective limits". The
           # resolved bounds are a per-dimension minimum that no single policy version labels, so the

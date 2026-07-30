@@ -116,13 +116,14 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
   # An Organization with an ACTIVE Project carrying `sources` active Sources, and one queued Crawl.
   def queued(sources: 1)
     g = bootstrap
-    sources.times { |i| activate_source(g, tap_verified(g, "https://shop#{i}.acme.example")) }
+    ids = Array.new(sources) { |i| tap_verified(g, "https://shop#{i}.acme.example") }
+    ids.each { |sid| activate_source(g, sid) }
     raise "activation failed" unless activate_project(g).success?
 
     result = queue_crawl(g)
     raise "queue failed" unless result.success?
 
-    { g:, crawl_id: result.payload[:crawl_id] }
+    { g:, crawl_id: result.payload[:crawl_id], source_ids: ids }
   end
 
   def tap_verified(g, uri)
@@ -363,6 +364,46 @@ RSpec.describe "WF-005 start crawl", type: :acceptance,
       expect(entries.first["state"]).to eq("queued")
       expect(DbInspector.all("SELECT id FROM fetch_attempts WHERE crawl_id = $1::uuid", [q[:crawl_id]])).to be_empty
       expect(DbInspector.all("SELECT id FROM crawl_budget_counters WHERE crawl_id = $1::uuid", [q[:crawl_id]])).to be_empty
+    end
+
+    it "hands off the FIRST crawl_fetch_due against the selected root, in the same commit" do
+      # :138 — `crawl_fetch_due` carries "one selected persisted fetch attempt, INCLUDING AN IMMEDIATE
+      # FIRST ATTEMPT". S-07-012 supplies that first link; before it, an accepted start seeded the
+      # frontier and scheduled nothing, so no run ever advanced.
+      #
+      # DECISIONS ADR-085 (owner ruling on FU-16): the action names the SELECTED FRONTIER ENTRY and
+      # admission happens at execution. That is exactly why the example above still holds — no attempt
+      # row, no reservation, no claim — and why the fetch path remains the sole producer of attempts.
+      q = queued
+      result = start(q[:crawl_id])
+      expect(result.success?).to be(true)
+
+      root = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id = $1::uuid", [q[:crawl_id]])
+      action = DbInspector.one(
+        "SELECT * FROM scheduled_actions WHERE action_kind = 'crawl_fetch_due' AND target_id = $1::uuid",
+        [root["id"]])
+      expect(action).to be_present
+      expect(action["target_type"]).to eq("crawl_frontier_entry")
+      expect(action["status"]).to eq("pending")
+      expect(action["organization_id"]).to eq(q[:g][:organization_id])
+      expect(action["project_id"]).to eq(q[:g][:project_id])
+      expect(Time.parse(action["due_at"]).getutc).to eq(start_now)
+      expect(result.payload[:first_fetch_frontier_entry_id]).to eq(root["id"])
+      expect(result.payload[:first_fetch_action_id]).to eq(action["id"])
+      # The link is the run's ONLY forward edge: exactly one, naming the root that was selected.
+      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE action_kind = 'crawl_fetch_due'").size).to eq(1)
+    end
+
+    it "rolls the first handoff back with a start that is refused" do
+      # :378 has each link created by the terminal transaction of the step before it, so a start that
+      # does not commit leaves nothing to claim. Asserted through a REAL refusal — the Source is
+      # disabled between queueing and execution, which fails the accepted-start gate.
+      q = queued
+      expect(disable_source(q[:g], q[:source_ids].first).success?).to be(true)
+
+      expect(start(q[:crawl_id]).failure.reason_code).to eq("crawl_no_active_source")
+      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE action_kind = 'crawl_fetch_due'")).to be_empty
+      expect(DbInspector.all("SELECT id FROM crawl_frontier_entries WHERE crawl_id = $1::uuid", [q[:crawl_id]])).to be_empty
     end
   end
 
