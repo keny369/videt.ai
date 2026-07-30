@@ -41,6 +41,20 @@ module Platform
       # (BACKGROUND_PROCESSING.md :245).
       QUARANTINE_REASONS = %w[scheduled_action_target_mismatch scheduled_action_not_due].freeze
 
+      # THE LEASE THIS WORKER REQUESTS, WHICH IS NOT THE LEASE IT GETS (ADR-095).
+      #
+      # :288 derives the actual duration inside the transport function, from the row's immutable
+      # `product_attempt_deadline` and `transaction_timestamp()`, floored at 60 seconds and capped
+      # absolutely at 15 minutes. This constant is only the caller's FLOOR: it cannot shorten a derived
+      # lease and cannot buy one past the cap. A `crawl_fetch_due` bound to a 60-minute run takes the cap;
+      # a kind that stamps no deadline takes the floor.
+      #
+      # IT IS ALSO STILL WHAT `LeaseKeeper` DIVIDES FOR ITS CADENCE, which is a known and deliberate
+      # residue rather than an oversight — see FU-29. :288 ties the heartbeat interval to the LEASE
+      # DURATION, and the worker cannot learn that without `f1_dispatch_scheduled_action` returning it,
+      # which is a signature change to a frozen transport function. Dividing 30 yields a 10-second
+      # interval against a lease of at least 60, so the worker renews MORE often than :288 requires,
+      # never less. That direction is safe, which is why FU-29 is sequenced rather than rushed.
       WORKER_LEASE_SECONDS = 30
 
       attr_reader :owner, :scheduler

@@ -21,8 +21,15 @@ module Platform
     #
     # `claim_owner` is a random process-instance UUID per WORK-CLAIM (:281).
     class Scheduler
-      # The ratified poll bound and claim lease (:114 "at most 100 eligible rows",
-      # :115 "a 30-second claim lease").
+      # The ratified poll bound (:114 "at most 100 eligible rows") and the claim
+      # lease this scheduler REQUESTS (:115 "a 30-second claim lease").
+      #
+      # CORRECTED BY ADR-095: the request is a FLOOR, not the lease. :288 derives
+      # the actual duration in the transport function from the row's immutable
+      # `product_attempt_deadline`, under a 60-second floor and an absolute
+      # 15-minute cap, so this constant can only raise a lease and never lower or
+      # extend one past the cap. Today it is dominated by the floor and therefore
+      # inert; it is kept so the contract does not silently narrow.
       BATCH_LIMIT = 100
       CLAIM_LEASE_SECONDS = 30
 

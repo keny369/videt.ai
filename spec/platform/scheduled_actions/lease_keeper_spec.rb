@@ -5,10 +5,17 @@ require "ipaddr"
 
 # F-04 (FU-24, DECISIONS ADR-091) — THE FENCED SCHEDULED-ACTION LEASE HEARTBEAT.
 #
-# `WORKER_LEASE_SECONDS` is 30 so a dead worker is recovered promptly, and legitimate work can exceed it:
-# one content attempt is bounded PER HOP (11 connections at the 15-second timeout) and sitemap discovery
-# paces :444's 30 and 120 seconds. Without renewal the lease expired under a LIVE worker and the ordinary
-# path executed twice. A permanently longer lease would hide that by making every real recovery slower.
+# `WORKER_LEASE_SECONDS` is the worker's requested FLOOR, and legitimate work can exceed it: one content
+# attempt is bounded PER HOP (11 connections at the 15-second timeout) and sitemap discovery paces :444's
+# 30 and 120 seconds. Without renewal the lease expired under a LIVE worker and the ordinary path executed
+# twice.
+#
+# CORRECTED BY ADR-095. This header used to say "`WORKER_LEASE_SECONDS` is 30 so a dead worker is recovered
+# promptly... a permanently longer lease would hide that by making every real recovery slower." That is no
+# longer the built system and stating it here would be a false claim in the file that is supposed to prove
+# the opposite: for a kind that stamps `product_attempt_deadline`, the lease is DERIVED from that deadline
+# and recovery of a dead worker takes up to the 15-minute cap. The trade was made knowingly — see ADR-095
+# and the note carried on ADR-091 — and `WORKER_LEASE_SECONDS` now only floors the request.
 #
 # These exercise the REAL transport function against the real `scheduled_actions` row, through the same
 # restricted connection the worker uses. Nothing here is a double.
@@ -17,6 +24,11 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
   after { ReceiptMinter.truncate_all }
 
   LEASE = Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+  # :288's floor and cap as corrected by ADR-095. Restated here rather than derived from the document,
+  # which is why `spec/architecture/` pins the same two numbers against
+  # `specification/volume-ii/BACKGROUND_PROCESSING.md` — a spec agreeing with itself proves nothing.
+  FLOOR_SECONDS = 60
+  CAP_SECONDS = 900
 
   let(:org) { TenantSeeder.create_organization(display_name: "Acme Org") }
 
@@ -205,16 +217,21 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
   end
 
   describe "worker death" do
-    it "PROOF 3 — when heartbeats cease the action is recoverable at the ORDINARY lease, not a worst case" do
+    it "PROOF 3 — when heartbeats cease the action is recoverable at ITS OWN lease, not a worst case" do
+      # CORRECTED BY ADR-095. This used to assert recovery "within `WORKER_LEASE_SECONDS`" against a flat
+      # 30. That is no longer true and asserting it would be a false proof: an action carrying no
+      # `product_attempt_deadline` takes :288's 60-second FLOOR, and one that carries an hour-out deadline
+      # is recoverable in up to the 15-minute cap. What remains true, and is what this proves, is that a
+      # renewal never lengthens the lease BEYOND the rule — recovery is bounded by the action's own derived
+      # lease and never by the 300-second product horizons.
       action = dispatched_action
       row = action_row(action[:id])
-      # The lease a live worker holds is the ordinary one; renewal never lengthens it beyond that, so a
-      # dead worker's action is recoverable within `WORKER_LEASE_SECONDS` and never within 300.
       expect(Time.parse(row["lease_expires_at"]) - Time.parse(row["claimed_at"]))
-        .to be_within(1).of(LEASE)
+        .to be_within(1).of(FLOOR_SECONDS)
       keeper_for(action).renew
       renewed = action_row(action[:id])
-      expect(Time.parse(renewed["lease_expires_at"]) - Time.now.utc).to be <= LEASE + 1
+      expect(Time.parse(renewed["lease_expires_at"]) - Time.now.utc).to be <= FLOOR_SECONDS + 1
+      expect(FLOOR_SECONDS).to be < 300
 
       # Heartbeats cease; after the lease elapses the sweep recovers it for another worker.
       expire_lease(action[:id])
@@ -526,61 +543,102 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
     end
   end
 
-  # :288's LEASE DURATION RULE — ratified, and unimplemented until now.
+  # :288's LEASE DURATION RULE, as corrected by DECISIONS ADR-095.
   #
-  #   "Lease duration is max(30 seconds, product_attempt_deadline - claim_time + 30 seconds) capped at
+  #   "Lease duration is max(60 seconds, product_attempt_deadline - claim_time + 30 seconds) capped at
   #    15 minutes."
   #
-  # A flat 30-second lease was SMALLER THAN ONE RATIFIED REDIRECT HOP: F-01 takes the resolver timeout
-  # (15 s, `Ceilings::DNS_TIMEOUT_MAX_S`) OUTSIDE the per-hop `deadline = monotonic + timeout_s` (15 s), so
-  # one hop is up to 30 seconds against a 30-second lease and a 10-second interval. The heartbeat cannot
-  # save that: there is no boundary inside a single hop to renew at.
+  # THREE THINGS WERE WRONG AND ARE REPAIRED TOGETHER; each of the last two would otherwise have been left
+  # standing as a knowingly false invariant.
+  #
+  #   * THE HEARTBEAT DID NOT DERIVE. `20260727120320` changed the claim and dispatch functions and left
+  #     `f1_heartbeat_scheduled_action` writing the flat caller value, which the live worker supplies as
+  #     `WORKER_LEASE_SECONDS` = 30. A `crawl_fetch_due` dispatched with a 900-second lease had it rewritten
+  #     to 30 at the first renewal boundary, ten seconds into the handler, restoring the exact defect the
+  #     derivation was introduced to close. PROOF 23.
+  #   * THE CAP WAS NOT A CAP. It was `greatest(interval '15 minutes', <caller floor>)`, so a caller passing
+  #     3600 received 3600. Sound only by accident of today's two literal 30s. PROOF 24.
+  #   * THE 30-SECOND FLOOR COULD NOT SURVIVE ONE RATIFIED HOP. F-01 takes the resolver timeout (15 s,
+  #     `Ceilings::DNS_TIMEOUT_MAX_S`) OUTSIDE the per-hop `deadline = monotonic + timeout_s` (15 s), so one
+  #     hop is up to 30 seconds, and `30 > 10 + 30` is false. Reachable near the run deadline and for every
+  #     kind that stamps no deadline. The floor is 60: `60 > 20 + 30`. PROOF 20.
   describe ":288's derived lease duration" do
     def lease_span(row) = Time.parse(row["lease_expires_at"].to_s) - Time.parse(row["claimed_at"].to_s)
 
-    def claim_with_deadline(deadline)
+    def claim_with_deadline(deadline, lease_seconds: LEASE)
       created = ScheduledActionHarness.create(organization_id: org, target_id: SecureRandom.uuid_v7,
                                               due_at: Time.now.utc - 60, now: Time.now.utc,
                                               product_attempt_deadline: deadline)
       Platform::ScheduledActions::TransportConnection.with do |pg|
         Platform::ScheduledActions::Store.new(pg)
-                                         .claim_due(owner: SecureRandom.uuid_v7, limit: 50, lease_seconds: LEASE)
+                                         .claim_due(owner: SecureRandom.uuid_v7, limit: 50, lease_seconds:)
       end
       action_row(created[:id])
     end
 
-    it "PROOF 19 — the lease is derived from the product attempt deadline, floored and capped" do
-      # A crawl run deadline an hour out takes the CAP, not the flat 30 seconds it used to get.
-      hour = claim_with_deadline(Time.now.utc + 3600)
-      expect(lease_span(hour)).to be_within(2).of(900)
+    # The state a handler actually runs in: claimed, then dispatched to a worker owner, carrying a product
+    # deadline. PROOF 23 needs this because the defect lived between dispatch and the first renewal.
+    def dispatched_with_deadline(deadline, lease_seconds: LEASE)
+      worker_owner = SecureRandom.uuid_v7
+      created = ScheduledActionHarness.create(organization_id: org, target_id: SecureRandom.uuid_v7,
+                                              due_at: Time.now.utc - 60, now: Time.now.utc,
+                                              product_attempt_deadline: deadline)
+      Platform::ScheduledActions::TransportConnection.with do |pg|
+        store = Platform::ScheduledActions::Store.new(pg)
+        claimed = store.claim_due(owner: SecureRandom.uuid_v7, limit: 50, lease_seconds:)
+                       .find { |a| a.id == created[:id] }
+        raise "action was not claimed" if claimed.nil?
 
-      # Inside the cap the rule is deadline - claim + 30s.
-      near = claim_with_deadline(Time.now.utc + 120)
-      expect(lease_span(near)).to be_within(2).of(150)
+        dispatched = store.dispatch(work_id: claimed.work_id, expected_generation: claimed.claim_generation,
+                                    worker_owner:, lease_seconds:)
+        raise "action was not dispatched" if dispatched.nil?
 
-      # Past its deadline, and with no deadline at all, the 30-second floor holds — so every action kind
-      # that does not stamp one keeps exactly today's behaviour.
-      expect(lease_span(claim_with_deadline(Time.now.utc - 600))).to be_within(2).of(30)
-      expect(lease_span(claim_with_deadline(nil))).to be_within(2).of(30)
+        { id: dispatched.id, owner: worker_owner, generation: dispatched.claim_generation }
+      end
     end
 
-    it "PROOF 20 — the derived lease outlasts one ratified redirect hop; a flat 30 did not" do
+    it "PROOF 19 — the lease is derived from the product attempt deadline, floored and capped" do
+      # A crawl run deadline an hour out takes the CAP, not the flat 30 seconds it used to get.
+      expect(lease_span(claim_with_deadline(Time.now.utc + 3600))).to be_within(2).of(CAP_SECONDS)
+
+      # Inside the cap the rule is deadline - claim + 30s.
+      expect(lease_span(claim_with_deadline(Time.now.utc + 120))).to be_within(2).of(150)
+
+      # Past its deadline, and with no deadline at all, the FLOOR holds — so every action kind that does
+      # not stamp one gets the floor and nothing else. It is 60, not 30: see PROOF 20.
+      expect(lease_span(claim_with_deadline(Time.now.utc - 600))).to be_within(2).of(FLOOR_SECONDS)
+      expect(lease_span(claim_with_deadline(nil))).to be_within(2).of(FLOOR_SECONDS)
+
+      # NEAR THE RUN DEADLINE the derived term is below the floor and the floor wins. This is the region
+      # that made the 30-second floor a live defect rather than a theoretical one.
+      expect(lease_span(claim_with_deadline(Time.now.utc + 5))).to be_within(2).of(FLOOR_SECONDS)
+    end
+
+    it "PROOF 20 — every lease the rule can produce outlasts one ratified redirect hop" do
       # THE INVARIANT: lease > interval + max_hop, where max_hop is F-01's 15-second resolver timeout plus
-      # its 15-second per-hop deadline. This is the arithmetic the demonstrated defect violated.
+      # its 15-second per-hop deadline, and interval is :288's own cadence for that lease.
       max_hop = Platform::Outbound::Ceilings::DNS_TIMEOUT_MAX_S +
                 Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("request_timeout_seconds").fetch("hard")
       expect(max_hop).to eq(30)
 
-      derived = lease_span(claim_with_deadline(Time.now.utc + 3600)).round
-      interval = described_class.new(action_id: SecureRandom.uuid_v7, owner: SecureRandom.uuid_v7,
-                                     generation: 1, lease_seconds: derived).interval
-      expect(derived).to be > interval + max_hop
+      interval_for = lambda do |seconds|
+        described_class.new(action_id: SecureRandom.uuid_v7, owner: SecureRandom.uuid_v7,
+                            generation: 1, lease_seconds: seconds).interval
+      end
 
-      # The flat lease this replaces fails the same invariant, which is why it was a defect and not a
-      # tuning choice: 30 is not greater than 10 + 30.
-      flat_interval = described_class.new(action_id: SecureRandom.uuid_v7, owner: SecureRandom.uuid_v7,
-                                          generation: 1, lease_seconds: 30).interval
-      expect(30).not_to be > flat_interval + max_hop
+      # ACROSS THE WHOLE RANGE, not at one convenient point. The rule can produce any value from the floor
+      # to the cap, so the invariant is asserted over all of it.
+      (FLOOR_SECONDS..CAP_SECONDS).each do |lease|
+        expect(lease).to be > interval_for.call(lease) + max_hop,
+                         "lease #{lease}s fails lease > interval + max_hop"
+      end
+
+      # THE SUPERSEDED FLOOR FAILS THE SAME INVARIANT, which is why 30 was a defective constant and not a
+      # tuning choice. Asserted against the constant the specification used to carry, so this fails if the
+      # floor is ever put back.
+      superseded_floor = 30
+      expect(superseded_floor).not_to be > interval_for.call(superseded_floor) + max_hop
+      expect(FLOOR_SECONDS).to be > superseded_floor
     end
 
     it "PROOF 21 — the deadline is immutable, so ownership cannot be widened after the fact" do
@@ -594,6 +652,76 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
           "UPDATE scheduled_actions SET product_attempt_deadline = now() + interval '1 hour',
              state_version = state_version + 1 WHERE id = $1::uuid", [created[:id]])
       end.to raise_error(/scheduled_action_immutable_field_changed/)
+    end
+
+    it "PROOF 23 — the heartbeat DERIVES too: it cannot collapse a 900-second lease to the worker constant" do
+      # THE DEFECT THIS CLOSES, exactly as it was demonstrated. `Worker#lease_keeper_for` passes
+      # `WORKER_LEASE_SECONDS` (30) to the heartbeat, and the heartbeat used to write it flat — so ten
+      # seconds into the handler the derived lease was gone and one 30-second hop lapsed it under a live
+      # worker. The renewal now re-derives from the SAME immutable deadline, so the worker's constant
+      # cannot shorten a lease the specification says it still legitimately owns.
+      action = dispatched_with_deadline(Time.now.utc + 3600)
+      expect(lease_span(action_row(action[:id]))).to be_within(2).of(CAP_SECONDS)
+
+      keeper = keeper_for(action)
+      expect(keeper.renew).to eq(described_class::HELD)
+
+      renewed = action_row(action[:id])
+      # Measured from the heartbeat instant the function itself wrote, which is `transaction_timestamp()`.
+      span = Time.parse(renewed["lease_expires_at"].to_s) - Time.parse(renewed["last_heartbeat_at"].to_s)
+      expect(span).to be_within(2).of(CAP_SECONDS)
+      expect(span).to be > LEASE
+      expect(span).to be > FLOOR_SECONDS
+    end
+
+    it "PROOF 24 — the cap is ABSOLUTE in all three writers; a caller cannot buy a longer lease" do
+      # It was `greatest(15 minutes, caller_floor)`, which is not a cap above 900 at all: a caller passing
+      # 3600 received 3600 and held the row for an hour before the sweep could recover it. Both production
+      # callers pass 30, so this was sound only by accident of today's values.
+      greedy = 3600
+
+      claimed = claim_with_deadline(Time.now.utc + 3600, lease_seconds: greedy)
+      expect(lease_span(claimed)).to be_within(2).of(CAP_SECONDS)
+
+      # And with NO product deadline, so the caller argument is the only term that could escape.
+      expect(lease_span(claim_with_deadline(nil, lease_seconds: greedy))).to be_within(2).of(CAP_SECONDS)
+
+      action = dispatched_with_deadline(nil, lease_seconds: greedy)
+      expect(lease_span(action_row(action[:id]))).to be_within(2).of(CAP_SECONDS)
+
+      expect(keeper_for(action, lease_seconds: greedy).renew).to eq(described_class::HELD)
+      renewed = action_row(action[:id])
+      span = Time.parse(renewed["lease_expires_at"].to_s) - Time.parse(renewed["last_heartbeat_at"].to_s)
+      expect(span).to be_within(2).of(CAP_SECONDS)
+    end
+
+    it "PROOF 25 — all three lease writers carry ONE expression, byte for byte" do
+      # THIS IS THE STRUCTURAL PROOF, and it is the one that would have caught the original defect. Three
+      # functions assign `lease_expires_at`; the repaired migration writes all three from a single string.
+      # Drift between them is precisely how the heartbeat came to disagree with the other two, and no
+      # behavioural example noticed for a whole review round.
+      writers = %w[f1_claim_due_scheduled_actions f1_dispatch_scheduled_action
+                   f1_heartbeat_scheduled_action]
+
+      expressions = writers.map do |name|
+        body = DbInspector.one(
+          "SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = $1", [name]
+        ).fetch("def")
+        match = body.match(/lease_expires_at = v_now \+ (least\(.*?interval '15 minutes'\))/m)
+        raise "#{name} does not assign a capped lease" if match.nil?
+
+        match[1].gsub(/\s+/, " ")
+      end
+
+      expect(expressions.uniq.length).to eq(1)
+      # And the one expression is the ratified rule: the caller floor, :288's floor, the deadline term with
+      # its grace, and the cap as the OUTER `least`.
+      expect(expressions.first).to include("interval '#{FLOOR_SECONDS} seconds'")
+      expect(expressions.first).to include("a.product_attempt_deadline - v_now")
+      expect(expressions.first).to match(/\Aleast\(.*interval '15 minutes'\)\z/m)
+      expect(expressions.first).not_to include("greatest(interval '15 minutes'")
     end
   end
 

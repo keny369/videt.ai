@@ -147,10 +147,10 @@ BEGIN
     UPDATE scheduled_actions a
     SET status = 'claimed', claim_owner = p_owner, claim_generation = a.claim_generation + 1,
         claimed_at = v_now, lease_expires_at = v_now + least(
-    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '30 seconds',
-             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '30 seconds'
+    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '60 seconds',
+             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '60 seconds'
                   ELSE (a.product_attempt_deadline - v_now) + interval '30 seconds' END),
-    greatest(interval '15 minutes', make_interval(secs => greatest(p_lease_seconds, 1)))),
+    interval '15 minutes'),
         claim_phase = 'scheduler', last_heartbeat_at = NULL, next_dispatch_at = NULL,
         updated_at = v_now, state_version = a.state_version + 1
     FROM due
@@ -629,10 +629,10 @@ BEGIN
       dispatched_at = coalesce(a.dispatched_at, v_now),
       claim_owner = p_worker_owner, claim_phase = 'worker',
       lease_expires_at = v_now + least(
-    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '30 seconds',
-             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '30 seconds'
+    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '60 seconds',
+             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '60 seconds'
                   ELSE (a.product_attempt_deadline - v_now) + interval '30 seconds' END),
-    greatest(interval '15 minutes', make_interval(secs => greatest(p_lease_seconds, 1)))),
+    interval '15 minutes'),
       dispatch_attempt_count = 0, next_dispatch_at = NULL,
       updated_at = v_now, state_version = a.state_version + 1
   WHERE a.id = v_action_id
@@ -1296,7 +1296,11 @@ CREATE FUNCTION public.f1_heartbeat_scheduled_action(p_action_id uuid, p_owner u
 DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
 BEGIN
   UPDATE scheduled_actions a
-  SET lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+  SET lease_expires_at = v_now + least(
+    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '60 seconds',
+             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '60 seconds'
+                  ELSE (a.product_attempt_deadline - v_now) + interval '30 seconds' END),
+    interval '15 minutes'),
       last_heartbeat_at = v_now,
       updated_at = v_now, state_version = a.state_version + 1
   WHERE a.id = p_action_id
@@ -6260,6 +6264,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120330'),
 ('20260727120320'),
 ('20260727120310'),
 ('20260727120300'),

@@ -211,16 +211,17 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
 
       # WHAT THIS EXAMPLE DOES NOT PROVE, said plainly. The chain runs on a FIXED 2026-07-27 clock while
       # :114 makes `transaction_timestamp()` the sole lease authority, so by the time the claim runs the
-      # stamped deadline is genuinely in the past and the derived lease correctly falls back to the
-      # 30-second floor. That is right, not a defect — but it means the CAP and the interior of the rule
-      # cannot be shown here. PROOF 19 and PROOF 20 cover them, against real-time deadlines.
+      # stamped deadline is genuinely in the past and the derived lease correctly falls back to the floor.
+      # That is right, not a defect — but it means the CAP and the interior of the rule cannot be shown
+      # here. PROOFs 19, 20, 23 and 24 cover them, against real-time deadlines.
       claimed = Platform::ScheduledActions::TransportConnection.with do |pg|
         Platform::ScheduledActions::Store.new(pg).claim_due(owner: SecureRandom.uuid_v7, limit: 50,
                                                             lease_seconds: 30)
         DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [action["id"]])
       end
       span = Time.parse(claimed["lease_expires_at"].to_s) - Time.parse(claimed["claimed_at"].to_s)
-      expect(span).to be_within(2).of(30)
+      # :288's floor as corrected by ADR-095, which is 60 rather than the 30 this example first asserted.
+      expect(span).to be_within(2).of(60)
     end
   end
 

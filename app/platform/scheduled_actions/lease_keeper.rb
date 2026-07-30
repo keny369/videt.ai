@@ -4,13 +4,26 @@ module Platform
   module ScheduledActions
     # THE LIVE WORKER'S SIDE OF THE LEASE (F-04, FU-24; DECISIONS ADR-091).
     #
-    # `Worker::WORKER_LEASE_SECONDS` is deliberately short so a genuinely dead worker is recovered
-    # promptly. Legitimate work can nevertheless exceed it — one content attempt is bounded PER HOP, so the
-    # initial request plus the ratified 10-redirect budget is 11 connections at the 15-second hard timeout,
-    # and sitemap discovery paces :444's 30 and 120 seconds between candidates. Without renewal the lease
-    # expired under a LIVE worker, the sweep returned the action to `pending`, and the ordinary path
-    # executed twice. This keeps the lease alive while the worker genuinely owns the work, and gives up the
-    # moment it does not.
+    # Legitimate work can exceed the lease — one content attempt is bounded PER HOP, so the initial request
+    # plus the ratified 10-redirect budget is 11 connections at the 15-second hard timeout, and sitemap
+    # discovery paces :444's 30 and 120 seconds between candidates. Without renewal the lease expired under
+    # a LIVE worker, the sweep returned the action to `pending`, and the ordinary path executed twice. This
+    # keeps the lease alive while the worker genuinely owns the work, and gives up the moment it does not.
+    #
+    # CORRECTED BY ADR-095. This comment used to open "`Worker::WORKER_LEASE_SECONDS` is deliberately short
+    # so a genuinely dead worker is recovered promptly". That is no longer the built system and leaving it
+    # would be a false statement in the file the renewal lives in. :288's duration rule is now implemented
+    # in ALL THREE transport functions that assign a lease, including `f1_heartbeat_scheduled_action` —
+    # which is the correction: it previously wrote the caller's flat value, so a renewal COLLAPSED a
+    # derived 900-second lease to 30 ten seconds into the handler and restored the very defect the
+    # derivation had been introduced to close. A renewal now re-derives from the same immutable deadline.
+    # For a kind that stamps one, recovery of a dead worker therefore takes up to the 15-minute cap rather
+    # than 30 seconds; that cost was weighed and accepted in ADR-095.
+    #
+    # WHAT THIS CLASS STILL GETS WRONG, KNOWINGLY (FU-29): `lease_seconds` here is the worker's REQUESTED
+    # floor, not the lease the database actually granted, so `interval` divides the wrong number. It errs
+    # short — a 10-second cadence against a lease of at least 60 — so it renews more often than :288
+    # requires and never later. Closing it needs the dispatch function to RETURN the lease it set.
     #
     # IT IS OWNERSHIP INFRASTRUCTURE, NOT A PRODUCT CONCERN. One implementation serves every work type;
     # workflows never reproduce lease logic. They reach it through `Lease.current` at the boundaries they

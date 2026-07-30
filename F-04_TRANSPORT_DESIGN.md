@@ -53,10 +53,23 @@ No worker scans a domain/attempt table (:243); the binding is the only resolutio
 
 ## Two-phase enqueue + infrastructure dispatch retry (G1/G2, frozen)
 
-- **Claim** (`f1_claim_due_scheduled_actions`): sets `claimed`, `claim_generation += 1`, 30-second lease,
-  **creates/exact-replays the binding**, returns the action fields **plus** `work_id`, `work_type`,
-  `product_generation`, `correlation_id`, `causation_id`. The scan admits a row only when
-  `due_at ≤ now`, `not_before_at` clear, **and `next_dispatch_at` clear** (the backoff gate).
+- **Claim** (`f1_claim_due_scheduled_actions`): sets `claimed`, `claim_generation += 1`, a **derived
+  lease** (see below), **creates/exact-replays the binding**, returns the action fields **plus**
+  `work_id`, `work_type`, `product_generation`, `correlation_id`, `causation_id`. The scan admits a row
+  only when `due_at ≤ now`, `not_before_at` clear, **and `next_dispatch_at` clear** (the backoff gate).
+
+> **AMENDED 2026-07-30 BY DECISIONS ADR-094 AND ADR-095.** This line read "30-second lease", which was
+> true when F-04 was frozen and is no longer true of any of the three functions that assign one. Lease
+> duration is now BACKGROUND_PROCESSING.md :288's rule, evaluated inside the transport function from
+> `transaction_timestamp()` and the row's immutable `product_attempt_deadline`:
+> `least(greatest(caller_request, 60 seconds, deadline - claim_time + 30 seconds), 15 minutes)`.
+> The `p_lease_seconds` argument is a FLOOR the caller requests, never a ceiling it can raise. The same
+> expression is carried byte-for-byte by `f1_claim_due_scheduled_actions`,
+> `f1_dispatch_scheduled_action` and `f1_heartbeat_scheduled_action`, and
+> `spec/architecture/scheduled_action_lease_rule_spec.rb` fails if the three ever diverge or if any of
+> them drifts from :288's own numbers. This is an extension of a frozen foundation under the defect limb
+> of the Foundation Freeze rule, not a redesign: no signature, grant, RLS policy or return shape changed.
+
 - **Enqueue** (`Dispatcher`): builds the 8-field envelope (`work_id` = binding), `perform_async` to the
   action's fixed queue. `dispatched`/`dispatched_at` are set at the **worker CAS** on the happy path
   (:119 blesses transfer before or after ack — no separate scheduler ack step).
