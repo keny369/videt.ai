@@ -36,7 +36,8 @@ module Platform
       def create(id:, action_kind:, action_schema_version:, organization_id:, project_id: nil,
                  target_type:, target_id:, due_at:, now:, correlation_id:, causation_id:,
                  executing_service_identity_id:, product_generation: 0, schedule_generation: 1,
-                 not_before_at: nil, command_id: nil, payload_refs: {}, schema_version: "1.0")
+                 not_before_at: nil, command_id: nil, payload_refs: {}, schema_version: "1.0",
+                 product_attempt_deadline: nil)
         preimage = Identity.preimage(
           action_kind:, action_schema_version:, organization_id:, project_id:,
           target_type:, target_id:, product_generation:, schedule_generation:, due_at:
@@ -49,7 +50,7 @@ module Platform
             id:, schema_version:, action_kind:, action_schema_version:, organization_id:, project_id:,
             target_type:, target_id:, due_at:, now:, correlation_id:, causation_id:, command_id:,
             executing_service_identity_id:, product_generation:, schedule_generation:, not_before_at:,
-            payload_refs:, preimage:, digest:, ordinal:
+            payload_refs:, preimage:, digest:, ordinal:, product_attempt_deadline:
           )
           return { id: inserted, replayed: false, collision_ordinal: ordinal } if inserted
 
@@ -143,12 +144,13 @@ module Platform
       def insert_row(id:, schema_version:, action_kind:, action_schema_version:, organization_id:, project_id:,
                      target_type:, target_id:, due_at:, now:, correlation_id:, causation_id:, command_id:,
                      executing_service_identity_id:, product_generation:, schedule_generation:, not_before_at:,
-                     payload_refs:, preimage:, digest:, ordinal:)
+                     payload_refs:, preimage:, digest:, ordinal:, product_attempt_deadline: nil)
         params = [
           id, schema_version, iso(now), correlation_id, causation_id, command_id, organization_id, project_id,
           executing_service_identity_id, action_kind, action_schema_version, target_type, target_id,
           product_generation, schedule_generation, iso(due_at), iso_or_nil(not_before_at),
-          bytea(preimage), bytea(digest), ordinal, JSON.generate(payload_refs)
+          bytea(preimage), bytea(digest), ordinal, JSON.generate(payload_refs),
+          iso_or_nil(product_attempt_deadline)
         ]
         exec(<<~SQL, params).values.dig(0, 0)
           INSERT INTO scheduled_actions
@@ -157,13 +159,14 @@ module Platform
              organization_id, project_id, executing_service_identity_id,
              action_kind, action_schema_version, target_type, target_id,
              product_generation, schedule_generation, due_at, not_before_at,
-             identity_preimage, identity_sha256, collision_ordinal, payload_refs, status)
+             identity_preimage, identity_sha256, collision_ordinal, payload_refs, status,
+             product_attempt_deadline)
           VALUES ($1,$2,0,0,$3::timestamptz,$3::timestamptz,
                   $4::uuid,$5::uuid,$6::uuid,0,
                   $7::uuid,$8::uuid,$9::uuid,
                   $10,$11,$12,$13::uuid,
                   $14,$15,$16::timestamptz,$17::timestamptz,
-                  $18,$19,$20,$21::jsonb,'pending')
+                  $18,$19,$20,$21::jsonb,'pending',$22::timestamptz)
           ON CONFLICT (action_kind, identity_sha256, collision_ordinal) DO NOTHING
           RETURNING id
         SQL

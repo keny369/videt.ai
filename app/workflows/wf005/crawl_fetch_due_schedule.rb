@@ -94,7 +94,18 @@ module Workflows
           target_type: TARGET_TYPE, target_id: entry_id, product_generation: 0,
           schedule_generation: 1, due_at:, now:, correlation_id:,
           causation_id: causation_id || correlation_id, command_id:,
-          executing_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor
+          executing_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+          # :288's LEASE DURATION INPUT, stamped by the producer because only the producer knows it.
+          # `scheduled_actions` is transport: it must not read `crawls` to discover how long this work may
+          # legitimately take, or F-04 would depend on WF-005 and on every future work type. It carries a
+          # plain instant and does the arithmetic. The run deadline is the right value because :442 is what
+          # bounds this execution — at 60 elapsed minutes no new request starts — and it is ALREADY resolved
+          # two lines above to clamp `due_at`, so nothing extra is read.
+          #
+          # Without it the lease was a flat 30 seconds while ONE ratified redirect hop is up to 30 (F-01
+          # takes the 15-second resolver timeout outside the 15-second per-hop deadline), so a single slow
+          # hop lapsed the lease under a live worker and the pass could never complete. Demonstrated.
+          product_attempt_deadline: deadline
         )
         { entry_id:, due_at:, action_id: created[:id], replayed: created[:replayed] }
       end

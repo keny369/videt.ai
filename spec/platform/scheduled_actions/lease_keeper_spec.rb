@@ -526,6 +526,77 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
     end
   end
 
+  # :288's LEASE DURATION RULE — ratified, and unimplemented until now.
+  #
+  #   "Lease duration is max(30 seconds, product_attempt_deadline - claim_time + 30 seconds) capped at
+  #    15 minutes."
+  #
+  # A flat 30-second lease was SMALLER THAN ONE RATIFIED REDIRECT HOP: F-01 takes the resolver timeout
+  # (15 s, `Ceilings::DNS_TIMEOUT_MAX_S`) OUTSIDE the per-hop `deadline = monotonic + timeout_s` (15 s), so
+  # one hop is up to 30 seconds against a 30-second lease and a 10-second interval. The heartbeat cannot
+  # save that: there is no boundary inside a single hop to renew at.
+  describe ":288's derived lease duration" do
+    def lease_span(row) = Time.parse(row["lease_expires_at"].to_s) - Time.parse(row["claimed_at"].to_s)
+
+    def claim_with_deadline(deadline)
+      created = ScheduledActionHarness.create(organization_id: org, target_id: SecureRandom.uuid_v7,
+                                              due_at: Time.now.utc - 60, now: Time.now.utc,
+                                              product_attempt_deadline: deadline)
+      Platform::ScheduledActions::TransportConnection.with do |pg|
+        Platform::ScheduledActions::Store.new(pg)
+                                         .claim_due(owner: SecureRandom.uuid_v7, limit: 50, lease_seconds: LEASE)
+      end
+      action_row(created[:id])
+    end
+
+    it "PROOF 19 — the lease is derived from the product attempt deadline, floored and capped" do
+      # A crawl run deadline an hour out takes the CAP, not the flat 30 seconds it used to get.
+      hour = claim_with_deadline(Time.now.utc + 3600)
+      expect(lease_span(hour)).to be_within(2).of(900)
+
+      # Inside the cap the rule is deadline - claim + 30s.
+      near = claim_with_deadline(Time.now.utc + 120)
+      expect(lease_span(near)).to be_within(2).of(150)
+
+      # Past its deadline, and with no deadline at all, the 30-second floor holds — so every action kind
+      # that does not stamp one keeps exactly today's behaviour.
+      expect(lease_span(claim_with_deadline(Time.now.utc - 600))).to be_within(2).of(30)
+      expect(lease_span(claim_with_deadline(nil))).to be_within(2).of(30)
+    end
+
+    it "PROOF 20 — the derived lease outlasts one ratified redirect hop; a flat 30 did not" do
+      # THE INVARIANT: lease > interval + max_hop, where max_hop is F-01's 15-second resolver timeout plus
+      # its 15-second per-hop deadline. This is the arithmetic the demonstrated defect violated.
+      max_hop = Platform::Outbound::Ceilings::DNS_TIMEOUT_MAX_S +
+                Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING.fetch("request_timeout_seconds").fetch("hard")
+      expect(max_hop).to eq(30)
+
+      derived = lease_span(claim_with_deadline(Time.now.utc + 3600)).round
+      interval = described_class.new(action_id: SecureRandom.uuid_v7, owner: SecureRandom.uuid_v7,
+                                     generation: 1, lease_seconds: derived).interval
+      expect(derived).to be > interval + max_hop
+
+      # The flat lease this replaces fails the same invariant, which is why it was a defect and not a
+      # tuning choice: 30 is not greater than 10 + 30.
+      flat_interval = described_class.new(action_id: SecureRandom.uuid_v7, owner: SecureRandom.uuid_v7,
+                                          generation: 1, lease_seconds: 30).interval
+      expect(30).not_to be > flat_interval + max_hop
+    end
+
+    it "PROOF 21 — the deadline is immutable, so ownership cannot be widened after the fact" do
+      # A lease that could be extended by rewriting the deadline would be a way for a worker to extend its
+      # own ownership, which is the whole thing the fence exists to prevent.
+      created = ScheduledActionHarness.create(organization_id: org, target_id: SecureRandom.uuid_v7,
+                                              due_at: Time.now.utc - 60, now: Time.now.utc,
+                                              product_attempt_deadline: Time.now.utc + 120)
+      expect do
+        DbInspector.connection.exec_params(
+          "UPDATE scheduled_actions SET product_attempt_deadline = now() + interval '1 hour',
+             state_version = state_version + 1 WHERE id = $1::uuid", [created[:id]])
+      end.to raise_error(/scheduled_action_immutable_field_changed/)
+    end
+  end
+
   describe "the lease-aware execution context" do
     it "is absent outside a worker delivery, so a direct caller is never blocked by it" do
       expect(Platform::ScheduledActions::Lease.current).to be_nil

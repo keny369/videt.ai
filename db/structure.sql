@@ -146,7 +146,11 @@ BEGIN
   claimed AS (
     UPDATE scheduled_actions a
     SET status = 'claimed', claim_owner = p_owner, claim_generation = a.claim_generation + 1,
-        claimed_at = v_now, lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+        claimed_at = v_now, lease_expires_at = v_now + least(
+    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '30 seconds',
+             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '30 seconds'
+                  ELSE (a.product_attempt_deadline - v_now) + interval '30 seconds' END),
+    greatest(interval '15 minutes', make_interval(secs => greatest(p_lease_seconds, 1)))),
         claim_phase = 'scheduler', last_heartbeat_at = NULL, next_dispatch_at = NULL,
         updated_at = v_now, state_version = a.state_version + 1
     FROM due
@@ -624,7 +628,11 @@ BEGIN
   SET status = 'dispatched',
       dispatched_at = coalesce(a.dispatched_at, v_now),
       claim_owner = p_worker_owner, claim_phase = 'worker',
-      lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+      lease_expires_at = v_now + least(
+    greatest(make_interval(secs => greatest(p_lease_seconds, 1)), interval '30 seconds',
+             CASE WHEN a.product_attempt_deadline IS NULL THEN interval '30 seconds'
+                  ELSE (a.product_attempt_deadline - v_now) + interval '30 seconds' END),
+    greatest(interval '15 minutes', make_interval(secs => greatest(p_lease_seconds, 1)))),
       dispatch_attempt_count = 0, next_dispatch_at = NULL,
       updated_at = v_now, state_version = a.state_version + 1
   WHERE a.id = v_action_id
@@ -1558,6 +1566,7 @@ BEGIN
      OR NEW.schedule_generation IS DISTINCT FROM OLD.schedule_generation
      OR NEW.due_at IS DISTINCT FROM OLD.due_at
      OR NEW.not_before_at IS DISTINCT FROM OLD.not_before_at
+     OR NEW.product_attempt_deadline IS DISTINCT FROM OLD.product_attempt_deadline
      OR NEW.identity_preimage IS DISTINCT FROM OLD.identity_preimage
      OR NEW.identity_sha256 IS DISTINCT FROM OLD.identity_sha256
      OR NEW.collision_ordinal IS DISTINCT FROM OLD.collision_ordinal
@@ -3441,6 +3450,7 @@ CREATE TABLE public.scheduled_actions (
     reason text,
     dispatch_attempt_count bigint DEFAULT 0 NOT NULL,
     next_dispatch_at timestamp(6) with time zone,
+    product_attempt_deadline timestamp with time zone,
     CONSTRAINT scheduled_action_canceled_has_time CHECK (((status = 'canceled'::text) = (canceled_at IS NOT NULL))),
     CONSTRAINT scheduled_action_claim_fields_match_status CHECK (((status = ANY (ARRAY['claimed'::text, 'dispatched'::text])) = ((claim_owner IS NOT NULL) AND (claimed_at IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (claim_phase IS NOT NULL) AND (claim_generation > 0)))),
     CONSTRAINT scheduled_action_completed_has_time CHECK (((status = 'completed'::text) = (completed_at IS NOT NULL))),
@@ -6250,6 +6260,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120320'),
 ('20260727120310'),
 ('20260727120300'),
 ('20260727120290'),

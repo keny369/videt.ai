@@ -194,6 +194,34 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(DbInspector.all("SELECT id FROM crawl_budget_counters WHERE crawl_id=$1::uuid",
                              [ctx[:crawl_id]])).to be_empty
     end
+
+    it "PROOF 22 — the link stamps :288's product attempt deadline, so the lease is DERIVED not flat" do
+      # `scheduled_actions` is transport and must not read `crawls` to find out how long this work may
+      # legitimately take — so the PRODUCER stamps the instant and the claim function does the arithmetic.
+      # Unstamped, the lease is a flat 30 seconds while ONE ratified redirect hop is up to 30 (F-01 takes
+      # the 15-second resolver timeout outside the 15-second per-hop deadline), which lapsed the lease
+      # under a live worker with no boundary inside the hop to renew at. Demonstrated before the repair.
+      ctx = running_crawl
+      action = action_row(link_first(ctx)[:action_id])
+      crawl = DbInspector.one("SELECT * FROM crawls WHERE id = $1::uuid", [ctx[:crawl_id]])
+
+      expect(action["product_attempt_deadline"]).not_to be_nil
+      expect(Time.parse(action["product_attempt_deadline"].to_s))
+        .to be_within(1).of(Time.parse(crawl["deadline_at"].to_s))
+
+      # WHAT THIS EXAMPLE DOES NOT PROVE, said plainly. The chain runs on a FIXED 2026-07-27 clock while
+      # :114 makes `transaction_timestamp()` the sole lease authority, so by the time the claim runs the
+      # stamped deadline is genuinely in the past and the derived lease correctly falls back to the
+      # 30-second floor. That is right, not a defect — but it means the CAP and the interior of the rule
+      # cannot be shown here. PROOF 19 and PROOF 20 cover them, against real-time deadlines.
+      claimed = Platform::ScheduledActions::TransportConnection.with do |pg|
+        Platform::ScheduledActions::Store.new(pg).claim_due(owner: SecureRandom.uuid_v7, limit: 50,
+                                                            lease_seconds: 30)
+        DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [action["id"]])
+      end
+      span = Time.parse(claimed["lease_expires_at"].to_s) - Time.parse(claimed["claimed_at"].to_s)
+      expect(span).to be_within(2).of(30)
+    end
   end
 
   describe "the chain: one paced host start per pass" do
