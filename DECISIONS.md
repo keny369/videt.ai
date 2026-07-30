@@ -2622,3 +2622,25 @@ Proof standard. 1977 examples, 0 failures, from a database provisioned FROM EMPT
 
 Authority And Precedence:
 Acceptance under standing delegation ADR-061 and review discipline ADR-080. Closes FU-9 by transfer to S-07-009. Adds S-07-006, S-07-007 and S-07-012 to `completed_blocks`. Supersedes the S-07-008 scope of `acceptance_evidence`, which is retired rather than deleted — its ADR-083 acceptance stands on its own record. FU-11, FU-15, FU-17, FU-20, FU-21, FU-22, FU-23, FU-26, FU-27, FU-28 and FU-29 remain open, and FU-11 remains BLOCKING for the next block. Allocated the next unused number after ADR-095.
+
+## ADR-097: FU-11 Repaired — Terminal Completeness Is Scoped By State, And The Two Diagnoses That Were Wrong
+
+Status: Accepted (2026-07-30)
+Date: 2026-07-30
+Owner: standing delegation ADR-061; taken as S-07-009's blocking precondition
+Reversibility: Integration branch only. One CHECK constraint replaced; reversible down and up, exercised.
+
+The defect. A terminal `crawls` row could carry NULL in BOTH `coverage_status` and `completion_reason`, so a fully covered Crawl was byte-indistinguishable from one that recorded nothing. Repaired BEFORE S-07-009's body rather than inside it, because S-07-009 writes exactly those two columns and BUILD_PLAN names this its blocking precondition.
+
+**THE DIAGNOSIS WAS WRONG TWICE, AND BOTH REFUTATIONS ARE KEPT.** Pass three of the S-07-008 review recorded this as a three-valued-logic hole in `crawls_coverage_status_check` and prescribed the `IS NOT DISTINCT FROM` form. THAT PRESCRIPTION IS A PROVEN NO-OP, and it was re-verified live at the repair rather than taken from the record: a CHECK admits UNKNOWN and admits TRUE, `NULL = ANY(ARRAY['full','partial'])` yields the former and the NULL-safe rewrite yields the latter, so both admit a NULL. Applying it would have produced a diff, closed the item, and left the hole exactly where it was. `crawls_coverage_status_check` is therefore DELIBERATELY UNTOUCHED, and PROOF 29 pins the no-op in a test so it cannot be reintroduced as a fix by a future reader who rediscovers the original reasoning.
+
+The actual defect is ordinary two-valued logic in `crawls_terminal_shape`, whose terminal limb required only `terminal_at IS NOT NULL`. Measured against the live cluster before the repair, it admitted `state='completed'` with both columns NULL, `completed` with a reason and no coverage, and `failed` with neither.
+
+**THE REPAIR IS SCOPED BY STATE, AND THE SCOPING IS THE REPAIR.** Every terminal state requires `completion_reason IS NOT NULL`; `state='completed'` additionally requires `coverage_status IS NOT NULL`. The obvious rule — "a terminal Crawl must carry both" — is WRONG, and it was demonstrated wrong as a mutation rather than argued against: it breaks `IdentityAccess::Infrastructure::CrawlStartStore#fail`, the only production writer of `completion_reason`, which records `state='failed'` with a reason and NO coverage. That is correct, not sloppy: a Crawl that failed before execution made no request, and there is no coverage to report on. The same mutation also fails two PRE-EXISTING accepted examples, which is the sharper signal — the naive form does not merely offend a new test, it contradicts behaviour two earlier tranches already proved.
+
+Proof standard. PROOF 26 — a `completed` Crawl cannot be written with neither column, nor with only one. PROOF 27 — every terminal state needs a reason and only `completed` needs coverage, asserted over `failed` and `canceled`. PROOF 28 — the production fail path still writes the shape it has always written, driven through the REAL store rather than an insert shaped like it, so a future change to `fail` that stopped setting a reason fails here. PROOF 29 — a non-terminal Crawl still carries neither column, plus the no-op pin above. Two mutations: removing the conjunct fails PROOFs 26 and 27; the naive both-columns form fails PROOFs 27 and 28 and two accepted examples. `schemas/POSTGRESQL_SCHEMA.md`'s nullable declaration is reconciled rather than contradicted: the columns stay nullable and the state-scoped rule is stated beside them, because nullability alone cannot express a rule that depends on `state`.
+
+One reading is recorded because it is a judgement, not a fact: `state <> 'completed' OR coverage_status IS NOT NULL` is written as a disjunction rather than a CASE. Inside that limb `state` is already known to be one of three terminal values and is NOT NULL on the column, so the disjunction is two-valued and cannot yield UNKNOWN. That is exactly the distinction the first diagnosis of this defect got wrong, so it is stated in the migration rather than assumed.
+
+Authority And Precedence:
+Resolves FU-11. Corrects, in place, the pass-three prescription recorded against it, which stands refuted rather than merely superseded. Does not touch the three genuine three-valued-logic holes found by the same sweep, which remain open under FU-12. S-07-009's second precondition, FU-21, is unaffected and next. Allocated the next unused number after ADR-096.

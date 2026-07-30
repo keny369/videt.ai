@@ -2514,7 +2514,7 @@ CREATE TABLE public.crawls (
     CONSTRAINT crawls_kind_check CHECK ((kind = ANY (ARRAY['root'::text, 'reassessment_child'::text]))),
     CONSTRAINT crawls_kind_parent_agreement CHECK ((((kind = 'root'::text) AND (parent_evaluation_id IS NULL)) OR ((kind = 'reassessment_child'::text) AND (parent_evaluation_id IS NOT NULL)))),
     CONSTRAINT crawls_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text]))),
-    CONSTRAINT crawls_terminal_shape CHECK ((((state = ANY (ARRAY['queued'::text, 'running'::text])) AND (terminal_at IS NULL) AND (coverage_status IS NULL) AND (completion_reason IS NULL)) OR ((state = ANY (ARRAY['completed'::text, 'failed'::text, 'canceled'::text])) AND (terminal_at IS NOT NULL)))),
+    CONSTRAINT crawls_terminal_shape CHECK ((((state = ANY (ARRAY['queued'::text, 'running'::text])) AND (terminal_at IS NULL) AND (coverage_status IS NULL) AND (completion_reason IS NULL)) OR ((state = ANY (ARRAY['completed'::text, 'failed'::text, 'canceled'::text])) AND (terminal_at IS NOT NULL) AND (completion_reason IS NOT NULL) AND ((state <> 'completed'::text) OR (coverage_status IS NOT NULL))))),
     CONSTRAINT crawls_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['manual'::text, 'scheduled'::text])))
 );
 
@@ -6264,6 +6264,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120340'),
 ('20260727120330'),
 ('20260727120320'),
 ('20260727120310'),

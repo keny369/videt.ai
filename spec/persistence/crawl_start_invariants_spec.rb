@@ -241,4 +241,96 @@ RSpec.describe "Crawl-start invariants", type: :model do
         .to raise_error(PG::RaiseException, /crawl_facts_immutable/)
     end
   end
+
+  # FU-11, S-07-009's BLOCKING PRECONDITION, repaired by `20260727120340_crawls_terminal_completeness`.
+  #
+  # A terminal Crawl could carry NULL in BOTH `coverage_status` and `completion_reason`, so a fully
+  # covered run was byte-indistinguishable from one that recorded nothing — and S-07-009 writes exactly
+  # those two columns. These insert TERMINAL ROWS DIRECTLY rather than driving the state machine, because
+  # the property under test is the table's own, and the transition guard would otherwise mask it.
+  describe "terminal completeness (FU-11)" do
+    def insert_terminal(pid, state:, coverage_status: nil, completion_reason: nil, organization_id: org)
+      conn.exec_params(<<~SQL, [SecureRandom.uuid_v7, organization_id, pid, state, coverage_status, completion_reason])
+        INSERT INTO crawls
+          (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+           requested_entitlement_policy_id, requested_entitlement_policy_version, trigger_kind,
+           queued_at, terminal_at, state, coverage_status, completion_reason)
+        VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'root',
+                gen_random_uuid(),'entitlement-interim-v1','manual',now(),now(),$4,$5,$6)
+      SQL
+    end
+
+    it "PROOF 26 — a `completed` Crawl cannot be written with neither coverage nor a reason" do
+      # THE DEFECT ITSELF, and it is the whole reason this is a precondition rather than an improvement.
+      pid = draft_project
+      expect { insert_terminal(pid, state: "completed") }
+        .to raise_error(PG::CheckViolation, /crawls_terminal_shape/)
+
+      # Nor with only one of the two. `completed` is the state :452's coverage denominator is read for,
+      # so it is the one state that needs both.
+      expect { insert_terminal(pid, state: "completed", completion_reason: "completed") }
+        .to raise_error(PG::CheckViolation, /crawls_terminal_shape/)
+      expect { insert_terminal(pid, state: "completed", coverage_status: "full") }
+        .to raise_error(PG::CheckViolation, /crawls_terminal_shape/)
+
+      expect { insert_terminal(pid, state: "completed", coverage_status: "full", completion_reason: "completed") }
+        .not_to raise_error
+    end
+
+    it "PROOF 27 — every terminal state needs a reason, and only `completed` needs coverage" do
+      # THE SCOPING IS THE REPAIR. Requiring BOTH columns on every terminal state is the obvious rule and
+      # it is WRONG: `IdentityAccess::Infrastructure::CrawlStartStore#fail` is the only production writer
+      # of `completion_reason` and records `failed` with a reason and NO coverage, correctly, because a
+      # Crawl that failed before execution retrieved nothing there is coverage to report on.
+      pid = draft_project
+      %w[failed canceled].each do |state|
+        expect { insert_terminal(pid, state:, completion_reason: state) }.not_to raise_error
+        expect { insert_terminal(pid, state:) }
+          .to raise_error(PG::CheckViolation, /crawls_terminal_shape/)
+      end
+    end
+
+    it "PROOF 28 — the production fail path still writes the shape it has always written" do
+      # Not a restatement of PROOF 27: this drives the REAL store rather than an insert shaped like it,
+      # so a future change to `fail` that stopped setting a reason fails here.
+      pid = draft_project
+      cid = insert_crawl(pid)
+      version = conn.exec_params("SELECT state_version FROM crawls WHERE id = $1::uuid", [cid])
+                    .first.fetch("state_version").to_i
+
+      expect do
+        Platform::ScheduledActions::TransportConnection # loaded for parity with the store's own env
+        IdentityAccess::Infrastructure::CrawlStartStore.new(conn).fail(cid, version, Time.now.utc)
+      end.not_to raise_error
+
+      row = conn.exec_params("SELECT * FROM crawls WHERE id = $1::uuid", [cid]).first
+      expect(row.fetch("state")).to eq("failed")
+      expect(row.fetch("completion_reason")).to eq("failed")
+      expect(row.fetch("coverage_status")).to be_nil
+    end
+
+    it "PROOF 29 — a non-terminal Crawl still carries neither column, and that is unchanged" do
+      pid = draft_project
+      expect(conn.exec_params("SELECT coverage_status, completion_reason FROM crawls WHERE id = $1::uuid",
+                              [insert_crawl(pid)]).first.values).to eq([nil, nil])
+
+      # `crawls_coverage_status_check` is DELIBERATELY NOT the constraint that was changed. The earlier
+      # diagnosis of FU-11 blamed it and prescribed a NULL-safe rewrite; that is a PROVEN NO-OP, because
+      # `NULL = ANY(...)` is UNKNOWN and admitted, and `IS NOT DISTINCT FROM` is TRUE and also admitted.
+      # Asserted here so the no-op cannot be reintroduced as a fix.
+      admits_null = conn.exec_params(
+        "SELECT (NULL::text = ANY (ARRAY['full','partial'])) IS NOT FALSE AS live_form,
+                (NULL::text IS NULL OR NULL::text = ANY (ARRAY['full','partial'])) IS NOT FALSE AS null_safe_form"
+      ).first
+      # A CHECK admits UNKNOWN and admits TRUE, so both forms admit a NULL. The rewrite changes the
+      # value and not the outcome, which is what makes it a no-op rather than a repair.
+      #
+      # Read through `Platform::PgBool` and not `== "t"`. This is a raw `PG.connect`, which yields the
+      # STRING `"t"`, and the same tranche that added this file found a `== "t"` written against a
+      # type-mapped connection that was therefore a constant false. Asserting `[true, true]` against
+      # string values here would fail; asserting `["t", "t"]` would pass on this connection and break on
+      # any other. One reader crosses both encodings.
+      expect(admits_null.values.map { |v| Platform::PgBool.true?(v) }).to eq([true, true])
+    end
+  end
 end
