@@ -1077,6 +1077,10 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(seen.length).to eq(1)
       expect(seen.first[:redirect_guard]).to respond_to(:call)
       expect(result.terminal?).to be(false)
+      # THE GATE STATE ALONE DOES NOT DISTINGUISH THIS FROM THE :444 RETRY PATH — both leave `pending`,
+      # no terminal reason and one attempt — so without this the example passed for the wrong reason
+      # whenever the outcome happened to be retryable. The reason code is what says WHICH path ran.
+      expect(result.reason_code).to eq(Platform::ScheduledActions::Lease::LOST_REASON)
       row = gate_row(ctx[:crawl_id])
       # The host is exactly as discoverable as before the attempt: back to `pending`, nothing decided.
       # Without the repair this is `unavailable` + `robots_unavailable_fail_closed`, permanently, because a
@@ -1085,6 +1089,54 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(row["robots_state"]).to eq("pending")
       expect(row["robots_terminal_reason"]).to be_nil
       expect(row["robots_attempt_count"]).to eq("1")
+    end
+
+    it "PROOF 18 — a relinquishing robots worker cannot revert a takeover that already succeeded" do
+      # I fenced the release on `defer_robots`' `state_version` and asserted that made it safe. It did not:
+      # that version is re-read under the row lock in the same transaction that writes, so it can never
+      # fail against another owner. A review demonstrated the consequence — W1 reverted W2's legitimate
+      # stale-attempt takeover, W2's successful 200 was discarded as contended, and two of :444's three
+      # attempts were burned on a healthy host. `robots_generation` identifies the ATTEMPT, so it fences.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      keeper = dispatched_delivery(ctx[:g][:organization_id])
+      org = ctx[:g][:organization_id]
+      steal = -> { steal_delivery(keeper) }
+      # W2's takeover, through the REAL store, using `begin_robots`' own ratified stale branch.
+      takeover = lambda do
+        DbInspector.connection.exec_params(
+          "UPDATE crawl_host_gates SET robots_attempt_started_at = $2::timestamptz - interval '301 seconds',
+             state_version = state_version + 1 WHERE crawl_id = $1::uuid",
+          [ctx[:crawl_id], start_now.utc.iso8601(6)])
+        in_gate(org) do |store, _g|
+          row = store.gate(org, ctx[:crawl_id], ctx[:host])
+          store.begin_robots(row["id"], row["state_version"].to_i, start_now)
+        end
+      end
+      # NO `expect` INSIDE THE STUB: the receiver there is the stub, so a matcher raises NoMethodError and
+      # `EnsureRobots#fetch`'s rescue turns it into a retryable adapter failure — the probe passes for a
+      # reason that has nothing to do with the property. This trap has now bitten twice on this feature, so
+      # the takeover's row count is CAPTURED and asserted back in the example.
+      taken = []
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |_url, **_k|
+          steal.call
+          taken << takeover.call
+          Platform::Outbound::Outcome.rejected(:redirect_policy_denied, canonical_host: "shop.acme.example",
+                                               port: 443, final_url: "https://x", redirect_count: 1)
+        end
+      end
+
+      result = Platform::ScheduledActions::Lease.with(keeper) { resolve_robots(ctx, outbound) }
+
+      expect(taken).to eq([1]), "W2's takeover did not happen, so the probe proves nothing"
+
+      # W1 owns generation 1; W2 owns generation 2. The release matches nothing and says so.
+      row = gate_row(ctx[:crawl_id])
+      expect(row["robots_state"]).to eq("in_progress")
+      expect(row["robots_generation"]).to eq("2")
+      expect(result.state).to eq("in_progress")
+      expect(result.terminal?).to be(false)
     end
 
     it "PROOF 15 — the traversal STOPS at the next candidate, and the gate outcome is not written" do
@@ -1120,6 +1172,12 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       # One document, then the traversal ends. Both `break`s that existed before left only their own inner
       # loop, so candidate b was requested, charged and offered to the frontier by a delivery that no longer
       # owned the action.
+      #
+      # WHICH ASSERTION COVERS WHICH LINE, because a reviewer was right that the obvious reading is wrong:
+      # `fetched` alone does NOT cover the `break` in `Traversal#run`, since `DiscoverSitemaps#fetch`'s own
+      # pre-request guard refuses candidate b anyway. The CHARGE COUNT is what covers it — `fetch_document`
+      # charges the run-wide document budget BEFORE `fetch` refuses, so a traversal that keeps iterating
+      # spends budget for a request it never makes.
       expect(fetched).to eq(["https://shop.acme.example/a.xml"])
       expect(frontier_entries(ctx[:crawl_id]).map { |e| e["canonical_url"] })
         .not_to include("https://shop.acme.example/from-b")
@@ -1132,7 +1190,11 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(result.state).to eq("pending")
       row = gate_row(ctx[:crawl_id])
       expect(row["sitemap_state"]).to eq("pending")
-      expect(row["sitemap_terminal_reason"]).to be_nil
+      # `sitemap_outcome_reason`, not `sitemap_terminal_reason` — the latter is not a column, so the
+      # assertion I first wrote read nil from a missing key and could not fail. Asserted against the real
+      # column list so a future rename cannot make it vacuous again.
+      expect(row).to have_key("sitemap_outcome_reason")
+      expect(row["sitemap_outcome_reason"]).to be_nil
       expect(row["sitemap_claim_token"]).to be_nil
     end
 

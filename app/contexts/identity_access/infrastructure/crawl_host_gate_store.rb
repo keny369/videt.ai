@@ -225,6 +225,24 @@ module IdentityAccess
       end
 
       # in_progress -> pending, for a retryable attempt that has not exhausted its schedule (:444).
+      # in_progress -> pending, fenced on the ROBOTS GENERATION the caller claimed.
+      #
+      # `defer_robots` fences on `state_version`, which is re-read under the row lock in the same
+      # transaction that writes — so it can never fail against another owner, and any benign write (a rate
+      # window update) would make it fail against the caller's own claim. Neither is what a release needs.
+      # `robots_generation` is incremented by `begin_robots` on every claim INCLUDING the stale takeover, so
+      # it identifies the attempt rather than the row: a worker whose claim has been taken over matches zero
+      # rows and leaves the new owner's work alone. Without this a relinquishing worker reverted a takeover
+      # that had already fetched successfully, discarding a good robots response and burning two of :444's
+      # three attempts on a healthy host. Demonstrated.
+      def relinquish_robots(id, generation, now)
+        query(<<~SQL, [id, generation, iso(now)]).cmd_tuples
+          UPDATE crawl_host_gates
+          SET robots_state = 'pending', state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND robots_state = 'in_progress' AND robots_generation = $2
+        SQL
+      end
+
       def defer_robots(id, expected_version, now)
         query(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
           UPDATE crawl_host_gates

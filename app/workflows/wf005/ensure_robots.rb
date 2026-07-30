@@ -98,7 +98,8 @@ module Workflows
         # would permanently deny the host for the whole run on the strength of a request it had no standing
         # to make — and the refused redirect hop below arrives as a plain rejection, which `classify` would
         # otherwise read as exactly that kind of decision. The claim is handed back instead.
-        return relinquish(organization_id:, gate_id: claim[:gate_id], now:) unless
+        return relinquish(organization_id:, gate_id: claim[:gate_id],
+                          generation: claim[:generation], now:) unless
           Platform::ScheduledActions::Lease.owned?
 
         record(organization_id:, gate_id: claim[:gate_id], attempt: claim[:attempt], outcome:, now:)
@@ -119,7 +120,10 @@ module Workflows
           next { result: already(locked) } if terminal?(locked["robots_state"])
           next { result: contended } if store.begin_robots(locked["id"], locked["state_version"].to_i, now).to_i.zero?
 
-          { gate_id: locked["id"], attempt: locked["robots_attempt_count"].to_i + 1 }
+          # The generation `begin_robots` just wrote, derived exactly as `attempt` is. It identifies THIS
+          # claim, so a release can be fenced on it (see `relinquish`).
+          { gate_id: locked["id"], attempt: locked["robots_attempt_count"].to_i + 1,
+            generation: locked["robots_generation"].to_i + 1 }
         end
       end
 
@@ -263,19 +267,23 @@ module Workflows
                                             retryable: true, canonical_host:)
       end
 
-      # HAND THE CLAIM BACK RATHER THAN DECIDE WITH IT. `defer_robots` is the same release the :444 retry
-      # path already takes: the gate returns to `pending` with its attempt count intact, so the host is
-      # exactly as discoverable as it was before this attempt and the delivery that now owns the action
-      # claims it exactly as this one did. This is a RELEASE, not an outcome — it writes no terminal state,
-      # spends nothing and denies nothing — and it is compare-and-set on `state_version` under the row lock,
-      # so a gate the new owner has already moved matches zero rows and is reported as contended instead.
-      def relinquish(organization_id:, gate_id:, now:)
+      # HAND THE CLAIM BACK RATHER THAN DECIDE WITH IT. The gate returns to `pending` with its attempt count
+      # intact, so the host is as discoverable as it was before this attempt and the delivery that now owns
+      # the action claims it exactly as this one did. This is a RELEASE, not an outcome: no terminal state,
+      # nothing spent, nothing denied.
+      #
+      # FENCED ON THE CLAIM'S GENERATION, NOT ON `state_version`. I first wrote this against `defer_robots`
+      # and claimed its compare-and-set made it safe. It did not: `defer_robots` fences on a `state_version`
+      # re-read under the row lock in this very transaction, so it can never fail against another owner. A
+      # review demonstrated the consequence — a worker whose claim had legitimately been taken over after
+      # `ATTEMPT_STALE_SECONDS` reverted the takeover, threw away a successful 200 robots response, and left
+      # two of :444's three attempts burned on a healthy host. `robots_generation` identifies the ATTEMPT, so
+      # a release that no longer owns one matches zero rows and reports contention instead.
+      def relinquish(organization_id:, gate_id:, generation:, now:)
         Platform::UnitOfWork.run do |conn|
           store = new_store(conn, organization_id)
-          gate = store.lock_gate(organization_id, gate_id)
-          next contended if gate.nil? || gate["robots_state"] != "in_progress"
+          next contended if store.relinquish_robots(gate_id, generation, now).to_i.zero?
 
-          store.defer_robots(gate_id, gate["state_version"].to_i, now)
           Result.new(state: "pending", reason_code: Platform::ScheduledActions::Lease::LOST_REASON,
                      terminal: false, retryable: false, retry_after_ms: nil)
         end

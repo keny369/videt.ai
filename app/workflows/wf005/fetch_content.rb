@@ -402,6 +402,17 @@ module Workflows
           if outcome.reason == :redirect_policy_denied
             return failed(REASONS[:guard_error], outcome, retryable: true) if @guard_failed
 
+            # A HOP REFUSED BECAUSE THE LEASE MOVED IS NOT A POLICY FACT EITHER, and it arrives here
+            # wearing the same reason code as one that is. `Lease.redirect_guard` refuses the hop before
+            # the authorization limb runs, so `@guard_failed` is false and this URL was being filed as
+            # `policy_excluded` — permanently OUTSIDE :452's denominator, on the strength of a decision
+            # this delivery had no standing to make. Demonstrated: one committed attempt row,
+            # `policy_excluded / redirect_policy_denied / retryable = f`, for a URL nothing had refused.
+            # `LeaseKeeper::LOST` is sticky, so asking after the fetch is the same answer the guard got.
+            unless Platform::ScheduledActions::Lease.owned?
+              return failed(REASONS[:guard_error], outcome, retryable: true)
+            end
+
             return excluded(REASONS[:redirect_policy], outcome:)
           end
 

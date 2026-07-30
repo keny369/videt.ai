@@ -712,6 +712,32 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       expect(result.reason_code).to eq("redirect_check_unavailable")
       expect(result.in_denominator?).to be(true)
     end
+
+    it "PROOF 17 — nor is a hop refused because the LEASE MOVED (F-04 FU-24)" do
+      # `Lease.redirect_guard` refuses the hop BEFORE the authorization limb runs, so `@guard_failed` is
+      # false and F-01's `redirect_policy_denied` looked exactly like a scope denial. A review demonstrated
+      # the consequence: a committed attempt row reading `policy_excluded / redirect_policy_denied /
+      # retryable = f` for a URL nothing had refused — permanently outside :452's denominator, so coverage
+      # reads better than reality, on a decision this delivery had no standing to make.
+      ctx = fetchable
+      keeper = dispatched_delivery(ctx[:g][:organization_id])
+      denied = Platform::Outbound::Outcome.rejected(
+        :redirect_policy_denied, canonical_host: "shop.acme.example", port: 443,
+        final_url: "https://shop.acme.example/hop", redirect_count: 1)
+      steal = -> { steal_delivery(keeper) }
+      out = content_outbound(lambda do |_url, **kwargs|
+        steal.call
+        # The real guard, asked exactly as F-01 asks it — and it must now refuse.
+        expect(kwargs[:redirect_guard].call(URI("https://shop.acme.example/hop"))).to be(false)
+        denied
+      end)
+
+      result = Platform::ScheduledActions::Lease.with(keeper) { fetch_content(ctx, out) }
+
+      expect(result.outcome).to eq("content_fetch_failed")
+      expect(result.reason_code).to eq("redirect_check_unavailable")
+      expect(result.in_denominator?).to be(true)
+    end
   end
 
   # ---- :390 applies to every per-fetch bound, not only bytes --------------------
