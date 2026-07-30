@@ -700,6 +700,11 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
       # functions assign `lease_expires_at`; the repaired migration writes all three from a single string.
       # Drift between them is precisely how the heartbeat came to disagree with the other two, and no
       # behavioural example noticed for a whole review round.
+      #
+      # The three are NAMED here and DISCOVERED FROM THE CATALOGUE in
+      # `spec/architecture/scheduled_action_lease_rule_spec.rb`, which is what catches a FOURTH writer
+      # added later. Naming them here as well is deliberate: this file proves the behaviour, that one
+      # proves the population, and neither alone is the check.
       writers = %w[f1_claim_due_scheduled_actions f1_dispatch_scheduled_action
                    f1_heartbeat_scheduled_action]
 

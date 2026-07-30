@@ -86,8 +86,9 @@ class ScheduledActionCoherentLeaseRule < ActiveRecord::Migration[8.1]
 
   def down
     raise ActiveRecord::IrreversibleMigration,
-          "f1_claim_due_scheduled_actions / f1_dispatch_scheduled_action / f1_heartbeat_scheduled_action " \
-          "must be restored from 20260727120320 and 20260725120027"
+          "f1_claim_due_scheduled_actions and f1_dispatch_scheduled_action must be restored from " \
+          "20260727120320 (which itself rewrote 20260725120027's definitions), and " \
+          "f1_heartbeat_scheduled_action from 20260727120310"
   end
 
   private
