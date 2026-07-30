@@ -110,7 +110,11 @@ module Platform
       # and the sweep running, the row is still `dispatched` under this owner and generation and the settle
       # MATCHES. A relinquished delivery therefore completed the action having done nothing, with no
       # attempt, no ledger and no successor, and the crawl hung `running`.
-      LEASE_LOST_REASON = "scheduled_action_lease_lost"
+      #
+      # ONE SPELLING, NOT TWO. This is the lease's own vocabulary, so it is DEFINED by the lease and merely
+      # named here: as independent literals on both sides of the dispatch, renaming either would have
+      # silently restored the settle-instead-of-release defect with no test to notice.
+      LEASE_LOST_REASON = Lease::LOST_REASON
 
       def run_handler(action, entry, correlation_id:, causation_id:)
         result = invoke(action, entry, correlation_id:, causation_id:)

@@ -241,4 +241,43 @@ module Wf005CrawlChain
 
   # Let the gate's rolling second elapse between two fetches in one example.
   def advance_gate(ctx, ms = 2_000) = pacer_for(ctx).call(ms)
+
+  # ---- a REAL delivery lease (F-04 FU-24) -------------------------------------
+  #
+  # A workflow that must stop when its lease moves can only be proven against a genuine one: a real
+  # `scheduled_actions` row, claimed and dispatched through the restricted transport connection, kept by a
+  # real `LeaseKeeper`. A double here would prove that the double stops.
+
+  def dispatched_delivery(org, worker_owner: SecureRandom.uuid_v7)
+    created = ScheduledActionHarness.create(organization_id: org, target_id: SecureRandom.uuid_v7,
+                                            due_at: Time.now.utc - 60, now: Time.now.utc)
+    Platform::ScheduledActions::TransportConnection.with do |pg|
+      store = Platform::ScheduledActions::Store.new(pg)
+      lease = Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+      claimed = store.claim_due(owner: SecureRandom.uuid_v7, limit: 25, lease_seconds: lease)
+                     .find { |a| a.id == created[:id] }
+      raise "action was not claimed" if claimed.nil?
+
+      dispatched = store.dispatch(work_id: claimed.work_id, expected_generation: claimed.claim_generation,
+                                  worker_owner:, lease_seconds: lease)
+      raise "action was not dispatched" if dispatched.nil?
+
+      Platform::ScheduledActions::LeaseKeeper.new(action_id: dispatched.id, owner: worker_owner,
+                                                  generation: dispatched.claim_generation,
+                                                  lease_seconds: lease)
+    end
+  end
+
+  # Take the action away for real — lapse the lease and let the RATIFIED sweep reclaim it — so the next
+  # boundary gets a confirmed transfer from the database rather than a flag someone set.
+  def steal_delivery(keeper)
+    DbInspector.connection.exec_params(
+      "UPDATE scheduled_actions SET lease_expires_at = now() - interval '1 second',
+         state_version = state_version + 1 WHERE id = $1::uuid", [keeper.action_id])
+    Platform::ScheduledActions::TransportConnection.with do |pg|
+      Platform::ScheduledActions::Store.new(pg).release_expired_leases(limit: 10)
+    end
+    # The cadence must be due, or an authoritative guard would answer from its last renewal.
+    keeper.instance_variable_set(:@renewed_at, keeper.send(:monotonic) - (keeper.interval * 2))
+  end
 end

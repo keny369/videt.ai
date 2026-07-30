@@ -48,9 +48,10 @@ module Workflows
 
           # A RELINQUISHED PASS WRITES NOTHING. Its lease was confirmed transferred mid-pass, so the
           # terminal transaction is skipped entirely: no execution, audit, result or idempotency record, and
-          # no forward link. The action is NOT settled either — `f1_settle_scheduled_action` is fenced on
-          # owner and generation, so this worker's settle would match zero rows anyway, and the delivery
-          # that now owns the action is the one entitled to record an outcome.
+          # no forward link. The failure reason is what makes the Worker RELEASE the transport claim instead
+          # of completing it — `f1_settle_scheduled_action` carries no lease predicate, so a settle here
+          # would match and complete the action having done nothing (see `Worker::LEASE_LOST_REASON`; the
+          # claim that it would "match zero rows" was false and is corrected in ADR-092).
           return relinquished_result(command, ctx) if pass.outcome == Workflows::Wf005::CrawlDriver::RELINQUISHED
 
           finalize_execution(command, ctx, prepared, pass)
@@ -65,8 +66,8 @@ module Workflows
           Platform::CommandResult.failure(
             result_id: ctx.generate_id, command_type: command.command_type,
             failure: Platform::Failure.new(
-              error_class: "conflict", error_code: "scheduled_action_lease_lost",
-              reason_code: "scheduled_action_lease_lost", severity: "warning", retryable: true,
+              error_class: "conflict", error_code: Platform::ScheduledActions::Lease::LOST_REASON,
+              reason_code: Platform::ScheduledActions::Lease::LOST_REASON, severity: "warning", retryable: true,
               recovery_action: "retry", support_reference: ctx.correlation_id
             ),
             audit_record_id: ctx.generate_id, correlation_id: ctx.correlation_id

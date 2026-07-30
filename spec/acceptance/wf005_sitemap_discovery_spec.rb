@@ -1040,4 +1040,113 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     end
   end
 
+  # ---- F-04 FU-24: a transferred delivery decides NOTHING ----------------------
+  #
+  # Both gate outcomes here are WRITE-ONCE and both can permanently reduce coverage, so they are the
+  # highest-stakes writes on the crawl path — and both were reachable by a delivery whose lease the database
+  # had already given to another worker. The second focused review demonstrated it: after a confirmed
+  # transfer the traversal issued three more document requests, spent run-wide budget, offered content URLs
+  # to the frontier and returned a terminal state that `call` then wrote.
+  #
+  # The lease here is REAL: a `scheduled_actions` row claimed and dispatched through the transport
+  # connection, taken away by the ratified expired-lease sweep mid-traversal.
+  describe "a confirmed lease transfer" do
+    it "PROOF 14 — robots hands the claim back instead of writing a WRITE-ONCE fail-closed decision" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+      keeper = dispatched_delivery(ctx[:g][:organization_id])
+      seen = []
+      # THE LEASE IS HELD WHEN THE REQUEST STARTS and moves DURING it — which is the case that matters,
+      # because the pre-connection boundary cannot help once the connection is open. What F-01 then returns
+      # is exactly this: the per-hop guard refused, so the chain ends in `redirect_policy_denied`, a
+      # NONRETRYABLE rejection that `classify` reads as a decision and `decide` writes WRITE-ONCE.
+      steal = -> { steal_delivery(keeper) }
+      sink = seen
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **kwargs|
+          sink << kwargs.merge(url:)
+          steal.call
+          Platform::Outbound::Outcome.rejected(:redirect_policy_denied, canonical_host: URI(url).host,
+                                               port: 443, final_url: url, redirect_count: 1, latency_ms: 3)
+        end
+      end
+
+      result = Platform::ScheduledActions::Lease.with(keeper) { resolve_robots(ctx, outbound) }
+
+      # The request did happen, and it carried the per-hop boundary that ended it.
+      expect(seen.length).to eq(1)
+      expect(seen.first[:redirect_guard]).to respond_to(:call)
+      expect(result.terminal?).to be(false)
+      row = gate_row(ctx[:crawl_id])
+      # The host is exactly as discoverable as before the attempt: back to `pending`, nothing decided.
+      # Without the repair this is `unavailable` + `robots_unavailable_fail_closed`, permanently, because a
+      # guard-refused hop arrives as a plain rejection and `classify` reads every unknown rejection as a
+      # fail-closed decision.
+      expect(row["robots_state"]).to eq("pending")
+      expect(row["robots_terminal_reason"]).to be_nil
+      expect(row["robots_attempt_count"]).to eq("1")
+    end
+
+    it "PROOF 15 — the traversal STOPS at the next candidate, and the gate outcome is not written" do
+      # TWO candidates, because with one the traversal has no next iteration and the boundary is not
+      # load-bearing — which is exactly why the single-candidate mutation survived the previous round.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml", "https://shop.acme.example/b.xml"])
+      keeper = dispatched_delivery(ctx[:g][:organization_id])
+      before = frontier_entries(ctx[:crawl_id]).length
+      fetched = []
+      map = {
+        "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/from-a") },
+        "https://shop.acme.example/b.xml" => { body: urlset("https://shop.acme.example/from-b") }
+      }
+      inner = outbound_map(map)
+      # HOISTED TO LOCALS DELIBERATELY. Inside `define_singleton_method` the receiver is the stub, so an
+      # example helper called there raises NoMethodError — and `DiscoverSitemaps#fetch` rescues
+      # StandardError into a retryable adapter failure, which silently turns a broken probe into a passing
+      # one. That masked this exact test the first time it was written.
+      sink = fetched
+      steal = -> { steal_delivery(keeper) }
+      forward = ->(url, kwargs) { inner.fetch(url, **kwargs) }
+      outbound = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **kwargs|
+          sink << url
+          # The action is taken away DURING the first document, by the real sweep.
+          steal.call if sink.length == 1
+          forward.call(url, kwargs)
+        end
+      end
+
+      result = Platform::ScheduledActions::Lease.with(keeper) { discover(ctx, outbound) }
+
+      # One document, then the traversal ends. Both `break`s that existed before left only their own inner
+      # loop, so candidate b was requested, charged and offered to the frontier by a delivery that no longer
+      # owned the action.
+      expect(fetched).to eq(["https://shop.acme.example/a.xml"])
+      expect(frontier_entries(ctx[:crawl_id]).map { |e| e["canonical_url"] })
+        .not_to include("https://shop.acme.example/from-b")
+      expect(DbInspector.all("SELECT * FROM crawl_sitemap_document_charges WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]]).length).to eq(1)
+
+      # AND NOTHING IS DECIDED. The claim is handed back exactly as FU-9 hands back a contended one —
+      # `defer_to_scheduler?` is FALSE here, because no `sitemap_gate_deferred` skip was recorded, so
+      # without the ownership check above it this fell straight through to the write-once terminalisation.
+      expect(result.state).to eq("pending")
+      row = gate_row(ctx[:crawl_id])
+      expect(row["sitemap_state"]).to eq("pending")
+      expect(row["sitemap_terminal_reason"]).to be_nil
+      expect(row["sitemap_claim_token"]).to be_nil
+    end
+
+    it "PROOF 16 — every crawl fetch carries the per-hop boundary and the ratified redirect budget" do
+      # The boundary only exists if it is actually handed to F-01. `redirect_guard` is what the client
+      # consults between two hops; without it a ten-redirect chain is ~165 seconds behind ONE renewal.
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      discover(ctx, outbound_map("https://shop.acme.example/s.xml" => { body: urlset("https://shop.acme.example/p") }))
+
+      expect(requests).not_to be_empty
+      requests.each do |r|
+        expect(r[:max_redirects]).to eq(Workflows::Wf005::DiscoverSitemaps::REDIRECT_BUDGET), r[:url].to_s
+        expect(r[:redirect_guard]).to respond_to(:call), "no per-hop lease boundary for #{r[:url]}"
+      end
+    end
+  end
 end

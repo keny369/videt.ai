@@ -160,6 +160,15 @@ module Workflows
                               project_id: crawl["project_id"], gate_id: gate["id"], now:)
                          .run(retained, declared_any: declared_any?(gate), discarded:)
 
+        # A TRANSFERRED DELIVERY IS NOT AN OUTCOME EITHER, and this is checked ABOVE `defer_to_scheduler?`
+        # because that predicate is false for a traversal that recorded no `sitemap_gate_deferred` skip —
+        # so a delivery that lost its lease part-way through a run of candidates fell straight through to
+        # `terminalize` and wrote the WRITE-ONCE gate outcome on behalf of an action the database had
+        # already given to someone else. Demonstrated. The claim is handed back exactly as FU-9 hands back
+        # a contended one; the winner's own traversal decides.
+        return reschedule(organization_id, gate["id"], token, now) unless
+          Platform::ScheduledActions::Lease.owned?
+
         # FU-9 (ADR-081): SUSTAINED CONTENTION IS NOT AN OUTCOME, so it does not get written as one.
         return reschedule(organization_id, gate["id"], token, now) if defer_to_scheduler?(state, crawl, now)
 
@@ -378,15 +387,29 @@ module Workflows
       end
 
       def fetch(url)
-        # RENEW WHERE TIME IS SPENT (F-04 FU-24). The traversal only PACES on a gate deferral or a retry, so
-        # a run of candidates that each answer slowly reaches no other boundary — two successful documents
-        # at the hard timeout already exceed a 30-second lease. A no-op without a lease.
-        Platform::ScheduledActions::Lease.renew_if_due
+        # RENEW WHERE TIME IS SPENT, AND AT EVERY HOP (F-04 FU-24). The traversal only PACES on a gate
+        # deferral or a retry, so a run of candidates that each answer slowly reaches no other boundary —
+        # and one document is itself up to eleven bounded requests, because `REDIRECT_BUDGET` is ten and
+        # F-01 takes a fresh deadline per hop. Two such documents behind a single renewal is ~330 seconds
+        # under a 30-second lease. `Lease.owned?` guards the first connection, `redirect_guard` each one
+        # after it; both are no-ops without a lease.
+        return relinquished_outcome unless Platform::ScheduledActions::Lease.owned?
+
         @outbound.fetch(url, timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
-                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)
+                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT,
+                        redirect_guard: Platform::ScheduledActions::Lease.redirect_guard)
       rescue StandardError
         Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true,
                                            canonical_host: nil)
+      end
+
+      # No request was made because the lease had already moved. NONRETRYABLE deliberately: `fetch_paced`
+      # must not pace and retry a candidate this delivery may not fetch at all, and the traversal stops at
+      # its next boundary regardless, after which `call` reschedules rather than recording anything.
+      def relinquished_outcome
+        Platform::Outbound::Outcome.failure(:connection_failure,
+                                            reason: :scheduled_action_lease_lost,
+                                            retryable: false, canonical_host: nil)
       end
 
       # ---- transactions ---------------------------------------------------------
@@ -707,6 +730,14 @@ module Workflows
           discarded.each { |c| skip(c.canonical_url, DiscoverSitemaps::DOCUMENTS_LIMIT) }
           @pending = SitemapCandidates.order(retained)
           until @pending.empty?
+            # A CONFIRMED TRANSFER ENDS THE TRAVERSAL, not merely the inner loop it was noticed in. The
+            # `break`s in `fetch_paced` and `fetch_once` leave only their own per-candidate loops, so the
+            # traversal moved on to the NEXT candidate and kept requesting, kept spending the run-wide
+            # document budget and kept offering content URLs to the frontier — for a delivery that no
+            # longer owned the action. Demonstrated: three further document requests and two URLs offered
+            # after the pacer reported the transfer.
+            break unless Platform::ScheduledActions::Lease.owned?
+
             candidate = @pending.shift
             next if @visited.key?(candidate.canonical_url)
 

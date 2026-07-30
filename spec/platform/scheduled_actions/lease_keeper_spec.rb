@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "rails_helper"
+require "ipaddr"
 
 # F-04 (FU-24, DECISIONS ADR-091) — THE FENCED SCHEDULED-ACTION LEASE HEARTBEAT.
 #
@@ -403,6 +404,125 @@ RSpec.describe Platform::ScheduledActions::LeaseKeeper, type: :model do
         expect(keeper.interval).to eq(expected), "lease #{lease} gave #{keeper.interval}"
         expect(keeper.interval).to eq(keeper.interval.floor)
       end
+    end
+  end
+
+  # ONE `Outbound.fetch` IS NOT ONE BOUNDED REQUEST — the defect the second review demonstrated.
+  #
+  # F-01 follows up to `redirects_per_url` hard = 10, and takes a FRESH deadline per hop, so a call is up
+  # to eleven connections at the 15-second timeout. A renewal placed only before the call covered the first
+  # hop and nothing else: measured at 165 seconds of request time with ZERO heartbeat writes, under a
+  # 30-second lease, after which the sweep reclaimed the action underneath a live worker.
+  #
+  # THE CLIENT HERE IS THE REAL ONE. Only the two ratified seams are injected — the DNS resolver and the
+  # socket — so the redirect loop, the per-hop deadline and the point at which `redirect_guard` is consulted
+  # are production code, not a restatement of it in a double.
+  describe "the boundary INSIDE one fetch" do
+    # A chain of `hops` redirects ending in a 200, each open advancing simulated time by the hard timeout.
+    def redirect_connector(hops, elapsed_by:, on_open: nil)
+      opens = []
+      Object.new.tap do |c|
+        c.define_singleton_method(:opens) { opens }
+        c.define_singleton_method(:open) do |pinned:, host:, port:, deadline:| # rubocop:disable Lint/UnusedBlockArgument
+          opens << host
+          elapsed_by.call
+          on_open&.call(opens.length)
+          body = opens.length > hops ? "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" :
+                   "HTTP/1.1 302 Found\r\nLocation: https://hop#{opens.length}.example/robots.txt\r\n" \
+                   "Content-Length: 0\r\n\r\n"
+          Class.new do
+            def initialize(bytes) = (@bytes = bytes.b; @pos = 0)
+            def write(_bytes) = nil
+            def close = nil
+
+            def read(max, _deadline)
+              return nil if @pos >= @bytes.bytesize
+
+              slice = @bytes.byteslice(@pos, max)
+              @pos += slice.bytesize
+              slice
+            end
+          end.new(body)
+        end
+      end
+    end
+
+    def pinning_resolver
+      Object.new.tap do |r|
+        r.define_singleton_method(:resolve) do |host, timeout_s:| # rubocop:disable Lint/UnusedBlockArgument
+          Platform::Outbound::GuardedResolver::Pin.new(address: IPAddr.new("93.184.216.34"),
+                                                       candidates: [IPAddr.new("93.184.216.34")])
+        end
+      end
+    end
+
+    # Exactly what `Platform::Outbound.fetch` does, with the two seams injected.
+    def guarded_get(url, connector, guard)
+      policy = Platform::Outbound::RequestPolicy.build(
+        timeout_s: 15, byte_cap: 1024, max_redirects: 10, allowed_ports: nil,
+        user_agent: "F1CrawlerBot", redirect_guard: guard
+      )
+      Platform::Outbound::GuardedHttpClient.new(resolver: pinning_resolver, connector:).get(url, policy:)
+    end
+
+    it "PROOF 12 — a redirect chain renews ONCE PER HOP, not once per call" do
+      action = dispatched_action
+      elapsed = 0.0
+      keeper = keeper_for(action, monotonic: -> { elapsed })
+      before = action_row(action[:id])["state_version"].to_i
+      # Each hop costs the hard request timeout, which is what makes four hops outlast a 30-second lease.
+      connector = redirect_connector(3, elapsed_by: -> { elapsed += 15 })
+
+      outcome = Platform::ScheduledActions::Lease.with(keeper) do
+        guarded_get("https://start.example/robots.txt", connector, Platform::ScheduledActions::Lease.redirect_guard)
+      end
+
+      expect(outcome.status).to eq(200)
+      expect(connector.opens.length).to eq(4)
+      # 60 seconds of request time; interval is 10, and the guard sits between hops — so three renewals.
+      # Without a per-hop boundary this delta is ZERO and the lease is gone by the second hop.
+      expect(action_row(action[:id])["state_version"].to_i - before).to eq(3)
+      expect(action_row(action[:id])["last_heartbeat_at"]).not_to be_nil
+      expect(keeper.owned?).to be(true)
+    end
+
+    it "PROOF 13 — a CONFIRMED transfer refuses the next hop, so the platform stops requesting" do
+      action = dispatched_action
+      elapsed = 0.0
+      keeper = keeper_for(action, monotonic: -> { elapsed })
+      # The action is genuinely taken away, by the real sweep, while the chain is in flight.
+      steal = lambda do |open_count|
+        next unless open_count == 1
+
+        expire_lease(action[:id])
+        Platform::ScheduledActions::TransportConnection.with do |pg|
+          Platform::ScheduledActions::Store.new(pg).release_expired_leases(limit: 10)
+        end
+      end
+      connector = redirect_connector(5, elapsed_by: -> { elapsed += 15 }, on_open: steal)
+
+      outcome = Platform::ScheduledActions::Lease.with(keeper) do
+        guarded_get("https://start.example/robots.txt", connector, Platform::ScheduledActions::Lease.redirect_guard)
+      end
+
+      # ONE connection, then nothing: the hop after the transfer was never attempted.
+      expect(connector.opens.length).to eq(1)
+      expect(outcome.reason).to eq(:redirect_policy_denied)
+      expect(keeper.lost?).to be(true)
+    end
+
+    it "composes a caller's own per-hop policy rather than replacing it" do
+      action = dispatched_action
+      seen = []
+      guard = Platform::ScheduledActions::Lease.redirect_guard { |uri| seen << uri.to_s; true }
+      connector = redirect_connector(2, elapsed_by: -> {})
+
+      Platform::ScheduledActions::Lease.with(keeper_for(action)) do
+        guarded_get("https://start.example/robots.txt", connector, guard)
+      end
+
+      expect(seen.length).to eq(2)
+      expect(seen.first).to eq("https://hop1.example/robots.txt")
     end
   end
 

@@ -308,16 +308,12 @@ module Workflows
         Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true)
       end
 
+      # RENEW BETWEEN HOPS (F-04 FU-24), then apply :448's per-hop policy. `Lease.redirect_guard` is the
+      # single implementation of the first half — it renews on cadence and refuses the next hop outright
+      # after a confirmed transfer — and this composes the authorization decision through it, so the content
+      # path, the robots path and the sitemap path share one piece of lease handling rather than three.
       def redirect_guard(context)
-        lambda do |uri|
-          # RENEW BETWEEN HOPS (F-04 FU-24). F-01 calls this guard before following each redirect, so it is
-          # the one place a caller can act between two bounded requests without reaching into the frozen
-          # connector. Each hop may take the full 15-second timeout and the budget is ten of them, so a
-          # single attempt can outlive a 30-second lease; renewal is by elapsed time, so a short chain
-          # writes nothing extra. A CONFIRMED transfer refuses the hop — the platform must not keep
-          # requesting on behalf of a delivery it no longer owns.
-          next false unless Platform::ScheduledActions::Lease.renew_if_due != Platform::ScheduledActions::LeaseKeeper::LOST
-
+        Platform::ScheduledActions::Lease.redirect_guard do |uri|
           in_unit(context[:organization_id]) do |store|
             gate = store.lock_gate(context[:organization_id], context[:gate_id])
             next false if gate.nil?

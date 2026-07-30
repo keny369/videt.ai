@@ -93,6 +93,14 @@ module Workflows
         # PHASE 2 — outside every transaction and every lock.
         outcome = fetch(canonical_host)
 
+        # A CONFIRMED TRANSFER MID-FETCH DECIDES NOTHING (F-04 FU-24). Every robots terminal state is
+        # WRITE-ONCE and most of them are fail-closed, so a delivery that has lost its lease deciding here
+        # would permanently deny the host for the whole run on the strength of a request it had no standing
+        # to make — and the refused redirect hop below arrives as a plain rejection, which `classify` would
+        # otherwise read as exactly that kind of decision. The claim is handed back instead.
+        return relinquish(organization_id:, gate_id: claim[:gate_id], now:) unless
+          Platform::ScheduledActions::Lease.owned?
+
         record(organization_id:, gate_id: claim[:gate_id], attempt: claim[:attempt], outcome:, now:)
       end
 
@@ -130,14 +138,19 @@ module Workflows
       end
 
       def fetch(canonical_host)
-        # RENEW WHERE TIME IS SPENT (F-04 FU-24). This request is bounded at the hard request timeout and
-        # nothing else on the robots path waits, so without a boundary here a pass could spend the whole
-        # lease on one call and never reach a renewal. Infrastructure, not workflow logic: a no-op when
-        # there is no lease, which is every caller that is not a worker delivery.
-        Platform::ScheduledActions::Lease.renew_if_due
+        # RENEW WHERE TIME IS SPENT, AND AT EVERY HOP (F-04 FU-24). A boundary placed only HERE was the
+        # measured defect: `REDIRECT_BUDGET` is ten, this path deliberately follows redirects because
+        # apex->www is one of the commonest robots configurations on the web, and F-01 takes a fresh
+        # deadline per hop — so one call is up to eleven bounded requests and ~165 seconds behind a single
+        # renewal, under a 30-second lease. `Lease.owned?` is the boundary before the first connection
+        # (it renews on cadence, then answers) and `Lease.redirect_guard` is the boundary before each
+        # subsequent one. Both are no-ops without a lease, which is every caller that is not a delivery.
+        return relinquished_outcome(canonical_host) unless Platform::ScheduledActions::Lease.owned?
+
         @outbound.fetch("https://#{canonical_host}#{ROBOTS_PATH}",
                         timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,
-                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT)
+                        max_redirects: REDIRECT_BUDGET, user_agent: USER_AGENT,
+                        redirect_guard: Platform::ScheduledActions::Lease.redirect_guard)
       rescue StandardError
         # An adapter defect must not leave the host unresolved and the run wedged: treat it as a
         # retryable transport failure and let the attempt bound turn exhaustion into fail-closed.
@@ -241,6 +254,31 @@ module Workflows
       def already(gate)
         Result.new(state: gate["robots_state"], reason_code: gate["robots_terminal_reason"],
                    terminal: true, retryable: false, retry_after_ms: nil)
+      end
+
+      # The lease moved before the outcome could be recorded. Never classified — `call` returns above
+      # `record` — so its only job is to be an Outcome-shaped value that made no request.
+      def relinquished_outcome(canonical_host)
+        Platform::Outbound::Outcome.failure(:connection_failure, reason: :scheduled_action_lease_lost,
+                                            retryable: true, canonical_host:)
+      end
+
+      # HAND THE CLAIM BACK RATHER THAN DECIDE WITH IT. `defer_robots` is the same release the :444 retry
+      # path already takes: the gate returns to `pending` with its attempt count intact, so the host is
+      # exactly as discoverable as it was before this attempt and the delivery that now owns the action
+      # claims it exactly as this one did. This is a RELEASE, not an outcome — it writes no terminal state,
+      # spends nothing and denies nothing — and it is compare-and-set on `state_version` under the row lock,
+      # so a gate the new owner has already moved matches zero rows and is reported as contended instead.
+      def relinquish(organization_id:, gate_id:, now:)
+        Platform::UnitOfWork.run do |conn|
+          store = new_store(conn, organization_id)
+          gate = store.lock_gate(organization_id, gate_id)
+          next contended if gate.nil? || gate["robots_state"] != "in_progress"
+
+          store.defer_robots(gate_id, gate["state_version"].to_i, now)
+          Result.new(state: "pending", reason_code: Platform::ScheduledActions::Lease::LOST_REASON,
+                     terminal: false, retryable: false, retry_after_ms: nil)
+        end
       end
 
       # Another worker holds the attempt; the caller re-reads rather than racing it.

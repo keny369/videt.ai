@@ -253,6 +253,14 @@ module Workflows
                                        gate_id: gate["id"], now:, reserved_bytes:)
         result = execution.result
 
+        # OWNERSHIP FIRST, ABOVE EVERY DISPOSITION BELOW IT — including the `deferred` one, which was the
+        # last return in this method still sitting above the guard. `deferred` writes a ledger row and MINTS
+        # A FORWARD ACTION, so it is not the harmless no-op its own comment describes when the lease has
+        # gone: it is the duplicate `crawl_fetch_due` the winner later collides with. The attempt itself, if
+        # one was performed, is already committed and accounted by the authorities that own it; this pass
+        # stops there, writing no terminal frontier state and creating no link.
+        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
+
         # A PASS THAT PERFORMED NO ATTEMPT DISPOSES OF NOTHING. The host gate refused, or execution-time
         # authorization refused, or another delivery had already claimed this attempt number — in each case
         # this pass made no request and decided nothing, so retiring the entry and releasing the reservation
@@ -263,11 +271,6 @@ module Workflows
           return deferred(result.reason_code || HOST_PACED, entry:,
                           at: host_ready_at(organization_id, gate, now))
         end
-
-        # OWNERSHIP LOST DURING THE FETCH. The attempt itself is already committed and accounted by the
-        # authorities that own it, and this pass stops there: it writes no terminal frontier state, creates
-        # no link, and lets the delivery that now owns the action carry on.
-        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
 
         retry_at = retry_due_at(execution, crawl)
         if retry_at
