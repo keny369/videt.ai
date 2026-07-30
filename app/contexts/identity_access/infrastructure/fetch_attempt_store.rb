@@ -132,6 +132,26 @@ module IdentityAccess
         SQL
       end
 
+      # THE ENTRY'S HIGHEST-NUMBERED ATTEMPT, which is what carries a retry forward across passes.
+      #
+      # S-07-012 makes one `crawl_fetch_due` execution perform ONE attempt (DECISIONS ADR-089), so
+      # everything a later pass needs about the earlier one has to be read from committed state: the
+      # number reached, whether the outcome was retryable, what remains of the admission's reservation
+      # (`reserved_bytes - accounted_response_bytes`), and `completed_at`, which is the instant :444
+      # measures its 30 and 120 seconds FROM. Reading `completed_at` rather than the executing worker's
+      # own clock is also what makes the retry's ScheduledAction identity deterministic, so two
+      # deliveries of one action cannot durably link two retries.
+      def latest_attempt(organization_id, crawl_id, frontier_entry_id, kind)
+        params = [organization_id, crawl_id, frontier_entry_id, kind]
+        query(<<~SQL, params).to_a.first
+          SELECT * FROM fetch_attempts
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+            AND crawl_frontier_entry_id = $3::uuid AND request_kind = $4
+          ORDER BY attempt_number DESC
+          LIMIT 1
+        SQL
+      end
+
       # How many attempts this frontier entry has already had, so :444's bound is read from committed
       # state rather than carried in a worker's memory across a process loss.
       #

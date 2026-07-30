@@ -15,9 +15,9 @@ corrected. Every claim below is either mechanically checked by
 | | |
 | --- | --- |
 | Block | S-07-012, BUILD_PLAN `Crawl Execution — the run driver (scheduler re-entry for dequeue, fetch and discovery)` |
-| Range | from `b48bf6e` (S-07-008 acceptance) to `b72d1ea` |
+| Range | from `b48bf6e` (S-07-008 acceptance) to the branch head |
 | Authority | standing delegation ADR-061; cadence ADR-086; review discipline ADR-080 |
-| Owner rulings implemented | ADR-085 (FU-16), ADR-087 (FU-18) |
+| Owner rulings implemented | ADR-085 (FU-16), ADR-087 (FU-18), ADR-089 (FU-19) |
 | Accepted paths | `app/contexts/identity_access/infrastructure/crawl_budget_store.rb`, `app/contexts/identity_access/infrastructure/crawl_frontier_store.rb`, `app/contexts/identity_access/infrastructure/crawl_host_gate_store.rb`, `app/contexts/identity_access/infrastructure/fetch_attempt_store.rb`, `app/workflows/wf005/`, `config/initializers/scheduled_actions.rb`, `db/migrate/20260727120300_crawl_frontier_seal_release.rb`, `db/structure.sql`, `spec/acceptance/support/wf005_crawl_chain.rb`, `spec/acceptance/wf005_admission_spec.rb`, `spec/acceptance/wf005_content_fetch_spec.rb`, `spec/acceptance/wf005_crawl_frontier_spec.rb`, `spec/acceptance/wf005_limit_observation_points_spec.rb`, `spec/acceptance/wf005_record_fetch_attempt_spec.rb`, `spec/acceptance/wf005_start_crawl_spec.rb`, `spec/persistence/crawl_frontier_invariants_spec.rb`, `specification/automation/AUTONOMY_POLICY.md`, `specification/automation/BUILD_PLAN.yml`, `specification/automation/BUILD_STATE.json`, `DECISIONS.md`, `S-07-012_COMPLETION_REPORT.md` |
 | Excluded | 16 files from four unrelated AUTHORIZED commits inside the range, each attributed in `BUILD_STATE.acceptance_evidence` |
 
@@ -49,9 +49,18 @@ clock bounds it: past the deadline no pass links, so a chain cannot outlive its 
 owner's ruling on FU-16). `Workflows::Wf005::CrawlFetchDueSchedule#link_next` names the entry
 `peek_next` selects under the frontier's own advisory lock; it mints no attempt identity, holds no
 byte reservation, and does not touch the frontier. The FETCH PATH IS THE SOLE PRODUCER of
-`fetch_attempts` rows, so S-07-007's in-process :444 retry loop still owns every retry: one pass
-spends all three attempts with both proven delays, and no ScheduledAction anywhere targets a
-`fetch_attempt`.
+`fetch_attempts` rows, and no ScheduledAction anywhere targets a `fetch_attempt`.
+
+**THE SCHEDULER OWNS WAITING; THE WORKER OWNS ONE BOUNDED ATTEMPT** (ADR-089, the owner's ruling on
+FU-19, superseding ADR-085's in-process-retry clause). One execution performs at most one attempt. A
+retryable outcome with attempts remaining schedules a new `crawl_fetch_due` for the same entry at
+`fetch_attempts.completed_at` plus :444's delay and returns; nothing sleeps. :444's three-attempt bound
+and its exact 30,000 / 120,000 ms delays are unchanged, the attempt number still comes from committed
+state, and the claim, the reservation and the depth seal are held across the retry because they belong
+to one admission of one URL. The instant is DERIVED from the committed row rather than taken from the
+worker's clock, so two deliveries of one action compute the same ScheduledAction identity and the second
+replays instead of forking the run. A retry that would fall past `crawls.deadline_at` is treated as
+exhaustion, which releases the reservation and the seal immediately.
 
 **The order of operations is the specification, and two steps of it are not obvious.**
 
@@ -162,7 +171,7 @@ Run from the repository root. Outputs are those observed at this commit. The com
 
 | Command | Output |
 | --- | --- |
-| `bundle exec rspec` | `1921 examples, 0 failures` |
+| `bundle exec rspec` | `1926 examples, 0 failures` |
 | `bundle exec brakeman -q --no-pager -z` | `No warnings found` |
 | `bin/packwerk check` | `No offenses detected` |
 | `bundle exec bundle-audit check --update` | `No vulnerabilities found` |

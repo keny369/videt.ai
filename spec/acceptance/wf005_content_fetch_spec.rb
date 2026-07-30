@@ -66,10 +66,35 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
   end
 
 
-  def fetch_content(ctx, outbound, entry: nil)
-    Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+  # ONE EXECUTION IS ONE ATTEMPT (DECISIONS ADR-089). `FetchContent#call` no longer loops and no longer
+  # sleeps: it makes one attempt and REPORTS the :444 delay its caller owes. These helpers therefore split
+  # in two — `fetch_content` for the many examples that are about a single attempt's outcome, and
+  # `fetch_passes` for the retry schedule, which drives consecutive executions exactly as the run driver
+  # drives consecutive `crawl_fetch_due` passes.
+  def fetch_once(ctx, outbound, entry: nil, reserved: nil)
+    Workflows::Wf005::FetchContent.new(outbound:).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      entry: entry || root_entry(ctx), gate_id: ctx[:gate_id], now: start_now)
+      entry: entry || root_entry(ctx), gate_id: ctx[:gate_id], now: start_now, reserved_bytes: reserved)
+  end
+
+  def fetch_content(ctx, outbound, entry: nil) = fetch_once(ctx, outbound, entry:).result
+
+  # Consecutive passes over ONE entry, stopping when :444 owes nothing more — the retry loop as it now
+  # exists, with the waiting between passes belonging to the scheduler rather than to a worker. The gate is
+  # advanced between passes because :442 paces host starts at one per second and each pass makes one.
+  def fetch_passes(ctx, outbound, entry: nil, reserved: nil)
+    target = entry || root_entry(ctx)
+    carried = reserved
+    [].tap do |passes|
+      loop do
+        execution = fetch_once(ctx, outbound, entry: target, reserved: carried)
+        passes << execution
+        break unless execution.retry_owed?
+
+        carried = execution.remaining_reserved
+        advance_gate(ctx)
+      end
+    end
   end
 
   def admit_next(ctx)
@@ -82,12 +107,8 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
     decision = admit_next(ctx)
     raise "expected an admitted entry" unless decision.admitted?
 
-    result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
-      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
-      entry: decision.entry, gate_id: ctx[:gate_id], now: start_now,
-      reserved_bytes: decision.reserved_bytes
-    )
-    [decision, result]
+    execution = fetch_once(ctx, outbound, entry: decision.entry, reserved: decision.reserved_bytes)
+    [decision, execution.result]
   end
 
 
@@ -252,8 +273,17 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
         end
       )
 
-      decision, result = admitted_fetch_content(ctx, outbound)
+      decision = admit_next(ctx)
+      raise "expected an admitted entry" unless decision.admitted?
 
+      # TWO PASSES, because one execution is one attempt (ADR-089). The reservation is what makes them one
+      # admission: it is carried from the first pass's committed remainder into the second, exactly as the
+      # run driver carries it across two `crawl_fetch_due` deliveries.
+      passes = fetch_passes(ctx, outbound, entry: decision.entry, reserved: decision.reserved_bytes)
+      result = passes.last.result
+
+      expect(passes.size).to eq(2)
+      expect(passes.first.retry_after_ms).to eq(30_000)
       expect(result.outcome).to eq("document_created")
       expect(before_second_attempt["reserved_response_bytes"].to_i).to eq(decision.reserved_bytes)
       expect(before_second_attempt["committed_response_bytes"].to_i).to eq(first_body.bytesize)
@@ -412,9 +442,12 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
     it "retries a transient failure up to the ratified bound and records EVERY attempt" do
       ctx = fetchable
       timeout = Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
-      result = fetch_content(ctx, content_outbound(timeout))
+      passes = fetch_passes(ctx, content_outbound(timeout))
 
-      expect(result.outcome).to eq("content_fetch_failed")
+      # THE BOUND IS UNCHANGED by moving the waiting to the scheduler: three attempts, no more, with the
+      # number read from committed state on every pass so neither a redelivery nor a process loss resets it.
+      expect(passes.size).to eq(Workflows::Wf005::FetchContent::MAX_ATTEMPTS)
+      expect(passes.last.result.outcome).to eq("content_fetch_failed")
       rows = attempts(ctx[:crawl_id])
       expect(rows.size).to eq(Workflows::Wf005::FetchContent::MAX_ATTEMPTS)
       expect(rows.map { |r| r["attempt_number"].to_i }).to eq([1, 2, 3])
@@ -423,19 +456,44 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       expect(rows.map { |r| r["outcome"] }.uniq).to eq(["content_fetch_failed"])
     end
 
-    it "waits :444's fixed schedule — 30s then 120s — not an ad-hoc constant" do
+    it "owes :444's fixed schedule — 30s then 120s, then nothing — not an ad-hoc constant" do
       ctx = fetchable
-      fetch_content(ctx, content_outbound(Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")))
-      # EXACTLY two delays, not `first(2)`. :444 gives one initial attempt plus at most two retries,
-      # so a third delay precedes no request — and asserting a prefix is blind to it by construction,
-      # which is how the third delay survived review.
-      expect(paces).to eq([30_000, 120_000])
+      passes = fetch_passes(ctx, content_outbound(Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")))
+
+      # EXACTLY two delays and then nil, asserted as the whole sequence rather than a prefix. :444 gives
+      # one initial attempt plus at most two retries, so a third delay would precede no request — and a
+      # prefix assertion is blind to it by construction, which is how a third delay once survived review.
+      # This is the same contract the in-process loop used to satisfy by sleeping; the delay is now
+      # REPORTED, and the scheduler waits it out. `retry_owed?` is what the driver branches on.
+      expect(passes.map(&:retry_after_ms)).to eq([30_000, 120_000, nil])
+      expect(passes.map(&:retry_owed?)).to eq([true, true, false])
+      # And each delay is measured from the COMPLETION of the attempt that failed (:444), read back from
+      # the committed row rather than from the executing worker's clock.
+      expect(passes.first.completed_at).not_to be_nil
     end
 
     it "does not retry a nonretryable status" do
       ctx = fetchable
-      fetch_content(ctx, content_outbound(content_response(status: 403, body: "")))
+      execution = fetch_once(ctx, content_outbound(content_response(status: 403, body: "")))
+      expect(execution.retry_owed?).to be(false)
       expect(attempts(ctx[:crawl_id]).size).to eq(1)
+    end
+
+    it "NOTHING SLEEPS: an execution that owes a retry returns without waiting it out" do
+      # The defect ADR-089 removes. The in-process loop slept 30 s then 120 s, so one pass ran ~195 s
+      # against the transport's 30-second worker lease with no heartbeat — the lease was recovered
+      # mid-fetch and the ordinary retry path executed twice. A pass is now bounded by its single request.
+      ctx = fetchable
+      timeout = Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
+
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      execution = fetch_once(ctx, content_outbound(timeout))
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - elapsed
+
+      expect(execution.retry_after_ms).to eq(30_000)
+      # Generous by three orders of magnitude against the 30 s it used to sleep: this asserts that the
+      # delay was not taken, not that the database was fast.
+      expect(elapsed).to be < 5.0
     end
   end
 

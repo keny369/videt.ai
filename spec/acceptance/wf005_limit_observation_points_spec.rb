@@ -295,9 +295,32 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       "SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
       [ctx[:crawl_id]]
     )
-    Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+    Workflows::Wf005::FetchContent.new(outbound:).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry:,
-      gate_id: ctx[:gate_id], now: start_now, reserved_bytes: decision&.reserved_bytes)
+      gate_id: ctx[:gate_id], now: start_now, reserved_bytes: decision&.reserved_bytes).result
+  end
+
+  # Consecutive executions over one entry until :444 owes nothing more — the retry sequence as the run
+  # driver performs it, one attempt per pass with the scheduler owning the waiting (ADR-089).
+  def fetch_until_exhausted(ctx, outcome, outbound: nil, entry: nil)
+    outbound ||= Object.new.tap { |o| o.define_singleton_method(:fetch) { |*_a, **_k| outcome } }
+    target = entry || DbInspector.one(
+      "SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
+      [ctx[:crawl_id]]
+    )
+    carried = nil
+    [].tap do |passes|
+      loop do
+        execution = Workflows::Wf005::FetchContent.new(outbound:).call(
+          organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry: target,
+          gate_id: ctx[:gate_id], now: start_now, reserved_bytes: carried)
+        passes << execution
+        break unless execution.retry_owed?
+
+        carried = execution.remaining_reserved
+        advance_gate(ctx)
+      end
+    end
   end
 
   describe "response body per URL (:438)" do
@@ -362,7 +385,10 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       ctx = fetchable
       narrow(ctx, "request_timeout_seconds" => { "soft" => 2, "hard" => 3 })
 
-      fetch(ctx, Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example"))
+      # THREE PASSES, because one execution is one attempt (ADR-089) and this bound is deferred to
+      # exhaustion. The deferral is the property under test and it is unchanged; what moved is where the
+      # waiting between attempts happens.
+      fetch_until_exhausted(ctx, Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example"))
 
       row = decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "hard")
       expect(row).not_to be_nil
@@ -385,10 +411,10 @@ RSpec.describe "WF-005 limit observation points", type: :acceptance,
       entry = DbInspector.one("SELECT * FROM crawl_frontier_entries WHERE crawl_id=$1::uuid ORDER BY dequeue_key LIMIT 1",
                               [ctx[:crawl_id]])
 
-      result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
-        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry:,
-        gate_id: ctx[:gate_id], now: start_now)
+      passes = fetch_until_exhausted(ctx, nil, outbound:, entry:)
+      result = passes.last.result
 
+      expect(passes.size).to eq(2)
       expect(result.document?).to be(true)
       expect(decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "hard")).to be_nil
       soft = decision(ctx[:crawl_id], "connection_plus_response_time_per_request", "soft")

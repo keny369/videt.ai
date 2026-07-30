@@ -290,81 +290,182 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     end
   end
 
-  describe "S-07-007's retry semantics are unchanged (DECISIONS ADR-085)" do
-    it "spends all three :444 attempts IN ONE PASS, with both proven delays, and schedules no retry" do
-      # The property the withdrawn pre-admit design could not keep. :138 gives `crawl_fetch_due` no
-      # retry limb — unlike :140-143's ingestion/parsing/indexing/check kinds, each of which is
-      # explicitly "initial or declared 30/120-second retry" — because content-fetch retries are the
-      # in-process loop S-07-007 built and proved.
-      ctx = fetchable
-      result = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout_outcome))
+  # ---- FU-19: the scheduler owns waiting, the worker owns one bounded attempt (ADR-089) ------------
 
-      expect(result.payload[:pass_outcome]).to eq("fetched")
-      expect(result.payload[:outcome]).to eq("content_fetch_failed")
-      expect(paces).to eq([30_000, 120_000])
-      rows = attempts(ctx[:crawl_id])
-      expect(rows.map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
-      expect(rows.map { |r| r["outcome"] }.uniq).to eq(["content_fetch_failed"])
-      # No attempt-targeted action exists anywhere, so nothing but the fetch path made these rows.
-      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE target_type = 'fetch_attempt'"))
-        .to be_empty
+  describe ":444's retries, one attempt per execution" do
+    def timeout = Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
+
+    # The chain as the transport runs it: execute, follow the link the terminal transaction created,
+    # execute that at ITS due instant, and so on. `clear_rate_window` between passes stands for the 30 or
+    # 120 seconds that genuinely elapse — :442's rolling second is long spent by then.
+    def run_chain(ctx, outbound, limit: 5)
+      action = first_action(ctx)
+      [].tap do |results|
+        limit.times do
+          results << execute(ctx, action, outbound, at: Time.parse(action["due_at"]).getutc)
+          nxt = results.last.success? && results.last.payload[:next_action_id]
+          break unless nxt
+
+          clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+          action = action_row(nxt)
+        end
+      end
     end
 
-    it "RELEASES the whole reservation when the third attempt is itself retryable" do
-      # ":442 — unused bytes are released." The exhaustion path did not, and it is the ordinary path:
-      # three timeouts are :452's `content_fetch_failed`. Every settle in the loop deliberately KEEPS the
-      # reservation while the outcome is retryable — correct between attempts, and wrong at the end — so
-      # the loop exited holding all 10 MiB with nothing accounted, permanently. `sweep_expired` cannot
-      # reclaim it either: `terminalize` nulls the lease and the sweep requires it non-null. Since
-      # `Admission#admit` sizes every later reservation from `per_run - reserved_response_bytes`, ~125
-      # such URLs falsely exhaust a 1250 MiB run and fire an IMMUTABLE customer-visible hard limit for a
-      # run that received nothing. Found independently by three reviewers.
+    it "PROOF 1 — one attempt, its outcome committed, exactly one re-entry at completion + 30s" do
       ctx = fetchable
-      result = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout_outcome))
+      action = first_action(ctx)
 
-      expect(result.payload[:outcome]).to eq("content_fetch_failed")
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = execute(ctx, action, outbound_by_path("/" => timeout))
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - elapsed
+
+      expect(result.payload[:pass_outcome]).to eq("retrying")
+      expect(requests).to eq(["/"])
+      rows = attempts(ctx[:crawl_id])
+      expect(rows.map { |r| r["attempt_number"] }).to eq(["1"])
+      expect(rows.first["outcome"]).to eq("content_fetch_failed")
+      # EXACTLY ONE re-entry, against the SAME entry, at :444's instant measured from the attempt's own
+      # committed completion — not from this worker's clock.
+      links = fetch_actions(ctx[:crawl_id])
+      expect(links.size).to eq(2)
+      reentry = action_row(result.payload[:next_action_id])
+      expect(reentry["target_id"]).to eq(rows.first["crawl_frontier_entry_id"])
+      expect(Time.parse(reentry["due_at"]).getutc)
+        .to eq(Time.parse(rows.first["completed_at"]).getutc + 30)
+      # THE WORKER DID NOT WAIT IT OUT. Generous by three orders of magnitude against the 30 s the
+      # in-process loop used to sleep: this asserts the delay was not taken, not that the database is fast.
+      expect(elapsed).to be < 5.0
+    end
+
+    it "PROOF 2 — the second pass resumes from committed state and owes 120s, without renumbering" do
+      ctx = fetchable
+      first, second = run_chain(ctx, outbound_by_path("/" => timeout), limit: 2)
+
+      expect(first.payload[:pass_outcome]).to eq("retrying")
+      expect(second.payload[:pass_outcome]).to eq("retrying")
+      rows = attempts(ctx[:crawl_id])
+      expect(rows.map { |r| r["attempt_number"] }).to eq(%w[1 2])
+      # The entry was never re-admitted: one claim, one reservation, continuous across both passes.
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("in_progress")
+      expect(rows.map { |r| r["reserved_bytes"].to_i }.uniq.size).to eq(1)
+      reentry = action_row(second.payload[:next_action_id])
+      expect(Time.parse(reentry["due_at"]).getutc)
+        .to eq(Time.parse(rows.last["completed_at"]).getutc + 120)
+      expect(second.payload[:frontier_seal_released]).to be(false)
+    end
+
+    it "PROOF 3 — the third pass creates no retry, releases the whole remainder, and terminalises" do
+      ctx = fetchable
+      passes = run_chain(ctx, outbound_by_path("/" => timeout))
+
+      expect(passes.size).to eq(3)
+      expect(passes.map { |r| r.payload[:pass_outcome] }).to eq(%w[retrying retrying fetched])
+      expect(passes.last.payload[:outcome]).to eq("content_fetch_failed")
       expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
+      # :442 — unused bytes are released. Nothing is left reserved beyond what was accounted.
       row = counters(ctx[:crawl_id])
-      # THE INVARIANT, stated as :442 states it: what is still reserved is exactly what was accounted.
       expect(row["reserved_response_bytes"].to_i).to eq(row["committed_response_bytes"].to_i)
       expect(row["reserved_response_bytes"].to_i).to eq(0)
+      # The seal is released only now, at the terminal outcome, and the run advances.
+      expect(passes.last.payload[:frontier_seal_released]).to be(true)
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("terminal")
+      # THREE passes, THREE actions plus the first link: no retry after the bound.
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(3)
     end
 
-    it "releases the REMAINDER and not the whole reservation when an exhausted retry accounted bytes" do
-      # The case that distinguishes "release the remainder" from "release the reservation": all three
-      # attempts retryable AND each one returning a body, so the remainder is strictly smaller than what
-      # Admission reserved. Releasing the whole reservation would return bytes the run genuinely spent,
-      # breaking :442's "run-wide accounted response-body bytes are EXACTLY sum(accounted_i)" in the other
-      # direction. Three timeouts cannot prove this, because a timeout accounts nothing and the two
-      # amounts coincide.
-      ctx = fetchable
-      bodies = ["e" * 512, "f" * 1024, "g" * 256]
-      result = execute(ctx, first_action(ctx),
-                       outbound_by_path("/" => bodies.map { |b| html(status: 503, body: b, type: "text/plain") }))
+    it "PROOF 4 — retry then success: numbering and pacing preserved, ONE forward link, counters exact" do
+      ctx = fetchable(hosts: %w[shop.acme.example zeta.acme.example])
+      body = "<html><title>ok</title></html>"
+      # Two passes only: the third link this creates targets the OTHER Source, whose robots are unresolved,
+      # and that pass is a different property (asserted above).
+      passes = run_chain(ctx, outbound_by_path("/" => [timeout, html(body:)]), limit: 2)
 
-      expect(result.payload[:outcome]).to eq("content_fetch_failed")
-      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
-      accounted = bodies.sum(&:bytesize)
+      expect(passes.map { |r| r.payload[:pass_outcome] }).to eq(%w[retrying fetched])
+      expect(passes.last.payload[:outcome]).to eq("document_created")
+      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(%w[1 2])
       row = counters(ctx[:crawl_id])
-      expect(row["committed_response_bytes"].to_i).to eq(accounted)
-      expect(row["reserved_response_bytes"].to_i).to eq(accounted)
+      expect(row["committed_response_bytes"].to_i).to eq(body.bytesize)
+      expect(row["reserved_response_bytes"].to_i).to eq(body.bytesize)
+      # ONE forward link from the successful pass — to the OTHER Source's root, not a second retry.
+      expect(passes.last.payload[:next_frontier_entry_id]).to eq(entries(ctx[:crawl_id]).last["id"])
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(3)
     end
 
-    it "releases only the UNUSED remainder, leaving accounted bytes committed, when a retry succeeds" do
-      # The other half of the same invariant, and the reason the repair cannot simply release everything:
-      # a failed attempt's body IS accounted (:442 — "exactly sum(accounted_i)"), so the release must be
-      # the remainder and not the whole reservation.
+    it "PROOF 5 — a duplicate delivery links no second retry and creates no second attempt" do
       ctx = fetchable
-      failed_body = "x" * 2048
-      result = execute(ctx, first_action(ctx),
-                       outbound_by_path("/" => [html(status: 503, body: failed_body, type: "text/plain"),
-                                                html]))
+      action = first_action(ctx)
+      first = execute(ctx, action, outbound_by_path("/" => timeout))
+      requests.clear
 
-      expect(result.payload[:outcome]).to eq("document_created")
+      replay = execute(ctx, action, outbound_by_path({}))
+
+      expect(replay.replayed).to be(true)
+      expect(replay.payload[:next_action_id]).to eq(first.payload[:next_action_id])
+      expect(requests).to be_empty
+      expect(attempts(ctx[:crawl_id]).size).to eq(1)
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(2)
+    end
+
+    it "PROOF 5b — the retry instant is DERIVED, so two computations of it collapse to one action" do
+      # Why the instant comes from the attempt's committed `completed_at` and not from the executing
+      # worker's clock: the ratified ScheduledAction identity includes `due_at`, so a derived instant makes
+      # two deliveries compute the SAME identity and the second REPLAYS. Taken from `now`, two concurrent
+      # deliveries would compute two instants, create two actions and fork the run into two chains.
+      ctx = fetchable
+      execute(ctx, first_action(ctx), outbound_by_path("/" => timeout))
+      attempt = attempts(ctx[:crawl_id]).first
+      at = Time.parse(attempt["completed_at"]).getutc + 30
+
+      again = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
+          .enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        Workflows::Wf005::CrawlFetchDueSchedule.reenter(
+          pg:, organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+          crawl_id: ctx[:crawl_id], entry_id: attempt["crawl_frontier_entry_id"], at:, now: start_now,
+          correlation_id: SecureRandom.uuid_v7
+        )
+      end
+
+      expect(again[:replayed]).to be(true)
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(2)
+    end
+
+    it "PROOF 6 — every delivery completes well inside the ordinary worker lease" do
+      # The whole point of ADR-089. No heartbeat and no per-kind lease extension is needed, because no
+      # delivery waits: the sum of a full three-attempt chain is now bounded by its three requests.
+      ctx = fetchable
+      spent = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      passes = run_chain(ctx, outbound_by_path("/" => timeout))
+      spent = Process.clock_gettime(Process::CLOCK_MONOTONIC) - spent
+
+      expect(passes.size).to eq(3)
+      # Three deliveries, together, inside ONE lease — where a single delivery used to need six of them.
+      expect(spent).to be < Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+    end
+
+    it "PROOF 7 — a retry that would fall past the run deadline is not created, and strands nothing" do
+      ctx = fetchable
+      action = first_action(ctx)
+      # The run ends before :444's 30 seconds would elapse, so the re-entry could only arrive to be
+      # refused. Treated as exhaustion instead: released, retired, nothing left holding the seal.
+      DbInspector.connection.exec_params(
+        "UPDATE crawls SET deadline_at = $2::timestamptz, state_version = state_version + 1 WHERE id = $1::uuid",
+        [ctx[:crawl_id], (start_now + 10).utc.iso8601(6)])
+
+      result = execute(ctx, action, outbound_by_path("/" => timeout))
+
+      expect(result.payload[:pass_outcome]).to eq("fetched")
+      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(["1"])
       row = counters(ctx[:crawl_id])
-      accounted = failed_body.bytesize + html.body.bytesize
-      expect(row["committed_response_bytes"].to_i).to eq(accounted)
-      expect(row["reserved_response_bytes"].to_i).to eq(accounted)
+      expect(row["reserved_response_bytes"].to_i).to eq(row["committed_response_bytes"].to_i)
+      expect(result.payload[:frontier_seal_released]).to be(true)
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("terminal")
+      # No re-entry, and no attempt-targeted action anywhere.
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(1)
+      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE target_type = 'fetch_attempt'"))
+        .to be_empty
     end
   end
 

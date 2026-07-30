@@ -52,7 +52,7 @@ module Workflows
         # Link the run forward to whatever is next.
         def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED, CrawlDriver::RETIRED].include?(outcome)
         # Come back to THIS entry: nothing was decided and nothing was spent.
-        def reenters? = outcome == CrawlDriver::DEFERRED
+        def reenters? = [CrawlDriver::DEFERRED, CrawlDriver::RETRYING].include?(outcome)
       end
 
       FETCHED = "fetched"
@@ -66,6 +66,10 @@ module Workflows
       # The named entry could not be fetched at all and has been retired unfetched, so the run advances
       # to the next candidate instead of stopping. Today's only producer is :448's fail-closed robots.
       RETIRED = "retired"
+      # :444 owes this entry another attempt. The pass re-enters against the SAME entry at the instant the
+      # contract names, keeping the claim, the reservation and the depth seal — none of which is a "come
+      # back and decide", so it is not `DEFERRED`.
+      RETRYING = "retrying"
 
       # ONE PASS MAKES AT MOST ONE PACED HOST START, and this is what enforces it.
       #
@@ -137,24 +141,108 @@ module Workflows
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
-        admit_and_fetch(organization_id, crawl, entry, gate, now)
+        admit_or_resume(organization_id, crawl, entry, gate, now)
       end
 
       private
 
-      def admit_and_fetch(organization_id, crawl, entry, gate, now)
+      # ADMIT A NEW ENTRY, OR RESUME THE RETRY OF ONE THIS RUN ALREADY CLAIMED.
+      #
+      # Both are needed because one execution performs one attempt (ADR-089). A first pass admits: it
+      # claims the entry and pays for it in dequeue order. A retry pass finds the SAME entry already
+      # `in_progress` — its own admission's claim, deliberately still held, because the reservation, the
+      # attempt numbering and the depth seal are all continuous across :444's retries. `claim_entry`
+      # cannot re-admit it (`peek_next` sees only `queued`), so the retry is recognised from COMMITTED
+      # STATE instead: the entry's latest attempt is terminal, was retryable, and left the bound unspent.
+      def admit_or_resume(organization_id, crawl, entry, gate, now)
         decision = admission.claim_entry(organization_id:, crawl_id: crawl["id"],
                                          entry_id: entry["id"], now:)
         # ":442 — a lost compare-and-update on the run's byte counter is NOT a limit." The entry was
         # peeked and not claimed, so it is exactly where it was; come back.
         return deferred(Admission::CONTENDED, entry:, at: nil) if decision.reason_code == Admission::CONTENDED
         return halted(decision.reason_code, entry:) if decision.limited?
-        return superseded(entry) unless decision.admitted?
+        return fetch_and_settle(organization_id, crawl, decision.entry, gate, now,
+                                decision.reserved_bytes) if decision.admitted?
 
-        result = fetch_content.call(organization_id:, crawl_id: crawl["id"], entry: decision.entry,
-                                    gate_id: gate["id"], now:, reserved_bytes: decision.reserved_bytes)
-        Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry: decision.entry,
-                 fetch: result, reenter_at: nil, released: release_seal(organization_id, decision.entry, now))
+        resumable = resumable_retry(organization_id, crawl, entry)
+        return superseded(entry) if resumable.nil?
+
+        fetch_and_settle(organization_id, crawl, resumable[:entry], gate, now, resumable[:reserved])
+      end
+
+      # The retry state, or nil when this entry is not this run's to continue. Read once, from the row the
+      # previous pass committed: what it reserved minus what it accounted is what remains, and the
+      # attempt number and outcome say whether :444 owes another try. A NON-terminal latest attempt means
+      # a worker is on it right now, and a claimed entry with no attempt at all belongs to a pass that has
+      # not reached its fetch — neither is ours to take, and `sweep_expired` reclaims a genuinely lost one.
+      def resumable_retry(organization_id, crawl, entry)
+        current, latest = Platform::UnitOfWork.run do |conn|
+          raw = conn.raw_connection
+          frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
+          frontier.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
+          [frontier.entry(organization_id, entry["id"]),
+           attempts.latest_attempt(organization_id, crawl["id"], entry["id"], "content")]
+        end
+        return nil unless current && current["state"] == "in_progress"
+        return nil unless latest && latest["outcome"] && Platform::PgBool.true?(latest["retryable"])
+        return nil unless latest["attempt_number"].to_i < FetchContent::MAX_ATTEMPTS
+
+        remaining = latest["reserved_bytes"].to_i - latest["accounted_response_bytes"].to_i
+        return nil unless remaining.positive?
+
+        { entry: current.merge("state_version" => current["state_version"]), reserved: remaining }
+      end
+
+      # THE FETCH, AND WHAT ITS OUTCOME OWES. Exactly one attempt, then one of two dispositions:
+      #
+      #   * :444 owes another attempt — the entry stays claimed, the reservation stays held, the seal stays
+      #     held, and the pass schedules a re-entry against this same entry at the instant :444 names,
+      #     which is `completed_at + 30s` or `+ 120s` measured from the attempt that just failed. The
+      #     worker returns immediately; NOTHING SLEEPS. This is the whole of ADR-089.
+      #   * nothing more is owed — the remainder is already released, the seal is released, and the run
+      #     links forward.
+      #
+      # A retry that would fall past the run's own deadline is not scheduled at all. :442 ends the run at
+      # 60 elapsed minutes, so such a re-entry could only arrive to be refused; treating it as exhaustion
+      # instead releases the reservation and the seal now, and strands neither.
+      def fetch_and_settle(organization_id, crawl, entry, gate, now, reserved_bytes)
+        execution = fetch_content.call(organization_id:, crawl_id: crawl["id"], entry:,
+                                       gate_id: gate["id"], now:, reserved_bytes:)
+        result = execution.result
+        retry_at = retry_due_at(execution, crawl)
+        if retry_at
+          return Pass.new(outcome: RETRYING, reason_code: result.reason_code, entry:, fetch: result,
+                          reenter_at: retry_at, released: false)
+        end
+
+        release_remainder(organization_id, crawl, execution, now)
+        Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry:, fetch: result,
+                 reenter_at: nil, released: release_seal(organization_id, entry, now))
+      end
+
+      # :444's instant, or nil when no retry is owed or the run cannot outlast it.
+      def retry_due_at(execution, crawl)
+        return nil unless execution.retry_owed? && execution.completed_at
+
+        at = Time.parse(execution.completed_at.to_s).utc + (execution.retry_after_ms.to_i / 1000.0)
+        deadline = crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc
+        return nil if deadline && at > deadline
+
+        at
+      end
+
+      # The reservation a retry-that-will-not-happen was still holding. `FetchContent` releases on every
+      # path it decides itself; this covers the one the DRIVER decides — a retry refused for the deadline.
+      def release_remainder(organization_id, crawl, execution, now)
+        remaining = execution.remaining_reserved.to_i
+        return unless remaining.positive?
+
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlBudgetStore.new(conn.raw_connection)
+          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          store.release_bytes(organization_id, crawl["id"], remaining, now)
+        end
       end
 
       # THE SEAL RELEASE (DECISIONS ADR-087). The entry this pass claimed has had its fetch decided, so
@@ -308,7 +396,13 @@ module Workflows
       end
 
       def admission = @admission ||= Admission.new(ids: @ids, correlation_id: @correlation_id)
-      def fetch_content = @fetch_content ||= service(FetchContent)
+
+      # No `pacer:`. Nothing in the fetch path waits any more — the scheduler owns waiting (ADR-089) — so
+      # `FetchContent` has no pacer to inject. `DiscoverSitemaps` still does: its host-gate deferrals are
+      # sub-second waits inside one traversal, not :444 retries.
+      def fetch_content
+        @fetch_content ||= FetchContent.new(outbound: @outbound, ids: @ids, correlation_id: @correlation_id)
+      end
 
       # `pacer` is how the in-process :444 waits are taken. It is injectable for the same reason
       # `FetchContent` and `DiscoverSitemaps` make it injectable — so a test can simulate elapsed time

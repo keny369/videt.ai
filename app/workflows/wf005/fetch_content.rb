@@ -96,23 +96,40 @@ module Workflows
         def in_denominator? = outcome != POLICY_EXCLUDED
       end
 
+      # WHAT ONE EXECUTION DID (DECISIONS ADR-089, the owner's ruling on FU-19). `retry_after_ms` is
+      # :444's delay when another attempt is owed and nil when it is not; `completed_at` is the instant
+      # :444 measures that delay FROM, read back from the committed attempt row rather than taken from
+      # this worker's clock. `remaining_reserved` is what is still held of the admission's reservation,
+      # and nil once nothing is.
+      Execution = Data.define(:result, :attempt_number, :completed_at, :remaining_reserved,
+                              :retry_after_ms) do
+        def retry_owed? = !retry_after_ms.nil?
+      end
+
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
-                     pacer: ->(ms) { sleep(ms.to_i / 1000.0) }, limit_decisions: nil)
+                     limit_decisions: nil)
         @outbound = outbound
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
-        @pacer = pacer
         @limit_decisions = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
       end
 
-      def pace(milliseconds) = @pacer.call(milliseconds)
-
-      # Fetch one frontier entry's URL. `entry` is the claimed `crawl_frontier_entries` row.
-      # `reserved_bytes`, when present, is Admission's run-wide reservation for this entry and is
-      # consumed across the whole retry loop rather than re-taken per attempt.
+      # PERFORM AT MOST ONE ATTEMPT for this frontier entry, and report whether :444 owes another.
+      #
+      # ONE EXECUTION IS ONE ATTEMPT (DECISIONS ADR-089, the owner's ruling on FU-19). This method used
+      # to run the whole :444 loop in-process, sleeping 30 then 120 seconds between attempts — which made
+      # a single pass outlive the transport's 30-second worker lease by six times, so the lease was
+      # recovered mid-fetch and the ORDINARY retry path executed twice. The scheduler owns waiting now;
+      # the worker owns one bounded attempt. :444's bound and its exact delays are unchanged, and the
+      # attempt NUMBER still comes from committed state, so neither a process loss nor a redelivery can
+      # reset it.
+      #
+      # `reserved_bytes`, when present, is what remains of Admission's reservation for this entry —
+      # supplied fresh by an admission, or carried forward across a retry from the previous attempt's
+      # committed row. It is never re-taken per attempt.
       def call(organization_id:, crawl_id:, entry:, gate_id:, now:, reserved_bytes: nil)
         crawl = load_crawl(organization_id, crawl_id)
-        return excluded(REASONS[:unauthorized]) if crawl.nil?
+        return execution(excluded(REASONS[:unauthorized]), nil, nil, nil) if crawl.nil?
 
         context = {
           organization_id:, crawl_id:, gate_id:, now:,
@@ -120,65 +137,63 @@ module Workflows
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i
         }
-        attempt_loop(context, entry, reserved_bytes:)
+        one_pass(context, entry, reserved_bytes:)
       end
 
       private
 
-      # :444 — one initial attempt plus at most two retries, with the attempt NUMBER read from
-      # committed state so a process loss cannot reset it.
-      def attempt_loop(context, entry, reserved_bytes:)
-        last = nil
-        remaining_reserved = reserved_bytes
-        MAX_ATTEMPTS.times do
-          number = next_attempt_number(context)
-          # :452 — "Exhausted timeout/408/429/5xx ... is `content_fetch_failed`, REMAINS IN THE
-          # DENOMINATOR, and makes coverage partial." Returning `policy_excluded` here made a URL
-          # that had been fetched three times and failed VANISH from the measure, so a run could
-          # report `full` coverage for a URL it never retrieved.
-          if number > MAX_ATTEMPTS
-            last ||= failed(REASONS[:attempts_exhausted])
-            break
-          end
-
-          last, remaining_reserved = one_attempt(context, entry, number, remaining_reserved:)
-          break unless last.retryable
-          # :444 gives "one initial attempt plus AT MOST TWO RETRIES" with delays "exactly 30 seconds
-          # after ... the first failed attempt and 120 seconds after ... the second". There is no
-          # delay after the last attempt: waiting one burned 120 s of the 60-minute wall clock ahead
-          # of a request that never comes.
-          break if number >= MAX_ATTEMPTS
-
-          pace(FetchRetryPolicy.delay_ms(number, @last_outcome))
+      def one_pass(context, entry, reserved_bytes:)
+        number = next_attempt_number(context)
+        # :452 — "Exhausted timeout/408/429/5xx ... is `content_fetch_failed`, REMAINS IN THE
+        # DENOMINATOR, and makes coverage partial." Returning `policy_excluded` here made a URL that had
+        # been fetched three times and failed VANISH from the measure, so a run could report `full`
+        # coverage for a URL it never retrieved.
+        if number > MAX_ATTEMPTS
+          release_and(context, reserved_bytes, nil) if reserved_bytes.to_i.positive?
+          return execution(failed(REASONS[:attempts_exhausted]), number - 1, nil, nil)
         end
-        # ":442 — UNUSED BYTES ARE RELEASED." Once, here, where the loop ends, which is the only place
-        # that sees every exit.
-        #
-        # THIS WAS A LEAK, and a serious one. `perform` computes
-        # `release_unused = !hold_reservation || !result.retryable`, so while Admission's reservation is
-        # held across the loop every RETRYABLE settle deliberately keeps it — correct between attempts,
-        # and wrong at the end: three consecutive timeouts (:452's ordinary `content_fetch_failed`) exit
-        # via `break if number >= MAX_ATTEMPTS` with the whole reservation still held, and nothing
-        # released it. `sweep_expired` cannot reclaim it either, because `terminalize` nulls
-        # `lease_expires_at` and the sweep requires it non-null. Measured: 10 MiB reserved, 0 committed,
-        # per exhausted URL, permanently — and since `Admission#admit` sizes every later reservation from
-        # `per_run - reserved_response_bytes`, ~125 such URLs exhaust a 1250 MiB run and fire an
-        # IMMUTABLE, customer-visible hard `accounted_response_body_bytes_per_run` decision for a run that
-        # accounted almost nothing. Found by three independent reviewers, each reproducing it.
-        #
-        # ACCOUNTED BYTES ARE NOT TOUCHED. `remaining_reserved` is what the loop is abandoning — the
-        # reservation minus everything already committed by `settle` — so releasing exactly it satisfies
-        # :442's "run-wide accounted response-body bytes are EXACTLY sum(accounted_i)" as well.
-        #
-        # THE AMOUNT IS BELT-AND-BRACES, AND SAYING SO IS THE POINT. `CrawlBudgetStore#release_bytes`
-        # floors the result at `GREATEST(committed_response_bytes, ...)`, so passing the whole reservation
-        # here, or a nil that coerces to zero, produces the same committed-bytes floor. Mutation-checked
-        # both ways and neither changes a test, which is the honest description: the CONTROL is that the
-        # loop releases AT ALL — removing this line strands the reservation and fails its example. The
-        # arithmetic and the `positive?` test are precision and one saved transaction, not the control.
-        release_and(context, remaining_reserved, last) if remaining_reserved.to_i.positive?
-        last
+
+        # NAMED EXPLICITLY, never `remaining_reserved:`. Ruby hoists the local being assigned on the left of
+        # this very statement, so the shorthand would pass nil — silently dropping the carried reservation
+        # and taking a SECOND run-wide one. The accepted S-07-012 (1/n) examples caught it.
+        last, remaining_reserved = one_attempt(context, entry, number, remaining_reserved: reserved_bytes)
+        settled = terminal_attempt(context)
+
+        # :444 gives "one initial attempt plus AT MOST TWO RETRIES", so the third attempt owes no delay:
+        # scheduling one would place a re-entry that finds the bound already spent and can only burn
+        # 120 s of the 60-minute wall clock ahead of a request that never comes.
+        unless last.retryable && number < MAX_ATTEMPTS
+          # ":442 — UNUSED BYTES ARE RELEASED." The exhausted path is the one that used to strand them:
+          # every retryable settle deliberately KEEPS the reservation, which is right between attempts and
+          # wrong at the end. Three timeouts (:452's ordinary `content_fetch_failed`) left the whole
+          # reservation held with nothing accounted, permanently — `sweep_expired` cannot reclaim it
+          # because `terminalize` nulls the lease the sweep requires — and ~125 such URLs falsely
+          # exhausted a run and fired an IMMUTABLE customer-visible hard limit. Found independently by
+          # three reviewers. The AMOUNT is belt-and-braces: `release_bytes` floors at
+          # `GREATEST(committed_response_bytes, ...)`, so the control is that it releases at all.
+          release_and(context, remaining_reserved, nil) if remaining_reserved.to_i.positive?
+          return execution(last, number, settled && settled["completed_at"], nil)
+        end
+        execution(last, number, settled && settled["completed_at"], remaining_reserved,
+                  FetchRetryPolicy.delay_ms(number, @last_outcome))
       end
+
+      def execution(result, number, completed_at, remaining, retry_after_ms = nil)
+        Execution.new(result:, attempt_number: number, completed_at:, remaining_reserved: remaining,
+                      retry_after_ms:)
+      end
+
+      # The row this pass just terminalized, re-read so `completed_at` comes from COMMITTED state. :444
+      # measures its delays from "completion of the ... failed attempt", and deriving the retry instant
+      # from the row rather than from this worker's clock is what makes two deliveries of one action
+      # compute the SAME instant — and therefore the same ScheduledAction identity, which collapses the
+      # duplicate instead of durably linking a second retry.
+      def terminal_attempt(context)
+        attempt_unit(context[:organization_id]) do |store|
+          store.latest_attempt(context[:organization_id], context[:crawl_id], context[:entry_id], "content")
+        end
+      end
+
 
       def one_attempt(context, entry, number, remaining_reserved:)
         if !remaining_reserved.nil? && remaining_reserved <= 0
@@ -217,7 +232,22 @@ module Workflows
           return [limit_discarded(REASONS[:budget_exhausted]), nil] if reserved.nil?
 
           attempt = claim_attempt(context, entry, number, reserved, bounds)
-          return [release_and(context, reserved, excluded(REASONS[:contended])), nil] if attempt.nil?
+          # A LOST RACE FOR THIS ATTEMPT NUMBER RELEASES NOTHING WHEN THE RESERVATION WAS CARRIED IN.
+          #
+          # The `ON CONFLICT (crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number)`
+          # absorbs exactly one case, and under one-attempt-per-execution it is the case that matters:
+          # two deliveries of the same `crawl_fetch_due` reaching the same attempt number. The winner
+          # holds the admission's reservation and is about to spend it, so the loser must not hand it
+          # back — `release_bytes` floors at committed bytes, but lowering the winner's headroom mid-flight
+          # is how `commit_bytes` comes to violate `committed <= reserved` and raise out of the workflow.
+          # A reservation whose holder is genuinely lost is reclaimed by `sweep_expired`, which exists for
+          # precisely that. When this call took its OWN reservation there is no other holder, so it
+          # releases as before.
+          if attempt.nil?
+            return [excluded(REASONS[:contended]), nil] unless remaining_reserved.nil?
+
+            return [release_and(context, reserved, excluded(REASONS[:contended])), nil]
+          end
 
           perform(context, attempt, reserved, limits, hold_reservation: !remaining_reserved.nil?)
         ensure

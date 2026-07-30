@@ -139,10 +139,10 @@ RSpec.describe "WF-005 admission", type: :acceptance,
         o.define_singleton_method(:fetch) { |*_a, **_k| response }
       end
 
-      result = Workflows::Wf005::FetchContent.new(outbound:, pacer: pacer_for(ctx)).call(
+      result = Workflows::Wf005::FetchContent.new(outbound:).call(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], entry: decision.entry,
         gate_id: ctx[:gate_id], now: start_now, reserved_bytes: decision.reserved_bytes
-      )
+      ).result
 
       expect(result.outcome).to eq("document_created")
       expect(attempts(ctx[:crawl_id]).first["reserved_bytes"].to_i).to eq(decision.reserved_bytes)

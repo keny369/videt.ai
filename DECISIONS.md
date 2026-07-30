@@ -2389,3 +2389,38 @@ Two statements I wrote into accepted ADRs are wrong. The review found both, and 
 
 Authority And Precedence:
 Under standing delegation ADR-061, as a correction of record rather than a decision. ADR-085's and ADR-087's rulings stand unchanged. Allocated the next unused number after ADR-087.
+
+## ADR-089: FU-19 Resolved — The Scheduler Owns Waiting, The Worker Owns One Bounded Attempt
+
+Status: Accepted (owner decision, 2026-07-30; recorded by the implementation agent from the owner's ruling)
+Date: 2026-07-30
+Owner: owner ruling on FU-19
+Reversibility: Integration branch only; `main` untouched. No schema change. Supersedes one clause of ADR-085 and nothing else.
+
+The defect. A `crawl_fetch_due` execution ran :444's whole retry loop in-process, sleeping 30 then 120 seconds, so one pass took roughly 195 seconds against `Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS` of 30 with NO heartbeat. `Platform::BackgroundExecution.run_scheduler` recovers expired leases on every pass, so the action returned to `pending` mid-fetch and was re-dispatched: THE ORDINARY RETRY PATH EXECUTED TWICE. Not an edge case — every content fetch that retries once. Demonstrated by the ADR-026 concurrency lens with injected latency and corroborated by the contract lens.
+
+THE RULING: scheduler re-entry.
+
+- A `crawl_fetch_due` execution performs AT MOST ONE content-fetch attempt.
+- If that attempt is retryable and another remains, it schedules a new `crawl_fetch_due` for the SAME frontier entry at the exact instant :444 requires, and returns. NO WORKER THREAD SLEEPS through the 30- or 120-second interval.
+- Attempt numbering continues to derive from committed state.
+- The frontier entry and the admission remain the continuity and idempotency authorities: the claim, the byte reservation and the depth seal are all held across the retry, because they belong to one admission of one URL.
+- The global worker lease is NOT extended to accommodate in-process sleeping.
+- :444's three-attempt bound and its exact 30,000 ms / 120,000 ms delays are unchanged.
+
+WHY THIS IS THE BETTER ARCHITECTURE, in the owner's terms: a worker must not remain occupied for ~195 seconds doing almost nothing. That design converts retry DELAY into worker-pool DEMAND, and at tens of thousands of organisations even a modest timeout rate produces avoidable queue growth, duplicate lease recovery, noisy ledgers and higher infrastructure cost. Worker occupancy now scales with requests rather than with waiting. It is also what the ratified catalogue already does for every other attempt-bearing work type: :140-143 give `ingestion_attempt_due`, `parsing_attempt_due`, `indexing_attempt_due` and `check_attempt_due` an explicit "initial or declared 30/120-second retry".
+
+**THIS SUPERSEDES ONE CLAUSE OF ADR-085**, and the supersession is stated rather than left to be inferred. ADR-085 read :138's silence about retries as positive evidence that content-fetch retries belong in-process, and concluded that "the retries S-07-007 proved stay in-process". That inference is withdrawn. What :138 fixes is that `crawl_fetch_due` carries ONE selected attempt — which this ruling satisfies exactly, one attempt per execution — and it says nothing about where the waiting happens. Everything else in ADR-085 stands unchanged: the action targets the selected frontier entry, admission happens at execution, and the fetch path is the sole producer of `fetch_attempts`.
+
+THE RETRY INSTANT IS DERIVED, NOT OBSERVED, and that is load-bearing. :444 measures its delays from "completion of the ... failed attempt", so the instant is `fetch_attempts.completed_at + 30s` or `+ 120s`, read back from the committed row rather than taken from the executing worker's clock. The ratified ScheduledAction identity preimage includes `due_at`, so a derived instant makes two deliveries of one action compute the SAME identity and the second REPLAY — at most one retry is durably linked per stage. Taken from `now`, two deliveries would compute two instants, create two actions, and fork the run into two chains.
+
+A retry that would fall past `crawls.deadline_at` is not created at all. :442 ends the run at 60 elapsed minutes, so such a re-entry could only arrive to be refused; treating it as exhaustion releases the reservation and the seal immediately and strands neither.
+
+Also corrected here: a lost race for an attempt number now releases NOTHING when the reservation was carried in. The `ON CONFLICT (crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number)` absorbs exactly one case, and under one-attempt-per-execution it is the case that matters — two deliveries reaching the same number. The winner holds the admission's reservation and is about to spend it, so the loser must not hand it back; a genuinely lost holder is reclaimed by `sweep_expired`. This also partially rehabilitates the claim ADR-088 corrected: the attempt identity is now genuinely load-bearing for concurrent duplicates, though it is still not what makes a REDELIVERY idempotent.
+
+Proof standard. Seven properties, each an example over the production-real chain driving the real handler: one attempt with its outcome committed and exactly one re-entry at completion + 30 s, returning without waiting; the second pass resuming from committed state and owing 120 s without renumbering; the third creating no retry, releasing the whole remainder and terminalising; retry-then-success preserving numbering and pacing with one forward link and counters equal to accounted bytes; a duplicate delivery linking no second retry and creating no second attempt; the derived instant collapsing two computations into one action; three deliveries together completing inside ONE worker lease; and a retry past the deadline not created, with nothing stranded. Eight mutations each fail an example: retry scheduling removed, the instant taken from `now`, the attempt number reset, the bound raised, the exhausted-path release omitted, the seal released while a retry is owed, the deadline check removed, and resume disabled.
+
+The accepted S-07-007 pacing proofs were TRANSLATED, not weakened. `paces == [30_000, 120_000]` asserted in-process sleeps; the same contract is now asserted as the sequence of delays consecutive executions REPORT, `[30_000, 120_000, nil]` — the whole sequence rather than a prefix, so a third delay cannot hide, which is the defect the original assertion was strengthened to catch.
+
+Authority And Precedence:
+Owner decision, taken on the evidence of the ADR-026 five-lens review of S-07-012. Supersedes ADR-085's in-process-retry clause and nothing else; ADR-087's rulings are untouched. Operates within standing delegation ADR-061 and cadence ADR-086. Allocated the next unused number after ADR-088.
