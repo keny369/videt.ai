@@ -46,13 +46,24 @@ module Workflows
       # longer. A candidate whose host has no gate row yet has nothing to wait for.
       def link_next(pg:, organization_id:, project_id:, crawl_id:, now:, correlation_id:,
                     causation_id: nil, command_id: nil, not_before: nil)
-        candidate = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
-                                                                     .peek_next(organization_id, crawl_id)
-        return {} if candidate.nil?
+        frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
+        # UNDER THE FRONTIER'S OWN ADVISORY LOCK, like every other peek in the workflow. Unlocked, two
+        # terminal transactions can select the SAME candidate and create two actions for it — distinct
+        # `due_at`, so distinct identities, so no replay collapses them — and the run forks into two
+        # chains. Harmless with one live chain and latent the moment :456's concurrent fetching lands.
+        # Both this and `Admission` take the advisory lock FIRST, so there is no lock-order cycle.
+        frontier.lock_frontier(crawl_id)
+        candidate = frontier.peek_next(organization_id, crawl_id)
+        # NOT DRAINED AND PINNED ARE DIFFERENT FACTS, and `peek_next` returns nil for both. A stranded
+        # `in_progress` claim holds `sealed_depth`, so a run with queued work at a deeper depth used to
+        # report itself DRAINED — a false statement in a customer-visible payload, and the thing that hid
+        # the stranded claim in the first place. Recovering the claim needs a frontier-lease sweep, which
+        # is S-07-011's; saying which of the two happened is this tranche's.
+        return { pinned: frontier.unfinished?(organization_id, crawl_id) } if candidate.nil?
 
         at = [now, not_before, host_ready_at(pg, organization_id, crawl_id, candidate, now)].compact.max
         link(pg:, organization_id:, project_id:, entry_id: candidate["id"], due_at: at, now:,
-             correlation_id:, causation_id:, command_id:)
+             correlation_id:, causation_id:, command_id:, crawl_id:)
       end
 
       # A re-entry against the SAME entry, for a pass that decided nothing and left the frontier
@@ -61,13 +72,22 @@ module Workflows
       # and not a limit. The entry is still `queued`, so the next pass claims it exactly as this one
       # would have.
       def reenter(pg:, organization_id:, project_id:, entry_id:, at:, now:, correlation_id:,
-                  causation_id: nil, command_id: nil)
+                  causation_id: nil, command_id: nil, crawl_id: nil)
         link(pg:, organization_id:, project_id:, entry_id:, now:, correlation_id:, causation_id:,
-             command_id:, due_at: [at, now + REENTRY_FLOOR_S].compact.max)
+             command_id:, crawl_id:, due_at: [at, now + REENTRY_FLOOR_S].compact.max)
       end
 
+      # NEVER PAST THE RUN'S OWN DEADLINE. :442 ends the run at 60 elapsed minutes, and an action due
+      # after that can do nothing but write a ledger row against a finished Crawl — a long robots
+      # `Crawl-delay` or a contended host is enough to place one there. Clamped rather than refused: an
+      # action due exactly at the deadline is the last honest opportunity, and the pass it runs will find
+      # the wall clock expired and halt.
       def link(pg:, organization_id:, project_id:, entry_id:, due_at:, now:, correlation_id:,
-               causation_id: nil, command_id: nil)
+               causation_id: nil, command_id: nil, crawl_id: nil)
+        deadline = crawl_id && run_deadline(pg, organization_id, crawl_id)
+        return { entry_id:, beyond_deadline: true } if deadline && now > deadline
+
+        due_at = deadline if deadline && due_at > deadline
         created = Platform::ScheduledActions::Store.new(pg).create(
           id: Platform::Ids.system.generate, action_kind: ACTION_KIND,
           action_schema_version: ACTION_SCHEMA_VERSION, organization_id:, project_id:,
@@ -77,6 +97,12 @@ module Workflows
           executing_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor
         )
         { entry_id:, due_at:, action_id: created[:id], replayed: created[:replayed] }
+      end
+
+      def run_deadline(pg, organization_id, crawl_id)
+        crawl = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg).crawl(organization_id, crawl_id)
+        instant = crawl && crawl["deadline_at"]
+        instant && Time.parse(instant.to_s).utc
       end
 
       # The candidate's own host gate, which may be a DIFFERENT host from the one just fetched: a

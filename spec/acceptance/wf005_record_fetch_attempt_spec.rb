@@ -107,6 +107,26 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
 
   def first_action(ctx, at: start_now) = action_row(link_first(ctx, at:)[:action_id])
 
+  def in_frontier_of(ctx)
+    Platform::UnitOfWork.run do |conn|
+      store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+      store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+      yield store
+    end
+  end
+
+  # A depth-1 candidate, offered exactly as sitemap discovery offers one (:440).
+  def offer_depth_one(ctx, root)
+    in_frontier_of(ctx) do |store|
+      Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
+        .offer(organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+               crawl_id: ctx[:crawl_id], source_id: root["source_id"],
+               canonical_url: "https://#{ctx[:host]}/deeper", origin: "sitemap", depth: 1, now: start_now,
+               discovering_document_url: "", link_position: 0, parent_entry_id: root["id"],
+               scope_policy_id: root["scope_policy_id"], scope_policy_version: root["scope_policy_version"])
+    end
+  end
+
   # The pacer advances the gate's recorded instants instead of sleeping, so :444's in-process waits are
   # OBSERVABLE (`paces`) rather than spent.
   def execute(ctx, action, outbound, at: start_now)
@@ -289,6 +309,63 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE target_type = 'fetch_attempt'"))
         .to be_empty
     end
+
+    it "RELEASES the whole reservation when the third attempt is itself retryable" do
+      # ":442 — unused bytes are released." The exhaustion path did not, and it is the ordinary path:
+      # three timeouts are :452's `content_fetch_failed`. Every settle in the loop deliberately KEEPS the
+      # reservation while the outcome is retryable — correct between attempts, and wrong at the end — so
+      # the loop exited holding all 10 MiB with nothing accounted, permanently. `sweep_expired` cannot
+      # reclaim it either: `terminalize` nulls the lease and the sweep requires it non-null. Since
+      # `Admission#admit` sizes every later reservation from `per_run - reserved_response_bytes`, ~125
+      # such URLs falsely exhaust a 1250 MiB run and fire an IMMUTABLE customer-visible hard limit for a
+      # run that received nothing. Found independently by three reviewers.
+      ctx = fetchable
+      result = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout_outcome))
+
+      expect(result.payload[:outcome]).to eq("content_fetch_failed")
+      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
+      row = counters(ctx[:crawl_id])
+      # THE INVARIANT, stated as :442 states it: what is still reserved is exactly what was accounted.
+      expect(row["reserved_response_bytes"].to_i).to eq(row["committed_response_bytes"].to_i)
+      expect(row["reserved_response_bytes"].to_i).to eq(0)
+    end
+
+    it "releases the REMAINDER and not the whole reservation when an exhausted retry accounted bytes" do
+      # The case that distinguishes "release the remainder" from "release the reservation": all three
+      # attempts retryable AND each one returning a body, so the remainder is strictly smaller than what
+      # Admission reserved. Releasing the whole reservation would return bytes the run genuinely spent,
+      # breaking :442's "run-wide accounted response-body bytes are EXACTLY sum(accounted_i)" in the other
+      # direction. Three timeouts cannot prove this, because a timeout accounts nothing and the two
+      # amounts coincide.
+      ctx = fetchable
+      bodies = ["e" * 512, "f" * 1024, "g" * 256]
+      result = execute(ctx, first_action(ctx),
+                       outbound_by_path("/" => bodies.map { |b| html(status: 503, body: b, type: "text/plain") }))
+
+      expect(result.payload[:outcome]).to eq("content_fetch_failed")
+      expect(attempts(ctx[:crawl_id]).map { |r| r["attempt_number"] }).to eq(%w[1 2 3])
+      accounted = bodies.sum(&:bytesize)
+      row = counters(ctx[:crawl_id])
+      expect(row["committed_response_bytes"].to_i).to eq(accounted)
+      expect(row["reserved_response_bytes"].to_i).to eq(accounted)
+    end
+
+    it "releases only the UNUSED remainder, leaving accounted bytes committed, when a retry succeeds" do
+      # The other half of the same invariant, and the reason the repair cannot simply release everything:
+      # a failed attempt's body IS accounted (:442 — "exactly sum(accounted_i)"), so the release must be
+      # the remainder and not the whole reservation.
+      ctx = fetchable
+      failed_body = "x" * 2048
+      result = execute(ctx, first_action(ctx),
+                       outbound_by_path("/" => [html(status: 503, body: failed_body, type: "text/plain"),
+                                                html]))
+
+      expect(result.payload[:outcome]).to eq("document_created")
+      row = counters(ctx[:crawl_id])
+      accounted = failed_body.bytesize + html.body.bytesize
+      expect(row["committed_response_bytes"].to_i).to eq(accounted)
+      expect(row["reserved_response_bytes"].to_i).to eq(accounted)
+    end
   end
 
   describe "a pass that decides nothing re-enters against the same entry" do
@@ -364,22 +441,151 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       expect(result.payload[:next_action_id]).to be_nil
     end
 
-    it "halts on a fail-closed robots record WITHOUT discarding the candidate" do
-      # :448's fail-closed means no request may be made against the host at all. The entry stays
-      # `queued` — unfetched and still inside :452's coverage denominator, which is the truth. A
-      # discard would remove it from the measure and make coverage read better than reality.
-      ctx = gated
+  end
+
+  describe "a fail-closed host does not stop the run (:448, :452)" do
+    it "retires only the fail-closed host's entry and carries the run on to the healthy Source" do
+      # :448 scopes fail-closed to "that host"; :452 to "that Source root"; MTX-030 fails the Crawl only
+      # when EVERY active Source root fails. This pass used to `halt`, which created no link — so a
+      # two-Source Project with one 403 robots host never requested the healthy host and left a `running`
+      # Crawl with no scheduled work at all. Found by two independent reviewers, reproduced with two
+      # Sources.
+      ctx = gated(hosts: %w[shop.acme.example zeta.acme.example])
+      roots = entries(ctx[:crawl_id])
+      expect(roots.map { |r| r["state"] }).to eq(%w[queued queued])
       resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
       expect(gate_row(ctx[:crawl_id])["robots_state"]).to eq("unavailable")
 
       result = execute(ctx, first_action(ctx), outbound_by_path({}))
 
-      expect(result.payload[:pass_outcome]).to eq("halted")
+      expect(result.payload[:pass_outcome]).to eq("retired")
       expect(result.payload[:reason_code]).to eq("robots_unavailable_fail_closed")
+      # NO REQUEST, no attempt row, no byte reserved: the host was refused, not tried.
       expect(requests).to be_empty
+      expect(attempts(ctx[:crawl_id])).to be_empty
+      expect(DbInspector.all("SELECT id FROM crawl_budget_counters WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]])).to be_empty
+
+      # The unfetchable entry left the SELECTABLE set through the edge this tranche built, and the run
+      # advanced to the other Source. `terminal` and not `discarded`: :452 keeps an unretrieved in-scope
+      # candidate in the coverage denominator, and the durable reason lives on the gate.
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(%w[terminal queued])
+      expect(entries(ctx[:crawl_id]).first["reason"]).to be_nil
+      expect(result.payload[:next_frontier_entry_id]).to eq(roots.last["id"])
+      expect(result.payload[:frontier_drained]).to be(false)
+      expect(action_row(result.payload[:next_action_id])["target_id"]).to eq(roots.last["id"])
+    end
+
+    it "retires ONLY the entry the action named, never whatever happens to be next" do
+      # The retirement claims through `peek_next` under the frontier lock, so it must verify the candidate
+      # IS the named entry — exactly as `Admission#claim_entry` does. Retiring whatever is next would
+      # destroy a different Source's candidate on the strength of THIS host's robots record.
+      ctx = gated(hosts: %w[shop.acme.example zeta.acme.example])
+      roots = entries(ctx[:crawl_id])
+      action = first_action(ctx)
+      resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
+      # Another pass claimed the fail-closed root and was lost, so `peek_next` now returns the OTHER root.
+      Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.lock_frontier(ctx[:crawl_id])
+        store.claim_next(ctx[:g][:organization_id], ctx[:crawl_id], start_now)
+      end
+
+      result = execute(ctx, action, outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("superseded")
+      # The healthy Source's root is untouched — still `queued`, still selectable.
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(%w[in_progress queued])
+      expect(result.payload[:next_frontier_entry_id]).to eq(roots.last["id"])
+    end
+
+    it "reports a PINNED frontier as pinned, never as drained" do
+      # `peek_next` returns nil for two different facts: nothing left to do, and work left that is not
+      # SELECTABLE because a stranded `in_progress` claim holds `sealed_depth`. Reporting the second as
+      # `frontier_drained` told a reader the crawl had finished when it had silently stopped. Recovering
+      # the stranded claim is S-07-011's; telling the two apart is this tranche's.
+      ctx = fetchable
+      root = entries(ctx[:crawl_id]).first
+      action = first_action(ctx)
+      in_frontier_of(ctx) do |store|
+        # A deeper candidate exists, then the root is claimed and its pass is lost: depth 0 is pinned, so
+        # the depth-1 entry is unreachable even though it is `queued`.
+        store.lock_frontier(ctx[:crawl_id])
+        store.claim_next(ctx[:g][:organization_id], ctx[:crawl_id], start_now)
+      end
+      offer_depth_one(ctx, root)
+
+      result = execute(ctx, action, outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("superseded")
+      expect(result.payload[:frontier_pinned]).to be(true)
+      expect(result.payload[:frontier_drained]).to be(false)
+      expect(result.payload[:next_action_id]).to be_nil
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(%w[in_progress queued])
+    end
+
+    it "retires the LAST unfetchable entry and then reports a genuinely drained frontier" do
+      ctx = gated
+      resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
+
+      result = execute(ctx, first_action(ctx), outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("retired")
+      expect(result.payload[:frontier_drained]).to be(true)
+      expect(result.payload[:frontier_pinned]).to be(false)
+      expect(result.payload[:next_action_id]).to be_nil
+      expect(entries(ctx[:crawl_id]).map { |r| r["state"] }).to eq(["terminal"])
+    end
+  end
+
+  describe "run-scoped authorization is the FIRST effectful boundary (MTX-030)" do
+    # "An authorization established at queue time is never trusted at execution time." The pass's first
+    # effects are a `crawl_host_gates` row, a robots request and a WRITE-ONCE sitemap outcome, and all
+    # three used to happen before admission reached the gate. Both examples below were failures found by
+    # the security lens and reproduced against a suspended tenant and a lapsed reservation.
+
+    it "makes NO request and writes NO gate row once the Organization is suspended" do
+      ctx = running_crawl
+      action = first_action(ctx)
+      expect(suspend_organization(ctx[:g]).success?).to be(true)
+
+      result = execute(ctx, action, outbound_by_path({}))
+
+      expect(result.success?).to be(true)
+      expect(result.payload[:pass_outcome]).to eq("halted")
+      expect(result.payload[:reason_code]).to eq("admission_organization_inactive")
+      # The three effects that used to precede the gate.
+      expect(requests).to be_empty
+      expect(gate_row(ctx[:crawl_id])).to be_nil
+      expect(attempts(ctx[:crawl_id])).to be_empty
       expect(result.payload[:next_action_id]).to be_nil
       expect(entries(ctx[:crawl_id]).first["state"]).to eq("queued")
-      expect(attempts(ctx[:crawl_id])).to be_empty
+    end
+
+    it "makes NO request and writes NO gate row once the entitlement reservation has lapsed" do
+      # The harm here was worse than a wasted request: the pass reached sitemap discovery and wrote the
+      # WRITE-ONCE `sitemap_unavailable`, which :450/:452 turn into permanently partial coverage for the
+      # Source root — attributing to the host a failure that was entirely our own authorization result.
+      ctx = running_crawl
+      action = first_action(ctx)
+      # Expired against the RUN's clock, not the wall clock: `reservation_executing?` compares `lease_due`
+      # to the instant the caller injects, and `now()` here is three days AFTER the fixture's `start_now`,
+      # so a real-time expiry would have left the lease valid and the example would have proved nothing.
+      lapsed = DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id], (start_now - 3600).utc.iso8601(6)])
+        UPDATE entitlement_reservations SET lease_due = $2::timestamptz,
+               state_version = state_version + 1
+        WHERE id = (SELECT entitlement_reservation_id FROM crawls WHERE id = $1::uuid)
+      SQL
+      expect(lapsed.cmd_tuples).to eq(1), "the reservation was not lapsed; the example would be vacuous"
+
+      result = execute(ctx, action, outbound_by_path({}))
+
+      expect(result.payload[:pass_outcome]).to eq("halted")
+      expect(result.payload[:reason_code]).to eq("admission_entitlement_not_executing")
+      expect(requests).to be_empty
+      expect(gate_row(ctx[:crawl_id])).to be_nil
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq("queued")
     end
   end
 

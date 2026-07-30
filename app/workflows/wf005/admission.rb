@@ -73,6 +73,29 @@ module Workflows
         claim(organization_id:, crawl_id:, now:, only: nil)
       end
 
+      # THE RUN-SCOPED LIMBS OF THE EXECUTION-TIME GATE, WITHOUT CLAIMING ANYTHING (S-07-012 repair).
+      #
+      # MTX-030: "an authorization ... established at queue time is never trusted at execution time."
+      # The run driver's FIRST EFFECTS are a `crawl_host_gates` insert, a robots request and a
+      # write-once sitemap outcome, and all three used to happen before `claim_entry` reached this gate.
+      # Proved, not supposed: with the Organization suspended, and again with the entitlement
+      # reservation's lease expired, a pass sent `/robots.txt` to the customer's host and then wrote
+      # `sitemap_unavailable` — which is write-once, so :450/:452 made that Source root's coverage
+      # permanently partial on the strength of OUR authorization failure rather than anything about the
+      # host. That is the exact harm this subsystem's own `release_sitemaps` reasoning forbids.
+      #
+      # Exposed here so the driver can refuse BEFORE its first effect. It writes nothing, takes no lock
+      # and peeks nothing, so refusing costs one short read transaction. `claim_entry` keeps its own call
+      # as defence in depth, and both go through the SAME private predicate: one implementation, refusing
+      # in :541's order, so the two surfaces can never drift apart.
+      def authorize_run(organization_id:, crawl:, now:)
+        Platform::UnitOfWork.run do |conn|
+          gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
+          gates.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          authorize(gates, organization_id, crawl, now)
+        end
+      end
+
       # Claim EXACTLY the named frontier entry, and only while it is still the next one (S-07-012).
       #
       # A `crawl_fetch_due` action names the entry it was scheduled for, and :185 makes `target_id`

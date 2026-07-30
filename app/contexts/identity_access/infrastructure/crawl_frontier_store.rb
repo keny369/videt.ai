@@ -271,13 +271,45 @@ module IdentityAccess
       # frontier entry, carrying the terminal commit order, the outcome, the Document ID and the
       # COVERAGE EFFECT (schemas/POSTGRESQL_SCHEMA.md :299). It is catalogued and unbuilt, and it
       # belongs to the tranches that own Documents and coverage (S-07-009/S-07-010). What this
-      # statement does is release the SEAL, so the run can reach the next depth; the durable record of
-      # what happened to the URL is the `fetch_attempts` row the fetch already terminalized.
-      def terminalize(id, expected_version, now)
-        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+      # statement does is release the SEAL, so the run can reach the next depth.
+      #
+      # AND IT IS NOT A COVERAGE FACT EITHER. `terminal` records only that the entry was acted on and
+      # is no longer selectable. What happened to the URL lives elsewhere, and it is NOT always a
+      # `fetch_attempts` row: the fetch path authorizes BEFORE it claims an attempt, so a URL refused
+      # by robots or by current scope, or one whose host-gate claim was refused, retires with no attempt
+      # row at all. For a robots fail-closed host the distinguishing fact is the gate's own
+      # `robots_terminal_reason`, which :452 reads by name; for the others it is the WF-005 command
+      # result and audit record the pass writes. FU-21 carries the reconciliation, and S-07-009's
+      # `crawl_terminal_outcomes` is where the per-entry coverage effect belongs.
+      #
+      # ORGANIZATION-SCOPED, not merely RLS-scoped. Row level security is forced on this table and does
+      # hold — proved behaviourally as `f1_web` — but it depends on every caller having entered the
+      # tenant context. Naming the Organization makes the isolation LOCAL to the statement, so a future
+      # caller that forgets cannot reach another tenant's row even for an instant.
+      def terminalize(organization_id, id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now), organization_id]).cmd_tuples
           UPDATE crawl_frontier_entries
           SET state = 'terminal', state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE id = $1::uuid AND state = 'in_progress' AND state_version = $2
+          WHERE id = $1::uuid AND organization_id = $4::uuid
+            AND state = 'in_progress' AND state_version = $2
+        SQL
+      end
+
+      # Is any candidate still unfinished? The fact that distinguishes a DRAINED frontier from a PINNED
+      # one, and without it the driver could not tell them apart: `peek_next` returns nil for BOTH, so a
+      # run whose seal is held by a stranded `in_progress` claim reported itself drained while admitted
+      # work sat in the queue. The state set is exactly `sealed_depth`'s, plus `discovered`, so a
+      # candidate staged but not yet admitted also counts as unfinished.
+      # The boolean is read through `Platform::PgBool` because this connection returns a real `true`
+      # while a plain `PG.connect` returns `"t"`, and a `== "t"` test was silently ALWAYS FALSE — which is
+      # exactly how a pinned frontier would have gone on reporting itself drained.
+      def unfinished?(organization_id, crawl_id)
+        Platform::PgBool.true?(exec(<<~SQL, [organization_id, crawl_id]).to_a.first["present"])
+          SELECT EXISTS (
+            SELECT 1 FROM crawl_frontier_entries
+            WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+              AND state IN ('discovered','queued','in_progress','fetched_pending_commit')
+          ) AS present
         SQL
       end
 

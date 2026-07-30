@@ -50,7 +50,7 @@ module Workflows
         def initialize(released: false, **) = super
         def fetched? = outcome == CrawlDriver::FETCHED
         # Link the run forward to whatever is next.
-        def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED].include?(outcome)
+        def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED, CrawlDriver::RETIRED].include?(outcome)
         # Come back to THIS entry: nothing was decided and nothing was spent.
         def reenters? = outcome == CrawlDriver::DEFERRED
       end
@@ -63,6 +63,9 @@ module Workflows
       # The named entry was not the frontier's next candidate, so this pass claims nothing and hands
       # the run on. Reachable only through a redelivery whose original pass was lost after claiming.
       SUPERSEDED = "superseded"
+      # The named entry could not be fetched at all and has been retired unfetched, so the run advances
+      # to the next candidate instead of stopping. Today's only producer is :448's fail-closed robots.
+      RETIRED = "retired"
 
       # ONE PASS MAKES AT MOST ONE PACED HOST START, and this is what enforces it.
       #
@@ -105,23 +108,33 @@ module Workflows
         # domain outcome, and guessing at it would hand a worker unauthorized work.
         raise Platform::InvariantViolation, "crawl_fetch_due entry has no Crawl" if crawl.nil?
 
-        return halted(admission_reason(organization_id, crawl_id, entry, now)) unless startable?(crawl, now)
+        # STEP ZERO, BEFORE ANY EFFECT. Not merely before the fetch: before the gate row, before the
+        # robots request and before the write-once sitemap outcome. See `Admission#authorize_run`.
+        denial = admission.authorize_run(organization_id:, crawl:, now:)
+        return halted(denial, entry:) if denial
+
+        return halted(admission_reason(organization_id, crawl_id, entry, now)) unless within_wall_clock?(crawl, now)
 
         host = FetchAuthorization.host_of(entry["canonical_url"])
-        # A frontier entry's URL was canonicalized by the predicate that admitted it, so an unparseable
-        # host is corruption of a frozen column, not an input this pass may interpret.
-        raise Platform::InvariantViolation, "crawl_fetch_due entry has no parseable host" if host.nil?
+        # A frontier entry's URL was canonicalized by the predicate that admitted it, so a hostless one is
+        # corruption of a frozen column, not an input this pass may interpret. `host_of` returns "" rather
+        # than nil for a hostless URL, so an `.nil?` test here was unreachable and would have handed `""`
+        # to the gate and to `https:///robots.txt`.
+        raise Platform::InvariantViolation, "crawl_fetch_due entry has no parseable host" if host.to_s.empty?
 
         gate = ensure_gate(organization_id, entry, crawl, host, now)
         robots = resolve_robots(organization_id, crawl_id, host, now)
-        return robots_outcome(robots, entry, now) unless robots.fetchable?
+        return robots_outcome(robots, organization_id, crawl, entry, now) unless robots.fetchable?
 
         discovery = discover(organization_id, crawl_id, entry, host, now)
-        if discovery.rescheduled?
-          return deferred(DiscoverSitemaps::CONTENDED, entry:, at: instant(discovery.retry_after))
-        end
-
+        # The gate is the authority on when the host may next be started, and it is read as a REMAINDER
+        # so the wait composes with this pass's own clock. `DiscoverSitemaps` reports the same fact as an
+        # absolute `clock_timestamp()`-derived instant, and taking that would mix two time bases: a worker
+        # clock lagging the database by more than the floor makes the re-entry instant a FIXED POINT, and
+        # because the ScheduledAction identity includes `due_at` the next link would REPLAY the action
+        # that just ran instead of being created — and the chain would stop.
         ready = host_ready_at(organization_id, gate, now)
+        return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
         admit_and_fetch(organization_id, crawl, entry, gate, now)
@@ -167,15 +180,15 @@ module Workflows
         Platform::UnitOfWork.run do |conn|
           store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          store.terminalize(entry["id"], entry["state_version"].to_i, now).positive?
+          store.terminalize(organization_id, entry["id"], entry["state_version"].to_i, now).positive?
         end
       end
 
-      # :442's wall clock and the Crawl's own state, read together because both make a request
-      # impermissible rather than merely unwise.
-      def startable?(crawl, now)
-        return false unless crawl["state"] == "running"
-
+      # :442's wall clock, and only that: the Crawl's state, the Organization, the Project and the
+      # entitlement lease are `authorize_run`'s, which has already refused above. Two readers of one
+      # column is deliberate — this one DECIDES whether to start a request, and `Admission#wall_clock`
+      # RECORDS the ratified `wall_clock_run_duration` decision.
+      def within_wall_clock?(crawl, now)
         deadline = crawl["deadline_at"]
         deadline.nil? || Time.parse(deadline.to_s).utc > now.utc
       end
@@ -187,8 +200,14 @@ module Workflows
       # fallback covers only the case where it declines without a reason (an entry that is no longer
       # the next candidate on a run that is also unstartable), where the run state IS the answer.
       def admission_reason(organization_id, crawl_id, entry, now)
-        admission.claim_entry(organization_id:, crawl_id:, entry_id: entry["id"], now:).reason_code ||
-          RUN_NOT_RUNNING
+        decision = admission.claim_entry(organization_id:, crawl_id:, entry_id: entry["id"], now:)
+        # A MUTATION USED AS A QUERY, so it fails closed LOUDLY rather than silently. Reaching here means
+        # the wall clock has expired, and `Admission` checks the same deadline before it peeks, so it
+        # cannot admit. If it ever did, discarding the Decision would strand the entry `in_progress` with
+        # its byte reservation held, no fetch and no link — the exact defect with no crash required.
+        raise Platform::InvariantViolation, "admission admitted an entry past the wall clock" if decision.admitted?
+
+        decision.reason_code || RUN_NOT_RUNNING
       end
 
       # :448 — the robots record is a precondition of every request against the host. `EnsureRobots`
@@ -196,10 +215,49 @@ module Workflows
       # caller that honours it. A robots record that is terminal but not fetchable is fail-closed: no
       # request may be made against the host at all, so the pass halts rather than linking, and the
       # entry stays `queued` — unfetched and still in :452's denominator, which is the truth.
-      def robots_outcome(robots, entry, now)
-        return halted(robots.reason_code || ROBOTS_FAIL_CLOSED, entry:) if robots.terminal?
+      def robots_outcome(robots, organization_id, crawl, entry, now)
+        return deferred(ROBOTS_RESOLVING, entry:, at: retry_instant(robots.retry_after_ms, now)) unless robots.terminal?
 
-        deferred(ROBOTS_RESOLVING, entry:, at: retry_instant(robots.retry_after_ms, now))
+        retire_unfetchable(organization_id, crawl, entry, robots.reason_code || ROBOTS_FAIL_CLOSED, now)
+      end
+
+      # A FAIL-CLOSED ROBOTS RECORD RETIRES ITS OWN ENTRY AND THE RUN CARRIES ON.
+      #
+      # :448 scopes the outcome to ONE HOST — "denies all content fetching FOR THAT HOST for the run" —
+      # and :452 to ONE SOURCE ROOT — "makes that Source root failed and coverage partial". MTX-030 fails
+      # the whole Crawl only when "every active Source root fails". This used to `halt`, which created no
+      # link, so a Project with two Sources and one 403 robots host NEVER REQUESTED THE HEALTHY HOST and
+      # left a `running` Crawl with no scheduled work at all.
+      #
+      # Advancing without retiring the entry does not work and the reason is worth recording: `peek_next`
+      # selects the lowest `dequeue_key` among `queued` rows at `sealed_depth`, which is this same
+      # unfetchable entry — so the next link would target it again, forever, at the pacing floor. The
+      # entry has to LEAVE the selectable set.
+      #
+      # It leaves through the edge this tranche already built and nothing wider: `queued -> in_progress`
+      # under the frontier's own advisory lock, then the `in_progress -> terminal` compare-and-set. No
+      # request is made, no attempt row is created and no byte is reserved. `terminal` rather than
+      # `discarded` is what :452 needs — a discard leaves the coverage denominator, and this URL was
+      # genuinely not retrieved — and the distinguishing fact is durable on the gate itself, whose
+      # `robots_terminal_reason` is `robots_unavailable_fail_closed`, which is the token :452 reads.
+      def retire_unfetchable(organization_id, crawl, entry, reason, now)
+        retired = Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(conn.raw_connection)
+          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          store.lock_frontier(crawl["id"])
+          candidate = store.peek_next(organization_id, crawl["id"])
+          # Claim ONLY the named entry, for the same reason `claim_entry` does: retiring whatever happened
+          # to be next would retire an entry this pass was never given.
+          next false unless candidate && candidate["id"] == entry["id"]
+
+          claimed = store.claim_next(organization_id, crawl["id"], now)
+          next false unless claimed && claimed["id"] == entry["id"]
+
+          store.terminalize(organization_id, claimed["id"], claimed["state_version"].to_i, now).positive?
+        end
+        return superseded(entry) unless retired
+
+        Pass.new(outcome: RETIRED, reason_code: reason, entry:, fetch: nil, reenter_at: nil, released: true)
       end
 
       # The :444 delay the robots result names — the fixed 30s/120s schedule, or a `Retry-After` the

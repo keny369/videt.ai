@@ -7,7 +7,7 @@ module Workflows
     # The per-host gate (S-07-005; WORKFLOW_SPECIFICATIONS.md :442; SEARCH_CRAWL_RETRIEVAL.md — "The
     # run and per-host gates use PostgreSQL `clock_timestamp()` and row locks. A worker cannot start
     # merely because Redis granted a token. It claims a host slot only when the rolling-start and
-    # concurrency predicates pass, commits `submission_started`, then connects.").
+    # concurrency predicates pass, records the start, then connects.").
     #
     # Two ceilings and two targets, all from `crawl-policy-v1`:
     #

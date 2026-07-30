@@ -142,7 +142,7 @@ module Workflows
           end
 
           last, remaining_reserved = one_attempt(context, entry, number, remaining_reserved:)
-          return last unless last.retryable
+          break unless last.retryable
           # :444 gives "one initial attempt plus AT MOST TWO RETRIES" with delays "exactly 30 seconds
           # after ... the first failed attempt and 120 seconds after ... the second". There is no
           # delay after the last attempt: waiting one burned 120 s of the 60-minute wall clock ahead
@@ -151,6 +151,32 @@ module Workflows
 
           pace(FetchRetryPolicy.delay_ms(number, @last_outcome))
         end
+        # ":442 — UNUSED BYTES ARE RELEASED." Once, here, where the loop ends, which is the only place
+        # that sees every exit.
+        #
+        # THIS WAS A LEAK, and a serious one. `perform` computes
+        # `release_unused = !hold_reservation || !result.retryable`, so while Admission's reservation is
+        # held across the loop every RETRYABLE settle deliberately keeps it — correct between attempts,
+        # and wrong at the end: three consecutive timeouts (:452's ordinary `content_fetch_failed`) exit
+        # via `break if number >= MAX_ATTEMPTS` with the whole reservation still held, and nothing
+        # released it. `sweep_expired` cannot reclaim it either, because `terminalize` nulls
+        # `lease_expires_at` and the sweep requires it non-null. Measured: 10 MiB reserved, 0 committed,
+        # per exhausted URL, permanently — and since `Admission#admit` sizes every later reservation from
+        # `per_run - reserved_response_bytes`, ~125 such URLs exhaust a 1250 MiB run and fire an
+        # IMMUTABLE, customer-visible hard `accounted_response_body_bytes_per_run` decision for a run that
+        # accounted almost nothing. Found by three independent reviewers, each reproducing it.
+        #
+        # ACCOUNTED BYTES ARE NOT TOUCHED. `remaining_reserved` is what the loop is abandoning — the
+        # reservation minus everything already committed by `settle` — so releasing exactly it satisfies
+        # :442's "run-wide accounted response-body bytes are EXACTLY sum(accounted_i)" as well.
+        #
+        # THE AMOUNT IS BELT-AND-BRACES, AND SAYING SO IS THE POINT. `CrawlBudgetStore#release_bytes`
+        # floors the result at `GREATEST(committed_response_bytes, ...)`, so passing the whole reservation
+        # here, or a nil that coerces to zero, produces the same committed-bytes floor. Mutation-checked
+        # both ways and neither changes a test, which is the honest description: the CONTROL is that the
+        # loop releases AT ALL — removing this line strands the reservation and fails its example. The
+        # arithmetic and the `positive?` test are precision and one saved transaction, not the control.
+        release_and(context, remaining_reserved, last) if remaining_reserved.to_i.positive?
         last
       end
 

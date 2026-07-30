@@ -377,7 +377,7 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
         end
         claimed = store.claim_next(org, q[:crawl_id], start_now)
         blocked = store.peek_next(org, q[:crawl_id])
-        released = store.terminalize(claimed["id"], claimed["state_version"].to_i, start_now)
+        released = store.terminalize(org, claimed["id"], claimed["state_version"].to_i, start_now)
         [claimed, blocked, released, store.peek_next(org, q[:crawl_id])]
       end
 
@@ -406,14 +406,17 @@ RSpec.describe "WF-005 crawl frontier", type: :acceptance,
       root = entries(q[:crawl_id]).first
 
       # An entry still `queued` cannot be retired: only a CLAIMED entry has been acted on.
-      expect(in_frontier(org) { |_f, store| store.terminalize(root["id"], root["state_version"].to_i, start_now) }).to eq(0)
+      expect(in_frontier(org) { |_f, store| store.terminalize(org, root["id"], root["state_version"].to_i, start_now) }).to eq(0)
 
       claimed = in_frontier(org) { |_f, store| store.claim_next(org, q[:crawl_id], start_now) }
       version = claimed["state_version"].to_i
-      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version - 1, start_now) }).to eq(0)
-      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version, start_now) }).to eq(1)
+      expect(in_frontier(org) { |_f, store| store.terminalize(org, claimed["id"], version - 1, start_now) }).to eq(0)
+      expect(in_frontier(org) { |_f, store| store.terminalize(org, claimed["id"], version, start_now) }).to eq(1)
       # The second delivery of the same release matches zero rows rather than advancing the version.
-      expect(in_frontier(org) { |_f, store| store.terminalize(claimed["id"], version + 1, start_now) }).to eq(0)
+      expect(in_frontier(org) { |_f, store| store.terminalize(org, claimed["id"], version + 1, start_now) }).to eq(0)
+      # AND IT NAMES THE ORGANIZATION, so the isolation is local to the statement rather than resting on
+      # every caller having entered the tenant context first.
+      expect(in_frontier(org) { |_f, store| store.terminalize(SecureRandom.uuid_v7, claimed["id"], version, start_now) }).to eq(0)
 
       # And the guard refuses every edge OUT of `terminal`, so coverage cannot be rewritten later.
       expect { in_frontier(org) { |_f, _s| revert_to_queued(claimed["id"]) } }

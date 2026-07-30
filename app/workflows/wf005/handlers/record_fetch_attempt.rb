@@ -76,7 +76,9 @@ module Workflows
             end
             return deny(store, command, ctx, org, now, "scheduled_action_not_due") if now < command.due_at
 
-            { store:, org:, now:, entry:, key_digest:, request_sha256: }
+            # NO `store:` here. It would be bound to a connection this transaction is about to return to
+            # the pool; `finalize_execution` builds its own. The value was dead and a live trap.
+            { org:, now:, entry:, key_digest:, request_sha256: }
           end
         end
 
@@ -115,7 +117,8 @@ module Workflows
           entry = prepared[:entry]
           common = { pg: raw, organization_id: prepared[:org], project_id: entry["project_id"],
                      now: prepared[:now], correlation_id: ctx.correlation_id,
-                     causation_id: ctx.correlation_id, command_id: command.command_id }
+                     causation_id: ctx.correlation_id, command_id: command.command_id,
+                     crawl_id: entry["crawl_id"] }
           if pass.reenters?
             return Workflows::Wf005::CrawlFetchDueSchedule.reenter(
               **common, entry_id: entry["id"], at: pass.reenter_at
@@ -123,7 +126,7 @@ module Workflows
           end
           return {} unless pass.advances?
 
-          Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common, crawl_id: entry["crawl_id"])
+          Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common)
         end
 
         def payload_for(entry, pass, link)
@@ -143,7 +146,13 @@ module Workflows
             "next_frontier_entry_id" => link[:entry_id],
             "next_action_id" => link[:action_id],
             "next_due_at_utc" => link[:due_at]&.getutc&.iso8601(6),
-            "frontier_drained" => pass.advances? && link[:entry_id].nil?,
+            # DRAINED means nothing is left to do. It used to be inferred from "no link was created",
+            # which is also true when the frontier still holds work that is not SELECTABLE — a stranded
+            # `in_progress` claim pinning `sealed_depth`, or a candidate whose Source left `active`
+            # mid-run. Both were reported as a completed crawl. The three facts are now distinct.
+            "frontier_drained" => pass.advances? && link[:action_id].nil? && !link[:pinned],
+            "frontier_pinned" => link[:pinned] == true,
+            "beyond_run_deadline" => link[:beyond_deadline] == true,
             # Whether this pass retired the entry it claimed and so released :454's depth seal. False on
             # a pass that claimed nothing, and false on a redelivery whose entry another pass retired —
             # the compare-and-set reports that rather than rewriting a decision.
@@ -229,7 +238,11 @@ module Workflows
             id:, created_at: iso(now), organization_id: org, command_type: command.command_type,
             target_type: TARGET_TYPE, target_id: command.frontier_entry_id, key_digest:, request_sha256:,
             command_execution_id: execution_id, command_result_id: result_id,
-            retain_until: iso(now + 86_400)
+            # 30 days, as every other handler in this repository uses, including `StartCrawl` in this same
+            # workflow. No ratified duration exists for `idempotency_records.retain_until`; the previous
+            # 24 hours here was an unexplained outlier, and a redelivery window shorter than the rest of
+            # the platform's is a difference nothing justifies.
+            retain_until: iso(now + (30 * 24 * 3600))
           )
         end
 

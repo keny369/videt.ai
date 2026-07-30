@@ -12,7 +12,7 @@ module IdentityAccess
     # SEARCH_CRAWL_RETRIEVAL is explicit about the mechanism: "The run and per-host gates use
     # PostgreSQL `clock_timestamp()` and row locks. A worker cannot start merely because Redis
     # granted a token. It claims a host slot only when the rolling-start and concurrency predicates
-    # pass, commits `submission_started`, then connects."
+    # pass, records the start, then connects."
     #
     # So every predicate here is evaluated IN THE DATABASE, against `clock_timestamp()` (real elapsed
     # time, not the transaction snapshot — a rolling one-second window must not freeze for the life
@@ -75,6 +75,18 @@ module IdentityAccess
         sitemap_max_index_depth sitemap_claim_token sitemap_attempt_started_at
       ].freeze
 
+      # HOW LONG THE CALLER MUST ACTUALLY WAIT, in milliseconds, as ONE definition used by both readers.
+      # A fixed retry constant is wrong here: the interval is max(base, robots Crawl-delay, ...), and a
+      # host declaring `Crawl-delay: 10` needs ten seconds, not 250 ms. Reporting the real remainder is
+      # what stops a bounded retry loop from expiring on a perfectly reachable host. `%s` is the row
+      # alias, because the locked read joins and the unlocked one does not.
+      PACING_REMAINDER_TEMPLATE = <<~SQL.chomp
+        GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+          (COALESCE(%<row>snext_allowed_start_at, clock_timestamp()) - clock_timestamp())) * 1000))::bigint
+      SQL
+      PACING_REMAINDER_MS = format(PACING_REMAINDER_TEMPLATE, row: "")
+      LOCKED_PACING_REMAINDER_MS = format(PACING_REMAINDER_TEMPLATE, row: "g.")
+
       # The gate row under a WRITE lock, with `clock_timestamp()` alongside it so the caller decides
       # against the same real instant the predicates used. Blocks rather than skipping: two workers
       # contending for one host must serialize, not both proceed.
@@ -85,13 +97,7 @@ module IdentityAccess
                  (SELECT COUNT(*) FROM unnest(g.recent_start_instants) AS s
                   WHERE s > clock_timestamp() - interval '1 second' AND s <= clock_timestamp()) AS window_starts,
                  (g.next_allowed_start_at IS NULL OR g.next_allowed_start_at <= clock_timestamp()) AS delay_elapsed,
-                 -- How long the caller must actually wait. A fixed retry constant is wrong here:
-                 -- the interval is max(base, robots Crawl-delay, ...), and a host declaring
-                 -- `Crawl-delay: 10` needs ten seconds, not 250 ms. Reporting the real remainder is
-                 -- what stops a bounded retry loop from expiring on a perfectly reachable host.
-                 GREATEST(0, CEIL(EXTRACT(EPOCH FROM
-                   (COALESCE(g.next_allowed_start_at, clock_timestamp()) - clock_timestamp())) * 1000))::bigint
-                   AS delay_remaining_ms
+                 #{LOCKED_PACING_REMAINDER_MS} AS delay_remaining_ms
           FROM crawl_host_gates g
           WHERE g.organization_id = $1::uuid AND g.id = $2::uuid
           FOR UPDATE
@@ -321,8 +327,6 @@ module IdentityAccess
         SQL
       end
 
-      # When the host is next startable under its own pacing, so a released claim can tell the
-      # scheduler WHEN to come back rather than leaving it to spin.
       # How long the host must still be left alone, in MILLISECONDS, and without taking the row lock.
       #
       # Relative rather than absolute on purpose. The pacing floor is written from `clock_timestamp()`,
@@ -330,16 +334,19 @@ module IdentityAccess
       # remainder composes with the caller's own time base where an absolute instant would silently mix
       # two of them. It is also ADVISORY: `HostGate#claim` is still the only enforcement point, and this
       # exists so a caller can decide not to spend a start it would only have refused.
+      #
+      # The expression is `PACING_REMAINDER_MS`, shared with the locked read below rather than written
+      # twice: two copies of one pacing rule is how they come to disagree.
       def pacing_remaining_ms(organization_id, id)
         row = query(<<~SQL, [organization_id, id]).to_a.first
-          SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM
-                   (COALESCE(next_allowed_start_at, clock_timestamp()) - clock_timestamp())) * 1000))::bigint
-                   AS delay_remaining_ms
+          SELECT #{PACING_REMAINDER_MS} AS delay_remaining_ms
           FROM crawl_host_gates WHERE organization_id = $1::uuid AND id = $2::uuid
         SQL
         row && row["delay_remaining_ms"].to_i
       end
 
+      # When the host is next startable under its own pacing, so a released claim can tell the
+      # scheduler WHEN to come back rather than leaving it to spin.
       def next_allowed_start(organization_id, id)
         query(<<~SQL, [organization_id, id]).to_a.first&.fetch("next_allowed_start_at", nil)
           SELECT next_allowed_start_at FROM crawl_host_gates
