@@ -960,7 +960,10 @@ blocks:
     #    and body staging needs S3; both are S-07-010. This block creates the next-frontier link and
     #    leaves the ingestion link to the tranche that owns Documents.
     type: product
-    status: pending
+    status: completed   # 2026-07-30: accepted (ADR-096). Five owner rulings implemented (ADR-085 FU-16,
+                        # ADR-087 FU-18, ADR-089 FU-19, ADR-091 FU-24, ADR-094/ADR-095 FU-25); one
+                        # ADR-026 five-lens pass, one three-lens delta pass and three focused reviews,
+                        # every confirmed-blocking finding repaired. FU-9 closed by transfer to S-07-009.
     depends_on:
       - S-07-008
     human_gate_before: false
@@ -971,6 +974,23 @@ blocks:
 
   - id: S-07-009
     name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
+    # TRANSFERRED OBLIGATION, RECEIVED FROM FU-9 AT S-07-012's ACCEPTANCE (ADR-096). FU-9 is CLOSED,
+    # and this is the part of it that was NOT delivered, moved here rather than left in a closed item
+    # where nothing would read it.
+    #
+    # DERIVE :450's `sitemap_unavailable` FOR A GATE NO PRODUCTION PATH CAN TERMINALIZE. S-07-012
+    # delivered the scheduler re-entry FU-9 asked for, so sustained host-gate contention no longer
+    # writes a false terminal outcome. The cost is that the honest one is now unreachable:
+    # `Workflows::Wf005::DiscoverSitemaps` writes `sitemap_unavailable` only once the run has expired,
+    # while `Workflows::Wf005::CrawlDriver` halts on the same wall clock BEFORE it calls discovery,
+    # with the same `now`. A `crawl_host_gates` row under sustained contention therefore stays
+    # `sitemap_state = 'pending'` for ever, and :450's outcome has to be derived from that state at
+    # the terminal checkpoint instead of written during discovery. THIS BLOCK IS THE RIGHT OWNER
+    # because it owns `crawls.coverage_status`, `crawls.completion_reason` and
+    # `crawl_terminal_outcomes` — the coverage record :452 reads. It is the same shape as the two
+    # obligations already recorded below (FU-21's attempt-less terminal entry, FU-22's unscheduled
+    # `crawl_terminal_deadline`), and all three are coverage derivation at the checkpoint.
+    #
     # BLOCKING PRECONDITION. A terminal Crawl can carry NULL in both `coverage_status` and
     # `completion_reason` today, and this tranche writes exactly those two columns.
     #

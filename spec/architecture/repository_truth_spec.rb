@@ -141,7 +141,18 @@ RSpec.describe "Repository truth", type: :model do
 
   describe "the acceptance record describes something that exists" do
     let(:evidence) { BUILD_STATE["acceptance_evidence"] }
-    let(:report) { ROOT.join("S-07-008_COMPLETION_REPORT.md").read }
+
+    # THE REPORT IS DERIVED FROM THE ACCEPTED BLOCK, NOT HARDCODED. This read `S-07-008_COMPLETION_REPORT.md`
+    # by name, so every check below went on validating a SUPERSEDED tranche's record while the record
+    # actually being accepted was checked by nothing — which is precisely the gap `S-07-012_COMPLETION_REPORT.md`
+    # declared in its own opening paragraph ("this document's path partition and citations are asserted for
+    # S-07-008 and not for this tranche"). Pointing it at `acceptance_evidence.block` was named there as part
+    # of the acceptance transition, and this is that change.
+    let(:report_path) { ROOT.join("#{evidence.fetch('block')}_COMPLETION_REPORT.md") }
+    let(:report) do
+      expect(report_path).to exist, "acceptance_evidence names block #{evidence['block']}, which has no report"
+      report_path.read
+    end
 
     # THE RANGE IS BOUNDED AT BOTH ENDS, and both ends are read from the record.
     #
