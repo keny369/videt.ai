@@ -2342,3 +2342,32 @@ And the principle that decided ADR-085 is now standing: OPTIMISE FOR REDUCING FU
 
 Authority And Precedence:
 Owner decision. Operates within standing delegation ADR-061 and does not alter it; ADR-080's rule that acceptance requires every lens to have reported is untouched, as is ADR-084's blocking-defect repair authority. The operational statement is added to AUTONOMY_POLICY under this number, following the pattern ADR-061 and ADR-084 set. Allocated the next unused number after ADR-085.
+
+## ADR-087: FU-18 Resolved — S-07-012 Owns The Frontier Seal Release, Because It Owns The Dequeue-And-Fetch Decision
+
+Status: Accepted (owner decision, 2026-07-30; recorded by the implementation agent from the owner's ruling)
+Date: 2026-07-30
+Owner: owner ruling on FU-18
+Reversibility: Integration branch only; `main` untouched. One additive guard edge; the schema builds from empty and `db/structure.sql` shows the edge and nothing else.
+
+The question. `crawl_frontier_entries` declares `terminal` in its ratified state CHECK, but `f1_crawl_frontier_entries_guard` permitted only `discovered -> queued|discarded` and `queued -> in_progress|discarded`, so a claimed entry could never leave `in_progress`. `peek_next`/`claim_next` select at `sealed_depth = MIN(depth) WHERE state IN ('queued','in_progress','fetched_pending_commit')`, which is WORKFLOW_SPECIFICATIONS.md :454's "all depth d discoveries are SEALED before any depth d+1 candidate is SELECTED". A claimed entry that can never retire therefore pins `sealed_depth` at its own depth for the rest of the run, and since sitemap discovery admits content URLs at depth 1 (:440), a Crawl with any usable sitemap fetched its roots and then stalled with admitted work queued. S-07-012's own required loop — "admits, fetches and discovers UNTIL THE FRONTIER DRAINS" — was unreachable.
+
+Why it was raised rather than taken. `spec/persistence/crawl_frontier_invariants_spec.rb` ASSERTED that `in_progress -> terminal` raises, and `spec/acceptance/wf005_crawl_frontier_spec.rb` recorded the edge as "S-07-009's". Delivering it edits an accepted assertion and reassigns an ownership recorded in an accepted tranche, which is ADR-086 stop condition 7.
+
+THE RULING: deliver it in S-07-012. S-07-012 OWNS THE DEQUEUE-AND-FETCH DECISION AND THEREFORE OWNS THE COMPARE-AND-SET TERMINAL TRANSITION THAT RELEASES `sealed_depth`. The prior attribution predates S-07-012's existence — it is the block the ADR-026 architecture and concurrency lenses named at S-07-008 acceptance, and at the time the comment was written S-07-009 was simply the next tranche after the fetch surfaces. The seal release is the commit point of a fetched entry, and the driver is the only component that knows a fetch has been decided; S-07-009 computes coverage and completion from what the driver recorded and never dequeues.
+
+The boundaries, all preserved and each one asserted rather than asserted-in-prose:
+- `terminal` is reachable from `in_progress` ONLY.
+- The transition is a COMPARE-AND-SET on `(state = 'in_progress', state_version)`, so a stale version, an unclaimed entry and a second delivery each match zero rows instead of rewriting a decision.
+- `fetched_pending_commit` stays EXCLUDED. It is :456's coordinator limb — "a completion with a later key waits in `fetched_pending_commit`; it cannot change selection" — which arrives with concurrent fetching and link extraction, and `Wf005::Admission` already declined to pre-empt it for the same reason.
+- NO transition out of `terminal` exists, so a coverage-bearing decision cannot be rewritten later.
+- `commit_order` remains S-07-009's. It is the coordinator's commit sequence, not the dequeue's; a value written by a driver that advances one entry per pass would restate `enqueue_order` rather than record the ordering the column exists for.
+- `crawl_terminal_outcomes` (T-IMM, one row per frontier entry, carrying the terminal commit order, the outcome, the Document ID and the coverage effect — POSTGRESQL_SCHEMA.md :299) and the link-extraction/coordinator path remain S-07-009's and S-07-010's. The seal release releases the SEAL; the durable record of what happened to a URL is the `fetch_attempts` row the fetch already terminalized.
+- Nothing else in S-07-012 widens.
+
+WHERE THE TRANSITION HAPPENS, and why it is not in the handler's terminal transaction. The driver retires the entry in its OWN transaction, immediately after `FetchContent#call` returns and before the ledger and the next-frontier link commit. The alternative — retiring it inside the handler's terminal transaction, atomically with the ledger and the link — is more obviously tidy and has a strictly worse failure mode: a process lost between the fetch and the ledger write would leave the entry `in_progress` forever and PERMANENTLY PIN THE DEPTH, needing a resumption policy that S-07-012 has no authority to invent. Retiring it first means a lost pass leaves the seal RELEASED and no link, and the redelivery then finds the entry terminal, records `superseded`, and links the run on — the chain repairs itself with no new recovery vocabulary. Ledger completeness is identical either way, because in both cases the lost transaction is the one carrying the ledger rows. :378 constrains the transaction that creates the next-frontier ACTION, which is unchanged.
+
+The edited assertion is STRONGER than the one it replaces. It previously said three edges out of `in_progress` are refused. It now says `terminal` is reachable only from `in_progress` and only through the compare-and-set, that `fetched_pending_commit` remains refused, that `queued`, `discovered`, `discarded` and an already-`terminal` row are each refused as sources, and that no edge leaves `terminal`.
+
+Authority And Precedence:
+Owner decision under ADR-086 stop condition 7, raised by the implementation agent with the migration, store method, specs and mutation evidence prepared and held out of the repository, and approved unchanged. Operates within standing delegation ADR-061. Allocated the next unused number after ADR-086.
