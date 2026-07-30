@@ -555,7 +555,22 @@ module Workflows
           IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
                                                             .enter_org_context(org: organization_id,
                                                                                correlation_id: @correlation_id)
-          reservation = Platform::Entitlement::Store.new(pg).reservation(organization_id, reservation_id)
+          # THE CADENCE DECISION AND THE RENEWAL ARE MADE UNDER ONE LOCK (DECISIONS ADR-106).
+          #
+          # `Service#heartbeat` locks and re-reads, but it never re-checks the CADENCE — it renews
+          # whatever it finds. So an unlocked read here left the two deliveries of one `crawl_fetch_due`
+          # that `CrawlStartStore` itself calls ordinary ("the transport recovers an expired worker lease
+          # and re-dispatches") both deciding "due" from the same stale row. Whichever committed second
+          # then either violated `entitlement_lease_heartbeats_advances` — an unhandled `PG::CheckViolation`
+          # out of the workflow, when its clock was the earlier one — or wrote a THIRD heartbeat inside one
+          # five-minute window, refuting the very claim this method's own comment makes about two
+          # deliveries computing the same answer.
+          #
+          # Taking F-05's own `lock_reservation` first closes it without touching F-05: the loser blocks,
+          # re-reads `last_heartbeat_at` as the winner left it, and finds the renewal no longer due.
+          store = Platform::Entitlement::Store.new(pg)
+          store.lock_reservation(organization_id, reservation_id)
+          reservation = store.reservation(organization_id, reservation_id)
           next nil unless heartbeat_due?(reservation, now)
 
           Platform::Entitlement::Service.new(pg).heartbeat(

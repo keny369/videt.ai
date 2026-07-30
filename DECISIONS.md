@@ -2840,3 +2840,24 @@ Proof standard. PROOF 91 suspends `retire` between its terminalize and its INSER
 
 Authority And Precedence:
 Repairs B7 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the serialized checkpoint; :453 and MTX-030 govern the state and the commit-or-release the defect corrupted. Allocated the next unused number after ADR-104.
+
+## ADR-106: B8 Repaired — The Cadence Decision And The Renewal Are Made Under One Lock
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of an ADR-080 acceptance-round finding
+Reversibility: Integration branch only. One statement added to `CrawlDriver#renew_entitlement_lease`; no schema change, no change to frozen F-05.
+
+`renew_entitlement_lease` read the reservation with a plain SELECT, decided `heartbeat_due?`, and then called `Entitlement::Service#heartbeat`. That method locks and re-reads — but it never re-checks the CADENCE, because its contract is "renew this lease", not "renew it if due". The decision and the act were therefore made against different views of the same row.
+
+**Two deliveries of one `crawl_fetch_due` are ordinary, and `CrawlStartStore` says so in its own words**: "the transport recovers an expired worker lease and re-dispatches". Both read the same stale row, both decided "due", and the loser then either
+
+- violated `entitlement_lease_heartbeats_advances` (`renewed_lease_expires_at > prior_lease_expires_at`) as an **unhandled `PG::CheckViolation` out of the workflow**, when its clock was the earlier of the two; or
+- wrote a **third heartbeat inside one five-minute window**, which refutes in terms the claim ADR-100 and this method's own comment both make — that the cadence is read from committed state so "two deliveries of one action compute the same answer".
+
+**The repair takes F-05's own `lock_reservation` before the read.** The loser blocks, re-reads `last_heartbeat_at` as the winner left it, and finds the renewal no longer due. Nothing in frozen F-05 changes, and no new lock object is introduced — this is the lock `Service#heartbeat` already takes, taken one statement earlier so that the decision it informs is made under it.
+
+Proof standard. PROOF 92 suspends the winner INSIDE its heartbeat, holding the reservation row, and requires the loser to be OBSERVABLY contending for that row before releasing. The observation is worth recording because it is not the harness's usual one: a `SELECT ... FOR UPDATE` waiter registers as an ungranted `transactionid` (or `tuple`) lock waiting on the holder's transaction, **not** as an ungranted lock on the relation — so `RaceHarness#blocked_on`, which reads advisory keys, cannot express it. The loser's clock is deliberately the EARLIER of the two, which is the interleaving that produced the `PG::CheckViolation`. Assertions: neither delivery raised, exactly one heartbeat row at generation 1, and the lease advanced from the winner's instant. Mutation: removing the `lock_reservation` statement reproduces the reported `PG::CheckViolation` verbatim.
+
+Authority And Precedence:
+Repairs B8 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :551 governs the renewable lease and its cadence; ADR-100 introduced the caller this corrects. Allocated the next unused number after ADR-105.
