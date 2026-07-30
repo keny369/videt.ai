@@ -217,6 +217,25 @@ module IdentityAccess
         SQL
       end
 
+      # `queued | running -> canceled` (:736; :458). Guarded on both the state and the expected version,
+      # so a cancellation that raced the terminal checkpoint matches zero rows and the caller learns it
+      # rather than overwriting a decision. :458 settles the boundary BY COMMIT ORDER — "a cancellation
+      # committed strictly before that checkpoint yields `Crawl.Canceled`" — and this statement, under
+      # the Crawl row lock, is what makes "strictly before" a fact rather than an intention.
+      #
+      # `coverage_status` stays NULL: `crawls_terminal_shape` requires it only of `completed`, and a
+      # cancelled run's coverage is not a number anyone should read — the run was stopped, not measured.
+      CANCELED_STATES = %w[queued running].freeze
+
+      def cancel(id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE crawls
+          SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
+              state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND state = ANY (ARRAY['queued','running']) AND state_version = $2
+        SQL
+      end
+
       # FU-9's TRANSFERRED OBLIGATION (ADR-096). Every host gate this run left `sitemap_state='pending'`.
       #
       # `Workflows::Wf005::DiscoverSitemaps` writes :450's terminal sitemap outcome only once the run has

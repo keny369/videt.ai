@@ -2748,3 +2748,27 @@ Proof standard. PROOFs 58-70 drive the REAL registered handler over the producti
 
 Authority And Precedence:
 WORKFLOW_SPECIFICATIONS.md :450, :452, :453, :458 and :551 govern; BACKGROUND_PROCESSING.md :139/:199/:377 govern the action and the operations; MTX-030 governs the serialized transaction and the reservation settlement. Delivers the obligation FU-9 transferred at ADR-096 and the `crawl_terminal_deadline` scheduling FU-22 named. `crawl_already_terminal` and `crawl_not_running` are added to `Platform::ErrorCatalog`; :458 names the first in terms. Allocated the next unused number after ADR-100.
+
+## ADR-102: CancelCrawl — The Boundary Both Sides Take The Same Lock For
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; S-07-009's last slice
+Reversibility: Integration branch only. One command, one handler, one store writer, one permission-baseline row and two error codes; no schema change.
+
+The last of :377's four crawl operations, and the only one that is an ACTOR command. API_CONTRACTS.md :279 routes it, :738 says "cancellation requires `crawl.cancel`", and :736 gives it two edges: `Crawl.Queued -> Crawl.Canceled` and `Crawl.Running -> Crawl.Canceled`.
+
+**:458's BOUNDARY IS COMMIT ORDER, AND THAT IS WHY THIS IS A COMMAND AND NOT A DERIVATION.** "A cancellation committed STRICTLY BEFORE that checkpoint yields `Crawl.Canceled`; a cancellation at or after the checkpoint is rejected as `crawl_already_terminal`." Both this handler and the terminal checkpoint take `SELECT ... FOR UPDATE` on the same Crawl row before reading anything that decides, so one of them commits first and the other reads the winner's state rather than its own stale view. NEITHER IMPLEMENTS THE OTHER'S RULE: this refuses with exactly the token :458 names, the checkpoint finds a cancelled Crawl and derives nothing, and `f1_crawls_guard` (ADR-099) refuses every edge out of a terminal state so the loser could not write even if both tried. Three independent statements of one rule would drift; one rule with three parties that agree does not.
+
+`expected_state_version` is the other half of the same boundary and is MTX-030's request schema for this command in terms ("Cancel: Crawl ID, expected state version"): a cancellation holding a version the run has moved past is refused rather than applied to a Crawl its sender was not looking at.
+
+**THE RESERVATION IS RELEASED, NEVER COMMITTED.** ":551 — Cancellation or any terminal failure before the listed commit point RELEASES exactly once EVEN WHEN intermediate Documents or other partial artifacts exist; those artifacts remain governed by their workflow but are not a usage commitment." A cancelled run is never `crawl_completed_with_valid_document` whatever it fetched first, so the customer is not charged. A `queued` Crawl has no reservation at all (POSTGRESQL_SCHEMA :338 — "NULL until start") and the payload says `none` rather than guessing.
+
+**`crawl.cancel` IS A SEPARATE PERMISSION EVEN THOUGH ITS CELLS ARE IDENTICAL.** :147 puts it in the same row as `crawl.trigger` — allow, allow, deny, deny, deny, deny — and :738 names it separately. It is transcribed as its own baseline entry with its own denial code, because collapsing two ratified permissions into one on the strength of today's cells agreeing is how a later divergence in the ratified table becomes silently unimplementable.
+
+No `coverage_status`: `crawls_terminal_shape` requires it only of `completed` (ADR-097), and a cancelled run's coverage is not a number anyone should read — the run was stopped, not measured.
+
+Proof standard. PROOFs 80-87 over the production-real chain: both of :736's edges, the reservation release and its absence, :458's token, the stale version, both sides of :147's permission row, exact replay, and POSTGRESQL_SCHEMA :128's cross-Project predicate asserted against a REAL second Project of the SAME Organization — which is the shape that makes Organization-scoped RLS an insufficient answer on its own. Three mutations: dropping the release fails PROOFs 80 and 86; ignoring the expected version fails PROOF 83; widening :147's row by one role fails PROOF 84.
+
+Authority And Precedence:
+WORKFLOW_SPECIFICATIONS.md :147, :458, :551, :736 and :738 govern; API_CONTRACTS.md :279 names the route, which has no HTTP adapter in this build for the same reason every other WF-005 actor command has none. Completes S-07-009's operation set. Allocated the next unused number after ADR-101.

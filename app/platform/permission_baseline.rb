@@ -120,7 +120,14 @@ module Platform
       # scheduler service identity queues configured schedules through its own service path (not
       # a baseline role). Every other role denies. NOT a protected permission (:333 omits it).
       # Materialized here for S-07-002.
-      "crawl.trigger" => %w[OrganizationAdmin MarketingOperator].freeze
+      "crawl.trigger" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # CAP-007 / WF-005 Crawl cancellation (S-07-009). :147 puts `crawl.cancel` in the SAME ROW as
+      # `crawl.trigger` — "allow | allow | deny | deny | deny | deny | scheduler only" — so it is
+      # transcribed with the same two roles and no others. It is a SEPARATE permission even though the
+      # cells are identical: :738 says "cancellation requires `crawl.cancel`", and collapsing two
+      # ratified permissions into one because today's cells agree is how a later divergence in the
+      # table becomes silently unimplementable. NOT a protected permission (:333 omits it).
+      "crawl.cancel" => %w[OrganizationAdmin MarketingOperator].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

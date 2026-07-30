@@ -288,6 +288,9 @@ module Platform
       # for its own late delivery, because a Crawl that has had its one terminal selection is exactly
       # what the word describes. `crawl_not_running` is its sibling for a Crawl that never started.
       "crawl_already_terminal"            => "F1-DOMAIN-409",
+      # :738 — "cancellation requires `crawl.cancel`". A separate denial from `crawl_trigger_unauthorized`
+      # because they are separate permissions (:147 gives them one row, not one name).
+      "crawl_cancel_unauthorized"         => "F1-AUTH-403",
       "crawl_not_running"                 => "F1-DOMAIN-409",
       # The Organization re-authorized at the start commit. A distinct code from the WF-001 sign-in
       # `organization_inactive` above, so the entitlement recovery mandated for this condition
