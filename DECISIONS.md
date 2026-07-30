@@ -2772,3 +2772,27 @@ Proof standard. PROOFs 80-87 over the production-real chain: both of :736's edge
 
 Authority And Precedence:
 WORKFLOW_SPECIFICATIONS.md :147, :458, :551, :736 and :738 govern; API_CONTRACTS.md :279 names the route, which has no HTTP adapter in this build for the same reason every other WF-005 actor command has none. Completes S-07-009's operation set. Allocated the next unused number after ADR-101.
+
+## ADR-103: A Lost Compare-And-Set Is Classified, Not Rescued — StartCrawl Versus CancelCrawl
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: owner instruction at the S-07-009 acceptance boundary
+Reversibility: Integration branch only. One classifier, one second-transaction refusal path and one error class on `Handlers::StartCrawl`; no schema change, no new lock.
+
+The two commands serialize on DIFFERENT OBJECTS. `StartCrawl` takes the per-Project ADVISORY lock and then relies on a compare-and-set (`state = 'queued' AND state_version = $2`); `CancelCrawl` takes the Crawl ROW lock. So a cancellation can commit in the window between StartCrawl's authoritative read and its transition, and before this repair the SAME cancellation produced `crawl_not_queued` when it landed a moment earlier and a `Platform::InvariantViolation` when it landed a moment later. **Timing decided whether an ordinary race was a domain refusal or an invariant failure**, and that is the defect. Rollback prevented corrupted state throughout; it did not make the two reports the same fact.
+
+**THE REPAIR IS A CLASSIFICATION, NOT A BLANKET RESCUE**, and the distinction is load-bearing. On a lost compare-and-set the handler RE-READS the Crawl, and the re-read is authoritative: the statement blocked on the row lock until the other transaction committed and then matched zero rows, so a fresh SELECT at READ COMMITTED sees what the winner committed rather than this transaction's older snapshot. Three outcomes: the row is gone (impossible under a guard that refuses DELETE, so it escalates); the state is no longer `queued` (the canonical harmless terminal execution, reported with the same reason code the same handler uses when it observes the transition before acting); the state is STILL `queued`, meaning `state_version` moved without the state moving, which the guard permits for a non-state update and which nothing in production does — so it escalates, because a lost race nobody can name is not the same fact as a cancellation. Rescuing every lost CAS as `crawl_not_queued` would have swallowed that third case, and PROOF 89 fails under exactly that mutation.
+
+**THE REFUSAL IS WRITTEN IN A SECOND TRANSACTION, AND THAT IS WHY IT RAISES AT ALL.** By the time the compare-and-set fails, the attempt has written a command execution and moved the entitlement reservation `reserved -> executing`. Reporting the denial inline would commit BOTH beside it: an execution record for a start that did not happen, and a reservation left `executing` for a run that never ran, which nothing would ever commit or release. Raising out of `Platform::UnitOfWork.run` rolls the whole attempt back, and the denial is written cleanly against the state the winner left. PROOF 88 asserts zero `entitlement_reservations` and zero `crawl.start` `entitlement_decisions` rows for the Organization afterwards, which is the assertion that fails if the denial is moved inline.
+
+The same classifier covers the pre-execution `fail` compare-and-set, which has the identical window.
+
+Preserved exactly as required: the per-Project advisory serialization is unchanged, no new lock is taken and no lock order is introduced, the state guard and the expected-version guard are untouched, and the transactional rollback of the reservation and the frontier seeding is what the proof turns on.
+
+**THE WINDOW IS FORCED, NOT WAITED FOR.** The proof uses the repository's own technique — a database trigger rather than a hook in production code, as `FailureInjector` already aborts a real statement — installed conditionally on `command_type = 'wf005.start_crawl'` so the cancellation running underneath does not block on the same gate. `RaceHarness#interleave` releases only once StartCrawl is OBSERVABLY blocked, read from `pg_locks`, so a run that degraded into a sequential one fails the example rather than passing quietly.
+
+Two mutations: the blanket rescue fails PROOF 89; the pre-repair `raise LostRace` fails PROOF 88 with the exact `Platform::InvariantViolation` the defect produced.
+
+Authority And Precedence:
+Repairs a defect found at the S-07-009 acceptance boundary, in code accepted at S-07-003 and code written at S-07-009 (7/n). WORKFLOW_SPECIFICATIONS.md :736 governs the edge set; the `crawl_not_queued` token is S-07-003's own and is reused rather than added to. Allocated the next unused number after ADR-102.

@@ -31,6 +31,18 @@ module Workflows
       #
       # NO COVERAGE STATUS. `crawls_terminal_shape` requires it only of `completed` (ADR-097), and a
       # cancelled run's coverage is not a number anyone should read: the run was stopped, not measured.
+      #
+      # CANCELLATION IS PASS-BOUNDARY EFFECTIVE, AND THAT IS DISCLOSED RATHER THAN IMPLIED (FU-32).
+      # A cancellation prevents every LATER pass and the terminal checkpoint, because both re-read the
+      # Crawl and refuse a terminal one. It does NOT interrupt a pass that has already been authorized:
+      # `CrawlDriver#advance` checks the run once at the top and then performs its fetch, so after this
+      # command commits, one already-running pass may still make outbound requests and write attempt and
+      # terminal-outcome rows. Those rows are inert — the checkpoint will never read them, because it
+      # finds the Crawl terminal — but the outbound requests are observable customer behaviour. Making
+      # cancellation effective INSIDE a pass is a product and architectural decision recorded as FU-32,
+      # deliberately not taken opportunistically here: it changes locking, database traffic and outbound
+      # guarantees, and it belongs with FU-28's bounded execution units, which give it natural
+      # boundaries without holding a lock or polling through one large pass.
       class CancelCrawl
         include Wf005::CrawlLedger
 

@@ -64,6 +64,10 @@ module Workflows
         ENTITLEMENT_OPERATION = "crawl.start"
         ENTITLEMENT_UNITS = 1
         EVALUATION_KIND = "initial"
+        # The canonical harmless terminal execution: a dispatch whose Crawl has already left `queued`.
+        # The SAME token this handler uses when it observes the transition before it acts, because it is
+        # the same fact — see `classify_lost_transition`.
+        CONCURRENT_TRANSITION_REASON = "crawl_not_queued"
 
         def call(command:, request_context:)
           ctx = request_context
@@ -72,6 +76,18 @@ module Workflows
 
           key_digest = Digest::SHA256.digest(command.action_identity_sha256)
 
+          begin
+            attempt(command, ctx, key_digest)
+          rescue ConcurrentTransition => e
+            # The Crawl left `queued` underneath this transaction. The whole attempt has rolled back;
+            # the denial is written against what the winner committed.
+            refuse_after_rollback(command, ctx, key_digest, e.message)
+          end
+        end
+
+        private
+
+        def attempt(command, ctx, key_digest)
           Platform::UnitOfWork.run do |conn|
             pg = conn.raw_connection
             now = ctx.now_utc.floor(6)
@@ -92,8 +108,6 @@ module Workflows
                     command:, ctx:, org:, now:, key_digest:)
           end
         end
-
-        private
 
         def process(store:, entitlement:, organization:, frontier_store:, frontier:, pg:, command:, ctx:, org:, now:, key_digest:)
           request_sha256 = request_hash(command, ctx)
@@ -258,8 +272,10 @@ module Workflows
           # executing lease (and with it the maximum-execution ceiling) begins here.
           started = d[:entitlement].start_execution(organization_id: org, reservation_id: decision.reservation_id, now:)
           raise LostRace unless started == :executing
-          raise LostRace if store.start(crawl["id"], crawl["state_version"].to_i, now, deadline,
-                                        decision.decision_id, decision.reservation_id).to_i.zero?
+          if store.start(crawl["id"], crawl["state_version"].to_i, now, deadline,
+                         decision.decision_id, decision.reservation_id).to_i.zero?
+            classify_lost_transition(store, org, crawl)
+          end
 
           store.insert_evaluation(id: ids[:evaluation], now:, correlation_id: ctx.correlation_id,
                                   organization_id: org, project_id: pid, crawl_id: crawl["id"])
@@ -405,7 +421,7 @@ module Workflows
           new_version = crawl["state_version"].to_i + 1
 
           write_execution(store, command, ctx, org, ids[:execution], d[:request_sha256], d[:key_digest], now)
-          raise LostRace if store.fail(crawl["id"], crawl["state_version"].to_i, now).to_i.zero?
+          classify_lost_transition(store, org, crawl) if store.fail(crawl["id"], crawl["state_version"].to_i, now).to_i.zero?
 
           payload = { "crawl_id" => crawl["id"], "organization_id" => org, "project_id" => crawl["project_id"],
                       "state" => "failed", "reason_code" => reason,
@@ -428,6 +444,64 @@ module Workflows
           raise Platform::InvariantViolation, "crawl start lost its serialized transition"
         end
 
+        # WHY A LOST COMPARE-AND-SET IS NOT AUTOMATICALLY AN INVARIANT FAILURE (DECISIONS ADR-103).
+        #
+        # `store.start` and `store.fail` are guarded on `state = 'queued' AND state_version = $2`, and
+        # this handler serializes on the per-Project ADVISORY lock while `CancelCrawl` serializes on the
+        # Crawl ROW lock — two different objects, so a cancellation can commit in the window between the
+        # authoritative read above and the compare-and-set below. Before this, the SAME cancellation
+        # produced `crawl_not_queued` when it landed a moment earlier and a `Platform::InvariantViolation`
+        # when it landed a moment later. Timing decided whether an ordinary race was a domain refusal or
+        # an invariant failure, and that is the defect.
+        #
+        # THE CLASSIFICATION IS A RE-READ, NOT A BLANKET RESCUE. Rescuing every lost CAS as
+        # `crawl_not_queued` would swallow the other way it can fail: a writer that bumps `state_version`
+        # while LEAVING the state `queued` (the guard permits non-state updates on a non-terminal row).
+        # Nothing in production does that, which is exactly why it must still escalate — a lost race
+        # nobody can name is not the same fact as a cancellation, and only one of them is ordinary.
+        #
+        # The re-read is authoritative. The CAS blocked on the row lock until the other transaction
+        # committed and then matched zero rows, so a fresh SELECT at READ COMMITTED sees that committed
+        # state rather than this transaction's older snapshot.
+        def classify_lost_transition(store, org, crawl)
+          current = store.crawl(org, crawl["id"])
+          # `f1_crawls_guard` refuses DELETE, so a row that was here a moment ago and is gone now is
+          # corruption rather than a race.
+          raise LostRace if current.nil?
+          # Still `queued`: the state did not move, so something else moved the version. Unattributable,
+          # and escalated rather than reported as a cancellation that did not happen.
+          raise LostRace if current["state"] == "queued"
+
+          # The Crawl left `queued` underneath this transaction. That is the canonical harmless terminal
+          # execution — the same fact, and the same reason code, this handler reports when it observes
+          # the transition a moment earlier.
+          raise ConcurrentTransition, current["state"]
+        end
+
+        # THE REFUSAL IS WRITTEN IN A SECOND TRANSACTION, AND THAT IS THE POINT OF RAISING AT ALL.
+        #
+        # By the time the compare-and-set fails, this transaction has already written a command
+        # execution and moved the entitlement reservation `reserved -> executing`. Reporting the denial
+        # inline would commit BOTH of those beside it: an execution record for a start that did not
+        # happen, and a reservation left `executing` for a run that never ran, which nothing would ever
+        # commit or release. Raising out of `Platform::UnitOfWork.run` rolls the whole attempt back —
+        # the reservation, the Decision, the execution row — and the denial is then written cleanly
+        # against the state the winner left. The frontier seeding never ran; it comes after the CAS.
+        def refuse_after_rollback(command, ctx, key_digest, observed_state)
+          Platform::UnitOfWork.run do |conn|
+            pg = conn.raw_connection
+            now = ctx.now_utc.floor(6)
+            store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+            org = command.organization_id
+            store.enter_org_context(org:, correlation_id: ctx.correlation_id)
+            crawl = store.crawl(org, command.crawl_id)
+            deny(store:, command:, ctx:, org:, now:, key_digest:,
+                 request_sha256: request_hash(command, ctx), crawl:,
+                 outward: CONCURRENT_TRANSITION_REASON, internal: CONCURRENT_TRANSITION_REASON,
+                 observed_state:)
+          end
+        end
+
         # ---- audited no-state outcome --------------------------------------------
 
         def mismatch(d)
@@ -437,15 +511,19 @@ module Workflows
 
         # `**_rest` absorbs the context keys the callers splat in (`entitlement:`) that an audited
         # no-state outcome has no use for, so no parameter is declared and left dead.
+        # `observed_state` is set only on the concurrent-transition path, where the audit record should
+        # say WHAT the winner committed rather than only that this delivery lost. Absent everywhere else,
+        # so an ordinary denial's payload keeps the shape it has always had.
         def deny(store:, command:, ctx:, org:, now:, key_digest:, request_sha256:, crawl:,
-                 outward:, internal:, replayable: true, **_rest)
+                 outward:, internal:, replayable: true, observed_state: nil, **_rest)
           ids = %i[execution audit result idem].to_h { |k| [k, ctx.generate_id] }
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
+          payload = { "crawl_id" => command.crawl_id, "organization_id" => org,
+                      "project_id" => crawl && crawl["project_id"], "internal_reason" => internal,
+                      "outward_reason" => outward, "scheduled_action_id" => command.action_id }
+          payload["observed_state"] = observed_state if observed_state
           write_audit(store, ids[:audit], org, ctx, command, command.crawl_id, to_state: nil, outcome: "failure",
-                      reason_code: internal,
-                      payload: { "crawl_id" => command.crawl_id, "organization_id" => org,
-                                 "project_id" => crawl && crawl["project_id"], "internal_reason" => internal,
-                                 "outward_reason" => outward, "scheduled_action_id" => command.action_id }, now:)
+                      reason_code: internal, payload:, now:)
           failure = Platform::ErrorCatalog.failure(outward, support_reference: ctx.correlation_id)
           write_result(store, ids, command, ctx, org, now, {}, failure:)
           if replayable
@@ -575,6 +653,10 @@ module Workflows
         def hex(bytes) = bytes.unpack1("H*")
 
         class LostRace < StandardError; end
+
+        # The Crawl left `queued` underneath this transaction. Carries the state the winner committed,
+        # so the audit record can say what actually happened rather than only that something did.
+        class ConcurrentTransition < StandardError; end
       end
     end
   end
