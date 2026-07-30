@@ -2371,3 +2371,21 @@ The edited assertion is STRONGER than the one it replaces. It previously said th
 
 Authority And Precedence:
 Owner decision under ADR-086 stop condition 7, raised by the implementation agent with the migration, store method, specs and mutation evidence prepared and held out of the repository, and approved unchanged. Operates within standing delegation ADR-061. Allocated the next unused number after ADR-086.
+
+## ADR-088: Corrections To ADR-085 And ADR-087, Made By The Five-Lens Review Of S-07-012
+
+Status: Accepted (standing delegation ADR-061; review discipline ADR-080)
+Date: 2026-07-30
+Owner: implementation agent
+Reversibility: Governance only. Corrects two recorded justifications; changes no ruling and no behaviour.
+
+Two statements I wrote into accepted ADRs are wrong. The review found both, and ADR-083's standing lesson is that a false statement in the ledger is repaired rather than left to be re-derived.
+
+**ADR-085's attribution of the durable idempotency authority is wrong.** It says the attempt identity `(crawl_host_gate_id, request_kind, crawl_frontier_entry_id, attempt_number)` under its `ON CONFLICT` is "what makes execution idempotent ... whoever creates the row". The contract lens demonstrated otherwise: `FetchContent` computes `attempt_number` as `attempt_count + 1` from committed state, so that `ON CONFLICT` can only ever absorb a duplicate carrying the SAME number — a concurrent same-number race. A redelivery computes the next free number and would issue a NEW request. What actually makes execution idempotent is three other things: `f1_dispatch_scheduled_action`'s claim compare-and-swap, the command idempotency record the handler writes, and `Admission#claim_entry`'s `queued -> in_progress` compare-and-set. THE RULING IS UNAFFECTED — the action still targets the frontier entry, admission still happens at execution, the fetch path is still the sole producer of attempts — and the behaviour was and is correct. Only the reason given for it was wrong, and a wrong reason in an ADR is how the next tranche builds on a premise that does not hold.
+
+**ADR-087 overstates the self-healing it claims.** It says retiring the entry before the ledger means "a lost pass leaves the seal RELEASED and the redelivery then finds the entry terminal". That is true only for a loss AFTER the release. The widest window in the pass is the one that CONTAINS the fetch — between `Admission`'s claim and the release — and a loss there leaves the entry `in_progress` with `sealed_depth` pinned, exactly as before. The comparison ADR-087 makes still holds and the ordering is still the better one: the alternative leaves BOTH windows stranded, this leaves one. What does not hold is the implication that a redelivery always finds the entry terminal. FU-22 carries the stranded claim, whose recovery needs a frontier-lease sweep and is S-07-011's.
+
+**And a false premise in ADR-087 that the schema lens found.** It justifies leaving `crawl_terminal_outcomes` unbuilt with "the durable record of what happened to a URL is the `fetch_attempts` row the fetch already terminalized". That is false for a routine class: `FetchContent` authorizes BEFORE it claims an attempt row, so a URL refused by robots or by current scope, or one whose host-gate claim was refused, retires with NO attempt row at all. FU-21 carries it, marked blocking for S-07-009, which is the tranche that must tell a covered URL from an unretrieved one.
+
+Authority And Precedence:
+Under standing delegation ADR-061, as a correction of record rather than a decision. ADR-085's and ADR-087's rulings stand unchanged. Allocated the next unused number after ADR-087.
