@@ -1,14 +1,20 @@
 # S-07-012 — Crawl Execution: The Run Driver
 
-**Acceptance status: NOT ACCEPTED.** The ADR-026 five-lens independent review returned four BLOCK
-verdicts. Every finding resolvable under existing authority is repaired and committed; ONE
-confirmed-blocking finding, FU-19, needs an owner ruling, so no acceptance is recorded (ADR-080: no
-acceptance until every lens has reported with zero confirmed-blocking findings).
+**Acceptance status: NOT ACCEPTED.** Two review rounds: an ADR-026 five-lens pass (four BLOCK) and a
+three-lens delta pass over the repairs (three BLOCK). Every finding resolvable under existing authority is
+repaired and committed. ONE confirmed-blocking finding remains and needs an owner ruling — FU-24, a
+delivery outliving the 30-second worker lease by two routes FU-19 did not close — so no acceptance is
+recorded (ADR-080: no acceptance until every lens has reported with zero confirmed-blocking findings).
+ADR-090 records the corrections of record the delta forced, including a repair the first pass claimed and
+did not make.
 
 This record describes HEAD. It does not narrate how HEAD was reached — git holds that, and a
 narrative acceptance record accumulates stale counts and superseded mechanisms faster than it can be
 corrected. Every claim below is either mechanically checked by
-`spec/architecture/repository_truth_spec.rb` or reproducible by the commands in **Verification**.
+the commands in **Verification**. It is NOT yet mechanically checked: `spec/architecture/repository_truth_spec.rb`
+reads the S-07-008 record and `BUILD_STATE.acceptance_evidence` still names that block, so this document's
+path partition and citations are asserted for S-07-008 and not for this tranche. Pointing the check at the
+accepted block is part of the acceptance transition, and until then this record is prose like any other.
 
 ## Identity
 
@@ -18,7 +24,7 @@ corrected. Every claim below is either mechanically checked by
 | Range | from `b48bf6e` (S-07-008 acceptance) to the branch head |
 | Authority | standing delegation ADR-061; cadence ADR-086; review discipline ADR-080 |
 | Owner rulings implemented | ADR-085 (FU-16), ADR-087 (FU-18), ADR-089 (FU-19) |
-| Accepted paths | `app/contexts/identity_access/infrastructure/crawl_budget_store.rb`, `app/contexts/identity_access/infrastructure/crawl_frontier_store.rb`, `app/contexts/identity_access/infrastructure/crawl_host_gate_store.rb`, `app/contexts/identity_access/infrastructure/fetch_attempt_store.rb`, `app/workflows/wf005/`, `config/initializers/scheduled_actions.rb`, `db/migrate/20260727120300_crawl_frontier_seal_release.rb`, `db/structure.sql`, `spec/acceptance/support/wf005_crawl_chain.rb`, `spec/acceptance/wf005_admission_spec.rb`, `spec/acceptance/wf005_content_fetch_spec.rb`, `spec/acceptance/wf005_crawl_frontier_spec.rb`, `spec/acceptance/wf005_limit_observation_points_spec.rb`, `spec/acceptance/wf005_record_fetch_attempt_spec.rb`, `spec/acceptance/wf005_start_crawl_spec.rb`, `spec/persistence/crawl_frontier_invariants_spec.rb`, `specification/automation/AUTONOMY_POLICY.md`, `specification/automation/BUILD_PLAN.yml`, `specification/automation/BUILD_STATE.json`, `DECISIONS.md`, `S-07-012_COMPLETION_REPORT.md` |
+| Accepted paths | `app/contexts/identity_access/infrastructure/crawl_budget_store.rb`, `app/contexts/identity_access/infrastructure/crawl_frontier_store.rb`, `app/contexts/identity_access/infrastructure/crawl_host_gate_store.rb`, `app/contexts/identity_access/infrastructure/fetch_attempt_store.rb`, `app/workflows/wf005/`, `config/initializers/scheduled_actions.rb`, `db/migrate/20260727120300_crawl_frontier_seal_release.rb`, `db/structure.sql`, `spec/acceptance/support/wf005_crawl_chain.rb`, `spec/acceptance/wf005_admission_spec.rb`, `spec/acceptance/wf005_content_fetch_spec.rb`, `spec/acceptance/wf005_crawl_frontier_spec.rb`, `spec/acceptance/wf005_limit_observation_points_spec.rb`, `spec/acceptance/wf005_record_fetch_attempt_spec.rb`, `spec/acceptance/wf005_start_crawl_spec.rb`, `spec/persistence/crawl_frontier_invariants_spec.rb`, `app/platform/pg_bool.rb`, `specification/automation/AUTONOMY_POLICY.md`, `specification/automation/BUILD_PLAN.yml`, `specification/automation/BUILD_STATE.json`, `DECISIONS.md`, `S-07-012_COMPLETION_REPORT.md` |
 | Excluded | 16 files from four unrelated AUTHORIZED commits inside the range, each attributed in `BUILD_STATE.acceptance_evidence` |
 
 **THE PATHS ARE NAMED FILE BY FILE, NOT AS `app/` AND `spec/`.** The range interleaves this tranche
@@ -26,7 +32,7 @@ with four unrelated authorized commits, and one of them — the ADR-084 blocking
 bounded the shared test-harness PG connections — touches `spec/`. A wholesale `spec/` claim would
 have absorbed that repair into this tranche's acceptance, which is exactly the class of false record
 the repository-truth spec exists to prevent. The accepted paths and the excluded list partition the
-range exactly, and that partition is asserted, not asserted-in-prose.
+range exactly. That partition is NOT yet asserted for this tranche — see the note above.
 
 ## What this tranche is
 
@@ -58,8 +64,9 @@ retryable outcome with attempts remaining schedules a new `crawl_fetch_due` for 
 and its exact 30,000 / 120,000 ms delays are unchanged, the attempt number still comes from committed
 state, and the claim, the reservation and the depth seal are held across the retry because they belong
 to one admission of one URL. The instant is DERIVED from the committed row rather than taken from the
-worker's clock, so two deliveries of one action compute the same ScheduledAction identity and the second
-replays instead of forking the run. A retry that would fall past `crawls.deadline_at` is treated as
+worker's clock, so any party deriving it lands on the same ScheduledAction identity and a second link
+replays. Single-linking is enforced by the attempt identity's `ON CONFLICT` first — review established two
+deliveries cannot race as far as a retry decision — and by this determinism second. A retry that would fall past `crawls.deadline_at` is treated as
 exhaustion, which releases the reservation and the seal immediately.
 
 **The order of operations is the specification, and two steps of it are not obvious.**
@@ -73,7 +80,8 @@ exhaustion, which releases the reservation and the seal immediately.
    hands its :444 retry schedule back to the caller. Nothing was that caller until now, so a host
    whose robots failed transiently was never resolved. A retryable outcome re-enters at the instant
    the result names; a terminal-but-not-fetchable record halts the pass without discarding the
-   candidate, which keeps a genuinely unfetched in-scope URL inside :452's coverage denominator.
+   candidate: it is retired unfetched so the run carries on to other Sources (:448 scopes fail-closed to
+   one host), and it stays inside :452's coverage denominator because it was never retrieved.
 3. **Sitemap discovery**, which is FU-9's re-entry. A gate the release handed back is `pending` with a
    `retry_after`, and re-entering at exactly that instant is what stops sustained contention from
    terminalizing `sitemap_unavailable` with zero network attempts.
@@ -97,12 +105,15 @@ exhaustion, which releases the reservation and the seal immediately.
 
 **A pass that decides nothing re-enters against the same entry and leaves the frontier exactly as it
 found it.** Robots still resolving under :444, sitemap discovery handed back by FU-9's release, and
-`Admission`'s `run_byte_budget_contended` are all "come back": none is an outcome, none costs the
-entry an attempt or the run a byte, and the entry is still `queued` for the next pass to claim.
+`Admission`'s `run_byte_budget_contended`, a refused host-gate claim and a lost race for an attempt
+number are all "come back": none is an outcome and none costs the entry an attempt or the run a byte. The
+entry is still `queued` for an unadmitted pass to claim; a pass that already holds the claim keeps it,
+along with its reservation and the depth seal, because those belong to one admission of one URL.
 
 **A pass that may not start a request creates no link**, which is :442's "stop scheduling affected
-work" — a hard byte limit, the wall clock, an authorization denial, or fail-closed robots ends the
-chain and the Crawl's terminal checkpoint reports what happened.
+work" — a hard byte limit, the wall clock or an authorization denial ends the chain and the Crawl's
+terminal checkpoint reports what happened. Fail-closed robots is NOT one of them: :448 scopes it to one
+host, so the entry is retired and the run advances.
 
 **StartCrawl's first handoff** is selection only, in the same transaction as the
 `Crawl.Queued -> Crawl.Running` transition. The accepted-start proof is unchanged byte for byte: the
@@ -171,7 +182,7 @@ Run from the repository root. Outputs are those observed at this commit. The com
 
 | Command | Output |
 | --- | --- |
-| `bundle exec rspec` | `1926 examples, 0 failures` |
+| `bundle exec rspec` | `1929 examples, 0 failures` |
 | `bundle exec brakeman -q --no-pager -z` | `No warnings found` |
 | `bin/packwerk check` | `No offenses detected` |
 | `bundle exec bundle-audit check --update` | `No vulnerabilities found` |
@@ -268,14 +279,15 @@ which is exactly the failure it had been added to stop. `Platform::PgBool` now o
 
 ## Ownership and follow-ups
 
-FU-9 (sitemap scheduler re-entry) is DELIVERED here: the driver honours the `retry_after` instant the
+FU-9 (sitemap scheduler re-entry) is DELIVERED-WITH-A-CARRIED-OBLIGATION here, not closed (ADR-090): the driver honours the `retry_after` instant the
 release reports and re-enters `Admission`'s `run_byte_budget_contended` outcome, and both were
 unreachable while nothing in production drove crawl execution. FU-10 was delivered at S-07-008 and is
 unchanged. FU-16 and FU-18 are resolved by ADR-085 and ADR-087.
 
-NOT DELIVERED, and each recorded with its evidence: FU-19, a fetch pass outliving its 30-second
-transport lease so the ordinary retry path executes twice — the one finding that needs an owner ruling,
-because both repairs lie outside this tranche's authority. FU-21, a terminal frontier entry with no
+NOT DELIVERED, and each recorded with its evidence: FU-24, a delivery still outliving the 30-second
+worker lease by the two routes FU-19 did not close — one attempt bounded PER HOP at 165 seconds, and the
+sitemap limb still pacing :444 in-process. That is the one finding needing an owner ruling; the damage is
+now bounded to duplicate work rather than a dead run. FU-21, a terminal frontier entry with no
 attempt row, blocking for S-07-009 alongside FU-11. FU-22, a stranded frontier claim, whose recovery
 needs the `in_progress` analogue of ADR-082's lease sweeper and belongs to S-07-011. FU-20 and FU-23,
 latent until :456's concurrent fetching lands. ADR-088 corrects two justifications this tranche's own

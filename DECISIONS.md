@@ -2424,3 +2424,23 @@ The accepted S-07-007 pacing proofs were TRANSLATED, not weakened. `paces == [30
 
 Authority And Precedence:
 Owner decision, taken on the evidence of the ADR-026 five-lens review of S-07-012. Supersedes ADR-085's in-process-retry clause and nothing else; ADR-087's rulings are untouched. Operates within standing delegation ADR-061 and cadence ADR-086. Allocated the next unused number after ADR-088.
+
+## ADR-090: Corrections Of Record Forced By The S-07-012 Delta Review, Including A Repair I Claimed And Did Not Make
+
+Status: Accepted (standing delegation ADR-061; review discipline ADR-080)
+Date: 2026-07-30
+Owner: implementation agent
+Reversibility: Governance only. Corrects the record; changes no ruling.
+
+**A REPAIR WAS CLAIMED AND NOT MADE.** Commit `ed9b60d` states that "(6/n) stopped the losing delivery from destroying the winning pass's ledger and forward link", and `BUILD_STATE.next_action` stated that "every confirmed-blocking finding is repaired". Both were false. `IdentityAccess::Infrastructure::CrawlStartStore#insert_idempotency` was never touched in that pass and remained a bare INSERT, so the defect the sentence describes was live from the moment the sentence was written. The delta review found it by checking the claim against the diff, which is the check ADR-083 was written to institutionalise, and this is the first time it has caught the record rather than the code. It is repaired in `90f1282`. Recorded here rather than quietly fixed, because the failure was not the missing `ON CONFLICT` — it was asserting a repair without verifying it.
+
+**ADR-089's NAMED MUTATION COULD NOT FAIL.** ADR-089 lists eight mutations "each fail[ing] an example", one of them "the instant taken from `now`", and calls the derived retry instant "load-bearing". It was not falsifiable: `FetchAttemptStore#terminalize` wrote `completed_at` from the same `context[:now]` the mutation substituted, so the two expressions were byte-identical in every reachable state. The determinism claim was therefore unverified while being recorded as proven. `completed_at` now records the attempt's actual completion — the hard request bound for a timeout, which is the rule `observe_request_time` already applies, and the reported latency otherwise — so the column means its name, :444's delay is measured from where the contract says, and the mutation bites. ADR-089's ruling and every other guarantee in it stand.
+
+**ADR-087's SELF-HEALING WAS REINTRODUCED AS A REGRESSION AND IS NOW REPAIRED.** ADR-088 already corrected ADR-087's overstatement. The FU-19 implementation then made it worse: the `RETRYING` branch released nothing, so a duplicate delivery whose terminal transaction aborted left the entry claimed, the reservation charged and no scheduled action for the run. Two reviewers demonstrated it. `Execution#performed?` and the `ON CONFLICT` above close it together.
+
+**FU-9 MUST NOT CLOSE SILENTLY.** Its recorded resolution says "A host that stays contended until the deadline is terminalized honestly HERE, once, with `unavailable`". That is no longer reachable on any production path: `DiscoverSitemaps#defer_to_scheduler?` terminalizes only when the run has expired, and the driver halts on the wall clock before it calls discovery, with the same `now`. The re-entry FU-9 asked for IS delivered and no false outcome is written — the gate simply stays `pending`, and deriving :450's `sitemap_unavailable` from that becomes S-07-009's. FU-9 is therefore delivered-with-a-carried-obligation, not closed.
+
+What the delta review also confirmed, and which is worth recording because it was the most serious finding of the first round: the authorization ordering repair HOLDS. An independent reviewer enumerated every write and outbound call in `CrawlDriver#advance` and its callees in order, found none preceding `Admission#authorize_run` — including the new `retire_unfetchable` writer — and verified behaviourally as `f1_web` that the frontier UPDATE is Organization-scoped and its RLS is not `USING (true)`.
+
+Authority And Precedence:
+Under standing delegation ADR-061, as corrections of record. ADR-085's, ADR-087's and ADR-089's rulings are unchanged. Allocated the next unused number after ADR-089.
