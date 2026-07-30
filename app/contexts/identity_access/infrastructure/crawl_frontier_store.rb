@@ -296,10 +296,15 @@ module IdentityAccess
         SQL
       end
 
+      # One entry by ID. `project_id`, `crawl_id`, `source_id` and `canonical_url` are here because a
+      # `crawl_fetch_due` action carries only the entry ID and the run driver resolves everything else
+      # from the row — and because the guard freezes all four for the life of the entry, so a caller
+      # may carry them across a transaction boundary without their going stale.
       def entry(organization_id, id)
         exec(<<~SQL, [organization_id, id]).to_a.first
           SELECT id, state, state_version, dequeue_key, depth, origin,
-                 discovering_document_url, link_position, parent_entry_id
+                 discovering_document_url, link_position, parent_entry_id,
+                 project_id, crawl_id, source_id, canonical_url
           FROM crawl_frontier_entries WHERE organization_id = $1::uuid AND id = $2::uuid
         SQL
       end

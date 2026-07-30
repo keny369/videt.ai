@@ -107,11 +107,14 @@ module Wf005CrawlChain
         requested_at_utc: act_now), request_context: act_ctx)
   end
 
-  def running_crawl(host: "shop.acme.example")
+  # A started Crawl over one Source, or over SEVERAL when `hosts` is given — which the run driver
+  # needs, because a single-root frontier has nowhere for its next-frontier link to go and so cannot
+  # distinguish "drained" from "advancing".
+  def running_crawl(host: "shop.acme.example", hosts: [host])
     g = bootstrap
-    sid = register_source(g, "https://#{host}")
-    verify(g, sid)
-    activate_source(g, sid)
+    ids = hosts.map { |h| register_source(g, "https://#{h}").tap { |sid| verify(g, sid) } }
+    ids.each { |sid| activate_source(g, sid) }
+    sid = ids.first
     raise "activation failed" unless activate_project(g).success?
 
     crawl_id = Workflows::Wf005::Handlers::QueueCrawl.new.call(
@@ -125,7 +128,7 @@ module Wf005CrawlChain
         target_type: a["target_type"], crawl_id: a["target_id"], due_at: Time.parse(a["due_at"]).getutc, action_id: a["id"],
         action_identity_sha256: [a["identity_sha256"].sub(/\A\\x/, "")].pack("H*"), requested_at_utc: start_now),
       request_context: executor_ctx(start_now))
-    { g:, crawl_id:, source_id: sid, host: }
+    { g:, crawl_id:, source_id: sid, source_ids: ids, host: hosts.first }
   end
 
   # ---- harness ---------------------------------------------------------------
@@ -190,6 +193,14 @@ module Wf005CrawlChain
     Workflows::Wf005::EnsureRobots.new(outbound:).call(
       organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
       canonical_host: ctx[:host], now: start_now)
+  end
+
+  # Sitemap discovery for the context's host, driven exactly as the run driver drives it. Robots must
+  # already be terminal, which is :450's own precondition.
+  def resolve_sitemaps(ctx, outbound)
+    Workflows::Wf005::DiscoverSitemaps.new(outbound:, pacer: pacer_for(ctx)).call(
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+      canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
   end
 
   def authorize(ctx, url: nil, kind: "content", source_id: nil)

@@ -323,6 +323,23 @@ module IdentityAccess
 
       # When the host is next startable under its own pacing, so a released claim can tell the
       # scheduler WHEN to come back rather than leaving it to spin.
+      # How long the host must still be left alone, in MILLISECONDS, and without taking the row lock.
+      #
+      # Relative rather than absolute on purpose. The pacing floor is written from `clock_timestamp()`,
+      # while every caller decides against the clock its request context injected, so a relative
+      # remainder composes with the caller's own time base where an absolute instant would silently mix
+      # two of them. It is also ADVISORY: `HostGate#claim` is still the only enforcement point, and this
+      # exists so a caller can decide not to spend a start it would only have refused.
+      def pacing_remaining_ms(organization_id, id)
+        row = query(<<~SQL, [organization_id, id]).to_a.first
+          SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+                   (COALESCE(next_allowed_start_at, clock_timestamp()) - clock_timestamp())) * 1000))::bigint
+                   AS delay_remaining_ms
+          FROM crawl_host_gates WHERE organization_id = $1::uuid AND id = $2::uuid
+        SQL
+        row && row["delay_remaining_ms"].to_i
+      end
+
       def next_allowed_start(organization_id, id)
         query(<<~SQL, [organization_id, id]).to_a.first&.fetch("next_allowed_start_at", nil)
           SELECT next_allowed_start_at FROM crawl_host_gates

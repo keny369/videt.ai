@@ -7,15 +7,33 @@ module Workflows
   module Wf005
     module Handlers
       # WF-005 RecordFetchAttempt — the service execution behind the ratified `crawl_fetch_due`
-      # ScheduledAction. This checkpoint makes the persisted fetch-attempt surface executable
-      # without yet changing StartCrawl's accepted "seed frontier, no fetch handoff" shape.
+      # ScheduledAction, and :378's only permitted operation for the `crawl_fetch` work type.
+      #
+      # ONE ACTION IS ONE PASS OF THE RUN. The handler owns the ledger ceremony and nothing else:
+      # `Wf005::CrawlDriver` decides and performs, and every product effect it produces belongs to the
+      # accepted surfaces it drives. THREE PHASES, because MTX-030 ends "No external call sits inside a
+      # database transaction":
+      #
+      #   1. PREPARE, in its own transaction: prove the Organization and the targeted frontier entry
+      #      exist, replay an identical delivery from the idempotency record, refuse a differing one,
+      #      and check the due-at gate. Nothing is decided and nothing is spent before this passes.
+      #   2. THE PASS, holding NO transaction: robots, sitemap discovery, admission and the fetch, each
+      #      opening and committing its own.
+      #   3. THE TERMINAL TRANSACTION: the next-frontier link and the execution/audit/result/
+      #      idempotency records, together. :378 — "its terminal transaction creates the exact
+      #      ingestion or next-frontier action" — so a pass that records its result and a pass that
+      #      schedules the next one are the same commit, and a rolled-back pass leaves no link.
+      #
+      # THE TARGET IS THE FRONTIER ENTRY (DECISIONS ADR-085). The ledger therefore attributes the
+      # execution, the audit record and the result to the row the pass actually claimed, which is only
+      # true because `Admission#claim_entry` refuses to claim anything else.
       class RecordFetchAttempt
         SUPPORTED_SCHEMA_MAJOR = "1"
-        TARGET_TYPE = "fetch_attempt"
+        TARGET_TYPE = "crawl_frontier_entry"
         ACTION = "crawl.fetch"
         POLICY_VERSION = "permission-baseline-v1"
 
-        def call(command:, request_context:, outbound: Platform::Outbound)
+        def call(command:, request_context:, outbound: Platform::Outbound, pacer: nil)
           ctx = request_context
           return schema_failure(command, ctx) unless supported_schema?(command.schema_version)
           return in_memory_failure(command, ctx, "scheduled_action_target_mismatch") unless command.target_type == TARGET_TYPE
@@ -23,14 +41,11 @@ module Workflows
           prepared = prepare_execution(command, ctx)
           return prepared if prepared.is_a?(Platform::CommandResult)
 
-          execution = Workflows::Wf005::FetchContent.new(
-            outbound:, ids: ctx.ids, correlation_id: ctx.correlation_id
-          ).record_persisted_attempt(
-            organization_id: prepared[:org], crawl_id: prepared[:attempt]["crawl_id"],
-            attempt: prepared[:attempt], now: prepared[:now]
-          )
+          pass = Workflows::Wf005::CrawlDriver.new(
+            outbound:, ids: ctx.ids, correlation_id: ctx.correlation_id, pacer:
+          ).advance(organization_id: prepared[:org], entry: prepared[:entry], now: prepared[:now])
 
-          finalize_execution(command, ctx, prepared, execution)
+          finalize_execution(command, ctx, prepared, pass)
         end
 
         private
@@ -44,15 +59,15 @@ module Workflows
             store.enter_org_context(org:, correlation_id: ctx.correlation_id)
             return in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if store.organization(org).nil?
 
-            attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
-            attempts.enter_org_context(org:, correlation_id: ctx.correlation_id)
-            attempt = attempts.attempt(org, command.attempt_id)
-            return deny(store, command, ctx, org, now, "scheduled_action_target_mismatch") if attempt.nil?
+            frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
+            frontier.enter_org_context(org:, correlation_id: ctx.correlation_id)
+            entry = frontier.entry(org, command.frontier_entry_id)
+            return deny(store, command, ctx, org, now, "scheduled_action_target_mismatch") if entry.nil?
 
             key_digest = Digest::SHA256.digest(command.action_identity_sha256)
             request_sha256 = request_hash(command)
             existing = store.find_idempotency(org:, command_type: command.command_type,
-                                              target_type: TARGET_TYPE, target_id: command.attempt_id,
+                                              target_type: TARGET_TYPE, target_id: command.frontier_entry_id,
                                               key_digest:)
             if existing
               return rebuild(store, existing, command) if existing["request_hex"] == hex(request_sha256)
@@ -61,22 +76,19 @@ module Workflows
             end
             return deny(store, command, ctx, org, now, "scheduled_action_not_due") if now < command.due_at
 
-            { store:, org:, now:, attempt:, key_digest:, request_sha256: }
+            { store:, org:, now:, entry:, key_digest:, request_sha256: }
           end
         end
 
-        def finalize_execution(command, ctx, prepared, execution)
+        def finalize_execution(command, ctx, prepared, pass)
           Platform::UnitOfWork.run do |conn|
             raw = conn.raw_connection
             store = IdentityAccess::Infrastructure::CrawlStartStore.new(raw)
             store.enter_org_context(org: prepared[:org], correlation_id: ctx.correlation_id)
-            attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
-            attempts.enter_org_context(org: prepared[:org], correlation_id: ctx.correlation_id)
-            attempt = attempts.attempt(prepared[:org], command.attempt_id)
-            retry_info = schedule_retry(raw, command, ctx, attempt, execution)
+            link = schedule_next(raw, command, ctx, prepared, pass)
 
             ids = %i[execution audit result idem].to_h { |k| [k, ctx.generate_id] }
-            payload = payload_for(attempt, execution.result, retry_info)
+            payload = payload_for(prepared[:entry], pass, link)
             write_execution(store, command, ctx, prepared[:org], ids[:execution],
                             prepared[:request_sha256], prepared[:key_digest], prepared[:now])
             write_audit(store, ids[:audit], prepared[:org], ctx, command, payload, prepared[:now])
@@ -90,38 +102,49 @@ module Workflows
               payload: payload.transform_keys(&:to_sym)
             )
           end
-        rescue Workflows::Wf005::FetchContent::AttemptStillInProgress
-          raise
         end
 
-        def schedule_retry(raw, command, ctx, attempt, execution)
-          return {} unless execution.result.retryable
-          return {} unless attempt["attempt_number"].to_i < Workflows::Wf005::FetchContent::MAX_ATTEMPTS
-          return {} unless execution.remaining_reserved.to_i.positive?
+        # :378's "its terminal transaction creates the exact ... next-frontier action", on the
+        # terminal transaction's own connection.
+        #
+        # A HALTED pass creates NOTHING, and that is the whole of :442's "stop scheduling affected
+        # work": a run that has hit a hard byte limit, run out its wall clock, lost its authorization
+        # or fail-closed on robots must not be handed more work. The chain ends and the Crawl's
+        # terminal checkpoint reports what happened.
+        def schedule_next(raw, command, ctx, prepared, pass)
+          entry = prepared[:entry]
+          common = { pg: raw, organization_id: prepared[:org], project_id: entry["project_id"],
+                     now: prepared[:now], correlation_id: ctx.correlation_id,
+                     causation_id: ctx.correlation_id, command_id: command.command_id }
+          if pass.reenters?
+            return Workflows::Wf005::CrawlFetchDueSchedule.reenter(
+              **common, entry_id: entry["id"], at: pass.reenter_at
+            )
+          end
+          return {} unless pass.advances?
 
-          due_at = ctx.now_utc.floor(6) + (execution.retry_delay_ms.to_i / 1000.0)
-          prepared = Workflows::Wf005::FetchAttemptDueSchedule.retry(
-            pg: raw, attempt:, reserved_bytes: execution.remaining_reserved, due_at:, now: ctx.now_utc.floor(6),
-            correlation_id: ctx.correlation_id, causation_id: ctx.correlation_id, command_id: command.command_id
-          )
+          Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common, crawl_id: entry["crawl_id"])
+        end
+
+        def payload_for(entry, pass, link)
+          result = pass.fetch
           {
-            "scheduled_retry_fetch_attempt_id" => prepared[:attempt_id],
-            "scheduled_retry_action_id" => prepared[:action_id],
-            "scheduled_retry_due_at_utc" => due_at.iso8601(6)
+            "frontier_entry_id" => entry["id"],
+            "crawl_id" => entry["crawl_id"],
+            "canonical_url" => entry["canonical_url"],
+            "pass_outcome" => pass.outcome,
+            "outcome" => result&.outcome,
+            "reason_code" => pass.reason_code,
+            "http_status" => result&.http_status,
+            "accounted_response_bytes" => result && result.accounted_bytes.to_i,
+            "retryable" => result&.retryable,
+            # The run's forward link, or its absence, which is the fact a reader needs most: an empty
+            # link on an advancing pass means the frontier had nothing selectable left.
+            "next_frontier_entry_id" => link[:entry_id],
+            "next_action_id" => link[:action_id],
+            "next_due_at_utc" => link[:due_at]&.getutc&.iso8601(6),
+            "frontier_drained" => pass.advances? && link[:entry_id].nil?
           }
-        end
-
-        def payload_for(attempt, result, retry_info)
-          {
-            "fetch_attempt_id" => attempt["id"],
-            "crawl_id" => attempt["crawl_id"],
-            "frontier_entry_id" => attempt["crawl_frontier_entry_id"],
-            "attempt_number" => attempt["attempt_number"].to_i,
-            "outcome" => result.outcome,
-            "reason_code" => result.reason_code,
-            "http_status" => result.http_status,
-            "retryable" => result.retryable
-          }.merge(retry_info)
         end
 
         def deny(store, command, ctx, org, now, reason)
@@ -130,7 +153,7 @@ module Workflows
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
           write_audit(store, ids[:audit], org, ctx, command,
-                      { "fetch_attempt_id" => command.attempt_id, "reason_code" => reason }, now,
+                      { "frontier_entry_id" => command.frontier_entry_id, "reason_code" => reason }, now,
                       outcome: "failure", reason_code: reason)
           failure = Platform::ErrorCatalog.failure(reason, support_reference: ctx.correlation_id)
           write_result(store, ids, command, ctx, org, {}, now, failure:)
@@ -167,7 +190,7 @@ module Workflows
             command_id: command.command_id, idempotency_key_digest: key_digest,
             command_type: command.command_type, command_schema_version: command.schema_version,
             service_identity_id: ctx.service_identity_id, organization_id: org, target_type: TARGET_TYPE,
-            target_id: command.attempt_id, action: ACTION, requested_at: iso(command.requested_at_utc),
+            target_id: command.frontier_entry_id, action: ACTION, requested_at: iso(command.requested_at_utc),
             authorization_check_at: iso(now),
             policy_versions: JSON.generate({ "permission_baseline" => POLICY_VERSION }),
             canonical_payload: JSON.generate({ "scheduled_action_id" => command.action_id }), request_sha256:
@@ -179,7 +202,7 @@ module Workflows
             id:, occurred_at: iso(now), partition_month: month(now), organization_id: org,
             service_identity_id: ctx.service_identity_id, correlation_id: ctx.correlation_id,
             causation_id: ctx.correlation_id, command_id: command.command_id, entity_type: TARGET_TYPE,
-            entity_id: command.attempt_id, to_state: nil, outcome:, reason_code:,
+            entity_id: command.frontier_entry_id, to_state: nil, outcome:, reason_code:,
             payload: JSON.generate(payload), content_sha256: Platform::CanonicalJson.digest(payload)
           )
         end
@@ -191,7 +214,7 @@ module Workflows
             command_execution_id: ids[:execution], outcome: failure ? "failure" : "success",
             organization_id: org, service_identity_id: ctx.service_identity_id,
             completed_at: iso(now), authorization_check_at: iso(now),
-            target_refs: JSON.generate({ "fetch_attempt_id" => command.attempt_id }),
+            target_refs: JSON.generate({ "crawl_frontier_entry_id" => command.frontier_entry_id }),
             governing_policy_versions: JSON.generate({ "permission_baseline" => POLICY_VERSION }),
             failure:, authorized_payload: JSON.generate(payload), audit_record_id: ids[:audit]
           )
@@ -200,7 +223,7 @@ module Workflows
         def write_idempotency(store, id, command, org, key_digest, request_sha256, execution_id, result_id, now)
           store.insert_idempotency(
             id:, created_at: iso(now), organization_id: org, command_type: command.command_type,
-            target_type: TARGET_TYPE, target_id: command.attempt_id, key_digest:, request_sha256:,
+            target_type: TARGET_TYPE, target_id: command.frontier_entry_id, key_digest:, request_sha256:,
             command_execution_id: execution_id, command_result_id: result_id,
             retain_until: iso(now + 86_400)
           )
@@ -210,9 +233,17 @@ module Workflows
           Platform::CanonicalJson.digest(
             "action" => ACTION, "command_type" => command.command_type,
             "command_schema_version" => command.schema_version, "organization_id" => command.organization_id,
-            "target_type" => TARGET_TYPE, "target_id" => command.attempt_id,
+            "target_type" => TARGET_TYPE, "target_id" => command.frontier_entry_id,
             "command_payload" => { "scheduled_action_id" => command.action_id }
           )
+        end
+
+        def schema_failure(command, ctx) = in_memory_failure(command, ctx, "command_schema_unsupported")
+
+        def in_memory_failure(command, ctx, reason)
+          failure = Platform::ErrorCatalog.failure(reason, support_reference: ctx.correlation_id)
+          Platform::CommandResult.failure(result_id: ctx.generate_id, command_type: command.command_type,
+                                          failure:, audit_record_id: ctx.generate_id, correlation_id: ctx.correlation_id)
         end
 
         def hex(bytes) = bytes.unpack1("H*")

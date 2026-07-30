@@ -70,6 +70,28 @@ module Workflows
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
       def claim_next(organization_id:, crawl_id:, now:)
+        claim(organization_id:, crawl_id:, now:, only: nil)
+      end
+
+      # Claim EXACTLY the named frontier entry, and only while it is still the next one (S-07-012).
+      #
+      # A `crawl_fetch_due` action names the entry it was scheduled for, and :185 makes `target_id`
+      # the claim owner, so the execution must claim THAT entry or nothing. Claiming whatever happens
+      # to be next instead would break two things at once: the ledger would attribute an execution,
+      # audit record and result to an entry it did not act on, and a redelivered action whose original
+      # claim survived a lost worker would fetch a SECOND, unrelated URL under the first one's
+      # identity. Declining is always safe — the caller's next-frontier link then targets whatever is
+      # genuinely next, so the run advances rather than repeating.
+      #
+      # DEQUEUE ORDER IS UNCHANGED, because the test is `peek_next == named`: the entry is claimed only
+      # when it IS the frontier's next candidate under the same advisory lock, never out of turn.
+      def claim_entry(organization_id:, crawl_id:, entry_id:, now:)
+        claim(organization_id:, crawl_id:, now:, only: entry_id)
+      end
+
+      private
+
+      def claim(organization_id:, crawl_id:, now:, only:)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
@@ -111,12 +133,13 @@ module Workflows
           # indivisible against another admission.
           candidate = frontier.peek_next(organization_id, crawl_id)
           next idle if candidate.nil?
+          # The named entry is no longer the next one: already claimed by a pass whose worker was
+          # lost, already terminal, or overtaken. Nothing is paid for and nothing is claimed.
+          next idle if only && candidate["id"] != only
 
           admit(raw, frontier, organization_id, crawl, crawl_id, candidate, bounds, now)
         end
       end
-
-      private
 
       def idle = Decision.new(entry: nil, reserved_bytes: nil, reserved_total: nil, reason_code: nil)
 

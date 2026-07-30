@@ -95,8 +95,6 @@ module Workflows
         # current scope are "recorded as `policy_excluded` and are OUTSIDE the denominator".
         def in_denominator? = outcome != POLICY_EXCLUDED
       end
-      PersistedAttemptExecution = Data.define(:result, :remaining_reserved, :retry_delay_ms)
-      AttemptStillInProgress = Class.new(StandardError)
 
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
                      pacer: ->(ms) { sleep(ms.to_i / 1000.0) }, limit_decisions: nil)
@@ -123,27 +121,6 @@ module Workflows
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i
         }
         attempt_loop(context, entry, reserved_bytes:)
-      end
-
-      # Execute one persisted scheduled-action attempt. The attempt row already exists; this method
-      # takes its execution lease, records the submission-started checkpoint and consumes the
-      # carried reservation instead of minting a second attempt identity or reservation.
-      def record_persisted_attempt(organization_id:, crawl_id:, attempt:, now:)
-        crawl = load_crawl(organization_id, crawl_id)
-        result = excluded(REASONS[:unauthorized])
-        return PersistedAttemptExecution.new(result:, remaining_reserved: nil, retry_delay_ms: nil) if crawl.nil?
-
-        context = {
-          organization_id:, crawl_id:, gate_id: attempt["crawl_host_gate_id"], now:,
-          project_id: crawl["project_id"], source_id: attempt["source_id"],
-          entry_id: attempt["crawl_frontier_entry_id"], canonical_url: attempt["canonical_url"],
-          canonical_host: attempt["canonical_host"], depth: attempt["depth"].to_i
-        }
-        result, remaining_reserved = persisted_attempt(context, attempt)
-        PersistedAttemptExecution.new(
-          result:, remaining_reserved:,
-          retry_delay_ms: result.retryable ? retry_delay_for_attempt(attempt["attempt_number"].to_i) : nil
-        )
       end
 
       private
@@ -217,33 +194,6 @@ module Workflows
           return [release_and(context, reserved, excluded(REASONS[:contended])), nil] if attempt.nil?
 
           perform(context, attempt, reserved, limits, hold_reservation: !remaining_reserved.nil?)
-        ensure
-          release_slot(context, claim.lease_token)
-        end
-      end
-
-      def persisted_attempt(context, attempt)
-        reserved = attempt["reserved_bytes"].to_i
-        return [limit_discarded(REASONS[:budget_exhausted]), nil] if reserved <= 0
-
-        reclaim_expired(context)
-        current = load_attempt(context[:organization_id], attempt["id"])
-        return [stored_result(current), remaining_reserved(current)] if current["outcome"]
-
-        claimed = claim_prepared_attempt(context, current)
-        claim = claim_slot(context)
-        unless claim&.granted?
-          return [terminalize_without_request(context, claimed, reserved, deferred(claim)), nil]
-        end
-
-        begin
-          unless authorized?(context)
-            return [terminalize_without_request(context, claimed, reserved, excluded(REASONS[:unauthorized])), nil]
-          end
-
-          limits = effective_limits(context)
-          started = submission_started(context, claimed)
-          perform(context, started, reserved, limits, hold_reservation: true)
         ensure
           release_slot(context, claim.lease_token)
         end
@@ -699,22 +649,9 @@ module Workflows
         result
       end
 
-      def load_attempt(organization_id, attempt_id)
-        attempt_unit(organization_id) { |store| store.attempt(organization_id, attempt_id) }
-      end
-
       def next_attempt_number(context)
         attempt_unit(context[:organization_id]) do |store|
           store.attempt_count(context[:organization_id], context[:crawl_id], context[:entry_id], "content") + 1
-        end
-      end
-
-      def claim_prepared_attempt(context, attempt)
-        attempt_unit(context[:organization_id]) do |store|
-          moved = store.claim_prepared(attempt["id"], attempt["checkpoint_version"].to_i, @ids.generate, context[:now])
-          raise AttemptStillInProgress if moved.to_i.zero?
-
-          store.attempt(context[:organization_id], attempt["id"])
         end
       end
 
@@ -740,73 +677,7 @@ module Workflows
         end
       end
 
-      def submission_started(context, attempt)
-        attempt_unit(context[:organization_id]) do |store|
-          moved = store.submission_started(attempt["id"], attempt["checkpoint_version"].to_i, context[:now])
-          raise Platform::InvariantViolation, "fetch attempt submission already started" if moved.to_i.zero?
-
-          store.attempt(context[:organization_id], attempt["id"])
-        end
-      end
-
-      def terminalize_without_request(context, attempt, reserved, result)
-        Platform::UnitOfWork.run do |conn|
-          raw = conn.raw_connection
-          budget = IdentityAccess::Infrastructure::CrawlBudgetStore.new(raw)
-          budget.enter_org_context(org: context[:organization_id], correlation_id: @correlation_id)
-          budget.release_bytes(context[:organization_id], context[:crawl_id], reserved, context[:now])
-
-          attempts = IdentityAccess::Infrastructure::FetchAttemptStore.new(raw)
-          attempts.enter_org_context(org: context[:organization_id], correlation_id: @correlation_id)
-          moved = attempts.terminalize(
-            attempt["id"], attempt["checkpoint_version"].to_i, context[:now],
-            outcome: result.outcome, reason_code: result.reason_code, http_status: result.http_status,
-            accounted_response_bytes: 0, received_body_bytes: 0, expanded_body_bytes: 0,
-            limit_probe_bytes: 0, media_type: result.media_type, redirect_count: result.redirect_count,
-            final_url: result.final_url, body_sha256: nil, retryable: result.retryable, latency_ms: nil
-          )
-          raise Platform::InvariantViolation, "fetch attempt terminal decision lost" if moved.to_i.zero?
-        end
-        result
-      end
-
       def unhex(value) = value.to_s.sub(/\A\\x/, "").then { |h| [h].pack("H*") }
-
-      def terminalize(context, attempt, result, outcome, measurement)
-        attempt_unit(context[:organization_id]) do |store|
-          store.terminalize(attempt["id"], attempt["state_version"].to_i, context[:now],
-                            outcome: result.outcome, reason_code: result.reason_code,
-                            http_status: result.http_status,
-                            accounted_response_bytes: measurement&.accounted,
-                            received_body_bytes: measurement&.received,
-                            expanded_body_bytes: measurement&.expanded,
-                            limit_probe_bytes: measurement&.probe_bytes.to_i,
-                            media_type: result.media_type, redirect_count: result.redirect_count,
-                            final_url: result.final_url,
-                            body_sha256: result.body && Digest::SHA256.digest(result.body),
-                            retryable: result.retryable,
-                            latency_ms: outcome.respond_to?(:latency_ms) ? outcome.latency_ms : nil)
-        end
-      end
-
-      def stored_result(attempt)
-        Result.new(
-          outcome: attempt["outcome"], reason_code: attempt["reason_code"], attempt_id: attempt["id"],
-          http_status: attempt["http_status"]&.to_i, accounted_bytes: attempt["accounted_response_bytes"].to_i,
-          probe_bytes: attempt["limit_probe_bytes"].to_i, media_type: attempt["media_type"], body: nil,
-          final_url: attempt["final_url"], redirect_count: attempt["redirect_count"].to_i,
-          retryable: attempt["retryable"] == true || attempt["retryable"] == "t"
-        )
-      end
-
-      def remaining_reserved(attempt)
-        attempt["reserved_bytes"].to_i - attempt["accounted_response_bytes"].to_i
-      end
-
-      def retry_delay_for_attempt(number)
-        seconds = FetchRetryPolicy::DELAYS_S.fetch(number.to_i, FetchRetryPolicy::DELAYS_S.values.last)
-        seconds * 1000
-      end
     end
   end
 end
