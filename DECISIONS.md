@@ -2818,3 +2818,25 @@ Proof standard. PROOF 52 extended to both columns and both directions (`deadline
 
 Authority And Precedence:
 Resolves FU-30, which ADR-099 opened and recorded rather than took. WORKFLOW_SPECIFICATIONS.md :442 and BACKGROUND_PROCESSING.md :139 govern the fixed instant; POSTGRESQL_SCHEMA.md :338 governs the metering columns ADR-099 already froze. Allocated the next unused number after ADR-103.
+
+## ADR-105: B7 Repaired — The Checkpoint Conforms To The Subsystem's Lock Order Instead Of Inventing Its Own
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of the ADR-080 acceptance round's most serious finding
+Reversibility: Integration branch only. One statement added to `Handlers::CompleteCrawl#process`; no schema change, no new lock object.
+
+`Handlers::CompleteCrawl` serialized on `crawls FOR UPDATE`; `CrawlDriver#retire` serializes on the `crawl-frontier:<crawl>` advisory lock, which it holds across BOTH the frontier terminalize and the `crawl_terminal_outcomes` INSERT. Nothing ordered the two, so the checkpoint could count a snapshot an in-flight pass invalidated a moment later.
+
+**The observed state was internally inconsistent and permanent.** A run that had fetched a valid Document was recorded `state=failed, completion_reason=failed`, its reservation RELEASED, while `crawl_terminal_outcomes` said `document_created / covered` and `fetch_attempts` said `200`. The concurrency lens reproduced it three ways, including **at natural timing with no gate — a 150 ms fetch with the checkpoint fired 50 ms in, 10/10.** ADR-101 is what makes it ordinary rather than exotic: a drained pass schedules a checkpoint for its own instant, so checkpoint-concurrent-with-pass is this design's normal case. And ADR-099's terminal freeze makes it irreversible — `f1_crawls_guard` refuses every UPDATE of a terminal row, so nothing can ever correct it. Two decisions taken inside this block combine into a wrong, uncorrectable answer about a customer's run and their billing.
+
+**THE REPAIR CONFORMS TO AN ORDER THAT ALREADY EXISTED RATHER THAN CHOOSING ONE.** `Admission#claim` takes the frontier advisory lock and then writes `crawl_budget_counters`, whose foreign key to `crawls` takes `FOR KEY SHARE` on that row. `retire` does the same through the outcome row's foreign key. Frontier THEN crawls is therefore the subsystem's established order, and the checkpoint now takes `lock_frontier` before `lock_crawl` — one statement, no new lock object, and it fences every in-flight retirement because `retire` holds that advisory lock for its whole transaction.
+
+**The obvious alternative was rejected, and it is the one the reviewing lens proposed.** Having `retire` take the crawls row lock before `lock_frontier` would repair this race and invert the order against `Admission`, which is how a deadlock is built. A repair that fixes one interleaving by creating the conditions for another is not a repair. The lens's own RACE 8 supplies the supporting evidence for the direction taken: once the outcome INSERT has run, the foreign key's key-share lock ALREADY blocks the checkpoint, which then counts correctly — so the only gap was the window before that INSERT, and the frontier lock closes exactly it.
+
+Proof standard. PROOF 91 suspends `retire` between its terminalize and its INSERT with a trigger — the technique `FailureInjector` already establishes — and asserts, from `pg_locks`, that the checkpoint BLOCKS on the frontier key, then that it counts the committed retirement (`documents: 1`, `completed / full`, reservation `committed`).
+
+**`RaceHarness#interleave` could not express this, and the reason is the repair itself.** `interleave` runs its `while_committing` operation to completion while the gated one is held; under this repair the checkpoint blocks on the lock the gated pass holds, so it would never complete and the harness would deadlock against its own gate. The example therefore uses the harness's primitives directly — the same `pg_locks` observation and the same "nothing is ordered by a sleep" rule — and asserts the blocking as the property under test rather than as a precondition. Mutation: removing the `lock_frontier` statement fails PROOF 91 at exactly that assertion, because the checkpoint no longer blocks.
+
+Authority And Precedence:
+Repairs B7 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the serialized checkpoint; :453 and MTX-030 govern the state and the commit-or-release the defect corrupted. Allocated the next unused number after ADR-104.

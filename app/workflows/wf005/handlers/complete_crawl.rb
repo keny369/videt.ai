@@ -94,9 +94,27 @@ module Workflows
           request_sha256 = request_hash(command, ctx)
           d = { store:, entitlement:, pg:, command:, ctx:, org:, now:, key_digest:, request_sha256: }
 
-          # THE SERIALIZATION, before every read that decides anything. A concurrent checkpoint blocks
-          # here and then finds the Crawl terminal, rather than deriving a second opinion from the same
-          # facts and racing to write it.
+          # THE SERIALIZATION, IN TWO PARTS AND IN THIS ORDER (DECISIONS ADR-105).
+          #
+          # 1. THE FRONTIER ADVISORY LOCK, which fences an in-flight RETIREMENT. `CrawlDriver#retire`
+          #    holds `crawl-frontier:<crawl>` for its whole transaction — the frontier terminalize AND
+          #    the `crawl_terminal_outcomes` INSERT — so taking it here means no pass can be part-way
+          #    through retiring an entry while this counts. Without it the checkpoint counted a snapshot
+          #    the pass invalidated a moment later, and a run that fetched a valid Document was recorded
+          #    `failed` with its reservation RELEASED while `crawl_terminal_outcomes` said
+          #    `document_created / covered`. Reproduced at natural timing, 10/10, and IRREVERSIBLE:
+          #    `f1_crawls_guard` refuses every UPDATE of a terminal row, so nothing can correct it.
+          #
+          # 2. THE CRAWL ROW LOCK, which is :458's "once" — a concurrent checkpoint or cancellation
+          #    blocks here and then finds the Crawl terminal rather than deriving a second opinion.
+          #
+          # THE ORDER IS THE SUBSYSTEM'S, NOT A CHOICE MADE HERE. `Admission#claim` takes the frontier
+          # advisory lock and then writes `crawl_budget_counters`, whose FK to `crawls` takes `FOR KEY
+          # SHARE` on that row; `retire` does the same through the outcome row's FK. Frontier THEN crawls
+          # is therefore already established, and the checkpoint conforms to it. Taking them the other
+          # way round — the obvious fix, and the one the review's own concurrency lens proposed for the
+          # driver — would invert the order against `Admission` and is how a deadlock is built.
+          IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg).lock_frontier(command.crawl_id)
           crawl = store.lock_crawl(org, command.crawl_id)
           return mismatch(d) if crawl.nil?
 
