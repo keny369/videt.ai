@@ -2913,3 +2913,21 @@ Proof standard. PROOF 98 (a `content_fetch_failed` outcome decides `partial` and
 
 Authority And Precedence:
 Repairs B9 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :442, :452 and :458 govern the facts and the precedence. No production behaviour changes; what changes is whether the suite can tell a correct implementation from an incorrect one. Allocated the next unused number after ADR-107.
+
+## ADR-109: B10 Repaired — :458's "Once" Is Now Proved As A Race, Not As A Sequence
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of an ADR-080 acceptance-round finding
+Reversibility: Integration branch only. Specs and one spec helper; no production change.
+
+ADR-101 and ADR-102 both rest their central claim on the `FOR UPDATE` in `CrawlStartStore#lock_crawl`. **Deleting it left 218 examples green.** PROOF 64 and PROOF 82 are sequential; PROOF 65 mutates the row with the inspector before it acts. Nothing in the suite ran the two commands against each other.
+
+**The failure mode if the lock is lost is the exact class ADR-103 was written to repair.** Both terminal handlers raise `Platform::InvariantViolation` on a lost compare-and-set, so the loser of a genuine race surfaced an invariant failure instead of :458's ratified `crawl_already_terminal` — timing deciding whether an ordinary race is a domain refusal or an invariant failure, which ADR-103 calls "the defect". The mutation reproduces it verbatim: `Platform::InvariantViolation: crawl terminal checkpoint lost its serialized transition`.
+
+PROOFs 100 and 101 race `CompleteCrawl` and `CancelCrawl` against each other in BOTH orders and require the loser to report the ratified refusal.
+
+**`RaceHarness#interleave` is unusable for this, for the same reason it was unusable in PROOF 91**, and the reason is worth stating once for whoever writes the next one: `interleave` runs its `while_committing` operation TO COMPLETION while the gated one is held, and here the gated operation holds the crawls row — so the committing one blocks on it and the harness deadlocks against its own gate. `race_on_the_crawl_row` expresses it with the primitives instead: gate the winner inside its transaction at its first statement, start the loser, observe the loser CONTENDING for the row, then release. The observation is an ungranted `transactionid` (or `tuple`) lock rather than an advisory key, because that is how a row-lock waiter registers — `blocked_on` cannot see it.
+
+Authority And Precedence:
+Repairs B10 of `S-07-009_ACCEPTANCE_REVIEW.md`. WORKFLOW_SPECIFICATIONS.md :458 governs the serialized checkpoint and the `crawl_already_terminal` token. No production behaviour changes. Allocated the next unused number after ADR-108.

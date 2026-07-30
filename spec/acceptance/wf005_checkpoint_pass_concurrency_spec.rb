@@ -136,6 +136,117 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     Workflows::Wf005::Handlers::CompleteCrawl.new.call(command:, request_context: executor_ctx(start_now))
   end
 
+  # A cancellation issued by an actor at the instant under test. The bootstrap session is issued at
+  # `fixed_now - 300` and stays valid here, since these examples run at `start_now`.
+  def run_cancel(ctx)
+    Workflows::Wf005::Handlers::CancelCrawl.new.call(
+      command: Workflows::Wf005::Commands::CancelCrawl.new(
+        command_id: SecureRandom.uuid_v7, idempotency_key: "cc-#{SecureRandom.hex(6)}", schema_version: "1.0",
+        session_id: ctx[:g][:session_id], organization_id: ctx[:g][:organization_id],
+        project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+        expected_state_version: crawl_row(ctx[:crawl_id])["state_version"].to_i, requested_at_utc: act_now
+      ), request_context: act_ctx
+    )
+  end
+
+  # Gate a handler at its FIRST statement — the `command_executions` INSERT — so it is suspended INSIDE
+  # its transaction, past `lock_crawl`. Conditional on the command type so the operation running
+  # underneath does not block on the same gate.
+  def gate_command(command_type, key)
+    conn = DbInspector.connection
+    conn.exec(<<~SQL)
+      CREATE OR REPLACE FUNCTION f1_test_gate_cmd() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.command_type = '#{command_type}' THEN
+          PERFORM pg_advisory_xact_lock(#{key});
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER f1_test_gate_cmd BEFORE INSERT ON command_executions
+        FOR EACH ROW EXECUTE FUNCTION f1_test_gate_cmd();
+    SQL
+    yield
+  ensure
+    conn.exec(<<~SQL)
+      DROP TRIGGER IF EXISTS f1_test_gate_cmd ON command_executions;
+      DROP FUNCTION IF EXISTS f1_test_gate_cmd();
+    SQL
+  end
+
+  # :458'S "ONCE", AS A RACE RATHER THAN AS A SEQUENCE (B10).
+  #
+  # ADR-101 and ADR-102 both rest their central claim on `CrawlStartStore#lock_crawl`'s `FOR UPDATE`,
+  # and deleting it left 218 examples green: PROOF 64 and PROOF 82 are sequential, and PROOF 65 mutates
+  # the row before it acts. The failure mode if the lock is ever lost is the exact class ADR-103 was
+  # written to repair — both terminal handlers raise `Platform::InvariantViolation` on a lost
+  # compare-and-set, so the loser of a genuine race would surface an invariant failure instead of
+  # :458's ratified `crawl_already_terminal`, and timing would once again decide which.
+  describe ":458's \"once\" under a real race (B10)" do
+    # `interleave` is unusable here for the same reason it was in PROOF 91: it runs `while_committing`
+    # TO COMPLETION while the gated operation is held, and the gated operation holds the crawls row —
+    # so the committing one blocks on it and the harness deadlocks against its own gate. The primitives
+    # express it directly: gate the WINNER inside its transaction, start the LOSER, observe the loser
+    # contending for the row (an ungranted `transactionid` lock, not an advisory key), then release.
+    def race_on_the_crawl_row(winner, loser, key)
+      controller = RaceHarness.open_connection
+      controller.exec_params("SELECT pg_advisory_lock($1)", [key])
+      w = RaceHarness.spawn_operation(winner)
+      RaceHarness.wait_until("the winner blocked inside its transaction") { RaceHarness.blocked_on(key) >= 1 }
+      l = RaceHarness.spawn_operation(loser)
+      RaceHarness.wait_until("the loser blocked on the crawls row") do
+        RaceHarness.observer.exec(<<~SQL).getvalue(0, 0).to_i >= 1
+          SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('transactionid', 'tuple')
+        SQL
+      end
+      controller.exec_params("SELECT pg_advisory_unlock($1)", [key])
+      [w.value, l.value]
+    ensure
+      controller.exec_params("SELECT pg_advisory_unlock_all()")
+      controller.close
+    end
+
+    it "PROOF 100 — a cancellation losing to a checkpoint reports the ratified refusal, not an exception" do
+      ctx = fetchable
+      drain_one_pass(ctx)
+      checkpoint_action = due_now_checkpoint(ctx)
+      key = RaceHarness.key_for("f1-test-checkpoint-first")
+
+      _won, cancelled = gate_command("wf005.complete_crawl", key) do
+        race_on_the_crawl_row(-> { run_checkpoint(ctx, checkpoint_action) }, -> { run_cancel(ctx) }, key)
+      end
+
+      expect(cancelled).to be_a(Platform::CommandResult),
+                           "the loser raised instead of returning: #{cancelled.inspect}"
+      expect(cancelled.success?).to be(false)
+      expect(cancelled.failure.reason_code).to eq("crawl_already_terminal")
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("completed")
+    end
+
+    it "PROOF 101 — a checkpoint losing to a cancellation reports the same refusal, not an exception" do
+      ctx = fetchable
+      drain_one_pass(ctx)
+      checkpoint_action = due_now_checkpoint(ctx)
+      key = RaceHarness.key_for("f1-test-cancel-first")
+
+      _won, checkpointed = gate_command("wf005.cancel_crawl", key) do
+        race_on_the_crawl_row(-> { run_cancel(ctx) }, -> { run_checkpoint(ctx, checkpoint_action) }, key)
+      end
+
+      expect(checkpointed).to be_a(Platform::CommandResult),
+                              "the loser raised instead of returning: #{checkpointed.inspect}"
+      expect(checkpointed.success?).to be(false)
+      expect(checkpointed.failure.reason_code).to eq("crawl_already_terminal")
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("canceled")
+    end
+  end
+
+  # One pass, so the run has a retired entry and a Document to be counted.
+  def drain_one_pass(ctx)
+    action = first_fetch_action(ctx)
+    run_pass(ctx, action)
+  end
+
   it "PROOF 91 — a checkpoint cannot count a run whose pass is mid-retirement" do
     ctx = fetchable
     fetch_action = first_fetch_action(ctx)
