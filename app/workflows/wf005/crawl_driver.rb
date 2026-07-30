@@ -70,6 +70,11 @@ module Workflows
       # contract names, keeping the claim, the reservation and the depth seal — none of which is a "come
       # back and decide", so it is not `DEFERRED`.
       RETRYING = "retrying"
+      # This delivery's lease was CONFIRMED transferred to another worker mid-pass. It stops at the next
+      # safe boundary and writes nothing: no terminal frontier state, no link, no ledger. Whatever it had
+      # already committed stays governed by the authorities that own it — the attempt identity, the byte
+      # counters and the frontier claim — and the delivery that now owns the action continues.
+      RELINQUISHED = "relinquished"
 
       # ONE PASS MAKES AT MOST ONE PACED HOST START, and this is what enforces it.
       #
@@ -131,6 +136,7 @@ module Workflows
 
         gate = ensure_gate(organization_id, entry, crawl, host, now)
         robots = resolve_robots(organization_id, crawl_id, host, now)
+        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
         return robots_outcome(robots, organization_id, crawl, entry, now) unless robots.fetchable?
 
         discovery = discover(organization_id, crawl_id, entry, host, now)
@@ -143,6 +149,9 @@ module Workflows
         ready = host_ready_at(organization_id, gate, now)
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
+        # THE LAST BOUNDARY BEFORE ANYTHING IRREVERSIBLE. Past here the pass claims a frontier entry,
+        # reserves bytes and sends a request; a delivery whose ownership has moved must do none of them.
+        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
 
         admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
       end
@@ -251,6 +260,11 @@ module Workflows
           return deferred(result.reason_code || HOST_PACED, entry:,
                           at: host_ready_at(organization_id, gate, now))
         end
+
+        # OWNERSHIP LOST DURING THE FETCH. The attempt itself is already committed and accounted by the
+        # authorities that own it, and this pass stops there: it writes no terminal frontier state, creates
+        # no link, and lets the delivery that now owns the action carry on.
+        return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
 
         retry_at = retry_due_at(execution, crawl)
         if retry_at
@@ -449,9 +463,14 @@ module Workflows
       # `pacer` is how `DiscoverSitemaps` takes its in-traversal waits; it is injectable so a test can
       # simulate elapsed time instead of spending it, and omitted in production. `FetchContent` has none:
       # since ADR-089 nothing on the fetch path waits.
+      # `DiscoverSitemaps` waits in-traversal — :444's 30 and 120 seconds between sitemap candidates, and
+      # the host gate's remainder. Those waits are why a pass could outlive its lease even after the content
+      # retries moved to the scheduler, so the pacer it gets is the LEASE-AWARE one: the same total wait,
+      # divided at heartbeat deadlines, holding no database connection while it waits. Without a lease
+      # (a spec, a direct call) it is an ordinary sleep, so nothing outside a worker changes.
       def service(klass)
         args = { outbound: @outbound, ids: @ids, correlation_id: @correlation_id }
-        args[:pacer] = @pacer if @pacer
+        args[:pacer] = @pacer || Platform::ScheduledActions::Lease.pacer
         klass.new(**args)
       end
 
@@ -461,6 +480,11 @@ module Workflows
 
       def halted(reason, entry: nil)
         Pass.new(outcome: HALTED, reason_code: reason, entry:, fetch: nil, reenter_at: nil)
+      end
+
+      def relinquished(entry)
+        Pass.new(outcome: RELINQUISHED, reason_code: RELINQUISHED, entry:, fetch: nil,
+                 reenter_at: nil, released: false)
       end
 
       def superseded(entry)

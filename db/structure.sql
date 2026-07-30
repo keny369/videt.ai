@@ -1278,6 +1278,32 @@ $$;
 
 
 --
+-- Name: f1_heartbeat_scheduled_action(uuid, uuid, bigint, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_heartbeat_scheduled_action(p_action_id uuid, p_owner uuid, p_generation bigint, p_lease_seconds integer) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE v_now timestamptz(6) := transaction_timestamp(); v_changed integer;
+BEGIN
+  UPDATE scheduled_actions a
+  SET lease_expires_at = v_now + make_interval(secs => greatest(p_lease_seconds, 1)),
+      last_heartbeat_at = v_now,
+      updated_at = v_now, state_version = a.state_version + 1
+  WHERE a.id = p_action_id
+    AND a.claim_owner = p_owner
+    AND a.claim_generation = p_generation
+    AND a.status = 'dispatched'
+    -- Supersession: an already-lapsed lease is the sweep's to take, never this worker's to extend.
+    AND a.lease_expires_at > v_now;
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed > 0;
+END;
+$$;
+
+
+--
 -- Name: f1_organizations_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6224,6 +6250,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120310'),
 ('20260727120300'),
 ('20260727120290'),
 ('20260727120280'),

@@ -124,7 +124,20 @@ module Platform
         command = entry.command.from_scheduled_action(
           action:, command_id: ctx.generate_id, requested_at_utc: ctx.now_utc
         )
-        entry.handler.new.call(command:, request_context: ctx)
+        # THE LEASE IS KEPT FOR THE WHOLE HANDLER, by infrastructure, once (F-04 FU-24, ADR-091). A handler
+        # whose legitimate work outruns `WORKER_LEASE_SECONDS` — a redirect chain at the per-hop timeout,
+        # :444's pacing — used to have its lease expire underneath it, so the sweep returned the action to
+        # `pending` and it was executed twice. The keeper renews on elapsed time at the boundaries the
+        # workflow already has, and reports a CONFIRMED transfer so the workflow can stop; no workflow
+        # implements any of that itself.
+        Lease.with(lease_keeper_for(action)) do
+          entry.handler.new.call(command:, request_context: ctx)
+        end
+      end
+
+      def lease_keeper_for(action)
+        LeaseKeeper.new(action_id: action.id, owner:, generation: action.claim_generation,
+                        lease_seconds: WORKER_LEASE_SECONDS)
       end
 
       def delivery_skipped

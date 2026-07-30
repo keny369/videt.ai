@@ -142,7 +142,7 @@ RSpec.describe Platform::ScheduledActions::Store, type: :model do
       SQL
       expect(functions.map { |f| f["proname"] }).to contain_exactly(
         "f1_cancel_scheduled_action", "f1_claim_due_scheduled_actions", "f1_dispatch_scheduled_action",
-        "f1_fail_scheduled_action_dispatch",
+        "f1_fail_scheduled_action_dispatch", "f1_heartbeat_scheduled_action",
         "f1_release_expired_scheduled_action_leases", "f1_release_scheduled_action_claim",
         "f1_settle_scheduled_action"
       )

@@ -96,6 +96,19 @@ module Platform
         row && to_action(row)
       end
 
+      # RENEW THE LEASE THIS WORKER STILL OWNS (F-04, FU-24). Returns true iff renewal succeeded; FALSE
+      # MEANS OWNERSHIP IS CONFIRMED LOST and the caller must stop producing effects at its next safe
+      # boundary. A raised exception is NOT ownership loss — it is a transport failure, and the caller
+      # treats it as such, because inferring loss from an unreachable database would abandon work the
+      # worker may still own.
+      #
+      # The fence lives in the function, not here: owner, claim generation, `dispatched` state and a lease
+      # that has not already lapsed, all matched in one statement on one row by primary key.
+      def heartbeat(action_id:, owner:, generation:, lease_seconds:)
+        sql = "SELECT f1_heartbeat_scheduled_action($1::uuid,$2::uuid,$3::bigint,$4)"
+        exec(sql, [action_id, owner, generation, lease_seconds]).getvalue(0, 0) == "t"
+      end
+
       # Record a failed Redis enqueue for a claim this scheduler owner still holds,
       # before any worker transfer: increment the dispatch-attempt counter and either
       # back off at 1/5/30/120/600s or, on the sixth failure, quarantine the record as

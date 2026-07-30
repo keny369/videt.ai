@@ -888,6 +888,50 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     end
   end
 
+  describe "a delivery that loses its lease stops (F-04 FU-24, ADR-091)" do
+    it "PROOF 13 — a confirmed transfer mid-pass produces NO request, NO ledger and NO link" do
+      # The stale worker must not keep acting for a delivery it no longer owns. The keeper reports a
+      # CONFIRMED transfer — not a transport failure — and the pass stops at its next safe boundary.
+      ctx = fetchable
+      action = first_action(ctx)
+      before = entries(ctx[:crawl_id]).first
+      lost = Platform::ScheduledActions::LeaseKeeper.new(
+        action_id: action["id"], owner: SecureRandom.uuid_v7, generation: 0,
+        lease_seconds: Platform::ScheduledActions::Worker::WORKER_LEASE_SECONDS
+      )
+      # A renewal against an action this owner never held is refused, which is exactly what a transfer
+      # looks like from the stale worker's side.
+      expect(lost.renew).to eq(Platform::ScheduledActions::LeaseKeeper::LOST)
+
+      result = Platform::ScheduledActions::Lease.with(lost) do
+        execute(ctx, action, outbound_by_path({}))
+      end
+
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("scheduled_action_lease_lost")
+      expect(requests).to be_empty
+      expect(attempts(ctx[:crawl_id])).to be_empty
+      # NOTHING DURABLE: the frontier is untouched, no ledger row names this entry, and no link exists.
+      expect(entries(ctx[:crawl_id]).first["state"]).to eq(before["state"])
+      expect(entries(ctx[:crawl_id]).first["state_version"]).to eq(before["state_version"])
+      expect(fetch_actions(ctx[:crawl_id]).size).to eq(1)
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]])).to be_empty
+        SELECT e.id FROM command_executions ce
+        JOIN crawl_frontier_entries e ON e.id = ce.target_id
+        WHERE ce.target_type = 'crawl_frontier_entry' AND e.crawl_id = $1::uuid
+      SQL
+    end
+
+    it "does not interfere when there is no lease, which is every non-worker caller" do
+      ctx = fetchable
+      expect(Platform::ScheduledActions::Lease.current).to be_nil
+
+      result = execute(ctx, first_action(ctx), outbound_by_path("/" => html))
+
+      expect(result.payload[:pass_outcome]).to eq("fetched")
+    end
+  end
+
   describe "transport integrity" do
     it "refuses an action naming a frontier entry that does not exist" do
       ctx = fetchable

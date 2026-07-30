@@ -229,6 +229,10 @@ module F1
       "f1_settle_scheduled_action(uuid, uuid, bigint, text, text)",
       "f1_release_scheduled_action_claim(uuid, uuid, bigint, text)",
       "f1_release_expired_scheduled_action_leases(integer)",
+      # F-04 (FU-24): the FENCED lease heartbeat. A live worker renews while it still owns legitimate
+      # work; renewal matches the claim owner, the claim generation, the `dispatched` state and a lease
+      # that has not already lapsed, so a stale worker can never extend a claim that has moved on.
+      "f1_heartbeat_scheduled_action(uuid, uuid, bigint, integer)",
       "f1_cancel_scheduled_action(uuid, text)"
     ].freeze
 

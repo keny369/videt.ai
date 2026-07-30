@@ -46,10 +46,32 @@ module Workflows
           ).advance(organization_id: prepared[:org], entry: prepared[:entry], now: prepared[:now],
                     due_at: command.due_at)
 
+          # A RELINQUISHED PASS WRITES NOTHING. Its lease was confirmed transferred mid-pass, so the
+          # terminal transaction is skipped entirely: no execution, audit, result or idempotency record, and
+          # no forward link. The action is NOT settled either — `f1_settle_scheduled_action` is fenced on
+          # owner and generation, so this worker's settle would match zero rows anyway, and the delivery
+          # that now owns the action is the one entitled to record an outcome.
+          return relinquished_result(command, ctx) if pass.outcome == Workflows::Wf005::CrawlDriver::RELINQUISHED
+
           finalize_execution(command, ctx, prepared, pass)
         end
 
         private
+
+        # Reported as a failure so the Worker releases the transport claim rather than completing it. The
+        # reason is not in `Platform::ErrorCatalog` because it never reaches a customer: this delivery has
+        # no authority to speak for the action at all.
+        def relinquished_result(command, ctx)
+          Platform::CommandResult.failure(
+            result_id: ctx.generate_id, command_type: command.command_type,
+            failure: Platform::Failure.new(
+              error_class: "conflict", error_code: "scheduled_action_lease_lost",
+              reason_code: "scheduled_action_lease_lost", severity: "warning", retryable: true,
+              recovery_action: "retry", support_reference: ctx.correlation_id
+            ),
+            audit_record_id: ctx.generate_id, correlation_id: ctx.correlation_id
+          )
+        end
 
         def prepare_execution(command, ctx)
           Platform::UnitOfWork.run do |conn|

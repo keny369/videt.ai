@@ -310,6 +310,14 @@ module Workflows
 
       def redirect_guard(context)
         lambda do |uri|
+          # RENEW BETWEEN HOPS (F-04 FU-24). F-01 calls this guard before following each redirect, so it is
+          # the one place a caller can act between two bounded requests without reaching into the frozen
+          # connector. Each hop may take the full 15-second timeout and the budget is ten of them, so a
+          # single attempt can outlive a 30-second lease; renewal is by elapsed time, so a short chain
+          # writes nothing extra. A CONFIRMED transfer refuses the hop — the platform must not keep
+          # requesting on behalf of a delivery it no longer owns.
+          next false unless Platform::ScheduledActions::Lease.renew_if_due != Platform::ScheduledActions::LeaseKeeper::LOST
+
           in_unit(context[:organization_id]) do |store|
             gate = store.lock_gate(context[:organization_id], context[:gate_id])
             next false if gate.nil?
