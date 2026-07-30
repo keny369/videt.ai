@@ -334,6 +334,41 @@ Recorded so the review's coverage is visible, not only its output.
 
 ---
 
+## LENS MARGINAL CONTRIBUTION — round 1 of the measure
+
+Recorded on owner instruction. The question worth tracking is not how many blockers a round finds, but
+**how much each lens contributes that no other lens would have**. Over five or ten rounds this says whether
+a lens is paying for itself; on one round it says almost nothing, and is recorded to start the series.
+
+| Lens | Blockers unique | Blockers joint | Blocker total | Observations unique |
+| --- | --- | --- | --- | --- |
+| Contract-correctness | 3 (B2, B3, B4) | 1 (B1) | 4 | 6 |
+| Architecture / test-quality | 3 (B9, B10, B11) | 1 (B5) | 4 | 9 |
+| Concurrency | 2 (B7, B8) | 0 | 2 | 5 |
+| Schema / migration | 1 (B6) | 1 (B5) | 2 | 11 |
+| Security / tenancy | 0 | 2 (B1, B5) | 2 | 6 |
+
+Round totals: 11 blockers — **9 found by exactly one lens (81.8%), 1 by two, 1 by three, none by four or
+five.** 24 de-duplicated observations, 1 of them joint.
+
+**Low convergence is the good reading, and it inverts the naive one.** 18% blocker convergence means the
+lenses are largely orthogonal and all five are earning their place. Sustained 60-80% convergence across
+rounds would be the signal that two lenses express one underlying concern and the round is buying less
+than it costs.
+
+**THE SECURITY LENS SCORED ZERO UNIQUE BLOCKERS AND MUST NOT BE READ AS THE WEAKEST.** It found B1
+independently of the contract lens, and it was the ONLY lens to establish B1's *consequence* — that the
+missing sentence is a repeatable metering escape available to an ordinary MarketingOperator, who can let a
+run consume its full sixty minutes and then cancel before the checkpoint fires to take :551's release limb.
+The contract lens found the same omission and correctly classified it as a contract gap. What made it a
+release blocker was the security characterisation. **Marginal contribution is therefore not only "who found
+it first" but "who established why it matters", and a metric that counts only discovery will eventually
+retire a lens that is doing the second job.** Record both.
+
+**Method note for future rounds.** This table was computable only because the non-blocking list below
+carries a lens tag per item. Preserve that attribution when consolidating; a round that merges findings
+without provenance destroys the measure it is supposed to feed.
+
 ## REPAIR PROGRAMME, IN DEPENDENCY ORDER
 
 1. **B7** (checkpoint/retire lock order) — highest severity, unrecoverable, ordinary timing.
