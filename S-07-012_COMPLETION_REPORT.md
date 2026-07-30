@@ -1,12 +1,12 @@
 # S-07-012 — Crawl Execution: The Run Driver
 
-**Acceptance status: NOT ACCEPTED.** Two review rounds: an ADR-026 five-lens pass (four BLOCK) and a
-three-lens delta pass over the repairs (three BLOCK). Every finding resolvable under existing authority is
-repaired and committed. ONE confirmed-blocking finding remains and needs an owner ruling — FU-24, a
-delivery outliving the 30-second worker lease by two routes FU-19 did not close — so no acceptance is
-recorded (ADR-080: no acceptance until every lens has reported with zero confirmed-blocking findings).
-ADR-090 records the corrections of record the delta forced, including a repair the first pass claimed and
-did not make.
+**Acceptance status: NOT ACCEPTED.** Two review rounds — an ADR-026 five-lens pass (four BLOCK) and a
+three-lens delta pass over the repairs (three BLOCK) — and EVERY confirmed-blocking finding from both is
+now repaired, including the three that needed owner rulings (ADR-085 FU-16, ADR-087 FU-18, ADR-089 FU-19,
+ADR-091 FU-24). What remains is procedural and not a defect: ADR-080 admits no acceptance until the lenses
+have reported on THE STATE BEING ACCEPTED, and the fenced lease heartbeat is new F-04 infrastructure no
+reviewer has seen. ADR-090 records the corrections of record the delta forced, including a repair the
+first pass claimed and did not make.
 
 This record describes HEAD. It does not narrate how HEAD was reached — git holds that, and a
 narrative acceptance record accumulates stale counts and superseded mechanisms faster than it can be
@@ -23,7 +23,7 @@ accepted block is part of the acceptance transition, and until then this record 
 | Block | S-07-012, BUILD_PLAN `Crawl Execution — the run driver (scheduler re-entry for dequeue, fetch and discovery)` |
 | Range | from `b48bf6e` (S-07-008 acceptance) to the branch head |
 | Authority | standing delegation ADR-061; cadence ADR-086; review discipline ADR-080 |
-| Owner rulings implemented | ADR-085 (FU-16), ADR-087 (FU-18), ADR-089 (FU-19) |
+| Owner rulings implemented | ADR-085 (FU-16), ADR-087 (FU-18), ADR-089 (FU-19), ADR-091 (FU-24) |
 | Accepted paths | `app/contexts/identity_access/infrastructure/crawl_budget_store.rb`, `app/contexts/identity_access/infrastructure/crawl_frontier_store.rb`, `app/contexts/identity_access/infrastructure/crawl_host_gate_store.rb`, `app/contexts/identity_access/infrastructure/fetch_attempt_store.rb`, `app/workflows/wf005/`, `config/initializers/scheduled_actions.rb`, `db/migrate/20260727120300_crawl_frontier_seal_release.rb`, `db/structure.sql`, `spec/acceptance/support/wf005_crawl_chain.rb`, `spec/acceptance/wf005_admission_spec.rb`, `spec/acceptance/wf005_content_fetch_spec.rb`, `spec/acceptance/wf005_crawl_frontier_spec.rb`, `spec/acceptance/wf005_limit_observation_points_spec.rb`, `spec/acceptance/wf005_record_fetch_attempt_spec.rb`, `spec/acceptance/wf005_start_crawl_spec.rb`, `spec/persistence/crawl_frontier_invariants_spec.rb`, `app/platform/pg_bool.rb`, `specification/automation/AUTONOMY_POLICY.md`, `specification/automation/BUILD_PLAN.yml`, `specification/automation/BUILD_STATE.json`, `DECISIONS.md`, `S-07-012_COMPLETION_REPORT.md` |
 | Excluded | 16 files from four unrelated AUTHORIZED commits inside the range, each attributed in `BUILD_STATE.acceptance_evidence` |
 
@@ -182,7 +182,7 @@ Run from the repository root. Outputs are those observed at this commit. The com
 
 | Command | Output |
 | --- | --- |
-| `bundle exec rspec` | `1929 examples, 0 failures` |
+| `bundle exec rspec` | `1948 examples, 0 failures` |
 | `bundle exec brakeman -q --no-pager -z` | `No warnings found` |
 | `bin/packwerk check` | `No offenses detected` |
 | `bundle exec bundle-audit check --update` | `No vulnerabilities found` |
@@ -284,10 +284,7 @@ release reports and re-enters `Admission`'s `run_byte_budget_contended` outcome,
 unreachable while nothing in production drove crawl execution. FU-10 was delivered at S-07-008 and is
 unchanged. FU-16 and FU-18 are resolved by ADR-085 and ADR-087.
 
-NOT DELIVERED, and each recorded with its evidence: FU-24, a delivery still outliving the 30-second
-worker lease by the two routes FU-19 did not close — one attempt bounded PER HOP at 165 seconds, and the
-sitemap limb still pacing :444 in-process. That is the one finding needing an owner ruling; the damage is
-now bounded to duplicate work rather than a dead run. FU-21, a terminal frontier entry with no
+NOT DELIVERED, and each recorded with its evidence: FU-21, a terminal frontier entry with no
 attempt row, blocking for S-07-009 alongside FU-11. FU-22, a stranded frontier claim, whose recovery
 needs the `in_progress` analogue of ADR-082's lease sweeper and belongs to S-07-011. FU-20 and FU-23,
 latent until :456's concurrent fetching lands. ADR-088 corrects two justifications this tranche's own
