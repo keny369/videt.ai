@@ -3048,3 +3048,27 @@ Repairs FU-34 / R2-B1 of `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 2. Implements 
 
 Review Checkpoint:
 Round 3 must race the checkpoint against a pass that is mid-REQUEST, not mid-retirement, and must confirm that a request cancelled by the run's clock is `limit_discarded` rather than `content_fetch_failed`.
+
+## ADR-114: FU-35 Repaired — The Wall Clock Records What It Actually Bounded, Not When The Handler Arrived
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of an ADR-112 round-2 finding
+Reversibility: Integration branch only. One predicate in `Handlers::CompleteCrawl`, one widened read in `CrawlStartStore`; no schema change, no migration.
+
+ADR-107 gave the terminal checkpoint a wall-clock observation, because a run ended BY its own sixty minutes recorded nothing about them. The observation was gated on `now >= deadline_at` — **the checkpoint's DELIVERY INSTANT** — and round 2 showed what that costs: a run that fetched every in-scope candidate and drained was permanently recorded `completion_reason = limit_reached`, `coverage_status = partial`, with a hard `wall_clock_run_duration` decision recording `affected_url_count 0` and `affected_source_count 0`, and a real customer-visible `CrawlLimitReached` for a dimension that bounded nothing. Before ADR-107 the same run read `completed` / `full`, so it was a REGRESSION, and `f1_crawls_guard` refuses every correction.
+
+**THE PREDICATE IS WHETHER THE DEADLINE PREVENTED AN EVALUATION.** :458 conditions the rule on there being something to condition it on — "**any in-scope candidate NOT EVALUATED** because of … wall-clock bound makes coverage partial and records its exact limit reason" — and :442's record is "dimension, configured value, observed value, **affected Source and URL counts**". A decision whose affected counts are zero is a decision nothing was affected by, which is not a limit hit but the absence of one. The count is now read FIRST and IS the predicate, not merely a field of the record.
+
+**BOTH LIMBS ARE GATED, NOT ONLY THE HARD ONE.** A `CrawlSoftLimitApproaching` for a run that finished its work forty minutes earlier is the same false statement in a quieter voice, and `elapsed` here is measured to the checkpoint's ARRIVAL rather than to the end of the run's work, so on a drained run it is not the run's working duration at all. The mutation that gates only the hard limb fails three proofs.
+
+**THE AFFECTED MEASURE HAS TWO POPULATIONS, BECAUSE ADR-113 CREATED THE SECOND.** `CrawlStartStore#unevaluated_reach` now unions the candidates the run never reached — the same population `terminal_facts` counts as `unevaluated`, so the decision a customer reads and the coverage number they read cannot describe different sets — with the candidates whose REQUEST :442's own cancellation ended. Those entries are `terminal` and carry a `crawl_terminal_outcomes` row, so they have left the first population entirely, and they are the clearest case of a candidate the deadline prevented from being evaluated. **Omitting them would let the repair for FU-34 silently suppress the record FU-35 exists to make correct**, which is the seam between the two repairs and is proved at it.
+
+Proof standard. PROOF 112 (a fully covered, fully drained run terminalized AT its deadline reads `completed` / `full`, with no decision row and no limit event — the regression itself), PROOF 113 (**transport latency alone cannot change the verdict**: the same run through the drained checkpoint delivered a minute late, with `unevaluated_reach` asserted at zero so the predicate is read directly rather than inferred), PROOF 114 (a **partially** covered run that left nothing unevaluated records no crossing — stated from the partial side so the rule cannot be read as "drained runs are exempt"), PROOF 115 (**the seam**: a candidate whose request the clock cancelled IS an affected candidate, counted 1 URL / 1 Source), PROOF 116 (a cancellation refused at the boundary emits neither a decision nor a limit event). PROOFs 95, 96 and 97 are unchanged and still pass: 95's run has a genuinely unevaluated candidate, which is the case the rule is for.
+
+Four mutations, each caught: ungating the observation entirely → 112, 113, 114; gating only the hard limb → 112, 113, 114; a predicate that never fires → 112, 113, 114; dropping the cancelled-request population from the affected measure, degraded rather than raised so it reads as a real regression → 115 alone.
+
+Gates: whole-repo suite **2067/0**; brakeman 0; packwerk clean; zeitwerk ok; verify_runtime OK, 15 checks, RLS intact; no `structure.sql` drift.
+
+Authority And Precedence:
+Repairs FU-35 / R2-B2 of `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 2. Corrects ADR-107, whose observation was gated on the wrong instant. WORKFLOW_SPECIFICATIONS.md :442 governs what a hard-limit record contains and :458 what makes coverage partial. Composes with ADR-113, which created the second affected population. Allocated the next unused number after ADR-113. S-07-009 is NOT accepted by this commit.

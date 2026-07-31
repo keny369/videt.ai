@@ -332,6 +332,10 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     ROBOTS_OK = { body: "User-agent: *\nAllow: /\n", type: "text/plain" }.freeze
     SITEMAP_ABSENT = { status: 404, body: "", type: "text/plain" }.freeze
 
+    def decisions(cid)
+      DbInspector.all("SELECT * FROM crawl_limit_decisions WHERE crawl_id = $1::uuid", [cid])
+    end
+
     def two_source_run(failing_root)
       ctx = running_crawl(hosts: %w[shop.acme.example zeta.acme.example])
       ensure_gate(ctx)
@@ -369,6 +373,30 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(crawl["state"]).to eq("completed")
       expect(crawl["completion_reason"]).to eq("partial_source_failure")
       expect(crawl["coverage_status"]).to eq("partial")
+    end
+
+    it "PROOF 114 — a PARTIALLY covered run that left nothing unevaluated records no wall-clock crossing" do
+      # The distinction FU-35 turns on, stated from the partial side so it cannot be read as "drained
+      # runs are exempt". This run IS partial — one root exhausted :444 into `content_fetch_failed`,
+      # which :452 keeps in the denominator — and it is terminalized AFTER its deadline. Every
+      # candidate was nonetheless EVALUATED before the deadline, so :458's "any in-scope candidate NOT
+      # EVALUATED because of … wall-clock bound" has no subject and the clock bounded nothing.
+      ctx = two_source_run([{ status: 500, body: "server error", type: "text/plain" }])
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc + 60)
+
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      # :452's reason for a completed run with no limit hit — NOT `limit_reached`, which outranks it.
+      expect(crawl["completion_reason"]).to eq("partial_source_failure")
+      expect(crawl["coverage_status"]).to eq("partial")
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      expect(decisions(ctx[:crawl_id])).to be_empty
+      events = DbInspector.all(<<~SQL, [ctx[:crawl_id]])
+        SELECT event_type FROM event_registry WHERE aggregate_id = $1::uuid
+          AND event_type IN ('CrawlLimitReached','CrawlSoftLimitApproaching')
+      SQL
+      expect(events).to be_empty
     end
 
     it "PROOF 99 — a hard limit before the checkpoint is the DECIDING fact: `limit_reached`" do
@@ -487,6 +515,85 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(hard["affected_source_count"].to_i).to eq(1)
       # ":442 — emit `CrawlLimitReached` exactly once per dimension and run."
       expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(1)
+    end
+
+    it "PROOF 112 — a FULLY COVERED, FULLY DRAINED run terminalized at its deadline is `completed` / `full`" do
+      # THE REGRESSION THIS REMOVES (FU-35). The first version of `observe_wall_clock` compared only
+      # `now` with `deadline_at` — the CHECKPOINT'S DELIVERY INSTANT — so this run, which fetched every
+      # in-scope candidate and drained, was permanently recorded `limit_reached` / `partial` with a hard
+      # decision affecting ZERO URLs and a real `CrawlLimitReached` for a dimension that bounded
+      # nothing. `f1_crawls_guard` refuses every correction, so the wrong answer was the final one.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+      expect(entries(ctx[:crawl_id]).map { |e| e["state"] }).to all(eq("terminal"))
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc)
+
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["completion_reason"]).to eq("completed")
+      expect(crawl["coverage_status"]).to eq("full")
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      # ":442 — emit `CrawlLimitReached` exactly once per dimension and run" is not a licence to emit
+      # one for a dimension that bounded nothing.
+      expect(decisions(ctx[:crawl_id])).to be_empty
+      expect(limit_events(ctx[:crawl_id])).to be_empty
+    end
+
+    it "PROOF 113 — TRANSPORT LATENCY ALONE cannot change the verdict, and the predicate is the count" do
+      # The same run reached through the DRAINED checkpoint (ADR-101's own instant) delivered a minute
+      # late. Nothing about the run differs; only when the message arrived. A verdict that moved would
+      # be a verdict set by the message queue.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc + 60)
+
+      # The predicate itself, read from the store the handler reads it from: zero candidates were
+      # prevented from being evaluated, which is why there is no crossing to record.
+      reach = Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(conn.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        store.unevaluated_reach(ctx[:g][:organization_id], ctx[:crawl_id],
+                                Workflows::Wf005::FetchContent::REASONS[:wall_clock])
+      end
+      expect(reach["urls"].to_i).to eq(0)
+      expect(reach["sources"].to_i).to eq(0)
+
+      checkpoint(ctx, action: drained_action(ctx[:crawl_id]), at:)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      expect([crawl["completion_reason"], crawl["coverage_status"]]).to eq(%w[completed full])
+      expect(decisions(ctx[:crawl_id])).to be_empty
+    end
+
+    it "PROOF 115 — a candidate whose REQUEST the clock cancelled IS an affected candidate" do
+      # WHERE THE TWO REPAIRS MEET (ADR-113 + ADR-114). :442's cancellation retires the candidate as
+      # `limit_discarded`, so it leaves the `unevaluated` population entirely — and if the affected
+      # measure counted only that population, the cancellation would silently suppress the very record
+      # :458 requires for it. The clearest case of a candidate the deadline prevented from being
+      # evaluated must not be the one case that goes unrecorded.
+      ctx = fetchable
+      action = link_first(ctx)
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc - 5)
+      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      execute_fetch(ctx, action, outbound_by_path("/" => timeout_outcome), at:)
+
+      outcome = DbInspector.one("SELECT * FROM crawl_terminal_outcomes WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+      expect(outcome["outcome"]).to eq("limit_discarded")
+      expect(outcome["reason"]).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+      expect(outcome["coverage_effect"]).to eq("not_covered")
+
+      # NOT a second `age_run_to`: it replays the heartbeat schedule from `start_now`, and the lease
+      # this run already holds runs fifteen minutes past the last one, so the checkpoint's own instant
+      # needs no further renewal.
+      terminal_at = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+      checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at: terminal_at)
+
+      hard = decisions(ctx[:crawl_id]).find { |r| r["threshold_kind"] == "hard" }
+      expect(hard).not_to be_nil, "the cancelled candidate was not counted as affected"
+      expect(hard["limit_dimension"]).to eq("wall_clock_run_duration")
+      expect(hard["affected_url_count"].to_i).to eq(1)
+      expect(hard["affected_source_count"].to_i).to eq(1)
     end
 
     it "PROOF 96 — a checkpoint INSIDE the deadline records no wall-clock crossing at all" do

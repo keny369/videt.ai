@@ -236,18 +236,39 @@ module IdentityAccess
         SQL
       end
 
-      # ":442 — record … AFFECTED SOURCE AND URL COUNTS" for the wall-clock crossing the checkpoint
-      # observes. The candidates the clock abandoned are the ones still unevaluated at this instant, and
-      # the Sources affected are the distinct Sources those candidates belong to — read, not assumed.
-      # The same population `terminal_facts` counts as `unevaluated`, so the decision a customer reads
-      # and the coverage number they read cannot describe different sets.
-      def unevaluated_reach(organization_id, crawl_id)
-        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
-          SELECT COUNT(*) AS urls, COUNT(DISTINCT source_id) AS sources
-          FROM crawl_frontier_entries
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-            AND (state IN ('discovered','queued','in_progress','fetched_pending_commit')
-                 OR (state = 'discarded' AND reason IS NOT NULL))
+      # ":442 — record … AFFECTED SOURCE AND URL COUNTS" for the wall-clock crossing, and — since
+      # DECISIONS ADR-114 / FU-35 — THE PREDICATE THAT DECIDES WHETHER THERE IS A CROSSING TO RECORD
+      # AT ALL. A count of zero means the deadline abandoned nothing, and :458 conditions the whole
+      # rule on there being "any in-scope candidate NOT EVALUATED because of … wall-clock bound".
+      #
+      # TWO POPULATIONS, BECAUSE :442'S OWN CANCELLATION CREATES THE SECOND (ADR-113).
+      #
+      #   * candidates the run never reached — still `discovered`, `queued`, `in_progress` or
+      #     `fetched_pending_commit`, or discarded by a bound. The same population `terminal_facts`
+      #     counts as `unevaluated`, so the decision a customer reads and the coverage number they
+      #     read cannot describe different sets.
+      #   * candidates whose REQUEST the wall clock cancelled. Those entries are `terminal` and carry
+      #     a `crawl_terminal_outcomes` row, so they have left the first population entirely — and
+      #     they are the clearest case of a candidate the deadline prevented from being evaluated.
+      #     Omitting them would let the repair for FU-34 silently suppress the record FU-35 exists to
+      #     make correct.
+      #
+      # `UNION` rather than `UNION ALL`: an entry cannot be in both populations, but a future one that
+      # was would be one affected URL, not two.
+      def unevaluated_reach(organization_id, crawl_id, wall_clock_reason)
+        exec(<<~SQL, [organization_id, crawl_id, wall_clock_reason]).to_a.first
+          WITH prevented AS (
+            SELECT id AS entry_id, source_id
+            FROM crawl_frontier_entries
+            WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+              AND (state IN ('discovered','queued','in_progress','fetched_pending_commit')
+                   OR (state = 'discarded' AND reason IS NOT NULL))
+            UNION
+            SELECT o.crawl_frontier_entry_id, o.source_id
+            FROM crawl_terminal_outcomes o
+            WHERE o.organization_id = $1::uuid AND o.crawl_id = $2::uuid AND o.reason = $3
+          )
+          SELECT COUNT(*) AS urls, COUNT(DISTINCT source_id) AS sources FROM prevented
         SQL
       end
 

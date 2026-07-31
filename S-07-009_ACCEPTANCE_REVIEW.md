@@ -516,6 +516,12 @@ that is mid-REQUEST.
 ### R2-B2 — the B2 repair records a wall-clock hard limit for a run that abandoned nothing, turning a `completed` / `full` run into `limit_reached` / `partial`
 *Found by the CONTRACT lens. Converged with ARCHITECTURE / TEST-QUALITY, which established that all three of the repair's own proofs avoid the case.*
 
+> **REPAIRED 2026-07-31 — FU-35, ADR-114.** The observation is gated on whether the deadline prevented
+> an evaluation, not on when the handler arrived; both limbs are gated; and the affected measure now
+> unions the candidates whose request ADR-113's cancellation ended, which is the seam between the two
+> repairs. PROOFs 112-116; four mutations, including one that drops the cancelled population without
+> raising. Verified by the repair phase, NOT by round 2.
+
 `CompleteCrawl#observe_wall_clock` (`app/workflows/wf005/handlers/complete_crawl.rb:296-314`) records
 the soft and hard `wall_clock_run_duration` crossings whenever `now >= deadline_at`, with no reference
 to whether the clock actually abandoned anything. The predicate is **the checkpoint's delivery

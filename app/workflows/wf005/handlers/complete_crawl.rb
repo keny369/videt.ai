@@ -293,9 +293,32 @@ module Workflows
         # Both thresholds, independently, for the reason `Admission#wall_clock` already records: a run
         # that crossed the hard bound genuinely crossed the soft one on the way past it, and gating the
         # soft limb behind the hard one loses it permanently for a run whose only crossing was the hard.
+        #
+        # THE PREDICATE IS WHETHER THE DEADLINE PREVENTED AN EVALUATION, NOT WHETHER THIS HANDLER
+        # ARRIVED AFTER IT (DECISIONS ADR-114, FU-35). The first version of this method compared only
+        # `now` with `deadline_at`, which is the CHECKPOINT'S DELIVERY INSTANT — so a run that fetched
+        # every in-scope candidate and drained at minute five was recorded `limit_reached` / `partial`
+        # with a hard decision affecting ZERO URLs and zero Sources, and emitted a real
+        # `CrawlLimitReached` for a dimension that bounded nothing. Transport latency alone decided a
+        # customer's coverage verdict, and `f1_crawls_guard` made it permanent.
+        #
+        # :458 conditions the whole rule on there being something to condition it on — "ANY IN-SCOPE
+        # CANDIDATE NOT EVALUATED because of … wall-clock bound makes coverage partial and records its
+        # exact limit reason" — and :442's own record is "dimension, configured value, observed value,
+        # AFFECTED SOURCE AND URL COUNTS". A decision whose affected counts are zero is a decision that
+        # nothing was affected by, which is not a limit hit; it is the absence of one.
+        #
+        # BOTH LIMBS ARE GATED, not only the hard one. A soft event for a run that finished its work
+        # forty minutes earlier is the same false statement in a quieter voice, and `elapsed` here is
+        # measured to the checkpoint's arrival rather than to the end of the run's work, so on a drained
+        # run it is not the run's working duration at all.
         def observe_wall_clock(d, crawl)
           deadline = crawl["deadline_at"]
           return false if deadline.nil? || d[:now] < Time.parse(deadline.to_s).utc
+
+          # Read FIRST, because it is the predicate and not merely a field of the record.
+          affected = affected_by_wall_clock(d, crawl)
+          return false if affected.urls.zero?
 
           limits = EffectiveLimits.resolve(d[:store].active_crawl_policies(d[:org], crawl["project_id"]))
           observer = LimitDecisions.new(ids: d[:ctx].ids, correlation_id: d[:ctx].correlation_id)
@@ -305,11 +328,7 @@ module Workflows
           soft = limits.configured(Admission::WALL_CLOCK_DIMENSION, LimitDimensions::SOFT)
           observer.soft(Admission::WALL_CLOCK_DIMENSION, elapsed, now: d[:now]) if elapsed >= soft
           # ":442 — record dimension, configured value, observed value, AFFECTED SOURCE AND URL COUNTS."
-          # The wall clock abandons whatever the run still had, so the affected counts are the run's own
-          # unevaluated candidates and the Sources they belong to, read from the frontier rather than
-          # assumed.
-          observer.hard(Admission::WALL_CLOCK_DIMENSION, elapsed, now: d[:now],
-                        affected: affected_by_wall_clock(d, crawl))
+          observer.hard(Admission::WALL_CLOCK_DIMENSION, elapsed, now: d[:now], affected:)
           true
         end
 
@@ -320,8 +339,11 @@ module Workflows
           ((now.utc - Time.parse(started.to_s).utc) / 60).floor
         end
 
+        # The candidates the deadline prevented from being evaluated: the ones the run never reached,
+        # plus the ones whose REQUEST :442's own cancellation ended (ADR-113). Both are read from the
+        # database rather than assumed, and the same value is the predicate and the record.
         def affected_by_wall_clock(d, crawl)
-          row = d[:store].unevaluated_reach(d[:org], crawl["id"])
+          row = d[:store].unevaluated_reach(d[:org], crawl["id"], FetchContent::REASONS[:wall_clock])
           LimitDecisions::Affected.new(sources: row["sources"].to_i, urls: row["urls"].to_i)
         end
 

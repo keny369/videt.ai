@@ -224,6 +224,29 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(reservation(ctx[:crawl_id])["state"]).to eq("executing")
     end
 
+    it "PROOF 116 — a cancellation AT the boundary emits no limit decision and no limit event" do
+      # The last of FU-35's distinctions. A cancellation refused at the boundary is a refusal, not a
+      # limit hit: :442's `wall_clock_run_duration` decision belongs to the run's own terminal handler
+      # and only when the clock actually prevented an evaluation. A denial that wrote one would fire
+      # `CrawlLimitReached` for a dimension nothing had reached, from a path that decides nothing.
+      ctx = running_crawl
+      deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+
+      result = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline)),
+        request_context: executor_ctx_for_actor(deadline)
+      )
+
+      expect(result.failure.reason_code).to eq("crawl_already_terminal")
+      expect(DbInspector.all("SELECT * FROM crawl_limit_decisions WHERE crawl_id=$1::uuid", [ctx[:crawl_id]]))
+        .to be_empty
+      expect(DbInspector.all(<<~SQL, [ctx[:crawl_id]])).to be_empty
+        SELECT event_type FROM event_registry WHERE aggregate_id = $1::uuid
+          AND event_type IN ('CrawlLimitReached','CrawlSoftLimitApproaching')
+      SQL
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("running")
+    end
+
     it "PROOF 94 — a cancellation one second BEFORE the boundary still wins, so the limb is a boundary" do
       # The other side of the same instant. Without this, `>=` and `> now + anything` are
       # indistinguishable and the limb could silently become "cancellation is unavailable near the end".
