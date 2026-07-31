@@ -615,6 +615,15 @@ ADR-111 followed.
 Lens tag preserved per item, so the marginal-contribution measure stays computable (round 1's method
 note).
 
+> **DISPOSITIONED 2026-07-31 — FU-37, ADR-116.** Four repaired because each is a false or misleading
+> record this block itself wrote, which is the B6 defect class: **1** (ADR-105's lock-order premise,
+> corrected in place; the hazard tracked as FU-38), **2** (PROOF 91's scope stated in the example),
+> **3** (ADR-110's "derived" overstatement corrected; the deriving check folded into FU-7), **7** (the
+> catalogue de-split; the identical PRE-EXISTING split at :272-274 deliberately untouched). **5** is
+> closed by ADR-113. **4**, **6** and **8** are carried with reasons — 4 turns out not to be a
+> contradiction at all but a naming ambiguity the truth spec's own invariant depends on. The
+> twenty-four round-1 observations remain open and unpromoted, attribution intact.
+
 1. **ADR-105's central premise is factually false** (CONCURRENCY + ARCHITECTURE). It argues the repair
    "conforms to an order that already existed": "`Admission#claim` takes the frontier advisory lock and
    then writes `crawl_budget_counters` … Frontier THEN crawls is therefore the subsystem's established

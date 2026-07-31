@@ -247,6 +247,10 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     run_pass(ctx, action)
   end
 
+  # SCOPE, STATED SO IT CANNOT BE READ WIDER THAN IT IS (round 2, ADR-112 observation 2). This gates
+  # the outcome INSERT, so the pass it races is ALREADY INSIDE `retire` holding the frontier lock. It
+  # proves the sub-window ADR-105 closed and nothing more; the general property — that a checkpoint
+  # cannot contradict a pass in its FETCH — is PROOF 110's, and ADR-105 claimed it without proving it.
   it "PROOF 91 — a checkpoint cannot count a run whose pass is mid-retirement" do
     ctx = fetchable
     fetch_action = first_fetch_action(ctx)
