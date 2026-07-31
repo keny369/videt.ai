@@ -3007,3 +3007,44 @@ Records round 2 of the ADR-026 five-lens acceptance review required for S-07-009
 
 Review Checkpoint:
 Repair in the order R2-B1, R2-B2, R2-B3, then the observations, then the 24 carried from round 1. Re-run the FULL five-lens round against the next repaired candidate, and review the repairs themselves as candidate material.
+
+## ADR-113: FU-34 Repaired — :442's Cancellation Rule Implemented, Not The Interim Guard
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: Owner (decisive ruling: "Implement the ratified cancellation rule, not merely the interim guard. That is the repository-consistent choice because the contract already exists. The interim guard would make the contradiction less visible without completing the promised behaviour.") / implementation agent (recorded)
+Reversibility: Integration branch only. Two files, no schema change, no new lock object, no change to frozen F-01.
+
+Round 2 (ADR-112) found that B7 was reported closed and was not. ADR-105 took the frontier advisory lock before the Crawl row lock, which fences a retirement ALREADY INSIDE `retire`. **A pass in its FETCH holds no lock at all** — `fetch_and_settle` performs the network call outside every transaction, correctly, per MTX-030 — so the checkpoint could still count a snapshot the pass invalidated, and the review reproduced the original corrupt state 3/3 against the repaired candidate.
+
+**THE OWNER RULED FOR THE RATIFIED RULE OVER THE SMALLER ONE, AND THE RULE ALREADY EXISTED.** WORKFLOW_SPECIFICATIONS.md :442: "At 60 elapsed minutes, **no new request starts and incomplete requests are canceled**." Only the first half was implemented, and `Workflows::Wf005::Admission`'s own comment said so in terms — "The first half is a decision about whether to hand a worker any work at all". The second half was owned by no follow-up: FU-32 covers `CancelCrawl` and states explicitly that :442's wall-clock cancellation is a different obligation.
+
+**THE CANCELLATION IS ENFORCED AT THE REQUEST'S OWN BUDGET, AND F-01 DOES NOT CHANGE.** The frozen façade takes `timeout_s` and states that a caller "may ask for tighter, never wider", so `FetchContent#request_budget` bounds each request by the run's REMAINING wall clock whenever that is tighter than :390's resolved per-request ceiling. A request that would still be in flight at `deadline_at` now ends AT `deadline_at`: the customer's site is not still being read by a run that is over, and the bytes are never received. Past the deadline no request is made at all, which is the sentence's first half enforced at the request rather than only at admission. No new path to the network exists and `outbound_single_surface_spec` is untouched.
+
+**A CANCELLED REQUEST IS NOT A FAILED URL, AND THE DISTINCTION IS THE POINT.** :452 classifies an exhausted timeout as `content_fetch_failed` — a failure of the URL, in the denominator, RETRYABLE. A request the run's own sixty minutes ended is :458's "in-scope candidate NOT EVALUATED because of … wall-clock bound", which is `limit_discarded` carrying ":454's exact limit reason", in the denominator, and owed no retry because :442 says to "stop scheduling affected work". Filing one as the other would blame the customer's site for the run's clock and would schedule two more requests a finished run may not make. The reason token is BOUND to `Admission::WALL_CLOCK` rather than spelled a second time: the clock refusing to start a request and the clock ending one are the same fact.
+
+**THE SECOND HALF IS AN ORDERING, AND IT IS NOT A SUBSTITUTE FOR THE FIRST.** The clamp cannot reach the last microsecond: a request that COMPLETES at `deadline - ε` can still have its retirement commit at `deadline + ε`. `CrawlDriver#retire` therefore re-reads `crawls.state` **under the frontier advisory lock it already takes**, which is the same lock `Handlers::CompleteCrawl` takes first (ADR-105) — so exactly one of the two transactions holds it and the read is authoritative rather than advisory. Retirement first: the checkpoint blocks, the run is still `running`, the outcome commits, and the checkpoint counts it. Checkpoint first: it has committed its terminal selection, this read sees it, and the pass writes NOTHING — because :458 gives the run ONE selection and `f1_crawls_guard` refuses every edge out of a terminal state, so there is no state in which the classification could be counted. :458 settles exactly this by COMMIT ORDER, as it does for cancellation. A plain SELECT is deliberate: taking a row lock on `crawls` here would order this transaction crawls-then-frontier against `Admission`'s frontier-then-crawls, which is the inversion ADR-105 rejected for the driver. The same re-read is taken on `retire_unfetchable`, which writes the same kind of row.
+
+**WITHOUT THE CANCELLATION, THE RE-READ WOULD BE THE INTERIM GUARD THE OWNER REJECTED** — silently discarding valid Documents for up to a full request timeout after the run ended, which suppresses the contradiction instead of removing it. The two halves are one repair and each is falsified separately below.
+
+Proof standard. Seven proofs, and the adversarial set is the point: **every plausible INCOMPLETE repair fails a named proof.**
+
+| incomplete repair | proofs that fail |
+| --- | --- |
+| no authoritative re-read in `retire` (checking only before the network call) | 110, 111 |
+| no wall-clock clamp (checking only after terminalization; suppressing the outcome without cancelling) | 105, 107 |
+| a cancellation classified as an ordinary failure | 106, 108 |
+| a request may still START past the deadline | 108 |
+| EVERY timeout treated as a wall-clock cancellation | 109 + 13 accepted examples |
+| locking only inside retirement | 91 |
+| write the outcome, then hide it in the pass report | 110, 111 |
+
+PROOF 110 reproduces round 2's race at the natural window with NO trigger gate — the F-01 stub simply does not return until the example lets it, and the checkpoint is started only once the pass is OBSERVED inside the request — and asserts `crawl_terminal_outcomes` is EMPTY. PROOF 111 re-derives the recorded selection from the facts that exist through `TerminalSelection.derive` and asserts entitlement, coverage, outcomes, the attempt row and the frontier entry are mutually consistent; the attempt row is deliberately NOT suppressed, because the request completed and :442's "run-wide accounted bytes are EXACTLY sum(...)" must stay reproducible.
+
+Gates: whole-repo suite **2062/0**; brakeman 0; packwerk clean; zeitwerk ok; bundler-audit clean; verify_runtime OK, 15 checks, RLS intact; no `structure.sql` drift.
+
+Authority And Precedence:
+Repairs FU-34 / R2-B1 of `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 2. Implements WORKFLOW_SPECIFICATIONS.md :442's second sentence, which was ratified and unimplemented; :452 and :458 govern the classification; MTX-030's "no external call sits inside a database transaction" is preserved. Corrects ADR-105, whose claim that the frontier lock closed the window was true only of the window inside `retire`. Changes no frozen foundation: F-01 is consumed through `timeout_s` exactly as its own contract invites. Allocated the next unused number after ADR-112. S-07-009 is NOT accepted by this commit.
+
+Review Checkpoint:
+Round 3 must race the checkpoint against a pass that is mid-REQUEST, not mid-retirement, and must confirm that a request cancelled by the run's clock is `limit_discarded` rather than `content_fetch_failed`.

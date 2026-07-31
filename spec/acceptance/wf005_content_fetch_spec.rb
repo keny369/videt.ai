@@ -788,4 +788,114 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       expect { fetch_content(ctx, out) }.to raise_error(Platform::InvariantViolation, /terminal decision lost/)
     end
   end
+
+  # :442'S SECOND HALF — "INCOMPLETE REQUESTS ARE CANCELED" (FU-34; DECISIONS ADR-113).
+  #
+  # Only the first half of the sentence was implemented, and `Admission`'s own comment said so in
+  # terms. The acceptance review's round 2 showed what the missing half cost: a request that spanned
+  # the run's deadline could commit an immutable `document_created / covered` fact beside a Crawl the
+  # terminal checkpoint had already recorded `failed`, with the entitlement released and coverage
+  # NULL — and `f1_crawls_guard` refuses every correction.
+  #
+  # The cancellation is enforced at the REQUEST'S OWN BUDGET, through F-01's frozen façade, which
+  # states that a caller "may ask for tighter, never wider". Nothing in F-01 changes and there is no
+  # second path to the network.
+  describe ":442's wall clock cancels an incomplete request (FU-34)" do
+    def fetch_at(ctx, outbound, at:)
+      Workflows::Wf005::FetchContent.new(outbound:).call(
+        organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+        entry: root_entry(ctx), gate_id: ctx[:gate_id], now: at)
+    end
+
+    def deadline_of(ctx)
+      Time.parse(DbInspector.one("SELECT deadline_at FROM crawls WHERE id=$1::uuid",
+                                 [ctx[:crawl_id]])["deadline_at"]).getutc
+    end
+
+    # The run's clock is advanced the way production advances it — time passing, with :551's lease
+    # renewed at its ratified cadence — never by writing `deadline_at` backwards, which FU-30 froze.
+    def live_at(ctx, instant)
+      age_run_to(ctx, instant)
+      clear_rate_window(ctx[:gate_id])
+      instant
+    end
+
+    it "PROOF 105 — the request is bounded by the run's remaining wall clock, not by the per-request ceiling" do
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      fetch_at(ctx, content_outbound(timeout_outcome), at:)
+
+      # :390's resolved per-request ceiling is 15 seconds; five remain. A caller may ask for tighter.
+      expect(requests.last[:timeout_s]).to be_within(0.001).of(5)
+      expect(requests.last[:timeout_s]).to be < Workflows::Wf005::ByteAccounting::GLOBAL_BOUNDS.timeout_s
+    end
+
+    it "PROOF 106 — a request still in flight at the boundary is CANCELLED, and is not a failure of the URL" do
+      # :452 classifies an exhausted timeout as `content_fetch_failed` — a failure of the URL, in the
+      # denominator, and RETRYABLE. A request the run's own sixty minutes ended is a different fact:
+      # :458's "in-scope candidate NOT EVALUATED because of … wall-clock bound", which is
+      # `limit_discarded` carrying "its exact limit reason", and :442's "stop scheduling affected
+      # work" means no retry is owed. Filing one as the other blames the site for the run's clock.
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      execution = fetch_at(ctx, content_outbound(timeout_outcome), at:)
+
+      expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::LIMIT_DISCARDED)
+      expect(execution.result.reason_code).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+      expect(execution.result.retryable).to be(false)
+      expect(execution.retry_owed?).to be(false)
+      # The token is ONE token: the run's clock refusing to start a request and the run's clock ending
+      # one are the same fact, and :454 asks for one exact limit reason.
+      expect(Workflows::Wf005::FetchContent::REASONS[:wall_clock])
+        .to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+    end
+
+    it "PROOF 107 — a request that COMPLETED inside the boundary is not cancelled" do
+      # The other side of the same instant, and the one that keeps the repair a boundary rather than
+      # "requests near the end of a run do not count". :442 cancels INCOMPLETE requests; a response
+      # that arrived is complete, and a run's last seconds are ordinary working seconds.
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      execution = fetch_at(ctx, content_outbound(content_response), at:)
+
+      expect(requests.last[:timeout_s]).to be_within(0.001).of(5)
+      expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::DOCUMENT_CREATED)
+      expect(execution.result.reason_code).to be_nil
+      expect(execution.result.http_status).to eq(200)
+    end
+
+    it "PROOF 108 — past the boundary NO REQUEST IS MADE AT ALL, and the outcome says why" do
+      # ":442 — At 60 elapsed minutes, NO NEW REQUEST STARTS." `CrawlDriver#advance` and
+      # `Admission#authorize_run` both refuse before this, so reaching here is a race — and the honest
+      # answer to a race is not to make the request. The stub RAISES if it is called, so this cannot
+      # pass by returning a convenient outcome.
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) + 1)
+      refusing = Object.new.tap do |o|
+        o.define_singleton_method(:fetch) { |url, **_k| raise "a request was made past the wall clock: #{url}" }
+      end
+
+      execution = fetch_at(ctx, refusing, at:)
+
+      expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::LIMIT_DISCARDED)
+      expect(execution.result.reason_code).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+      expect(requests).to be_empty
+    end
+
+    it "PROOF 109 — an ORDINARY timeout inside the run's clock is still `content_fetch_failed`" do
+      # The conjunct that keeps the two apart. Without it every timeout would become a wall-clock
+      # cancellation, which removes :452's retryable failure from the vocabulary entirely and hides a
+      # genuinely unreachable site behind the run's clock.
+      ctx = fetchable
+
+      execution = fetch_once(ctx, content_outbound(timeout_outcome))
+
+      expect(requests.last[:timeout_s]).to eq(Workflows::Wf005::ByteAccounting::GLOBAL_BOUNDS.timeout_s)
+      expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::FETCH_FAILED)
+      expect(execution.result.retryable).to be(true)
+    end
+  end
 end

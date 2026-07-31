@@ -71,7 +71,12 @@ module Workflows
         # classifies the two differently, so they carry different reasons.
         redirect_loop: "redirect_loop_detected",
         redirect_target: "redirect_target_invalid",
-        guard_error: "redirect_check_unavailable"
+        guard_error: "redirect_check_unavailable",
+        # :442's SECOND HALF — "at 60 elapsed minutes, no new request starts AND INCOMPLETE REQUESTS
+        # ARE CANCELED" (DECISIONS ADR-113, FU-34). BOUND TO `Admission::WALL_CLOCK` rather than
+        # spelled again: the run's clock ending a request and the run's clock refusing to start one
+        # are the same fact, :454 asks for ONE exact limit reason, and two literals would drift.
+        wall_clock: Admission::WALL_CLOCK
       }.freeze
 
       # F-01's rejection reasons, mapped to :454's exact limit reasons. `redirect_budget_exhausted`
@@ -143,7 +148,9 @@ module Workflows
           organization_id:, crawl_id:, gate_id:, now:,
           project_id: crawl["project_id"], source_id: entry["source_id"],
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
-          canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i
+          canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i,
+          # :442's wall clock, carried to the request itself. See `request_budget`.
+          deadline_at: crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc
         }
         one_pass(context, entry, reserved_bytes:)
       end
@@ -283,10 +290,11 @@ module Workflows
       # event; they commit together.
       def perform(context, attempt, reserved, limits, hold_reservation:)
         bounds = limits.byte_bounds
-        outcome = fetch(context, reserved, bounds)
+        budget = request_budget(context, bounds)
+        outcome = fetch(context, reserved, bounds, budget)
         @last_outcome = outcome
         measurement = measure(outcome, reserved)
-        result = classify(outcome, measurement, context, reserved, bounds)
+        result = classify(outcome, measurement, context, reserved, bounds, budget)
         release_unused = !hold_reservation || !result.retryable
         settle(context, attempt, reserved, result, outcome, measurement, limits, release_unused:)
         remaining_reserved = hold_reservation && result.retryable ? reserved - measurement&.accounted.to_i : nil
@@ -299,13 +307,49 @@ module Workflows
       # BEFORE FOLLOWING", expressed where the connector can act on it. Retrospective validation of
       # the final URL would not satisfy the sentence: the disallowed intermediate would already have
       # been requested, which is both a robots violation and a request the run cannot account for.
-      def fetch(context, reserved, bounds)
+      def fetch(context, reserved, bounds, budget)
+        # ":442 — At 60 elapsed minutes, NO NEW REQUEST STARTS." Reaching here past the deadline is a
+        # race — `CrawlDriver#advance` and `Admission#authorize_run` both refuse first — and the
+        # honest answer to a race is not to make the request. No network call, no outbound bytes.
+        return Platform::Outbound::Outcome.timeout(canonical_host: context[:canonical_host]) if budget.expired?
+
         guard = redirect_guard(context)
-        @outbound.fetch(context[:canonical_url], timeout_s: bounds.timeout_s, byte_cap: reserved,
+        @outbound.fetch(context[:canonical_url], timeout_s: budget.seconds, byte_cap: reserved,
                         max_redirects: bounds.max_redirects, user_agent: USER_AGENT,
                         redirect_guard: guard)
       rescue StandardError
         Platform::Outbound::Outcome.failure(:connection_failure, reason: :adapter_error, retryable: true)
+      end
+
+      # ":442 — AT 60 ELAPSED MINUTES, NO NEW REQUEST STARTS AND INCOMPLETE REQUESTS ARE CANCELED"
+      # (DECISIONS ADR-113, FU-34). Only the first half was implemented, and `Admission`'s own comment
+      # said so. The second half is enforced HERE, at the one place the platform can enforce it: the
+      # request's own budget.
+      #
+      # THE REQUEST IS CANCELLED, NOT DISCARDED AFTER THE FACT. F-01's frozen façade takes `timeout_s`
+      # and states that "a caller may ask for tighter, never wider", so bounding a request by the run's
+      # remaining wall clock needs no change to F-01 and no second way to reach the network. A request
+      # that would still be in flight at `deadline_at` is ended AT `deadline_at` — the customer's site
+      # is not still being read by a run that is over, and the bytes are never received.
+      #
+      # AND A REQUEST THAT COMPLETED IS NOT CANCELLED. The clamp only ever shortens; a response that
+      # arrives inside the budget is classified exactly as it always was. ":442 — incomplete requests"
+      # is a statement about requests still running at the boundary, and `bounded` is what distinguishes
+      # a timeout that hit the RUN's clock from one that hit the per-request ceiling — which :452
+      # classifies differently, retries differently, and reports to the customer differently.
+      WallClockBudget = Data.define(:seconds, :bounded) do
+        def bounded? = bounded
+        def expired? = bounded && seconds <= 0
+      end
+
+      def request_budget(context, bounds)
+        deadline = context[:deadline_at]
+        return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if deadline.nil?
+
+        remaining = deadline - context[:now].utc
+        return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if remaining > bounds.timeout_s
+
+        WallClockBudget.new(seconds: remaining, bounded: true)
       end
 
       # RENEW BETWEEN HOPS (F-04 FU-24), then apply :448's per-hop policy. `Lease.redirect_guard` is the
@@ -348,8 +392,18 @@ module Workflows
 
       # :436's accepted-page definition and :452's exhaustive outcome table, in the order the
       # specification states them — a URL that fails an earlier test never reaches a later one.
-      def classify(outcome, measurement, context, reserved, bounds)
+      def classify(outcome, measurement, context, reserved, bounds, budget)
         unless outcome.respond_to?(:response?) && outcome.response?
+          # THE RUN'S CLOCK ENDED THIS REQUEST, NOT THE SITE (:442, DECISIONS ADR-113). Classified
+          # apart from an ordinary timeout because the two are different facts and :452 treats them
+          # differently: an exhausted timeout is `content_fetch_failed`, a failure of the URL, and it
+          # is RETRYABLE; a request the run's own sixty minutes cancelled is :458's "in-scope candidate
+          # NOT EVALUATED because of … wall-clock bound", which is `limit_discarded` carrying "its exact
+          # limit reason", in the denominator, and owed no retry — ":442 — stop scheduling affected
+          # work." Filing it as `content_fetch_failed` would blame the customer's site for the run's
+          # clock and would schedule two more requests a run that is over may not make.
+          return limit_discarded(REASONS[:wall_clock], outcome:) if wall_clock_cancelled?(outcome, budget)
+
           return transport_outcome(outcome)
         end
 
@@ -423,6 +477,13 @@ module Workflows
         end
 
         failed(REASONS[:unreachable], outcome, retryable: FetchRetryPolicy.retryable?(outcome))
+      end
+
+      # A timeout under a budget the RUN's wall clock tightened. Both conjuncts are load-bearing: a
+      # timeout under the ordinary per-request ceiling is :452's `content_fetch_failed` and stays one,
+      # and a response that arrived inside a tightened budget completed and is not cancelled.
+      def wall_clock_cancelled?(outcome, budget)
+        budget.bounded? && outcome.respond_to?(:kind) && outcome.kind == :timeout
       end
 
       def absent(outcome)

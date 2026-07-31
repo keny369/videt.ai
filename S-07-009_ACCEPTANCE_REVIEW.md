@@ -438,6 +438,14 @@ round 1 demonstrated is demonstrated a third time, now from inside the repair pr
 ### R2-B1 — B7 IS NOT CLOSED. The checkpoint still counts a snapshot an in-flight pass invalidates, and the run is still recorded `failed` with a Document in the record
 *Found by the CONCURRENCY lens. Converged with CONTRACT (the ratified sentence whose absence makes it reachable) and SECURITY (the metering half).*
 
+> **REPAIRED 2026-07-31 — FU-34, ADR-113, on the owner's ruling that the RATIFIED cancellation rule is
+> the repository-consistent choice and the interim guard alone would "make the contradiction less
+> visible without completing the promised behaviour". :442's second sentence is now implemented at the
+> request's own budget through F-01's frozen `timeout_s`, and `retire` decides against the run's
+> authoritative state under the frontier lock. PROOFs 105-111; SEVEN adversarial mutations, each
+> plausible incomplete repair failing a named proof. Verified by the repair phase, NOT by round 2 —
+> round 3 must review it as candidate material.**
+
 ADR-105 repaired B7 by taking the frontier advisory lock before the Crawl row lock
 (`app/workflows/wf005/handlers/complete_crawl.rb:117-118`). `CrawlDriver#retire` holds
 `crawl-frontier:<crawl>` across its frontier terminalize and its `crawl_terminal_outcomes` INSERT

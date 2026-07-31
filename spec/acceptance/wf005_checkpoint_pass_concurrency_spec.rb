@@ -302,4 +302,136 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     expect(checkpoint_result.payload[:entitlement_outcome]).to eq("committed")
     expect(reservation(ctx[:crawl_id])["state"]).to eq("committed")
   end
+
+  # THE WINDOW ROUND 1 AND ROUND 2 BOTH USED, AND THE ONE ADR-105 DID NOT CLOSE (FU-34; ADR-113).
+  #
+  # PROOF 91 above gates the outcome INSERT, so the pass it races is already inside `retire` holding
+  # the frontier lock. A pass in its FETCH holds NOTHING: `fetch_and_settle` performs the network call
+  # outside every transaction — correctly, per MTX-030 — and only afterwards opens `retire`'s. That is
+  # the window round 1 reproduced at natural timing 10/10 ("a 150 ms fetch with the checkpoint fired
+  # 50 ms in") and round 2 reproduced 3/3 against the repaired candidate, as
+  #
+  #     crawls    state=failed  completion_reason=failed  coverage_status=NULL   entitlement RELEASED
+  #     outcomes  [document_created, covered, commit_order 1]
+  #
+  # permanently, because `f1_crawls_guard` refuses every UPDATE of a terminal row.
+  #
+  # NO TRIGGER GATES ANYTHING HERE. The F-01 façade stub simply does not return until the example lets
+  # it, which is the natural window itself rather than a simulation of it, and nothing is ordered by a
+  # sleep: the checkpoint is started only once the pass is OBSERVED inside the request.
+  describe "the checkpoint racing a pass that is mid-REQUEST (FU-34)" do
+    def gated_page_outbound(started, release)
+      body = "<html><title>t</title></html>"
+      outcome = Platform::Outbound::Outcome.response(
+        status: 200, headers: { "content-type" => "text/html" }, body:, byte_count: body.bytesize,
+        truncated: false, canonical_host: "shop.acme.example", port: 443,
+        pinned_address: "198.51.100.7", final_url: "https://shop.acme.example/", redirect_count: 0,
+        latency_ms: 5
+      )
+      Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |*_a, **_k|
+          started << :in_flight
+          release.pop
+          outcome
+        end
+      end
+    end
+
+    def run_pass_with(ctx, action, outbound)
+      command = Workflows::Wf005::Commands::RecordFetchAttempt.new(
+        command_id: SecureRandom.uuid_v7, schema_version: action["action_schema_version"],
+        organization_id: action["organization_id"], target_type: action["target_type"],
+        frontier_entry_id: action["target_id"], due_at: Time.parse(action["due_at"]).getutc,
+        action_id: action["id"],
+        action_identity_sha256: [action["identity_sha256"].sub(/\A\\x/, "")].pack("H*"),
+        requested_at_utc: start_now
+      )
+      Workflows::Wf005::Handlers::RecordFetchAttempt.new.call(
+        command:, request_context: executor_ctx(start_now), outbound:, pacer: pacer_for(ctx)
+      )
+    end
+
+    # Both halves of the race, run at the natural window: the pass suspended INSIDE its request, the
+    # checkpoint run to completion underneath it, then the request released.
+    def race_mid_request(ctx)
+      started = Queue.new
+      release = Queue.new
+      pass = RaceHarness.spawn_operation(
+        -> { run_pass_with(ctx, first_fetch_action(ctx), gated_page_outbound(started, release)) }
+      )
+      started.pop
+      checkpoint = RaceHarness.spawn_operation(-> { run_checkpoint(ctx, due_now_checkpoint(ctx)) }).value
+      release << :go
+      [pass.value, checkpoint]
+    end
+
+    it "PROOF 110 — the run's terminal record and its committed facts cannot contradict each other" do
+      ctx = fetchable
+      pass_result, checkpoint_result = race_mid_request(ctx)
+
+      expect(checkpoint_result).to be_a(Platform::CommandResult)
+      expect(checkpoint_result.success?).to be(true)
+      expect(pass_result).to be_a(Platform::CommandResult)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["state"]).to eq("failed")
+      # THE ASSERTION THE REPAIR TURNS ON. Before it, this held one `document_created / covered` row —
+      # a covered URL recorded against a run the same database says retrieved nothing.
+      expect(outcomes(ctx[:crawl_id])).to be_empty
+
+      # The pass reports the run that ended under it, and CREATES NOTHING: :442's "stop scheduling
+      # affected work" and :458's "terminal selection occurs once" both forbid handing a finished run
+      # more work, and a link here would also mint a second terminal checkpoint.
+      expect(pass_result.payload[:pass_outcome]).to eq("halted")
+      expect(pass_result.payload[:reason_code]).to eq("crawl_not_running")
+      expect(pass_result.payload[:next_action_id]).to be_nil
+      expect(pass_result.payload[:terminal_checkpoint_action_id]).to be_nil
+      expect(pass_result.payload).not_to have_key("terminal_outcome")
+    end
+
+    it "PROOF 111 — entitlement, coverage, outcomes and attempts remain mutually consistent" do
+      ctx = fetchable
+      _pass, checkpoint_result = race_mid_request(ctx)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      payload = checkpoint_result.payload
+
+      # 1. The selection is RE-DERIVABLE from the facts that exist, not merely stored. `documents` is
+      #    counted over `crawl_terminal_outcomes`, which is empty, so :453's "zero valid Documents"
+      #    is what the record says and `failed` is what it implies.
+      expect(outcomes(ctx[:crawl_id]).count { |o| o["outcome"] == "document_created" }).to eq(0)
+      expect(payload[:documents]).to eq(0)
+      derived = Workflows::Wf005::TerminalSelection.derive(
+        Workflows::Wf005::TerminalSelection::Facts.new(
+          documents: payload[:documents], roots_total: payload[:source_roots],
+          roots_succeeded: payload[:source_roots_succeeded], fetch_failures: payload[:content_fetch_failures],
+          unresolved_discovery: payload[:unresolved_discovery], hard_limits: payload[:hard_limit_decisions],
+          uncovered: payload[:uncovered_candidates], unevaluated: payload[:unevaluated_candidates]
+        )
+      )
+      expect([derived.state, derived.completion_reason, derived.coverage_status])
+        .to eq([crawl["state"], crawl["completion_reason"], crawl["coverage_status"]])
+
+      # 2. :551 — a run without the durable commit point RELEASES exactly once, and the ledger agrees
+      #    with the state the run was recorded in.
+      expect(payload[:entitlement_outcome]).to eq("released")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
+
+      # 3. THE ATTEMPT ROW IS NOT SUPPRESSED, and that is deliberate. The request completed and its
+      #    bytes left the platform; :442's "run-wide accounted bytes are EXACTLY sum(...)" has to stay
+      #    reproducible. What :458 settles BY COMMIT ORDER is whether the run counted it, and it did
+      #    not — so the attempt exists, carries no coverage-bearing consequence, and contradicts
+      #    nothing the terminal record claims.
+      attempt = DbInspector.one(<<~SQL, [ctx[:crawl_id]])
+        SELECT * FROM fetch_attempts WHERE crawl_id = $1::uuid AND request_kind = 'content'
+      SQL
+      expect(attempt["http_status"].to_i).to eq(200)
+      expect(attempt["outcome"]).to eq("document_created")
+
+      # 4. The claimed entry stays `in_progress` on a run that is over: inert, unreachable, and the
+      #    shape FU-22 already describes. What it is NOT is a coverage fact that outranks the record.
+      entry = DbInspector.one("SELECT state FROM crawl_frontier_entries WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
+      expect(entry["state"]).to eq("in_progress")
+    end
+  end
 end

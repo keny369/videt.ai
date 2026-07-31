@@ -295,6 +295,17 @@ module Workflows
         # :452's five tokens for an admitted content URL.
         decision = CoverageClassification.of(outcome: result.outcome, reason: result.reason_code)
         recorded = retire(organization_id, crawl, entry, decision, now)
+        # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (DECISIONS ADR-113).
+        # `retire` decided that under the frontier lock and wrote nothing, so this pass has no
+        # classification to report and MUST NOT LINK: :442's "stop scheduling affected work" and
+        # :458's "terminal selection occurs ONCE" both say a finished run is handed nothing more.
+        # `HALTED` is the outcome that creates neither a link nor a checkpoint; the fetch result is
+        # still carried so the ledger records what this pass did before the run ended.
+        if recorded == :run_terminal
+          return Pass.new(outcome: HALTED, reason_code: RUN_NOT_RUNNING, entry:, fetch: result,
+                          reenter_at: nil, released: false)
+        end
+
         Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry:, fetch: result,
                  reenter_at: nil, released: !recorded.nil?, terminal: recorded)
       end
@@ -359,17 +370,55 @@ module Workflows
       # finds the entry terminal, records `superseded`, and links the run on. The chain repairs itself
       # with no new recovery vocabulary, and ledger completeness is identical either way because in both
       # cases the lost transaction is the one carrying the ledger rows.
+      #
+      # THE RETIREMENT IS DECIDED AGAINST THE RUN'S AUTHORITATIVE STATE, UNDER THE LOCK THE CHECKPOINT
+      # ALSO TAKES (DECISIONS ADR-113, FU-34). This is the second half of :442's cancellation rule and
+      # it exists because the first half cannot reach the last microsecond on its own.
+      #
+      # `Handlers::CompleteCrawl` takes `crawl-frontier:<crawl>` and then `crawls FOR UPDATE`
+      # (ADR-105), so exactly one of the two transactions holds this lock at a time and the read below
+      # is therefore authoritative rather than advisory:
+      #
+      #   * this transaction first — the checkpoint BLOCKS, the Crawl is still `running`, the outcome
+      #     commits, and the checkpoint then counts it;
+      #   * the checkpoint first — it has committed its terminal selection, and this read sees it.
+      #
+      # In the second case the run has HAD its one selection (:458), and `f1_crawls_guard` refuses
+      # every edge out of a terminal state, so there is no state in which this pass's classification
+      # could be counted. Recording it anyway is what produced the acceptance review's B7: a run
+      # recorded `failed` with its entitlement RELEASED beside a committed `document_created / covered`
+      # — permanent, because the same guard refuses the correction. So nothing is written, and the
+      # entry stays `in_progress` on a run that is over: inert, and the shape FU-22 already describes.
+      #
+      # THIS IS NOT A SUBSTITUTE FOR CANCELLING THE REQUEST. `FetchContent#request_budget` is what
+      # makes a request that spans the deadline end AT the deadline; without it this read would be
+      # silently discarding valid Documents for up to a full request timeout after the run ended,
+      # which is suppressing the contradiction rather than removing it. The two are one repair.
       def retire(organization_id, crawl, entry, decision, now)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           store.lock_frontier(crawl["id"])
+          next :run_terminal unless running?(raw, organization_id, crawl["id"])
           next nil unless store.terminalize(organization_id, entry["id"],
                                             entry["state_version"].to_i, now).positive?
 
           record_outcome(raw, organization_id, crawl, entry, decision, now)
         end
+      end
+
+      # Re-read, never re-used: `crawl` was loaded at the top of the pass, BEFORE the network call, so
+      # it cannot answer a question about what committed during it. Through the same accepted reader
+      # `load_crawl` and `renew_entitlement_lease` already use, on this transaction's own connection.
+      #
+      # A plain SELECT is deliberate. The frontier lock already excludes the checkpoint, and taking a
+      # row lock on `crawls` here would put this transaction's order at crawls-then-frontier against
+      # `Admission`'s frontier-then-crawls — which is how a deadlock is built, and is the inversion
+      # ADR-105 rejected for the driver.
+      def running?(pg, organization_id, crawl_id)
+        current = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg).crawl(organization_id, crawl_id)
+        !current.nil? && current["state"] == "running"
       end
 
       # The row itself. `causation_id` is the Crawl, as every other WF-005 record this driver's surfaces
@@ -453,6 +502,11 @@ module Workflows
           store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           store.lock_frontier(crawl["id"])
+          # The same authoritative re-read `retire` takes, for the same reason: this path also writes a
+          # `crawl_terminal_outcomes` row, and a run that reached its terminal selection while this pass
+          # was resolving robots has had its one selection (DECISIONS ADR-113).
+          next nil unless running?(raw, organization_id, crawl["id"])
+
           candidate = store.peek_next(organization_id, crawl["id"])
           # Claim ONLY the named entry, for the same reason `claim_entry` does: retiring whatever happened
           # to be next would retire an entry this pass was never given.
