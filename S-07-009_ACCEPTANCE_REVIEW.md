@@ -574,6 +574,12 @@ it to fail when the gate is removed.
 ### R2-B3 — B6's correction missed a fifth ratified place, and it is the one that states the refuted claim most plainly
 *Found by the SCHEMA lens. Converged with ARCHITECTURE on record consistency.*
 
+> **REPAIRED 2026-07-31 — FU-36, ADR-115. The repository-wide sweep found a SEVENTH copy this round
+> did not name — `specification/automation/BUILD_PLAN.yml` — so the finding was larger than reported.**
+> Both corrected in place, and the durable half is a mechanical check over the records themselves,
+> because correcting copies someone listed is the defect rather than the repair. Verified by
+> reintroducing the claim three ways. Verified by the repair phase, NOT by round 2.
+
 ADR-111 corrected the false `IS NOT DISTINCT FROM` refutation in ADR-097, the `20260727120340`
 migration header, `POSTGRESQL_SCHEMA.md`, the FU-11 note in `BUILD_STATE.json` and PROOF 29's comment,
 and pinned the truth with PROOF 104. **`DECISIONS.md:2236` (ADR-083) was not corrected** and still

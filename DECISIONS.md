@@ -2233,7 +2233,7 @@ THE FIFTH PASS WAS MUTATION TESTING, NOT PROSE REVIEW, and it is the reason this
 
 A defect worth naming separately: the repository-truth spec's own path-citation check named six directories, so citations under `automation/` and `architecture/` were silently unchecked. A hardcoded vocabulary inside the spec that exists to catch hardcoded vocabularies is the same defect twice; the directory list is now read from the repository.
 
-FU-11's diagnosis was corrected twice and both corrections are recorded. The third pass prescribed a NULL-safe rewrite of `crawls_coverage_status_check`; that prescription is a proven no-op, since `NULL = ANY(...)` is UNKNOWN and therefore admitted and `IS NOT DISTINCT FROM` is admitted too. Applying it would have produced a diff, closed the item, and left the hole open. The fault is in `crawls_terminal_shape`, whose terminal limb requires only `terminal_at IS NOT NULL`. The fourth pass then corrected the repair itself: requiring both columns on every terminal state would break `IdentityAccess::Infrastructure::CrawlStartStore#fail`, because a failed run carries a completion reason and no coverage. The conjunct must be scoped by state. It remains BLOCKING for S-07-009 and is not repaired here.
+FU-11's diagnosis was corrected twice and both corrections are recorded. The third pass prescribed a NULL-safe rewrite of `crawls_coverage_status_check`. **THE REASON RECORDED HERE FOR SETTING THAT PRESCRIPTION ASIDE WAS ITSELF FALSE, and is corrected in place at ADR-115** (round 2 found ADR-111 had corrected five other places and missed this one, which is the first a reader tracing FU-11's history reaches). What is true: rewriting to the shape PROOF 29 evaluates — `x IS NULL OR x = ANY(...)` — IS a genuine no-op, because a CHECK admits both the UNKNOWN that `NULL = ANY(ARRAY['full','partial'])` yields and the TRUE that one yields. What is false as first written: the `IS NOT DISTINCT FROM` spelling the third pass NAMED is not admitted and is not a no-op. Its `ANY(...)` form is a PostgreSQL SYNTAX ERROR, and its only valid spelling — the pairwise `NULL IS NOT DISTINCT FROM 'full' OR NULL IS NOT DISTINCT FROM 'partial'` — evaluates to FALSE, not UNKNOWN, which a CHECK REFUSES: applying it would have rejected every `queued` and `running` Crawl, since those rows carry NULL in that column by design. NULL must be tested independently, because UNKNOWN is admitted and FALSE is not, and a proof that conflated them would pass on either. Applying the prescribed spelling would therefore not merely have produced a diff and left the hole open; it would have been a breaking change. PROOF 104 pins all four evaluations. The fault is in `crawls_terminal_shape`, whose terminal limb requires only `terminal_at IS NOT NULL`. The fourth pass then corrected the repair itself: requiring both columns on every terminal state would break `IdentityAccess::Infrastructure::CrawlStartStore#fail`, because a failed run carries a completion reason and no coverage. The conjunct must be scoped by state. It remains BLOCKING for S-07-009 and is not repaired here.
 
 RECORDED HONESTLY, three things the owner should not have to discover.
 
@@ -3072,3 +3072,34 @@ Gates: whole-repo suite **2067/0**; brakeman 0; packwerk clean; zeitwerk ok; ver
 
 Authority And Precedence:
 Repairs FU-35 / R2-B2 of `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 2. Corrects ADR-107, whose observation was gated on the wrong instant. WORKFLOW_SPECIFICATIONS.md :442 governs what a hard-limit record contains and :458 what makes coverage partial. Composes with ADR-113, which created the second affected population. Allocated the next unused number after ADR-113. S-07-009 is NOT accepted by this commit.
+
+## ADR-115: FU-36 Repaired — A Seventh Copy Nobody Had Named, And A Check That Does Not Rely On Someone Listing Them
+
+Status: Accepted (2026-07-31)
+Date: 2026-07-31
+Owner: standing delegation ADR-061; repair of an ADR-112 round-2 finding
+Reversibility: Record corrections and one architecture-fitness example; no production change.
+
+ADR-111 corrected the false `IS NOT DISTINCT FROM` refutation in five places and pinned the truth with PROOF 104. Round 2 found a SIXTH — ADR-083, `DECISIONS.md:2236`, an ACCEPTED record and the one a reader tracing FU-11's history reaches FIRST. **The repository-wide sweep this repair was instructed to run then found a SEVENTH that no review had named: `specification/automation/BUILD_PLAN.yml`, in S-07-009's own blocking-precondition note**, where it read "A NULL-safe rewrite of the enum check is a PROVEN NO-OP: … `IS NOT DISTINCT FROM` is admitted too."
+
+Both are corrected in place, per the convention ADR-097 set for its own refutations. The exact distinction is preserved in each, because it is the whole content of the finding:
+
+```
+(NULL = ANY(ARRAY['full','partial'])) IS NULL                  -> t   UNKNOWN, and a CHECK ADMITS
+NULL IS NULL OR NULL = ANY(ARRAY['full','partial'])            -> t   a CHECK ADMITS  (PROOF 29)
+NULL IS NOT DISTINCT FROM 'full' OR ... 'partial'              -> f   a CHECK REFUSES
+NULL IS NOT DISTINCT FROM ANY(ARRAY['full','partial'])         -> SYNTAX ERROR
+```
+
+**NULL MUST BE TESTED INDEPENDENTLY, and PROOF 104 already does**: UNKNOWN is admitted by a CHECK and FALSE is not, so a proof that conflated them would pass on either and prove neither. PROOF 104 asserts the pairwise form is FALSE *and separately* that it is not NULL, raises `PG::SyntaxError` on the `ANY(...)` form, and demonstrates a live `queued` Crawl failing the intended predicate. All four required distinctions were already pinned; what was missing was the records.
+
+**CORRECTING SEVEN COPIES BY HAND IS THE DEFECT, NOT THE REPAIR.** ADR-111 corrected the copies it had been given and missed one; round 2 found that one and did not find the seventh. That is PROOF 39's mistake in a third costume — a check that reads what someone listed cannot find what nobody listed. So the durable half of this repair is an architecture-fitness example asserting over the RECORDS THEMSELVES: no authoritative record may claim the rewrite is a no-op or admitted without the refutation being present where the claim is made.
+
+**THE FIRST VERSION OF THAT CHECK WAS ITSELF TOO WEAK, AND IT IS WORTH RECORDING WHY.** Scoped to the enclosing section, reverting ADR-083 to its false wording still PASSED — that ADR is long and carries refutation-shaped words about unrelated matters, so the section vouched for a claim it never addressed. The check would not have caught the very defect it exists for. It is now scoped to a 700-character window around each occurrence, which is where a reader actually meets the claim, and it was verified by REINTRODUCING the defect three ways: a new ADR asserting harmlessness, ADR-083 reverted to its false wording, and `BUILD_PLAN.yml` reverted to its false wording. All three fail; the clean tree passes. The known limitation — a false claim inserted inside a window that already carries the refutation — is stated in the example rather than papered over.
+
+`20260727120280_crawl_limit_decision_reason_null_safe` uses `IS NOT DISTINCT FROM` CORRECTLY, and for exactly the property this refutation turns on: a NULL yields FALSE, which the CHECK refuses. It is named in the check so the rule is about the refuted CLAIM and not about the operator.
+
+Gates: whole-repo suite **2068/0**; brakeman 0; packwerk clean; zeitwerk ok; bundler-audit clean; verify_runtime OK, 15 checks, RLS intact; no `structure.sql` drift.
+
+Authority And Precedence:
+Repairs FU-36 / R2-B3 of `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 2. Corrects ADR-083 and `BUILD_PLAN.yml` in place. Completes ADR-111, which corrected five of seven. No production behaviour changes. Allocated the next unused number after ADR-114. S-07-009 is NOT accepted by this commit.

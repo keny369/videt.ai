@@ -265,6 +265,79 @@ RSpec.describe "Repository truth", type: :model do
     end
   end
 
+  # THE REFUTATION CANNOT DRIFT BACK, AND IT CANNOT HIDE IN A PLACE NOBODY LISTED (FU-36, ADR-115).
+  #
+  # ADR-097 recorded that a NULL-safe rewrite of `crawls_coverage_status_check` using
+  # `IS NOT DISTINCT FROM` was "a proven no-op, evaluated against the live cluster". It is the
+  # opposite: the `ANY(...)` form is a PostgreSQL syntax error and the pairwise form yields FALSE,
+  # which a CHECK REFUSES — it would reject every `queued` and `running` Crawl. PROOF 104 pins the
+  # four evaluations against the live cluster.
+  #
+  # ADR-111 corrected five places BY HAND and missed a sixth (ADR-083); round 2 found that one, and
+  # the FU-36 repository sweep then found a SEVENTH that no review had named (`BUILD_PLAN.yml`). A
+  # defect whose whole content is "a ratified record states the opposite of the truth" is not closed
+  # by correcting the copies someone happened to list — the same shape of mistake as PROOF 39
+  # enumerating the foreign keys that exist. This asserts over the RECORDS THEMSELVES, so an eighth
+  # copy fails CI instead of waiting for a reviewer to read it.
+  #
+  # THE UNIT IS A WINDOW AROUND THE CLAIM, NOT THE SECTION, AND THE FIRST VERSION OF THIS CHECK GOT
+  # THAT WRONG. Scoped to the section, reverting ADR-083 to its false wording still PASSED, because
+  # that ADR is long and carries refutation-shaped words about unrelated matters — the check would not
+  # have caught the very defect it exists for, which is PROOF 39's mistake in a third costume. The
+  # refutation has to be where the reader meets the claim, so it is required within the surrounding
+  # `WINDOW` characters. Every correct record states the false claim in order to refute it, and every
+  # one of them carries the refutation within a few hundred characters of it.
+  describe "no authoritative record claims the refuted PostgreSQL predicate is harmless" do
+    PREDICATE_RECORDS = %w[
+      DECISIONS.md
+      S-07-009_ACCEPTANCE_REVIEW.md
+      schemas/POSTGRESQL_SCHEMA.md
+      specification/automation/BUILD_PLAN.yml
+      specification/automation/BUILD_STATE.json
+      db/migrate/20260727120340_crawls_terminal_completeness.rb
+    ].freeze
+
+    CLAIM = /IS NOT DISTINCT FROM/i
+    HARMLESS = /no-op|admitted|yields true/i
+    # `refut` covers the records that state the claim in order to correct it and put the evaluation a
+    # little further down the page than `WINDOW` reaches — the review record's own R2-B3 finding and
+    # the FU-36 note both do exactly that.
+    REFUTED = /syntax error|refuses|reject every|not a no-op|is not admitted|-> +f\b|yields false|refut/i
+    # `20260727120280_crawl_limit_decision_reason_null_safe` uses `IS NOT DISTINCT FROM` CORRECTLY,
+    # and for exactly the property this refutation turns on: a NULL yields FALSE, which the CHECK
+    # refuses. Naming it keeps the check about the refuted CLAIM rather than about the operator.
+    CORRECT_USE = /crawl_limit_decision|limit_reached/i
+
+    # Wide enough for a claim and a fenced four-line evaluation below it; narrow enough that an
+    # unrelated "refuses" elsewhere in a long ADR cannot vouch for it.
+    WINDOW = 700
+
+    it "carries no claim that the rewrite is a no-op or admitted, unrefuted where it is made" do
+      offenders = PREDICATE_RECORDS.flat_map do |path|
+        file = ROOT.join(path)
+        next [] unless file.exist?
+
+        body = file.read
+        body.enum_for(:scan, CLAIM).map { Regexp.last_match.begin(0) }.filter_map do |at|
+          window = body[[at - WINDOW, 0].max, WINDOW * 2].to_s
+          next unless window.match?(HARMLESS)
+          next if window.match?(REFUTED) || window.match?(CORRECT_USE)
+
+          "#{path} @#{at}: #{body[at, 200].strip}"
+        end
+      end
+
+      expect(offenders).to be_empty, <<~MSG
+        A record claims the `IS NOT DISTINCT FROM` rewrite of `crawls_coverage_status_check` is
+        harmless. It is not: the `ANY(...)` form is a PostgreSQL syntax error and the pairwise form
+        yields FALSE, which a CHECK refuses, so it would reject every `queued` and `running` Crawl.
+        See DECISIONS ADR-111 / ADR-115 and PROOF 104.
+
+        #{offenders.join("\n\n")}
+      MSG
+    end
+  end
+
   describe "the canonical schema catalogue is complete" do
     # NOTE the reverse direction is deliberately NOT asserted. `POSTGRESQL_SCHEMA.md` ratifies the
     # whole schema ahead of implementation, so it names ~150 tables S-08 onward will build. A

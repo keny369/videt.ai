@@ -997,10 +997,17 @@ blocks:
     # The constraint at fault is `crawls_terminal_shape`, NOT `crawls_coverage_status_check`, and
     # the fault is ordinary two-valued logic rather than an UNKNOWN CHECK. `crawls_terminal_shape`'s
     # terminal limb requires only `terminal_at IS NOT NULL`, so `state='completed'` with both
-    # columns NULL satisfies every constraint on the table. A NULL-safe rewrite of the enum check is
-    # a PROVEN NO-OP: `NULL = ANY(ARRAY['full','partial'])` is UNKNOWN and therefore admitted, and
-    # `IS NOT DISTINCT FROM` is admitted too. Applying it would produce a diff, close the item, and
-    # leave the hole open. `schemas/POSTGRESQL_SCHEMA.md` also declares the column nullable, which
+    # columns NULL satisfies every constraint on the table. A NULL-safe rewrite of the enum check TO
+    # THE SHAPE PROOF 29 EVALUATES — `coverage_status IS NULL OR coverage_status = ANY (...)` — is a
+    # proven no-op: a CHECK admits both the UNKNOWN that `NULL = ANY(ARRAY['full','partial'])` yields
+    # and the TRUE that one yields, so applying it would produce a diff, close the item, and leave the
+    # hole open. **THE `IS NOT DISTINCT FROM` SPELLING ORIGINALLY PRESCRIBED IS NOT A NO-OP AND IS NOT
+    # ADMITTED** (DECISIONS ADR-111, ADR-115; this sixth occurrence was found by the FU-36 repository
+    # sweep and was named by no review): its `ANY(...)` form is a PostgreSQL SYNTAX ERROR, and its only
+    # valid spelling — the pairwise `NULL IS NOT DISTINCT FROM 'full' OR ... 'partial'` — evaluates to
+    # FALSE rather than UNKNOWN, which a CHECK REFUSES, so it would reject every `queued` and `running`
+    # Crawl. NULL must be tested independently, because UNKNOWN is admitted and FALSE is not.
+    # `schemas/POSTGRESQL_SCHEMA.md` also declares the column nullable, which
     # is what a non-terminal Crawl needs.
     #
     # THE REPAIR is a terminal-completeness conjunct on `crawls_terminal_shape`, scoped by state:
