@@ -100,6 +100,41 @@ module RaceHarness
     observer.exec_params(sql, [key]).getvalue(0, 0).to_i
   end
 
+  # Ungranted ROW waiters that are blocked BY A BACKEND WAITING ON `key`.
+  #
+  # A `SELECT ... FOR UPDATE` waiter registers as an ungranted `transactionid` or `tuple` lock on the
+  # holder's transaction, never as an ungranted lock on the relation, so `blocked_on` cannot express it.
+  # The obvious substitute — `count(*) FROM pg_locks WHERE NOT granted AND locktype IN (...)` — is what
+  # two specs used, and it is CLUSTER-WIDE: `pg_locks` spans every database, and `transactionid` rows
+  # carry `database = NULL`, so no column on `pg_locks` alone can narrow it. Round 3 measured the
+  # consequence: with ONE unrelated waiter in a DIFFERENT database, deleting the `FOR UPDATE` that
+  # ADR-105 rests on left PROOF 101 passing 10/10, and deleting ADR-106's `lock_reservation` left
+  # PROOF 92 passing 10/10. Both proofs became unfalsifiable exactly when the cluster was busy, which is
+  # its normal condition — three review suites shared this cluster the day it was found.
+  #
+  # Filtering to `current_database()` is necessary and NOT sufficient: two suites in the same database
+  # would still satisfy each other's predicate. So this asserts the actual causal edge the specs mean —
+  # the waiter is blocked by a backend that is itself queued on the controller's gate — which no
+  # unrelated transaction anywhere can satisfy.
+  def blocked_on_row_behind(key)
+    sql = <<~SQL
+      WITH gated AS (
+        SELECT pid FROM pg_locks
+        WHERE locktype = 'advisory' AND NOT granted
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          AND classid = ((($1::bigint >> 32) & 4294967295))::oid
+          AND objid = (($1::bigint & 4294967295))::oid
+      )
+      SELECT count(*) FROM pg_locks l
+      JOIN pg_stat_activity a ON a.pid = l.pid
+      WHERE NOT l.granted
+        AND l.locktype IN ('transactionid', 'tuple')
+        AND a.datname = current_database()
+        AND EXISTS (SELECT 1 FROM gated g WHERE g.pid = ANY(pg_blocking_pids(l.pid)))
+    SQL
+    observer.exec_params(sql, [key]).getvalue(0, 0).to_i
+  end
+
   # A connection of the harness's own. The racing operations read committed
   # state through DbInspector, so polling on that shared connection would
   # interleave two conversations on one socket.

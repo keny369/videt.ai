@@ -125,15 +125,13 @@ RSpec.describe "WF-005 entitlement heartbeat under two deliveries", type: :accep
         # The loser's clock is EARLIER than the winner's, which is the interleaving that produced the
         # unhandled `PG::CheckViolation`: its renewed expiry would not advance the winner's.
         loser = RaceHarness.spawn_operation(-> { deliver(ctx, action, at: at - 30) })
-        # Observably contending for the reservation ROW the winner holds — not merely running later.
-        # A `SELECT ... FOR UPDATE` waiter registers as an ungranted `transactionid` (or `tuple`) lock,
-        # waiting on the holder's transaction; it is NOT an ungranted lock on the relation, which is why
-        # the harness's `blocked_on` (advisory keys) cannot express this one.
-        RaceHarness.wait_until("the loser blocked on the reservation row") do
-          RaceHarness.observer.exec(<<~SQL).getvalue(0, 0).to_i >= 1
-            SELECT count(*) FROM pg_locks
-            WHERE NOT granted AND locktype IN ('transactionid', 'tuple')
-          SQL
+        # Observably contending for the reservation ROW THE WINNER HOLDS — not merely running later, and
+        # not merely "something on this cluster is waiting". `blocked_on_row_behind` asserts the causal
+        # edge: an ungranted row waiter in THIS database whose blocker is the backend queued on
+        # `gate_key`. The unscoped `pg_locks` count this replaced was satisfiable by any transaction in
+        # any database, which made PROOF 92 pass 10/10 with `lock_reservation` deleted (round 3, R3-5).
+        RaceHarness.wait_until("the loser blocked on the reservation row behind the winner") do
+          RaceHarness.blocked_on_row_behind(gate_key) >= 1
         end
 
         controller.exec_params("SELECT pg_advisory_unlock($1)", [gate_key])
