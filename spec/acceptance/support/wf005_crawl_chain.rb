@@ -178,7 +178,37 @@ module Wf005CrawlChain
 
   def project_row(pid) = DbInspector.one("SELECT * FROM projects WHERE id = $1::uuid", [pid])
   def source_row(sid) = DbInspector.one("SELECT * FROM sources WHERE id = $1::uuid", [sid])
-  def gate_row(cid) = DbInspector.one("SELECT * FROM crawl_host_gates WHERE crawl_id = $1::uuid", [cid])
+  def gate_rows(cid)
+    DbInspector.all("SELECT * FROM crawl_host_gates WHERE crawl_id = $1::uuid ORDER BY canonical_host", [cid])
+  end
+
+  # ONE gate for `cid`, and it must be unambiguous.
+  #
+  # This was `DbInspector.one("... WHERE crawl_id = $1")` with no ORDER BY — `to_a.first`, so on a
+  # two-Source Crawl it answered as ONE canonical host chosen by physical row order. That is harness
+  # repair #2's defect class, still live in the helper `drain` calls after every pass: the rate window
+  # got cleared for whichever host the heap offered, `drain` stopped a pass early, and the second
+  # Source was never fetched. Round 3 measured it — `ORDER BY canonical_host DESC` passed 24/24 and
+  # `ASC` FAILED PROOFs 98, 99 and 114. The suite was green on an accident that no ORDER BY guarantees
+  # and that VACUUM, HOT updates or a different insert order can reverse.
+  #
+  # So: name the host when there is more than one, or get an exception. Silence is what let this live.
+  def gate_row(cid, host: nil)
+    rows = gate_rows(cid)
+    rows = rows.select { |r| r["canonical_host"] == host } if host
+    if rows.length > 1
+      raise "ambiguous gate_row for crawl #{cid}: #{rows.length} gates " \
+            "(#{rows.map { |r| r['canonical_host'] }.join(', ')}). Pass host: to name one."
+    end
+    rows.first
+  end
+
+  # Every gate for the Crawl, not one of them. `drain` must clear the window on all hosts or it stops
+  # a pass early on a multi-Source run — which is exactly how the single-row form hid its own defect.
+  # With this in place the ordering is no longer load-bearing: both ASC and DESC now pass 24/24.
+  def clear_rate_window_for_crawl(cid)
+    gate_rows(cid).each { |g| clear_rate_window(g["id"]) }
+  end
 
   # A stub of the FROZEN F-01 façade — the service is never reached into.
   def outbound_returning(*outcomes)

@@ -320,6 +320,73 @@ RSpec.describe "Crawl terminal-outcome invariants", type: :model do
       SQL
       expect(granted).to eq(%w[INSERT SELECT])
     end
+
+    # PROOF 40 above reads `pg_class` and `role_table_grants`. NEITHER CATALOGUE READ CAN SEE THE
+    # POLICY PREDICATE. Round 3 measured exactly that: rewriting this table's policy to
+    # `USING (true) WITH CHECK (true)` — which removes tenant isolation from the table outright —
+    # left every S-07-009 spec green, 112 examples across five files including PROOF 40 itself.
+    # S-07-008 established the rule and named this mutation in `crawl_limit_decision_invariants_spec`;
+    # `crawl_terminal_outcomes` carries the customer's coverage verdict and got only the catalogue
+    # half. `f1:db:verify_runtime` does not close the gap either — it is a fixed list over `sessions`,
+    # `accounts`, `scheduled_actions` and the transport functions.
+    #
+    # Defined locally rather than reused from the S-07-008 spec: that file's `as_runtime` is a
+    # top-level `def`, so it binds to Object and is only reachable here by load order (FU-37's
+    # constant/method-leakage observation). A proof must not depend on which files RSpec loaded first.
+    def as_runtime(organization_id)
+      cfg = ActiveRecord::Base.connection_db_config.configuration_hash
+      runtime = PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: "f1_web")
+      # `f1_enter_org_context` sets transaction-local state, so the context exists only inside a
+      # transaction — which is how every production caller holds it too.
+      runtime.exec("BEGIN")
+      runtime.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                          [organization_id, SecureRandom.uuid_v7])
+      yield runtime
+    ensure
+      begin
+        runtime&.exec("ROLLBACK")
+      rescue StandardError
+        nil
+      end
+      runtime&.close
+    end
+
+    it "PROOF 40a — BLOCKS a cross-tenant read as the runtime role, not merely declares a policy" do
+      f = fixture
+      insert_outcome(f[:pid], f[:crawl], f[:entry], f[:source])
+      intruder = TenantSeeder.create_organization(display_name: "Intruder")
+
+      as_runtime(org) do |own|
+        expect(own.exec_params("SELECT count(*) FROM crawl_terminal_outcomes WHERE crawl_id = $1::uuid",
+                               [f[:crawl]]).getvalue(0, 0).to_i).to eq(1)
+      end
+      as_runtime(intruder) do |other|
+        expect(other.exec_params("SELECT count(*) FROM crawl_terminal_outcomes WHERE crawl_id = $1::uuid",
+                                 [f[:crawl]]).getvalue(0, 0).to_i).to eq(0)
+      end
+    end
+
+    it "PROOF 40b — BLOCKS a cross-tenant write as the runtime role" do
+      # The WITH CHECK limb, which no catalogue read can exercise either. The row names another
+      # Organization's Crawl, so the composite foreign keys would all be SATISFIED — the refusal has
+      # to come from the policy, and the error class distinguishes the two.
+      f = fixture
+      intruder = TenantSeeder.create_organization(display_name: "Intruder")
+
+      as_runtime(intruder) do |other|
+        params = [SecureRandom.uuid_v7, org, f[:pid], f[:crawl], f[:entry], f[:source]]
+        expect do
+          other.exec_params(<<~SQL, params)
+            INSERT INTO crawl_terminal_outcomes
+              (id, schema_version, created_at, correlation_id, causation_id, organization_id,
+               project_id, crawl_id, crawl_frontier_entry_id, source_id, commit_order, outcome,
+               reason, document_id, accounted_response_body_bytes, coverage_effect, decided_at)
+            VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,
+                    $5::uuid,$6::uuid,99,'document_created',NULL,NULL,0,'covered',now())
+          SQL
+        end.to raise_error(PG::InsufficientPrivilege, /row-level security/)
+      end
+    end
     it "PROOF 41 — the application's classification map and the live CHECK are the same map" do
       # THE ONE DUPLICATION THIS DESIGN COULD NOT AVOID. The CHECK's vocabulary lives in a MIGRATION
       # class, which is not loadable at runtime, so `Workflows::Wf005::CoverageClassification::EFFECTS`

@@ -575,7 +575,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       # time — otherwise every later pass defers before reaching the charge and the test proves
       # nothing. This is what makes it a re-charge test rather than a no-op test.
       20.times do
-        clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+        clear_rate_window_for_crawl(ctx[:crawl_id])
         expect(attempt_pass(ctx).rescheduled?).to be(true)
       end
 
@@ -898,7 +898,7 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       contended(ctx)
 
       seed_leases(gate_row(ctx[:crawl_id])["id"], 0)
-      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      clear_rate_window_for_crawl(ctx[:crawl_id])
       result = discover(ctx, outbound_map(
         "https://shop.acme.example/a.xml" => { body: urlset("https://shop.acme.example/p1") }))
 

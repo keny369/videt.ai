@@ -73,7 +73,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     ctx = gated(hosts:)
     resolve_robots(ctx, outbound_returning(response(status: 200, body: ROBOTS_ALLOW_ALL)))
     resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
-    clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+    clear_rate_window_for_crawl(ctx[:crawl_id])
     ctx
   end
 
@@ -359,7 +359,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
           nxt = results.last.success? && results.last.payload[:next_action_id]
           break unless nxt
 
-          clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+          clear_rate_window_for_crawl(ctx[:crawl_id])
           action = action_row(nxt)
         end
       end
@@ -549,7 +549,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       ctx = fetchable
       first = execute(ctx, first_action(ctx), outbound_by_path("/" => timeout))
       reentry = action_row(first.payload[:next_action_id])
-      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      clear_rate_window_for_crawl(ctx[:crawl_id])
       # An action for the SAME entry at an instant that is not this stage's: it must not resume.
       wrong_stage = action_row(
         Platform::UnitOfWork.run do |conn|
@@ -881,7 +881,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
           nxt = results.last.success? && results.last.payload[:next_action_id]
           break unless nxt
 
-          clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+          clear_rate_window_for_crawl(ctx[:crawl_id])
           action = action_row(nxt)
         end
       end
@@ -1126,7 +1126,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       outcomes = []
       6.times do |i|
         at = start_now + (i * (cadence + 60))
-        clear_rate_window(gate_row(ctx[:crawl_id])["id"]) if i.positive?
+        clear_rate_window_for_crawl(ctx[:crawl_id]) if i.positive?
         result = execute(ctx, action, outbound, at:)
         outcomes << [at, result.payload[:pass_outcome]]
         nxt = result.success? && result.payload[:next_action_id]

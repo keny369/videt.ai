@@ -44,7 +44,7 @@ RSpec.describe "WF-005 entitlement heartbeat under two deliveries", type: :accep
     ensure_gate(ctx)
     resolve_robots(ctx, outbound_returning(response(status: 200, body: "User-agent: *\nAllow: /\n")))
     resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
-    clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+    clear_rate_window_for_crawl(ctx[:crawl_id])
     ctx
   end
 

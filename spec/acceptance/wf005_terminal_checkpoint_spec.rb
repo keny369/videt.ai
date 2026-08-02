@@ -99,17 +99,13 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     SQL
   end
 
-  def gate_rows(cid)
-    DbInspector.all("SELECT * FROM crawl_host_gates WHERE crawl_id=$1::uuid ORDER BY id", [cid])
-  end
-
   # A run whose robots and sitemap records are terminal and whose rate window is clear.
   def fetchable(hosts: ["shop.acme.example"])
     ctx = running_crawl(hosts:)
     ensure_gate(ctx)
     resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
     resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
-    clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+    clear_rate_window_for_crawl(ctx[:crawl_id])
     ctx
   end
 
@@ -127,7 +123,7 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
         nxt = results.last.success? && results.last.payload[:next_action_id]
         break unless nxt
 
-        clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+        clear_rate_window_for_crawl(ctx[:crawl_id])
         action = action_row(nxt)
       end
     end
@@ -269,7 +265,7 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       ensure_gate(ctx)
       resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
       resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
-      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      clear_rate_window_for_crawl(ctx[:crawl_id])
       drain(ctx, outbound_by_path("/" => page, "/robots.txt" => page(status: 403, body: "no", type: "text/plain"),
                                   "/sitemap.xml" => page(status: 404, body: "", type: "text/plain")))
 
@@ -341,7 +337,7 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       ensure_gate(ctx)
       resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
       resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
-      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      clear_rate_window_for_crawl(ctx[:crawl_id])
       drain(ctx, outbound_by_host_path(
         "shop.acme.example/" => failing_root,
         "zeta.acme.example/" => [{}],
@@ -575,7 +571,7 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       ctx = fetchable
       action = link_first(ctx)
       at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc - 5)
-      clear_rate_window(gate_row(ctx[:crawl_id])["id"])
+      clear_rate_window_for_crawl(ctx[:crawl_id])
       execute_fetch(ctx, action, outbound_by_path("/" => timeout_outcome), at:)
 
       outcome = DbInspector.one("SELECT * FROM crawl_terminal_outcomes WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
