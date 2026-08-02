@@ -125,6 +125,43 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     Object.new.tap { |o| o.define_singleton_method(:fetch) { |*_a, **_k| outcome } }
   end
 
+  # A façade stub that suspends INSIDE the request until the example releases it. This is the natural
+  # mid-request window rather than a simulation of one: `fetch_and_settle` performs the network call
+  # outside every transaction, so a pass here holds nothing at all.
+  #
+  # Defined at this level rather than inside one describe because TWO races need it — the checkpoint's
+  # (FU-34) and the cancellation's (R3-6, PROOF 118) — and the second is the one ADR-113 never proved.
+  def gated_page_outbound(started, release)
+    body = "<html><title>t</title></html>"
+    outcome = Platform::Outbound::Outcome.response(
+      status: 200, headers: { "content-type" => "text/html" }, body:, byte_count: body.bytesize,
+      truncated: false, canonical_host: "shop.acme.example", port: 443,
+      pinned_address: "198.51.100.7", final_url: "https://shop.acme.example/", redirect_count: 0,
+      latency_ms: 5
+    )
+    Object.new.tap do |o|
+      o.define_singleton_method(:fetch) do |*_a, **_k|
+        started << :in_flight
+        release.pop
+        outcome
+      end
+    end
+  end
+
+  def run_pass_with(ctx, action, outbound)
+    command = Workflows::Wf005::Commands::RecordFetchAttempt.new(
+      command_id: SecureRandom.uuid_v7, schema_version: action["action_schema_version"],
+      organization_id: action["organization_id"], target_type: action["target_type"],
+      frontier_entry_id: action["target_id"], due_at: Time.parse(action["due_at"]).getutc,
+      action_id: action["id"],
+      action_identity_sha256: [action["identity_sha256"].sub(/\A\\x/, "")].pack("H*"),
+      requested_at_utc: start_now
+    )
+    Workflows::Wf005::Handlers::RecordFetchAttempt.new.call(
+      command:, request_context: executor_ctx(start_now), outbound:, pacer: pacer_for(ctx)
+    )
+  end
+
   def run_checkpoint(ctx, action)
     command = Workflows::Wf005::Commands::CompleteCrawl.new(
       command_id: SecureRandom.uuid_v7, schema_version: action["action_schema_version"],
@@ -322,37 +359,6 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
   # it, which is the natural window itself rather than a simulation of it, and nothing is ordered by a
   # sleep: the checkpoint is started only once the pass is OBSERVED inside the request.
   describe "the checkpoint racing a pass that is mid-REQUEST (FU-34)" do
-    def gated_page_outbound(started, release)
-      body = "<html><title>t</title></html>"
-      outcome = Platform::Outbound::Outcome.response(
-        status: 200, headers: { "content-type" => "text/html" }, body:, byte_count: body.bytesize,
-        truncated: false, canonical_host: "shop.acme.example", port: 443,
-        pinned_address: "198.51.100.7", final_url: "https://shop.acme.example/", redirect_count: 0,
-        latency_ms: 5
-      )
-      Object.new.tap do |o|
-        o.define_singleton_method(:fetch) do |*_a, **_k|
-          started << :in_flight
-          release.pop
-          outcome
-        end
-      end
-    end
-
-    def run_pass_with(ctx, action, outbound)
-      command = Workflows::Wf005::Commands::RecordFetchAttempt.new(
-        command_id: SecureRandom.uuid_v7, schema_version: action["action_schema_version"],
-        organization_id: action["organization_id"], target_type: action["target_type"],
-        frontier_entry_id: action["target_id"], due_at: Time.parse(action["due_at"]).getutc,
-        action_id: action["id"],
-        action_identity_sha256: [action["identity_sha256"].sub(/\A\\x/, "")].pack("H*"),
-        requested_at_utc: start_now
-      )
-      Workflows::Wf005::Handlers::RecordFetchAttempt.new.call(
-        command:, request_context: executor_ctx(start_now), outbound:, pacer: pacer_for(ctx)
-      )
-    end
-
     # Both halves of the race, run at the natural window: the pass suspended INSIDE its request, the
     # checkpoint run to completion underneath it, then the request released.
     def race_mid_request(ctx)
@@ -434,6 +440,125 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       #    shape FU-22 already describes. What it is NOT is a coverage fact that outranks the record.
       entry = DbInspector.one("SELECT state FROM crawl_frontier_entries WHERE crawl_id=$1::uuid", [ctx[:crawl_id]])
       expect(entry["state"]).to eq("in_progress")
+    end
+  end
+
+  # THE CANCELLATION COUNTERPART, WHICH THE REPAIR THAT CLOSED R3-6 DID NOT CARRY.
+  #
+  # ADR-113 justified `retire`'s plain SELECT of `crawls.state` by saying it reads "under the frontier
+  # advisory lock it already takes, which is the same lock `Handlers::CompleteCrawl` takes first
+  # (ADR-105) — so exactly one of the two transactions holds it". That argument named the CHECKPOINT and
+  # covered only the checkpoint. `Handlers::CancelCrawl` took the `crawls` row lock alone, and the
+  # outcome row's FK takes `FOR KEY SHARE`, which is compatible with the cancellation's `FOR NO KEY
+  # UPDATE` — so the two never contended and a pass could commit `document_created / covered` onto a
+  # Crawl the cancellation had already terminalized and whose entitlement it had already released.
+  # R2-B1's shape with `canceled` in place of `failed`, and irreversible for the same reason.
+  #
+  # R3-6 made `CancelCrawl` take `lock_frontier` first. NOTHING ASSERTED THAT until these two examples:
+  # the repair's own commit changed two spec files and both changes were a helper rename. A lock with no
+  # proof it is load-bearing is precisely the defect class this tranche keeps finding (R3-5, FU-41), and
+  # it is the one a fourth review round would find here.
+  #
+  # TWO WINDOWS, BECAUSE THE ORDER DECIDES WHICH FACT IS AT RISK.
+  describe "cancellation versus an in-flight pass (R3-6)" do
+    # WINDOW 1 — THE PASS IS INSIDE `retire`, PAST ITS RE-READ. This is the window the lock closes and
+    # the only one that can distinguish its presence. The pass has already established the run is
+    # `running` and is about to write its outcome; if the cancellation can commit through that window,
+    # the outcome lands on a terminal, released run. Mirrors PROOF 91, which asserts exactly this
+    # against the checkpoint.
+    it "PROOF 117 — a cancellation cannot commit through a retirement that is already in flight" do
+      ctx = fetchable
+      fetch_action = first_fetch_action(ctx)
+      gate_key = RaceHarness.key_for(RETIRE_GATE)
+      frontier_key = RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}")
+
+      controller = RaceHarness.open_connection
+      pass_result = nil
+      cancel_result = nil
+      begin
+        controller.exec_params("SELECT pg_advisory_lock($1)", [gate_key])
+
+        gate_retire(gate_key) do
+          pass = RaceHarness.spawn_operation(-> { run_pass(ctx, fetch_action) })
+          # The pass holds the frontier lock, has terminalized the entry, and is suspended before its
+          # outcome INSERT. Observed in `pg_locks`, never waited for.
+          RaceHarness.wait_until("the pass blocked mid-retirement") { RaceHarness.blocked_on(gate_key) >= 1 }
+
+          cancel = RaceHarness.spawn_operation(-> { run_cancel(ctx) })
+          # THE ASSERTION THE REPAIR TURNS ON, and the one that dies when `lock_frontier` is deleted
+          # from `CancelCrawl`: without it the cancellation sails past, commits `canceled` and RELEASES
+          # the reservation while the retirement is suspended, and the retirement then commits its
+          # Document onto it.
+          RaceHarness.wait_until("the cancellation blocked on the frontier lock") do
+            RaceHarness.blocked_on(frontier_key) >= 1
+          end
+
+          controller.exec_params("SELECT pg_advisory_unlock($1)", [gate_key])
+          pass_result = pass.value
+          cancel_result = cancel.value
+        end
+      ensure
+        controller.exec_params("SELECT pg_advisory_unlock_all()")
+        controller.close
+      end
+
+      # The retirement won the lock and its Document is committed.
+      expect(pass_result).to be_a(Platform::CommandResult)
+      expect(pass_result.payload[:pass_outcome]).to eq("fetched")
+      expect(outcomes(ctx[:crawl_id]).sole["outcome"]).to eq("document_created")
+
+      # The cancellation then ran against the run's committed state, not through it. It succeeds — the
+      # run was still `running` when it finally got the lock — and the ORDER is what makes the pair
+      # coherent: the Document was recorded while the run was live, and the cancellation followed it.
+      expect(cancel_result).to be_a(Platform::CommandResult)
+      expect(cancel_result.success?).to be(true)
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["state"]).to eq("canceled")
+      expect(crawl["completion_reason"]).to eq("canceled")
+      # :551 — a cancellation releases, never commits, "even when intermediate Documents ... exist".
+      expect(cancel_result.payload[:entitlement_outcome]).to eq("released")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
+    end
+
+    # WINDOW 2 — THE CANCELLATION COMMITS FIRST, WHILE THE PASS IS STILL IN ITS REQUEST. Here `retire`'s
+    # re-read is the whole defence, and ADR-113 built that re-read but proved it against `CompleteCrawl`
+    # ONLY. The acceptance review said so in as many words: the in-transaction half is "authoritative
+    # against `CompleteCrawl` only". This is the same window PROOF 110 uses, pointed at the other
+    # terminal command, and no trigger gates anything: the F-01 façade stub simply does not return
+    # until the example lets it.
+    it "PROOF 118 — a pass that was mid-request when a cancellation committed records nothing" do
+      ctx = fetchable
+      started = Queue.new
+      release = Queue.new
+      pass = RaceHarness.spawn_operation(
+        -> { run_pass_with(ctx, first_fetch_action(ctx), gated_page_outbound(started, release)) }
+      )
+      started.pop
+      cancel_result = RaceHarness.spawn_operation(-> { run_cancel(ctx) }).value
+      release << :go
+      pass_result = pass.value
+
+      expect(cancel_result).to be_a(Platform::CommandResult)
+      expect(cancel_result.success?).to be(true)
+
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["state"]).to eq("canceled")
+      expect(crawl["completion_reason"]).to eq("canceled")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
+
+      # THE ASSERTION THE RE-READ TURNS ON. Without it this holds one `document_created / covered` row:
+      # a covered URL, and a customer's Document, recorded against a run the same database says was
+      # cancelled and never charged for.
+      expect(outcomes(ctx[:crawl_id])).to be_empty
+
+      # The pass reports the run that ended under it and creates nothing — no link, no checkpoint. A
+      # cancelled run may not be handed more work any more than a completed one may.
+      expect(pass_result).to be_a(Platform::CommandResult)
+      expect(pass_result.payload[:pass_outcome]).to eq("halted")
+      expect(pass_result.payload[:reason_code]).to eq("crawl_not_running")
+      expect(pass_result.payload[:next_action_id]).to be_nil
+      expect(pass_result.payload[:terminal_checkpoint_action_id]).to be_nil
+      expect(pass_result.payload).not_to have_key("terminal_outcome")
     end
   end
 end
