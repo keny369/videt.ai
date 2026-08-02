@@ -6,6 +6,14 @@
 > repaired candidate), the B2 repair **introduced** a new wrong coverage verdict, and B6's correction
 > missed a fifth place. **S-07-009 REMAINS NOT ACCEPTED.**
 
+> **ROUND 3 HAS NOW RUN AND ALSO FAILS — ALL FIVE LENSES, ELEVEN IN-CANDIDATE BLOCKERS, AND ALL THREE
+> ROUND-2 REPAIRS REFUTED.** See [ROUND 3](#round-3--the-round-2-repaired-candidate-7f043a2467f1d1).
+> FU-34, FU-35 and FU-36 are each independently **NOT CLOSED**, by three different routes. Round 3 also
+> establishes that the mandatory gate "the schema builds from empty" **has never been executed** in this
+> repository's history, and that three of the concurrency proofs the round-1 repairs rest on **pass
+> vacuously whenever any unrelated transaction anywhere on the cluster is waiting on a row lock**.
+> The suite was **2068/0 on a quiet cluster at the moment of the verdict**. **S-07-009 REMAINS NOT ACCEPTED.**
+
 ---
 
 ## ROUND 1 — the original candidate `7f043a2..a414f5c`
@@ -828,3 +836,131 @@ is what makes this measure worth keeping:
 
 Re-run the full five-lens round against the next repaired candidate. **Round 2 exists because round 1's
 repairs were not themselves reviewed; round 3 must review round 2's the same way.**
+
+---
+
+# ROUND 3 — the round-2 repaired candidate `7f043a2..467f1d1`
+
+Candidate: `7f043a2..467f1d1`, pinned (not `..HEAD`; two governance commits sit above it).
+Round run: 2026-08-02, full ADR-026 five-lens form, five reviewers in five independent contexts with no
+shared conversational state and no knowledge of who authored which repair.
+Gates at the candidate, re-measured on a quiet cluster after the reviewers finished:
+**rspec 2068/0**, architecture fitness 59/0, brakeman 0, packwerk clean, zeitwerk ok, bundler-audit clean,
+verify_runtime 15/15 RLS intact, no structure.sql drift.
+
+**VERDICT: FAIL. All five lenses. Eleven in-candidate blockers, three pre-existing/governance blockers.
+All three round-2 repairs (FU-34, FU-35, FU-36) are independently REFUTED. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | In-candidate blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | 3 (R3-1, R3-2, R3-3) |
+| Concurrency / atomicity / idempotency | FAIL | 2 (R3-4, R3-5) + R3-6 as observation |
+| Schema / migration-safety | FAIL | 1 (R3-7 converged) + 3 pre-existing (R3-P1..P3) |
+| Architecture / scope / test-quality | FAIL | 4 (R3-6 converged, R3-8, R3-7 converged, R3-9) |
+| Security / tenant-isolation | FAIL | 2 (R3-10, R3-11) |
+
+## The three round-2 repairs, each refuted by a different route
+
+**FU-34 is NOT closed.** Its in-transaction half is genuine and mutation-verified, but it is bounded by
+two failures the round-2 session did not test. (a) The out-of-transaction half does not hold at all:
+`RequestPolicy#timeout_s` is a **per-connection-attempt** bound, re-armed once per redirect hop, so one
+`Outbound.fetch` bounded at `remaining` runs up to `(10+1) x (dns + response)`; measured overrun **11.1x
+at 10/10**, and up to 22x with DNS timing. Separately `context[:now]` is the pass's *delivery* instant,
+not the request's start, so the bound is computed from a clock that has already advanced past the robots
+fetch and sitemap discovery. (b) The in-transaction half is authoritative against `CompleteCrawl` only.
+
+**FU-35 is NOT closed.** The repair removed *delivery latency* as a determinant, which was the round-2
+finding, and stopped there. `unevaluated_reach` still admits `state = 'discarded' AND reason IS NOT NULL`
+— every candidate a **different** bound affirmatively disposed of. A run whose only unfetched URL was
+discarded by the **depth** limit at minute zero emits a `wall_clock_run_duration` **hard** decision with
+`affected_urls = 1` and spends its once-per-run `CrawlLimitReached`. Both records are immutable and
+`f1_crawls_guard` refuses correction of the terminal row. The customer is told their crawl ran out of time.
+
+**FU-36 is NOT closed.** The predicate claims themselves are substantively correct and PROOF 104 is potent
+— verified by execution against PG17 (pairwise form FALSE; `ANY(...)` form raises `PG::SyntaxError`; NULL
+admitted under UNKNOWN and refused under FALSE; a live `queued` crawl refused). But ADR-115's claim that
+"an eighth copy fails CI" is false, by two independent escapes found by two lenses separately.
+
+## Consolidated blockers, with per-lens provenance
+
+Provenance is preserved: **U** = discovered by that lens alone; **J** = joint.
+
+| id | finding | lens(es) | file |
+| --- | --- | --- | --- |
+| R3-1 | FU-35 refuted: `unevaluated_reach` counts other dimensions' discarded candidates as wall-clock-affected | contract **U** | `crawl_start_store.rb:264` |
+| R3-2 | `CancelCrawl` bars **every** post-deadline cancellation; :458 s.3 scopes the win to the instant, s.1 governs the rest by commit order. Refusal code contradicts the authoritative state (`running`, `terminal_at` NULL) | contract **U** | `cancel_crawl.rb:131-134` |
+| R3-3 | `CrawlCanceled` omits `coverage_status`, a declared `crawl_terminal` member; the command-result payload already sets it | contract **U** | `cancel_crawl.rb:182-187` |
+| R3-4 | FU-34 out-of-transaction half not implemented: per-hop timeout re-arming (11.1x overrun, 10/10) + `now` is the pass's delivery instant | concurrency **U** | `fetch_content.rb:345-353`, `guarded_http_client.rb:109-112` |
+| R3-5 | The three lock proofs gate on a **cluster-wide** `pg_locks` predicate with no database filter. With one unrelated waiter in a *different database*: deleting `FOR UPDATE` → PROOF 101 passes 10/10; deleting `lock_reservation` → PROOF 92 passes 10/10 | concurrency **U** | `wf005_checkpoint_pass_concurrency_spec.rb:197-201`, `wf005_heartbeat_concurrency_spec.rb:132-137` |
+| R3-6 | `CancelCrawl` takes no frontier lock, so `retire` can commit `document_created / covered` onto a cancelled, entitlement-released Crawl. Irreversible. R2-B1's shape with `canceled` for `failed` | architecture **J** (BLOCKER, 3/3) + concurrency **J** (OBSERVATION, 10/10) | `cancel_crawl.rb:102` vs `crawl_driver.rb:402` |
+| R3-7 | FU-36's durable check has two escapes: `CORRECT_USE` whitelists any window containing `limit_reached` (this tranche's own completion reason), and `PREDICATE_RECORDS` is a hardcoded six-file list that misses `S-07-009_COMPLETION_REPORT.md` — the file acceptance will create | schema **J** + architecture **J** | `repository_truth_spec.rb:291-299,309` |
+| R3-8 | PROOF 108's central assertion cannot fail: `requests` is appended to only by `content_outbound`, and PROOF 108's bespoke stub never touches it. The "stub raises" backup is also false — `fetch_content.rb:320` rescues `StandardError` | architecture **U** | `wf005_content_fetch_spec.rb:885` |
+| R3-9 | `gate_row` selects one row with no `ORDER BY` from a two-gate crawl. `ORDER BY canonical_host ASC` → PROOFs 98, 99, 114 **fail**. The suite is green on heap order | architecture **U** | `wf005_crawl_chain.rb:181` |
+| R3-10 | A **Read-Only Executive Buyer** can irreversibly cancel a running Crawl. :147 is a seven-cell row and only its two allows were transcribed; `confers?` reads `canonical_role` and never `permission_mode` | security **U** | `command_authorizer.rb:122`, `permission_baseline.rb:130` |
+| R3-11 | The RLS **policy predicate** on `crawl_terminal_outcomes` is asserted by nothing. `USING (true) WITH CHECK (true)` → every S-07-009 spec stays green. The preceding tranche established the rule and named this exact mutation | security **U** | `crawl_terminal_outcome_invariants_spec.rb:310` |
+
+## Pre-existing / governance blockers (outside the candidate range)
+
+| id | finding | evidence |
+| --- | --- | --- |
+| R3-P1 | **The migration chain cannot build an empty database.** `20260721120004:68` puts `lifecycle_reason` in the `CREATE TABLE`; `20260722120014:22` adds it again with no `IF NOT EXISTS`. 13 of 69 migrations apply, then `PG::DuplicateColumn`. Present since `54b4abd`, 2026-07-21 | reproduced with `SCHEMA` pointed away from `structure.sql`; deleting the duplicate line applies all 69 and dumps byte-identical |
+| R3-P2 | **The gate "the schema builds from empty" has never been executed.** Rails' `db:migrate` loads `structure.sql` first on an uninitialised database (`database_tasks.rb:651-669`), so `bin/f1-provision-db:46` prints "provisioned from empty" having run **zero** migrations. `VERIFICATION_MANIFEST.yml:83` is only dump-and-diff. **22 assertions in DECISIONS.md** plus `BUILD_STATE.reconciliation_note` describe an operation never performed | `[3/5] run migrations` emitted no `migrating` lines while taking the DB 0 → 55 tables |
+| R3-P3 | `db/structure.sql:1292-1309` defines `f1_find_invitation_acceptance_replay`, which **no migration creates**. Invisible to the gate because dump-and-diff against a structure-loaded database is a closed loop | absent from `db/migrate`, `app`, `lib`, `spec` |
+
+R3-P1..P3 are **outside `7f043a2..467f1d1`** and are not S-07-009 defects. They are recorded here because
+R3-P2 means no acceptance in this repository has met its own stated migration-safety criterion, which is a
+scope question for the owner rather than a repair this tranche may absorb.
+
+## Marginal contribution per lens
+
+| Lens | Blockers unique | Blockers joint | Observations unique |
+| --- | --- | --- | --- |
+| Contract-correctness | 3 | 0 | 4 |
+| Concurrency / atomicity | 2 | 1 (R3-6) | 3 |
+| Schema / migration-safety | 3 (all pre-existing) | 1 (R3-7) | 0 |
+| Architecture / scope / test-quality | 3 | 2 (R3-6, R3-7) | 8 |
+| Security / tenant-isolation | 2 | 0 | 4 |
+
+Two joint discoveries. **R3-6** was reached from opposite mandates — architecture by auditing what the
+cancellation specs never race, concurrency by auditing the lock graph — and the two lenses **disagreed on
+severity**, architecture calling it a blocker and concurrency an observation on the strength of FU-32's
+ratified disclosure. That disagreement is preserved rather than averaged. **R3-7** was reached by schema
+and architecture with overlapping but separately constructed escapes.
+
+**Consequence-establishment, recorded separately from discovery.** Three findings were established as
+consequential by evidence that no reading could have produced: R3-5 by running a noise generator in a
+*different database* and watching two mutation-killed proofs return to green (10/10); R3-9 by forcing the
+unordered `SELECT` both ways and watching three proofs flip; R3-11 by rewriting a live policy to
+`USING (true)` and watching 112 examples stay green.
+
+## Round 3 against rounds 1 and 2
+
+Round 1: 11 blockers on a 2040/0 candidate. Round 2: 3 on a 2055/0 candidate, two of them defects in
+round 1's repairs. Round 3: 11 in-candidate on a **2068/0** candidate, **all three round-2 repairs refuted**,
+plus a pre-existing gate that has never run.
+
+The count did not fall, and the depth increased. Rounds 1 and 2 found defects in code; round 3's most
+serious findings are that **the evidence itself does not hold** — three lock proofs that pass whenever the
+cluster is busy, an assertion that cannot fail, three proofs green on physical row order, and a policy
+predicate no test exercises. A fourth round is not made unnecessary by a smaller number; on this record it
+is made necessary by the kind.
+
+## Dependency-ordered repair programme
+
+1. **R3-5 first, before anything else is measured.** While the lock proofs can false-pass, no concurrency
+   evidence in this repository is trustworthy, including the evidence for repairs 2-4 below. Scope the
+   waiter predicate to `current_database()` and to the blocking pids, then re-run every mutation round 1
+   and round 2 relied on.
+2. **R3-8, R3-9, R3-11** — the other three evidence defects. Repair the instruments before the code they
+   are supposed to measure.
+3. **R3-6** — resolve the severity disagreement first (it is an owner question: does FU-32's disclosure
+   cover a cancelled run, or does `crawl_driver.rb:378-390`'s authoritativeness claim govern?), then either
+   take the frontier lock in `CancelCrawl` or correct the claim, and add PROOF 111's cancellation counterpart.
+4. **R3-10** — the only irreversible customer-facing hole. Independent of the rest.
+5. **R3-4**, then **R3-1**, then **R3-2**, then **R3-3** — the contract and bounding repairs, in that order,
+   because R3-4 changes what "still in flight at the deadline" means and R3-1 changes what the deadline is
+   recorded as having bounded.
+6. **R3-7** — widen the durable check last, so it is written against the final vocabulary.
+7. **R3-P1..P3** — owner scope decision. Not absorbed into this tranche.
+
+**Round 4 must be run by five fresh contexts.** Round 3's own method is the reason it found what it did.
