@@ -96,9 +96,25 @@ module Workflows
                         outward: "crawl_cancel_unauthorized", internal: "crawl_cancel_unauthorized")
           end
 
-          # THE SERIALIZATION AGAINST THE TERMINAL CHECKPOINT, taken before anything is read that
-          # decides. Whichever of the two transactions reaches this row first wins :458's ordering, and
-          # the other one then reads the winner's committed state rather than its own stale view.
+          # THE SERIALIZATION AGAINST THE TERMINAL CHECKPOINT *AND* AGAINST AN IN-FLIGHT PASS, taken
+          # before anything is read that decides. Whichever transaction arrives first wins :458's
+          # ordering, and the other reads the winner's committed state rather than its own stale view.
+          #
+          # THE FRONTIER LOCK IS FIRST AND IS NOT OPTIONAL (round 3, R3-6). `CrawlDriver#retire` decides
+          # whether to write its outcome row by re-reading `crawls.state`, and ADR-113 justified that
+          # PLAIN SELECT by saying it happens "under the frontier advisory lock it already takes, which
+          # is the same lock `Handlers::CompleteCrawl` takes first (ADR-105) — so exactly one of the two
+          # transactions holds it". That argument covered the CHECKPOINT and nothing else: this handler
+          # took only the `crawls` row lock, and the outcome row's FK takes `FOR KEY SHARE`, which is
+          # compatible with this transaction's `FOR NO KEY UPDATE`. So nothing blocked, and a pass could
+          # commit `document_created / covered` onto a Crawl this transaction had already cancelled and
+          # whose entitlement it had already released — R2-B1's corrupt shape with `canceled` in place of
+          # `failed`, reproduced 3/3 and 10/10 by two lenses independently, and IRREVERSIBLE because
+          # `f1_crawls_guard` refuses every UPDATE of a terminal row.
+          #
+          # Frontier THEN crawls, matching `Admission#claim`, `retire` and `CompleteCrawl`. Taking them
+          # the other way round is what ADR-105 rejected for the driver.
+          IdentityAccess::Infrastructure::CrawlFrontierStore.new(d[:pg]).lock_frontier(command.crawl_id)
           crawl = d[:crawls].lock_crawl(d[:org], command.crawl_id)
           return denied(d, "tenant_mismatch") if crawl.nil? || crawl["project_id"] != command.project_id
 

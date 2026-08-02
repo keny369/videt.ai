@@ -194,8 +194,8 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       w = RaceHarness.spawn_operation(winner)
       RaceHarness.wait_until("the winner blocked inside its transaction") { RaceHarness.blocked_on(key) >= 1 }
       l = RaceHarness.spawn_operation(loser)
-      RaceHarness.wait_until("the loser blocked on the crawls row behind the winner") do
-        RaceHarness.blocked_on_row_behind(key) >= 1
+      RaceHarness.wait_until("the loser blocked behind the winner") do
+        RaceHarness.blocked_behind(key) >= 1
       end
       controller.exec_params("SELECT pg_advisory_unlock($1)", [key])
       [w.value, l.value]

@@ -126,12 +126,12 @@ RSpec.describe "WF-005 entitlement heartbeat under two deliveries", type: :accep
         # unhandled `PG::CheckViolation`: its renewed expiry would not advance the winner's.
         loser = RaceHarness.spawn_operation(-> { deliver(ctx, action, at: at - 30) })
         # Observably contending for the reservation ROW THE WINNER HOLDS — not merely running later, and
-        # not merely "something on this cluster is waiting". `blocked_on_row_behind` asserts the causal
+        # not merely "something on this cluster is waiting". `blocked_behind` asserts the causal
         # edge: an ungranted row waiter in THIS database whose blocker is the backend queued on
         # `gate_key`. The unscoped `pg_locks` count this replaced was satisfiable by any transaction in
         # any database, which made PROOF 92 pass 10/10 with `lock_reservation` deleted (round 3, R3-5).
-        RaceHarness.wait_until("the loser blocked on the reservation row behind the winner") do
-          RaceHarness.blocked_on_row_behind(gate_key) >= 1
+        RaceHarness.wait_until("the loser blocked behind the winner") do
+          RaceHarness.blocked_behind(gate_key) >= 1
         end
 
         controller.exec_params("SELECT pg_advisory_unlock($1)", [gate_key])

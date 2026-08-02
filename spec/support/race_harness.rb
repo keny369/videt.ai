@@ -116,7 +116,18 @@ module RaceHarness
   # would still satisfy each other's predicate. So this asserts the actual causal edge the specs mean —
   # the waiter is blocked by a backend that is itself queued on the controller's gate — which no
   # unrelated transaction anywhere can satisfy.
-  def blocked_on_row_behind(key)
+  # Waiters blocked BY A BACKEND THAT IS ITSELF QUEUED ON `key` — whatever object they are queued on.
+  #
+  # Deliberately not restricted by lock type. Which object two transactions collide on is a property of
+  # the implementation under test, not of the race: when `CancelCrawl` began taking the frontier
+  # advisory lock before the `crawls` row (R3-6), cancel-versus-checkpoint stopped colliding on the row
+  # and started colliding on the advisory lock. A predicate naming `transactionid`/`tuple` silently
+  # stopped observing the very race it was written for, and would have to be edited again the next time
+  # a lock moved. The causal edge is what the specs actually mean, and it does not move.
+  #
+  # The `gated` CTE is the set of backends WAITING on `key` (ungranted). The controller HOLDS `key`
+  # granted, so it is correctly excluded — otherwise every waiter in the database would match.
+  def blocked_behind(key)
     sql = <<~SQL
       WITH gated AS (
         SELECT pid FROM pg_locks
@@ -128,7 +139,6 @@ module RaceHarness
       SELECT count(*) FROM pg_locks l
       JOIN pg_stat_activity a ON a.pid = l.pid
       WHERE NOT l.granted
-        AND l.locktype IN ('transactionid', 'tuple')
         AND a.datname = current_database()
         AND EXISTS (SELECT 1 FROM gated g WHERE g.pid = ANY(pg_blocking_pids(l.pid)))
     SQL
