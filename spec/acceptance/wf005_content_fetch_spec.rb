@@ -801,8 +801,23 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
   # states that a caller "may ask for tighter, never wider". Nothing in F-01 changes and there is no
   # second path to the network.
   describe ":442's wall clock cancels an incomplete request (FU-34)" do
-    def fetch_at(ctx, outbound, at:)
-      Workflows::Wf005::FetchContent.new(outbound:).call(
+    # THE MONOTONIC SEAM IS SUPPLIED BY EVERY EXAMPLE HERE, and that is deliberate (R3-4).
+    #
+    # The budget is now computed from the instant the REQUEST starts, which is `now` plus the real
+    # time the pass has already spent on robots and sitemap discovery. Left to the process clock that
+    # elapsed time is however long this machine took — these examples measured 4.986s against an
+    # expected 5s — so an exact assertion would be a flake and a loose one would stop measuring the
+    # thing. Injecting the clock makes the elapsed time an INPUT, so a proof can state it exactly.
+    #
+    # `elapsed:` is the seconds that pass between `call` and the request. Zero is the old behaviour
+    # and is what the boundary proofs want; a positive value is the defect R3-4 named.
+    def monotonic_advancing_by(elapsed)
+      readings = [0.0, elapsed.to_f]
+      -> { readings.shift || elapsed.to_f }
+    end
+
+    def fetch_at(ctx, outbound, at:, elapsed: 0)
+      Workflows::Wf005::FetchContent.new(outbound:, monotonic: monotonic_advancing_by(elapsed)).call(
         organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
         entry: root_entry(ctx), gate_id: ctx[:gate_id], now: at)
     end
@@ -827,8 +842,50 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       fetch_at(ctx, content_outbound(timeout_outcome), at:)
 
       # :390's resolved per-request ceiling is 15 seconds; five remain. A caller may ask for tighter.
-      expect(requests.last[:timeout_s]).to be_within(0.001).of(5)
+      # Exact, not `be_within`: the pass spends no measured time before the request in this example,
+      # so five seconds is the whole of what remains and an approximation would hide the seconds
+      # PROOF 121 is about.
+      expect(requests.last[:timeout_s]).to eq(5)
       expect(requests.last[:timeout_s]).to be < Workflows::Wf005::ByteAccounting::GLOBAL_BOUNDS.timeout_s
+    end
+
+    # R3-4's SECOND HALF, AND THE ONE THAT WAS NOT IMPLEMENTED. ADR-113 computed the budget from
+    # `context[:now]` — the pass's DELIVERY instant, fixed once in `call`. By the time the content
+    # request is made, that same pass has already fetched robots and attempted sitemap discovery, both
+    # real network calls, so the elapsed time between the two instants is real and unbounded by
+    # anything here. Computing "how much of the run is left" from the earlier instant OVERSTATES it by
+    # exactly that much, and the request the deadline exists to bound is handed a budget that runs
+    # past `deadline_at`.
+    #
+    # The remaining half of R3-4 — F-01 re-arming `timeout_s` per REDIRECT HOP, measured at 11.1x
+    # overrun — cannot be repaired here: `app/platform/outbound/` is a frozen foundation and the
+    # repository's own classifier makes any edit to it a mandatory human escalation. It is recorded
+    # as FU-43 and is NOT claimed closed by this example.
+    it "PROOF 121 — the budget is measured from when the REQUEST starts, not from when the pass arrived" do
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      # Three of the five remaining seconds are spent inside the pass, before the content request.
+      fetch_at(ctx, content_outbound(timeout_outcome), at:, elapsed: 3)
+
+      # Two seconds remain to the run, so two seconds is what the request may have. Against the
+      # delivery instant this reads 5 — a request permitted to run three seconds past `deadline_at`.
+      expect(requests.last[:timeout_s]).to eq(2)
+    end
+
+    it "PROOF 122 — a pass whose earlier work consumed the whole run makes no request at all" do
+      # The same arithmetic at its limit. `budget.expired?` is what stops the request, and against the
+      # delivery instant it CANNOT fire while `now` is before the deadline, however long the pass has
+      # since spent: the run is over, and a request would still go out.
+      ctx = fetchable
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      execution = fetch_at(ctx, content_outbound(content_response), at:, elapsed: 6)
+
+      expect(requests).to be_empty
+      expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::LIMIT_DISCARDED)
+      expect(execution.result.reason_code).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+      expect(execution.result.retryable).to be(false)
     end
 
     it "PROOF 106 — a request still in flight at the boundary is CANCELLED, and is not a failure of the URL" do
@@ -861,7 +918,7 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
 
       execution = fetch_at(ctx, content_outbound(content_response), at:)
 
-      expect(requests.last[:timeout_s]).to be_within(0.001).of(5)
+      expect(requests.last[:timeout_s]).to eq(5)
       expect(execution.result.outcome).to eq(Workflows::Wf005::FetchContent::DOCUMENT_CREATED)
       expect(execution.result.reason_code).to be_nil
       expect(execution.result.http_status).to eq(200)

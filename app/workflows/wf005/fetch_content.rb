@@ -119,13 +119,20 @@ module Workflows
         def performed? = performed
       end
 
+      # `monotonic` is a seam in the shape `Platform::ScheduledActions::LeaseKeeper` already
+      # establishes, and it exists so R3-4's defect can be PROVED without a `sleep`: the wall clock
+      # that matters here is elapsed real time, and a test that cannot advance it can only assert the
+      # zero case. Production passes the process clock.
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
-                     limit_decisions: nil)
+                     limit_decisions: nil, monotonic: nil)
         @outbound = outbound
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @limit_decisions = limit_decisions || LimitDecisions.new(ids: @ids, correlation_id: @correlation_id)
+        @monotonic = monotonic || -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
       end
+
+      def monotonic = @monotonic.call
 
       # PERFORM AT MOST ONE ATTEMPT for this frontier entry, and report whether :444 owes another.
       #
@@ -150,7 +157,11 @@ module Workflows
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i,
           # :442's wall clock, carried to the request itself. See `request_budget`.
-          deadline_at: crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc
+          deadline_at: crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc,
+          # THE INSTANT `now` WAS TRUE, so the request's budget can be computed from the instant the
+          # REQUEST starts rather than from the instant the pass was delivered (R3-4). See
+          # `request_start`.
+          entered_monotonic: monotonic
         }
         one_pass(context, entry, reserved_bytes:)
       end
@@ -342,11 +353,30 @@ module Workflows
         def expired? = bounded && seconds <= 0
       end
 
+      # THE INSTANT THE REQUEST STARTS, WHICH IS NOT THE INSTANT THE PASS ARRIVED (R3-4).
+      #
+      # `context[:now]` is the pass's DELIVERY instant, fixed once in `call`. By the time the content
+      # request is made, the same pass has already fetched robots (a network call) and attempted
+      # sitemap discovery (another), and has taken its admission — so real wall-clock time has passed
+      # that `now` cannot see. Computing the remaining budget from `now` therefore OVERSTATES it by
+      # exactly that much, and the request the deadline was supposed to bound runs past `deadline_at`.
+      #
+      # Anchored to `now` and advanced by MEASURED elapsed time, which is the same construction
+      # `completion_instant` already uses in this file: the durable columns keep recording the
+      # ratified instant, and only the budget arithmetic sees the advance. Nothing is falsified —
+      # `now` is not overwritten anywhere.
+      #
+      # Monotonic, never a second `Time.now`: this is a DURATION, and a wall-clock reading that a
+      # clock adjustment moved backwards would hand the request a budget larger than the run has.
+      def request_start(context)
+        context[:now].utc + (monotonic - context[:entered_monotonic])
+      end
+
       def request_budget(context, bounds)
         deadline = context[:deadline_at]
         return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if deadline.nil?
 
-        remaining = deadline - context[:now].utc
+        remaining = deadline - request_start(context)
         return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if remaining > bounds.timeout_s
 
         WallClockBudget.new(seconds: remaining, bounded: true)
