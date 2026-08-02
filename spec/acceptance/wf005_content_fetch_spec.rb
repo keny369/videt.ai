@@ -870,12 +870,28 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
     it "PROOF 108 — past the boundary NO REQUEST IS MADE AT ALL, and the outcome says why" do
       # ":442 — At 60 elapsed minutes, NO NEW REQUEST STARTS." `CrawlDriver#advance` and
       # `Admission#authorize_run` both refuse before this, so reaching here is a race — and the honest
-      # answer to a race is not to make the request. The stub RAISES if it is called, so this cannot
-      # pass by returning a convenient outcome.
+      # answer to a race is not to make the request.
+      #
+      # THE INSTRUMENT HAD TO BE REPAIRED BEFORE THIS PROOF MEANT ANYTHING (round 3, R3-8). It used a
+      # bespoke stub that never touched `requests`, so `expect(requests).to be_empty` was empty BY
+      # CONSTRUCTION and passed under every mutation. Its stated backup — "the stub RAISES if it is
+      # called, so this cannot pass by returning a convenient outcome" — was false too: `FetchContent#
+      # fetch` wraps the call in `rescue StandardError`, so the raise was swallowed and reclassified.
+      # Mutating `fetch` to issue the request past the deadline while still returning the timeout
+      # outcome (what a real connector does on a non-positive budget) left this GREEN. That matters
+      # concretely: `Ceilings.clamp_positive` returns the platform MAXIMUM for a value <= 0, so a lost
+      # `expired?` guard means a full-ceiling request against the customer's site on a run that is over.
+      #
+      # It now records through the same sink every other example uses, so "no request" is asserted by
+      # an instrument that would have SEEN one.
       ctx = fetchable
       at = live_at(ctx, deadline_of(ctx) + 1)
+      sink = requests
       refusing = Object.new.tap do |o|
-        o.define_singleton_method(:fetch) { |url, **_k| raise "a request was made past the wall clock: #{url}" }
+        o.define_singleton_method(:fetch) do |url, **kwargs|
+          sink << kwargs.merge(url:)
+          raise "a request was made past the wall clock: #{url}"
+        end
       end
 
       execution = fetch_at(ctx, refusing, at:)
