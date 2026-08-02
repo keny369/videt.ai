@@ -151,6 +151,19 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(body["reason_code"]).to eq("canceled")
       expect(body["transition_reason_code"]).to eq("canceled")
       expect(body["accepted_document_count"]).to eq(0)
+
+      # R3-3 — THE FIRST MEMBER, WHICH ADR-110 LEFT OUT WHILE ADDING THE THIRD. :956's
+      # `crawl_terminal` extra schema is `coverage_status`, `completion_reason` AND
+      # `accepted_document_count`, so an envelope declaring that profile carries all three.
+      # PRESENT-AND-NULL, asserted as two separate facts because :938's consumer rule treats them
+      # differently: a MISSING required member is rejected, a null one is what the schema defines.
+      expect(body).to have_key("coverage_status")
+      expect(body["coverage_status"]).to be_nil
+      expect(body["completion_reason"]).to eq("canceled")
+      # The event and the command result describe ONE terminal act, and before this they disagreed
+      # about its shape: the payload set `coverage_status` and the envelope omitted it.
+      expect(result.payload[:coverage_status]).to be_nil
+      expect(body.keys).to include(*%w[coverage_status completion_reason accepted_document_count])
     end
 
     it "PROOF 81 — a QUEUED Crawl cancels too, and has no reservation to release" do
@@ -189,39 +202,84 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(events(ctx[:crawl_id])).to be_empty
     end
 
-    it "PROOF 93 — at and after the 60-minute boundary the WALL CLOCK wins, not the cancellation" do
-      # :458's THIRD sentence, which the first implementation stopped short of: "At exactly the 60-minute
-      # boundary the wall-clock terminal handler wins over a simultaneous cancellation." The two
-      # sentences before it are settled by commit order; this one is an ASYMMETRY at an instant, and
-      # without it whether a cancellation at minute sixty-one won was decided by whether the transport
-      # had yet delivered `crawl_terminal_deadline`.
+    it "PROOF 93 — AT the 60-minute boundary the wall clock wins the tie" do
+      # :458's THIRD sentence, and only what it says: "At exactly the 60-minute boundary the wall-clock
+      # terminal handler wins over a SIMULTANEOUS cancellation." It is an ASYMMETRY AT ONE INSTANT —
+      # the tie between two eligible parties that commit order alone cannot settle. :551 uses the same
+      # construction twice ("At exactly the prestart expiry, execution-start loses to expiry").
       ctx = running_crawl
       deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
 
-      # AT the boundary — the exact case the sentence names, so `>=` and not `>`.
       at_boundary = Workflows::Wf005::Handlers::CancelCrawl.new.call(
         command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline)),
         request_context: executor_ctx_for_actor(deadline)
       )
+
       expect(at_boundary.success?).to be(false)
       expect(at_boundary.failure.reason_code).to eq("crawl_already_terminal")
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("running")
+      expect(events(ctx[:crawl_id])).to be_empty
+    end
 
-      # And past it. The run is still `running` — the wall-clock handler has not arrived yet — and that
-      # is precisely the window this closes.
+    # R3-2. ADR-107 implemented the boundary as `now >= deadline`, which barred EVERY post-deadline
+    # cancellation — a different rule from the one :458 states, and one that contradicted the two
+    # sentences before it. Sentence 1 draws its line at THE CHECKPOINT'S COMMIT, not at the deadline
+    # instant: "a cancellation committed STRICTLY BEFORE that checkpoint yields `Crawl.Canceled`; a
+    # cancellation AT OR AFTER THE CHECKPOINT is rejected as `crawl_already_terminal`."
+    #
+    # It also told the caller something false. The Crawl is `running` with `terminal_at` NULL, and the
+    # answer was `crawl_already_terminal`.
+    it "PROOF 124 — PAST the boundary, a cancellation that beats the checkpoint still wins" do
+      ctx = running_crawl
+      deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+
+      # A minute past the deadline. The checkpoint has NOT been delivered — the Crawl is authoritatively
+      # `running` — so :458 sentence 1 governs and commit order decides. This cancellation is first.
       past = Workflows::Wf005::Handlers::CancelCrawl.new.call(
         command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline + 60)),
         request_context: executor_ctx_for_actor(deadline + 60)
       )
-      expect(past.failure.reason_code).to eq("crawl_already_terminal")
 
+      expect(past.success?).to be(true)
       crawl = crawl_row(ctx[:crawl_id])
-      expect(crawl["state"]).to eq("running")
-      expect(events(ctx[:crawl_id])).to be_empty
-      # THE METERING ESCAPE THIS CLOSES. :551 releases a reservation for a cancellation before the
-      # durable commit point and the checkpoint COMMITS one for a completed run, so a `crawl.cancel`
-      # holder who could cancel after the clock could choose the release limb over the commit — for
-      # every run, from an ordinary MarketingOperator's authority.
-      expect(reservation(ctx[:crawl_id])["state"]).to eq("executing")
+      expect(crawl["state"]).to eq("canceled")
+      expect(crawl["completion_reason"]).to eq("canceled")
+
+      # :551 — "CANCELLATION OR ANY TERMINAL FAILURE BEFORE THE LISTED COMMIT POINT RELEASES even when
+      # intermediate Documents or other partial artifacts exist; those artifacts remain governed by
+      # their workflow but are NOT A USAGE COMMITMENT."
+      #
+      # ADR-107 barred this window to stop what it called a metering escape: a `crawl.cancel` holder
+      # letting a run consume its full sixty minutes and then cancelling ahead of the checkpoint to take
+      # the release limb over the commit. That behaviour is RATIFIED by the sentence above, so the guard
+      # was a handler inventing a broader bar than the contract to prevent what the contract permits.
+      expect(past.payload[:entitlement_outcome]).to eq("released")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
+    end
+
+    it "PROOF 125 — once the checkpoint HAS committed, a past-deadline cancellation is still refused" do
+      # The other side of sentence 1, and what makes PROOF 124 a boundary rather than a hole. The line
+      # is the CHECKPOINT'S COMMIT, so the two conditions the old `>=` form ran together are separated
+      # here: this Crawl is BOTH past its deadline AND terminal, and it is the terminal half that
+      # refuses. PROOF 82 pins the same refusal inside the deadline; this is the combination.
+      ctx = running_crawl
+      deadline = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+      DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id]])
+        UPDATE crawls SET state='completed', terminal_at=now(), completion_reason='completed',
+               coverage_status='full', state_version = state_version + 1 WHERE id = $1::uuid
+      SQL
+
+      refused = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, deadline + 60)),
+        request_context: executor_ctx_for_actor(deadline + 60)
+      )
+
+      expect(refused.success?).to be(false)
+      expect(refused.failure.reason_code).to eq("crawl_already_terminal")
+      # And now the refusal AGREES with the record, which is the half ADR-107's form got wrong: it
+      # answered `crawl_already_terminal` about a Crawl that was `running` with `terminal_at` NULL.
+      expect(crawl_row(ctx[:crawl_id])["terminal_at"]).not_to be_nil
+      expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("completed")
     end
 
     it "PROOF 116 — a cancellation AT the boundary emits no limit decision and no limit event" do

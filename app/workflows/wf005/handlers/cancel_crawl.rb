@@ -129,23 +129,37 @@ module Workflows
           if %w[completed failed canceled].include?(crawl["state"])
             return denied(d, "crawl_already_terminal")
           end
-          # :458's THIRD SENTENCE, which the first implementation of this handler stopped short of
-          # (DECISIONS ADR-107): "At exactly the 60-minute boundary the WALL-CLOCK TERMINAL HANDLER WINS
-          # over a simultaneous cancellation."
+          # :458's THIRD SENTENCE, AT THE INSTANT IT IS ABOUT AND NOT A MOMENT LONGER (round 3, R3-2).
+          # "At exactly the 60-minute boundary the WALL-CLOCK TERMINAL HANDLER WINS over a SIMULTANEOUS
+          # cancellation."
           #
-          # The two sentences before it are settled by commit order, and the row lock above makes that a
-          # fact. This one cannot be: it is an ASYMMETRY at an instant, and without it whether a
-          # cancellation at minute sixty-one wins was decided purely by whether the transport had got
-          # round to delivering `crawl_terminal_deadline` yet. `>=`, not `>`, because "at exactly the
-          # boundary" is the case the sentence exists to settle.
+          # ADR-107 implemented this as `now >= deadline`, which barred EVERY post-deadline
+          # cancellation. That is a different rule from the one :458 states, and it contradicted the
+          # two sentences before it: "a cancellation committed STRICTLY BEFORE that checkpoint yields
+          # `Crawl.Canceled`; a cancellation AT OR AFTER THE CHECKPOINT is rejected". The boundary
+          # sentence 1 draws is THE CHECKPOINT'S COMMIT, not the deadline instant — and the checkpoint
+          # committing is exactly what the state test above already detects. So a cancellation at
+          # minute sixty-one, arriving while the Crawl is still `running` because the checkpoint has
+          # not been delivered yet, is governed by sentence 1 and WINS.
           #
-          # IT IS ALSO WHAT STOPS A METERING ESCAPE. :551 releases a reservation for a cancellation
-          # before the durable commit point; the checkpoint COMMITS one for a completed run. Without
-          # this limb a `crawl.cancel` holder could let a run consume its full sixty minutes and then
-          # cancel ahead of the checkpoint, choosing the release limb over the commit — repeatedly, and
-          # from an ordinary MarketingOperator's authority.
+          # THE OLD FORM ALSO TOLD THE CALLER SOMETHING FALSE. It answered `crawl_already_terminal`
+          # about a Crawl whose authoritative state was `running` with `terminal_at` NULL. A refusal
+          # code is a statement about the record, and that one contradicted it.
+          #
+          # `==`, not `>=`: "at exactly the boundary" is a tie between two eligible parties at ONE
+          # instant, which is the only thing commit order cannot settle on its own. :551 uses the same
+          # construction twice for the same kind of tie ("At exactly the prestart expiry, execution-start
+          # loses to expiry"; "At exactly 15 minutes ... the lease-expiry handler wins"), and settles
+          # everything else by whether the durable commit point "committed STRICTLY BEFORE that instant".
+          #
+          # THE METERING ESCAPE ADR-107 GUARDED AGAINST IS RATIFIED BEHAVIOUR, which is why removing
+          # the guard is not a hole. :551: "CANCELLATION OR ANY TERMINAL FAILURE BEFORE THE LISTED
+          # COMMIT POINT RELEASES even when intermediate Documents or other partial artifacts exist;
+          # those artifacts remain governed by their workflow but are NOT A USAGE COMMITMENT." A
+          # cancellation that beats the checkpoint releasing rather than committing is the contract, not
+          # an exploit of it, and a handler may not invent a broader bar to prevent what :551 permits.
           deadline = crawl["deadline_at"]
-          if deadline && d[:now] >= Time.parse(deadline.to_s).utc
+          if deadline && d[:now] == Time.parse(deadline.to_s).utc
             return denied(d, "crawl_already_terminal")
           end
           # MTX-030's request schema carries the expected state version; a cancellation holding a
@@ -192,12 +206,26 @@ module Workflows
                       key_digest, "CrawlCanceled", "state_transition",
                       # :808 gives `CrawlCanceled` the reason source `transition`, so :938 requires the
                       # `state_transition` base member `transition_reason_code` and root `reason_code`
-                      # equal to it. :956 makes `accepted_document_count` the third member of the
-                      # `crawl_terminal` extra schema; a cancelled run accepted none, and :956 says the
-                      # values are "null/zero before terminal derivation" (ADR-110).
+                      # equal to it. :956 makes the `crawl_terminal` extra schema THREE members —
+                      # `coverage_status`, `completion_reason` AND `accepted_document_count: uint53`,
+                      # "values are null/zero before terminal derivation" (ADR-110).
+                      #
+                      # `coverage_status` IS EMITTED, AS NULL (round 3, R3-3). ADR-110 added the third
+                      # member to this envelope and left the FIRST one out, so `CrawlCanceled` declared
+                      # the `crawl_terminal` profile and carried two of its three members — while this
+                      # handler's own command-result payload eight lines above set `coverage_status`
+                      # explicitly. Two surfaces describing one terminal act disagreed about its shape.
+                      #
+                      # NULL IS THE VALUE, NOT AN OMISSION, and the two are different facts to a
+                      # consumer: :956 admits `nullable enum{full,partial}` and says the values are null
+                      # "before terminal derivation", `crawls_terminal_shape` requires a coverage status
+                      # only of `completed` (ADR-097), and a cancelled run's coverage is not a number
+                      # anyone should read because the run was STOPPED, not measured. An absent required
+                      # member is what :938's consumer rule REJECTS; a null one is what it defines.
                       { "project_id" => command.project_id, "crawl_id" => crawl["id"],
                         "from_state" => from_state, "to_state" => "canceled",
                         "completion_reason" => COMPLETION_REASON,
+                        "coverage_status" => nil,
                         "accepted_document_count" => 0,
                         "reason_code" => COMPLETION_REASON,
                         "transition_reason_code" => COMPLETION_REASON })
