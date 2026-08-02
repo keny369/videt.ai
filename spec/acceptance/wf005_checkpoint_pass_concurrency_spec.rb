@@ -125,6 +125,23 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     Object.new.tap { |o| o.define_singleton_method(:fetch) { |*_a, **_k| outcome } }
   end
 
+  # A BLOCKED WAIT IN A TEST MUST FAIL, NOT HANG. `Queue#pop` with no timeout waits for ever, so an
+  # example whose counterpart thread dies before pushing turns a red suite into one that never
+  # finishes — observed here once as an eleven-minute stall with the process at 0% CPU and every
+  # backend idle, which reads exactly like "still running" and is the least actionable failure mode
+  # there is. `RaceHarness.wait_until` was already bounded; these three waits were not.
+  #
+  # Generous enough never to fire on a healthy run (the whole file takes about two seconds), short
+  # enough that CI reports something a reader can act on.
+  POP_TIMEOUT_S = 30
+
+  def await(queue, what)
+    value = queue.pop(timeout: POP_TIMEOUT_S)
+    raise "timed out after #{POP_TIMEOUT_S}s waiting for: #{what}" if value.nil?
+
+    value
+  end
+
   # A façade stub that suspends INSIDE the request until the example releases it. This is the natural
   # mid-request window rather than a simulation of one: `fetch_and_settle` performs the network call
   # outside every transaction, so a pass here holds nothing at all.
@@ -139,10 +156,15 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       pinned_address: "198.51.100.7", final_url: "https://shop.acme.example/", redirect_count: 0,
       latency_ms: 5
     )
+    # Captured as a local, because `define_singleton_method`'s block runs with the STUB as `self`, so
+    # a bare `await(...)` inside it would resolve against the stub and raise NoMethodError.
+    awaiter = method(:await)
     Object.new.tap do |o|
       o.define_singleton_method(:fetch) do |*_a, **_k|
         started << :in_flight
-        release.pop
+        # Bounded like the others. `FetchContent#fetch` rescues StandardError, so this raise surfaces
+        # as an adapter error and the example fails on its assertions — which is a report, not a hang.
+        awaiter.call(release, "the example to release the in-flight request")
         outcome
       end
     end
@@ -367,7 +389,7 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       pass = RaceHarness.spawn_operation(
         -> { run_pass_with(ctx, first_fetch_action(ctx), gated_page_outbound(started, release)) }
       )
-      started.pop
+      await(started, "the pass to enter its request")
       checkpoint = RaceHarness.spawn_operation(-> { run_checkpoint(ctx, due_now_checkpoint(ctx)) }).value
       release << :go
       [pass.value, checkpoint]
@@ -533,7 +555,7 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       pass = RaceHarness.spawn_operation(
         -> { run_pass_with(ctx, first_fetch_action(ctx), gated_page_outbound(started, release)) }
       )
-      started.pop
+      await(started, "the pass to enter its request")
       cancel_result = RaceHarness.spawn_operation(-> { run_cancel(ctx) }).value
       release << :go
       pass_result = pass.value
