@@ -183,7 +183,12 @@ module TenantSeeder
   # OrganizationAdmin Role Assignment, an active Access Policy, and an active
   # Session — i.e. an actor authorized for invitation.revoke. Returns
   # { organization_id:, account_id:, session_id: }.
+  # `permission_mode` and `persona` are forwarded so a caller can seed a tuple :314 defines
+  # by all three fields rather than by the role alone — the Read-Only Executive Buyer being
+  # the one that matters (`MarketingOperator` + `read_only` + `executive_buyer`). Before
+  # R3-10 nothing here could express that actor, which is part of why nothing tested it.
   def seed_authorized_admin(organization_id: nil, canonical_role: "OrganizationAdmin",
+                            permission_mode: "standard", persona: nil,
                             account_status: "active", session_status: "active", with_policy: true, **session_opts)
     org = organization_id || create_organization
     account_id = create_account(organization_id: org, issuer_key: "https://id.example/oidc",
@@ -191,7 +196,7 @@ module TenantSeeder
     unless canonical_role.nil?
       # Stands in for the WF-001 bootstrap first OrganizationAdmin, which :333
       # names as the sole tenant-bootstrap exception to protected approval.
-      create_role_assignment(organization_id: org, account_id:, canonical_role:,
+      create_role_assignment(organization_id: org, account_id:, canonical_role:, permission_mode:, persona:,
                              bootstrap_admin_exception: canonical_role == "OrganizationAdmin")
     end
     create_access_policy(organization_id: org) if with_policy

@@ -121,6 +121,12 @@ module IdentityAccess
       # Assignment's own approved allowlist carries it.
       def confers?(capability, assignment)
         return false unless Platform::PermissionBaseline.permits?(capability, [assignment["canonical_role"]])
+        # THE BASELINE ROW HAS A CELL FOR THE ACTOR'S MODE, AND IT USED TO BE UNREAD (R3-10).
+        # `permission_mode` has always been selected by `effective_role_assignments` and was
+        # never consulted, so a Read-Only Executive Buyer — `MarketingOperator` +
+        # `read_only` + `executive_buyer` per :314 — answered to MarketingOperator's cell and
+        # could irreversibly cancel a running Crawl that :147 denies it outright.
+        return false unless Platform::PermissionBaseline.mode_permits?(capability, assignment["permission_mode"])
         return true unless Platform::PermissionBaseline::PROTECTED.key?(capability)
         # ":329 … or in the expressly defined first-admin/bootstrap exception."
         return true if truthy(assignment["bootstrap_admin_exception"])

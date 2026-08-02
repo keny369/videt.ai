@@ -184,5 +184,50 @@ module Platform
       end
       roles.any? { |role| allowed.include?(role) }
     end
+
+    # THE SIXTH COLUMN OF THE SAME ROW, WHICH `CAPABILITIES` CANNOT EXPRESS (R3-10).
+    #
+    # :135's table has SEVEN cells per row, one per column heading, and the sixth is
+    # **Read-Only Executive Buyer**. `CAPABILITIES` above is keyed by `canonical_role`
+    # alone, and a Read-Only Executive Buyer is NOT a canonical role: :314 defines it as
+    # the tuple `canonical_role = MarketingOperator`, `permission_mode = read_only`,
+    # `persona = executive_buyer` (`Platform::BaselineContent::ALLOWED_ROLE_MODE_PERSONA`,
+    # `Workflows::Wf013::InvitationOffer#valid_tuple?`). So transcribing only the ALLOW
+    # cells of a row silently mapped that actor onto MarketingOperator's cell and granted
+    # it everything a MarketingOperator may do — including `crawl.cancel`, whose own cell
+    # for this column reads `deny`, and whose effect is IRREVERSIBLE because
+    # `f1_crawls_guard` refuses every edge out of a terminal state.
+    #
+    # THE TABLE DECIDES THIS, NOT A JUDGEMENT. Every capability `CAPABILITIES`
+    # materializes is a WRITE capability whose Read-Only Executive Buyer cell reads
+    # exactly `deny` — all fourteen, verified against :137-:151. The cells that column
+    # ALLOWS (`organization.read`, `project.read`, `source.read`, `crawl.read`,
+    # `evaluation.read`, `notification.inbox.read`, the `issue`/`score`/`history`/
+    # `recommendation` reads, `session.terminate` for the actor's own Session, and
+    # `export.list`/`export.create`/`export.retrieve` as summary-only) are READ
+    # capabilities, and this build materializes none of them. So the ratified answer for
+    # every capability that exists here today is `deny`, and this set is EMPTY BY
+    # TRANSCRIPTION rather than by omission.
+    #
+    # It is a set rather than a boolean precisely so the next materialized capability is
+    # a data addition: a read capability the column allows is added here, and the
+    # evaluator's semantics do not change. An empty allow-set that is CONSULTED is a
+    # control; an unconsulted one is what R3-10 found.
+    #
+    # SCOPE, STATED SO IT IS NOT READ WIDER. This closes the `permission_mode` limb of
+    # FU-1 for every capability the baseline materializes. It does NOT touch FU-2, the
+    # assignment-scope (GrantScope) containment limb, which remains open and is a
+    # different dimension of the same row.
+    READ_ONLY_MODE = "read_only"
+    READ_ONLY_CAPABILITIES = [].freeze
+
+    # Does an assignment held in `permission_mode` confer `capability`? Any mode other
+    # than `read_only` is unconstrained by this dimension and answers to the role cell
+    # alone, which is what `standard` means in :314.
+    def mode_permits?(capability, permission_mode)
+      return true unless permission_mode.to_s == READ_ONLY_MODE
+
+      READ_ONLY_CAPABILITIES.include?(capability)
+    end
   end
 end

@@ -302,6 +302,65 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(cancel(ctx, session:).success?).to be(true)
       expect(crawl_row(ctx[:crawl_id])["state"]).to eq("canceled")
     end
+
+    # THE SIXTH CELL OF THE SAME ROW (R3-10). PROOF 84 and PROOF 85 between them tested the
+    # ROLE dimension of :147 and stopped there, which is how the row's sixth column survived
+    # unimplemented: `crawl.cancel | allow | allow | deny | deny | deny | DENY | scheduler
+    # only`, where the sixth heading is **Read-Only Executive Buyer**.
+    #
+    # That actor is not a canonical role — :314 defines it as the tuple `MarketingOperator` +
+    # `read_only` + `executive_buyer` — so a baseline keyed by role alone mapped it onto
+    # MarketingOperator's `allow` and handed a deliberately read-only buyer the power to end a
+    # running Crawl. IRREVERSIBLY: `f1_crawls_guard` refuses every edge out of a terminal
+    # state, so nothing can put the run back, and the entitlement is released on the way out.
+    it "PROOF 119 — a Read-Only Executive Buyer may NOT cancel, because :147's sixth cell denies it" do
+      ctx = running_crawl
+      session = TenantSeeder.seed_authorized_admin(organization_id: ctx[:g][:organization_id],
+                                                   canonical_role: "MarketingOperator",
+                                                   permission_mode: "read_only", persona: "executive_buyer",
+                                                   with_policy: false, issued_at: fixed_now - 300)[:session_id]
+
+      result = cancel(ctx, session:)
+
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("crawl_cancel_unauthorized")
+      # The run is untouched: still running, no terminal state, and no event claiming otherwise.
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("running")
+      expect(events(ctx[:crawl_id])).to be_empty
+    end
+
+    # The same tuple against the OTHER capability in the SAME ROW. :147 gives `crawl.trigger`
+    # and `crawl.cancel` one row and one set of cells, so a fix that closed only the
+    # cancellation would leave the row half-implemented and the next reader unable to tell
+    # which half was ratified.
+    it "PROOF 120 — the same buyer may not trigger a Crawl either; the row governs both" do
+      org = TenantSeeder.create_organization
+      TenantSeeder.create_access_policy(organization_id: org)
+      buyer = TenantSeeder.seed_authorized_admin(organization_id: org, canonical_role: "MarketingOperator",
+                                                 permission_mode: "read_only", persona: "executive_buyer",
+                                                 with_policy: false, issued_at: fixed_now - 300)
+      standard = TenantSeeder.seed_authorized_admin(organization_id: org, canonical_role: "MarketingOperator",
+                                                    with_policy: false, issued_at: fixed_now - 300)
+      store = IdentityAccess::Infrastructure::AuthorizationStore.new(DbInspector.connection)
+      auth = IdentityAccess::Authorization::CommandAuthorizer.new(store)
+      actor_for = lambda do |seed|
+        auth.authenticate(session_id: seed[:session_id], now: act_now, correlation_id: SecureRandom.uuid_v7)
+      end
+
+      %w[crawl.cancel crawl.trigger].each do |capability|
+        refused = auth.authorize(actor: actor_for.call(buyer), capability:, now: act_now)
+        expect(refused.allowed?).to be(false), "#{capability} was conferred on a read_only assignment"
+        # The REASON matters: `missing_authority` means no assignment conferred it, which is the
+        # mode cell doing the work. A `policy_unavailable` here would be this example denying for
+        # a setup accident and proving nothing — which is exactly what it did before the Access
+        # Policy below was seeded, caught by the control on the next line.
+        expect(refused.reason).to eq("missing_authority")
+        # The control: the SAME role in `standard` mode still holds both, so the refusal is the
+        # MODE cell and not an accidental revocation of MarketingOperator's row.
+        expect(auth.authorize(actor: actor_for.call(standard), capability:, now: act_now).allowed?)
+          .to be(true), "#{capability} was lost for a standard MarketingOperator"
+      end
+    end
   end
 
   describe "idempotency and tenancy" do
