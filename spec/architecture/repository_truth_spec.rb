@@ -288,40 +288,91 @@ RSpec.describe "Repository truth", type: :model do
   # `WINDOW` characters. Every correct record states the false claim in order to refute it, and every
   # one of them carries the refutation within a few hundred characters of it.
   describe "no authoritative record claims the refuted PostgreSQL predicate is harmless" do
-    PREDICATE_RECORDS = %w[
-      DECISIONS.md
-      S-07-009_ACCEPTANCE_REVIEW.md
-      schemas/POSTGRESQL_SCHEMA.md
-      specification/automation/BUILD_PLAN.yml
-      specification/automation/BUILD_STATE.json
-      db/migrate/20260727120340_crawls_terminal_completeness.rb
-    ].freeze
+    # THE CORPUS IS DERIVED, BECAUSE A HAND LIST IS THE DEFECT THIS CHECK EXISTS FOR (round 3, R3-7).
+    #
+    # The first version enumerated six files. That is PROOF 39's mistake in a fourth costume, and the
+    # header above says so in as many words while doing it: a defect whose content is "a ratified
+    # record states the opposite of the truth" cannot be closed by checking the copies someone
+    # happened to list. It had ALREADY missed one — `S-07-008_COMPLETION_REPORT.md`, a record that
+    # exists today — and it could not see `S-07-009_COMPLETION_REPORT.md`, the file this tranche's own
+    # acceptance will create. A check that must be edited whenever a record is added is a reminder,
+    # not a control.
+    #
+    # `git ls-files` rather than a glob: the corpus is what the repository TRACKS, so an untracked
+    # scratch file cannot fail CI and a newly tracked record is covered the moment it is committed.
+    def predicate_records
+      out = `git -C #{ROOT} ls-files -z`
+      raise "git ls-files failed; the corpus cannot be derived" unless $CHILD_STATUS.success?
+
+      out.split("\0").reject(&:empty?).select { |p| p.match?(/\.(md|ya?ml|json|rb|sql)\z/) }
+         .reject { |p| p.match?(%r{\A(vendor|node_modules|tmp)/}) }
+         # This file states the claim and the harmless words in order to define them.
+         .reject { |p| p == "spec/architecture/repository_truth_spec.rb" }
+    end
 
     CLAIM = /IS NOT DISTINCT FROM/i
     HARMLESS = /no-op|admitted|yields true/i
     # `refut` covers the records that state the claim in order to correct it and put the evaluation a
     # little further down the page than `WINDOW` reaches — the review record's own R2-B3 finding and
     # the FU-36 note both do exactly that.
-    REFUTED = /syntax error|refuses|reject every|not a no-op|is not admitted|-> +f\b|yields false|refut/i
+    # `refuse` unstemmed, so "would REFUSE every live Crawl" counts — PROOF 104's own title, which the
+    # narrower `refuses` did not match and which the widened corpus therefore reported as an offender.
+    REFUTED = /syntax error|refuse|reject every|not a no-op|is not admitted|-> +f\b|yields false|refut/i
     # `20260727120280_crawl_limit_decision_reason_null_safe` uses `IS NOT DISTINCT FROM` CORRECTLY,
     # and for exactly the property this refutation turns on: a NULL yields FALSE, which the CHECK
-    # refuses. Naming it keeps the check about the refuted CLAIM rather than about the operator.
-    CORRECT_USE = /crawl_limit_decision|limit_reached/i
+    # refuses.
+    #
+    # EXEMPTED BY PATH, NOT BY NEARBY WORDS (round 3, R3-7). This was `/crawl_limit_decision|
+    # limit_reached/i` matched against the WINDOW, and `limit_reached` is S-07-009's OWN COMPLETION
+    # REASON — a token that appears throughout this tranche's records, its migrations and its ADRs.
+    # Any false claim written within 700 characters of it was therefore exempt, which is most of the
+    # places a false claim about this tranche would actually be written. The correct use is a
+    # PROPERTY OF ONE FILE and is now named as one.
+    CORRECT_USE_PATHS = %w[
+      db/migrate/20260727120280_crawl_limit_decision_reason_null_safe.rb
+      spec/persistence/crawl_limit_decision_invariants_spec.rb
+    ].freeze
+
+    # The correct use is also DESCRIBED in records that are not those files — S-07-008's completion
+    # report tabulates that migration and says its old form "admitted a NULL reason", which is true of
+    # `crawl_limit_decisions` and says nothing about `crawls_coverage_status_check`. So the subject is
+    # still exempted by window, but by the token that NAMES THE OTHER CONSTRAINT and nothing else.
+    # `limit_reached` is gone: it is S-07-009's own completion reason, it appears throughout this
+    # tranche's records, and exempting every claim written within 700 characters of it exempted most
+    # of the places a false claim about this tranche would be written.
+    CORRECT_USE_SUBJECT = /crawl_limit_decision/i
 
     # Wide enough for a claim and a fenced four-line evaluation below it; narrow enough that an
     # unrelated "refuses" elsewhere in a long ADR cannot vouch for it.
     WINDOW = 700
 
+    # The guard on the corpus itself. A derivation that silently returned nothing — a failed `git`, a
+    # tightened extension list — would make the example below vacuously green, which is precisely the
+    # class of defect this whole file exists to catch.
+    it "derives a corpus that contains the records known to state the claim" do
+      records = predicate_records
+      expect(records.size).to be > 100
+      expect(records).to include("DECISIONS.md", "schemas/POSTGRESQL_SCHEMA.md",
+                                 "specification/automation/BUILD_PLAN.yml",
+                                 "specification/automation/BUILD_STATE.json",
+                                 "S-07-008_COMPLETION_REPORT.md")
+      # The records that actually carry the claim today, found rather than listed.
+      carriers = records.select { |p| ROOT.join(p).file? && ROOT.join(p).read.match?(CLAIM) }
+      expect(carriers.size).to be >= 10
+    end
+
     it "carries no claim that the rewrite is a no-op or admitted, unrefuted where it is made" do
-      offenders = PREDICATE_RECORDS.flat_map do |path|
+      offenders = (predicate_records - CORRECT_USE_PATHS).flat_map do |path|
         file = ROOT.join(path)
-        next [] unless file.exist?
+        next [] unless file.file?
 
         body = file.read
+        next [] unless body.match?(CLAIM)
+
         body.enum_for(:scan, CLAIM).map { Regexp.last_match.begin(0) }.filter_map do |at|
           window = body[[at - WINDOW, 0].max, WINDOW * 2].to_s
           next unless window.match?(HARMLESS)
-          next if window.match?(REFUTED) || window.match?(CORRECT_USE)
+          next if window.match?(REFUTED) || window.match?(CORRECT_USE_SUBJECT)
 
           "#{path} @#{at}: #{body[at, 200].strip}"
         end
