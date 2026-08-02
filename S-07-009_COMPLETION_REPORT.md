@@ -16,7 +16,7 @@ that — and every claim below is either mechanically checked by
 | | |
 | --- | --- |
 | Block | S-07-009, BUILD_PLAN `Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl` |
-| **Round-4 candidate** | **`7f043a2..332c52b`, PINNED** — never `..HEAD` |
+| **Round-4 candidate** | **`7f043a2..7034e25`, PINNED** — never `..HEAD` |
 | Round-3 candidate | `7f043a2..467f1d1` (superseded; its findings are in `S-07-009_ACCEPTANCE_REVIEW.md`) |
 | Authority | standing delegation ADR-061; review discipline ADR-080; five-lens form ADR-026 |
 | Depends on | S-07-007, S-07-008, S-07-012 — all accepted |
@@ -26,6 +26,13 @@ The candidate range deliberately **excludes the governance commit that records i
 into `BUILD_STATE.json` changes that file's own commit, so the endpoint is the last implementation
 commit and the record naming it sits above the range. This is the convention `BUILD_STATE`'s
 `note_on_range` already documents.
+
+**The range was re-pinned once, deliberately and in the open.** It was first pinned at `332c52b`, and
+`7034e25` then committed a further change to this tranche's own specs — three unbounded `Queue#pop`
+waits made bounded, after a full-suite run stalled for eleven minutes at 0% CPU. That is candidate
+material, so leaving the earlier pin would have handed a reviewer a range that omitted a committed
+change to the very files under review. Re-pinning forward is the honest correction; silently keeping
+`332c52b` was the alternative and it was worse.
 
 ## Delivered behaviour
 
@@ -125,7 +132,7 @@ change crawl semantics. **FU-34 is therefore also not closed** — two of its th
 
 Run from the candidate `332c52b` on a quiet cluster (PostgreSQL 17 on `127.0.0.1:5433`):
 
-```
+```sh
 bin/rspec                                     # 2085 examples, 0 failures
 bin/rspec spec/architecture                   # 65 examples, 0 failures
 bundle exec brakeman -q --no-pager -z         # no warnings
