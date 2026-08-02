@@ -244,14 +244,33 @@ module IdentityAccess
       # TWO POPULATIONS, BECAUSE :442'S OWN CANCELLATION CREATES THE SECOND (ADR-113).
       #
       #   * candidates the run never reached — still `discovered`, `queued`, `in_progress` or
-      #     `fetched_pending_commit`, or discarded by a bound. The same population `terminal_facts`
-      #     counts as `unevaluated`, so the decision a customer reads and the coverage number they
-      #     read cannot describe different sets.
+      #     `fetched_pending_commit`. `observe_wall_clock` runs only once `now >= deadline_at`, so
+      #     these are exactly the candidates that will now never be evaluated because the run ended.
       #   * candidates whose REQUEST the wall clock cancelled. Those entries are `terminal` and carry
       #     a `crawl_terminal_outcomes` row, so they have left the first population entirely — and
       #     they are the clearest case of a candidate the deadline prevented from being evaluated.
       #     Omitting them would let the repair for FU-34 silently suppress the record FU-35 exists to
       #     make correct.
+      #
+      # A DISCARDED CANDIDATE IS NOT THIS DIMENSION'S (round 3, R3-1). This query used to admit
+      # `state = 'discarded' AND reason IS NOT NULL`, on the stated ground that it must describe the
+      # same set as `terminal_facts`'s `unevaluated`. THAT REASONING WAS THE DEFECT, because the two
+      # answer different sentences. `terminal_facts` answers :458's coverage denominator — "NOT
+      # EVALUATED because of DEPTH, SITEMAP, QUEUE, PAGE, BYTE, RESPONSE, REQUEST, OR WALL-CLOCK
+      # bound", every bound at once — and counting discards there is right. This query answers :442's
+      # "AFFECTED source and URL counts" FOR THE WALL-CLOCK DIMENSION ALONE, and a candidate another
+      # bound affirmatively disposed of was not affected by the clock.
+      #
+      # The whole discarded population belongs to another dimension, verifiably and not by assumption:
+      # `crawl_frontier_store#discard` has exactly ONE caller in the repository, `Frontier`'s :454
+      # eviction, and it passes exactly one reason, `queue_limit_discarded`. Nothing discards an entry
+      # for the wall clock, so no wall-clock-affected candidate is lost by excluding them.
+      #
+      # WHAT IT COST: a run whose only unfetched URL was evicted by the QUEUE limit at minute zero
+      # recorded a HARD `wall_clock_run_duration` decision with `affected_urls = 1` and spent its
+      # once-per-run `CrawlLimitReached` on a dimension that bounded nothing. Both records are
+      # immutable and `f1_crawls_guard` refuses correction of the terminal row, so the customer is
+      # permanently told their crawl ran out of time.
       #
       # `UNION` rather than `UNION ALL`: an entry cannot be in both populations, but a future one that
       # was would be one affected URL, not two.
@@ -261,8 +280,7 @@ module IdentityAccess
             SELECT id AS entry_id, source_id
             FROM crawl_frontier_entries
             WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-              AND (state IN ('discovered','queued','in_progress','fetched_pending_commit')
-                   OR (state = 'discarded' AND reason IS NOT NULL))
+              AND state IN ('discovered','queued','in_progress','fetched_pending_commit')
             UNION
             SELECT o.crawl_frontier_entry_id, o.source_id
             FROM crawl_terminal_outcomes o

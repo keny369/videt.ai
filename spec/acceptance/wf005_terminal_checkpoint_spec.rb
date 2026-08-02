@@ -536,6 +536,72 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(limit_events(ctx[:crawl_id])).to be_empty
     end
 
+    # R3-1. FU-35's repair removed DELIVERY LATENCY as a determinant and stopped there. The affected
+    # population still admitted `state = 'discarded' AND reason IS NOT NULL` — every candidate a
+    # DIFFERENT bound affirmatively disposed of — on the stated ground that this measure must describe
+    # the same set as `terminal_facts`'s `unevaluated`. That ground was itself the defect: the two
+    # answer different sentences. `terminal_facts` answers :458's coverage denominator, which is every
+    # bound at once; this answers :442's "AFFECTED source and URL counts" for the WALL CLOCK ALONE.
+    #
+    # The eviction here is REAL, produced by :454's own retention rule at a stubbed bound, exactly as
+    # `wf005_crawl_frontier_spec` produces it. Nothing is written by hand into `crawl_frontier_entries`.
+    it "PROOF 123 — a candidate the QUEUE bound evicted is not a candidate the wall clock affected" do
+      ctx = fetchable
+      org = ctx[:g][:organization_id]
+      root = entries(ctx[:crawl_id]).first
+
+      # Two links offered at a bound of one: the lower-sorting one is retained, the other is evicted
+      # as `queue_limit_discarded` — by the frontier, for the QUEUE dimension, at minute zero.
+      stub_const("Workflows::Wf005::Frontier::DISCOVERED_QUEUE_HARD", 1)
+      in_frontier(ctx) do |store|
+        frontier = Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system,
+                                                         correlation_id: SecureRandom.uuid_v7)
+        %w[a z].each do |slug|
+          frontier.offer(organization_id: org, project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+                         source_id: root["source_id"], canonical_url: "https://shop.acme.example/#{slug}",
+                         origin: "link", depth: 1, now: start_now,
+                         discovering_document_url: "https://shop.acme.example/", link_position: 1,
+                         parent_entry_id: root["id"], scope_policy_id: root["scope_policy_id"],
+                         scope_policy_version: root["scope_policy_version"])
+        end
+      end
+      evicted = entries(ctx[:crawl_id]).select { |e| e["state"] == "discarded" }
+      expect(evicted).not_to be_empty, "the queue bound evicted nothing, so this proves nothing"
+      expect(evicted.map { |e| e["reason"] }).to all(eq("queue_limit_discarded"))
+
+      # Everything the run could still evaluate, it evaluates. What is left unevaluated is exactly the
+      # one candidate the QUEUE bound removed.
+      drain(ctx, outbound_by_path("/" => page, "/a" => page))
+      remaining = entries(ctx[:crawl_id]).reject { |e| e["state"] == "discarded" }
+      expect(remaining.map { |e| e["state"] }).to all(eq("terminal"))
+
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc)
+
+      # The predicate, read from the store the handler reads it from. The queue-evicted candidate is
+      # not the wall clock's, so the clock abandoned nothing and there is no crossing to record.
+      reach = Platform::UnitOfWork.run do |conn|
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(conn.raw_connection)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        store.unevaluated_reach(org, ctx[:crawl_id], Workflows::Wf005::FetchContent::REASONS[:wall_clock])
+      end
+      expect(reach["urls"].to_i).to eq(0)
+
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+
+      # No hard wall-clock decision, and the once-per-run CrawlLimitReached is NOT spent on a
+      # dimension that bounded nothing. Both records are immutable, so getting this wrong is permanent.
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      expect(decisions(ctx[:crawl_id]).select { |r| r["limit_dimension"] == "wall_clock_run_duration" })
+        .to be_empty
+      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(0)
+
+      # And the QUEUE bound's own disposals are still visible in the coverage measure, which is the
+      # sentence `terminal_facts` answers. Excluding them from the wall clock did not erase them —
+      # which is the half of this repair that could have gone wrong in the other direction.
+      expect(result.payload[:unevaluated_candidates]).to eq(evicted.size)
+      expect(evicted.size).to be >= 1
+    end
+
     it "PROOF 113 — TRANSPORT LATENCY ALONE cannot change the verdict, and the predicate is the count" do
       # The same run reached through the DRAINED checkpoint (ADR-101's own instant) delivered a minute
       # late. Nothing about the run differs; only when the message arrived. A verdict that moved would
