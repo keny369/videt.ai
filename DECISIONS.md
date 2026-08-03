@@ -3144,7 +3144,9 @@ Date: 2026-08-03
 Owner: explicit owner ruling at the S-07-009 round-5 repair boundary
 Reversibility: Integration branch only. The authorization permits the repairs below and one new frozen architecture check; it makes no acceptance transition.
 
-The owner accepted the independent architectural memorandum's three decisions and authorized a repair tranche in an exact order. This ADR records that authority **before implementation**, so a later diff can be tested against the permission that produced it rather than against an inferred mandate.
+The owner accepted the independent architectural memorandum's three decisions and authorized a repair tranche in an exact order. This ADR records that authority so a later diff can be tested against the permission that produced it rather than against an inferred mandate.
+
+**PROVENANCE, CORRECTED 2026-08-04 (round-6 blocker R6-8; ADR-120).** This paragraph previously said the ADR recorded the authority "before implementation", and git refutes it: ADR-117 is absent from `f7472aa` and from its parent, and first appears in `5860bb4` alongside the repairs it authorizes. The owner's ruling did precede the work, in conversation. The written record did not, and AUTONOMOUS_BUILD_CONTROLLER.md §3.1 is explicit that "chat sessions are not authoritative state" — so a record asserting a repository order the repository does not show is the defect, not the ordering itself. The rulings below are unaffected and remain authorized; only the claim about when they were written down is withdrawn. `spec/architecture/repository_truth_spec.rb` now fails on the withdrawn sentence, so it cannot return.
 
 **R5-3 — ADMISSION LOCKING.** `Workflows::Wf005::Admission` may change even though it belongs to the accepted S-07-008 tranche. The governing invariant is: any Admission transaction that will continue into the frontier critical section and acquire any `crawls` tuple lock, including the implicit `FOR KEY SHARE` taken by a child-row foreign key, must acquire `crawl-frontier:<crawl>` first and then re-read and re-authorize the Crawl under that lock before its first durable effect. The terminal-handler order remains frontier advisory lock then `crawls FOR UPDATE`. This authority does **not** permit reversing `CancelCrawl` or `CompleteCrawl`, removing `lock_crawl` or its `FOR UPDATE`, substituting deadlock retry for the repair, or holding the frontier lock across outbound work. The proof must exercise both orientations on real PostgreSQL, repeat the relevant orientation with `CompleteCrawl` where reachable, make decision-then-frontier fail deterministically, and prove structurally at the real `crawl_limit_decisions` insert that soft fall-through already holds the correct advisory lock.
 
@@ -3188,3 +3190,95 @@ ADR-118 and `S-07-009_ACCEPTANCE_REVIEW.md` now state the distinction explicitly
 
 Authority And Precedence:
 Corrects the terminology of the owner's immediately preceding review instruction and ADR-118. It does not alter ADR-117's repair pin, the bytes reviewed through `cf2059e`, or any outstanding owner decision. Allocated the next unused number after ADR-118.
+
+## ADR-120: The Round-6 Owner Rulings — Nine Blockers Are Five Concepts, Each Repaired Once At Its Owner
+
+Status: Authorized and implemented (2026-08-04); S-07-009 remains NOT ACCEPTED
+Date: 2026-08-04
+Owner: explicit owner rulings issued at the round-6 repair boundary, superseding ADR-117's stop terminus for this programme only
+Reversibility: Integration branch only. The authorization permits the repairs below, one new migration and one change to an existing frozen check; it makes no acceptance transition.
+
+The owner directed a classification of ADR-118's nine confirmed blockers before any repair, and that
+classification found five root concepts rather than nine independent defects. The owner then issued four
+rulings and an ordered implementation programme. **The rulings are recorded here with their exact scope,
+and this ADR does not claim to precede the implementation** — see ADR-117's corrected provenance
+paragraph and R6-8 below for why that distinction is now written down rather than assumed.
+
+**RULING 1 — POST-WAIT DECISIONS MUST USE CURRENT TRUTH (R6-1, R6-5, R6-6).** Any handler that waits on
+a lock before an irreversible decision must, after acquiring it, re-read authoritative state, take its
+decision instant from database time, re-check any time-sensitive lease or deadline, re-check current
+authorization where the command depends on human authority, and make no durable write from a pre-wait
+snapshot. Applied as one canonical rule, not as three local patches. For `CancelCrawl` the platform-wide
+`authority_current?` deferral recorded at ADR-063/S-06-006 does **not** apply once a command can wait
+before an irreversible effect; that deferral continues to cover handlers that authorize and act with no
+wait between the two.
+
+**RULING 2 — A TERMINAL CRAWL HAS A CLOSED FACT SET (R6-2, R6-3).** Once a Crawl is terminal, no new
+child fact may be inserted for it. A post-terminal child fact is a data-integrity violation, not an
+accepted timing window. The rule is owned at the database boundary so every producer is covered;
+application checks may remain as defence in depth but are not the canonical enforcement. A stale or late
+worker must receive a controlled domain outcome and must not append facts after terminalization.
+
+**RULING 3 — VOLUME I :450 GOVERNS THE SITEMAP PENDING STATE (R6-4).** An unattempted pending sitemap
+gate must not be converted into `sitemap_unavailable`. That outcome requires :450's antecedents — a
+declared sitemap, or a qualifying default response — followed by failure after the required retries or
+validation. The later FU-9 transfer, BUILD_PLAN, BUILD_STATE, implementation and PROOF 67 are reconciled
+to this ruling and no contradictory governance text is retained.
+
+**RULING 4 — RECOVERY AND EVENTUAL TERMINATION.** Every nonterminal state must have a deterministic path
+to completion, bounded retry or re-entry, stale-claim recovery, explicit failure, cancellation, deadline
+terminalization, or authorised replay. No pending, in-progress, leased or claimed record may rely on
+indefinite waiting. For this tranche the ruling is bounded to: stale and late work cannot mutate a
+terminal Crawl; a blocked handler revalidates after waiting; the crawl-level deadline still provides the
+final terminal boundary; and all existing lease, scheduled re-entry and terminal-checkpoint behaviour is
+preserved. S-07-011's recovery-and-replay feature set is **not** pulled forward, and residual
+stranded-claim recovery stays recorded under FU-22 rather than given an ad hoc substitute here.
+
+**WHAT WAS BUILT, ONE OWNER PER CONCEPT.**
+
+* `Platform::PgInstant.after_wait` is the decision instant, computed by PostgreSQL as the caller's
+  instant plus `clock_timestamp() - transaction_timestamp()`. It is an ADVANCE and not a raw
+  `clock_timestamp()` reading because `crawls.deadline_at`, `crawls.started_at` and
+  `entitlement_reservations.lease_due` are all written by an application clock;
+  `CrawlHostGateStore#reservation_executing?` already records that two surfaces judging one reservation
+  against two clocks is the defect to avoid. `Workflows::Wf005::PostWaitDecision` states the rule and owns
+  :458's terminal vocabulary and the `authority_current?` call site for waiting handlers.
+* `f1_crawl_child_fact_closed` (migration `20260727120390`) closes the fact set on INSERT for
+  `crawl_limit_decisions`, `crawl_terminal_outcomes`, `crawl_frontier_entries`,
+  `crawl_frontier_occurrences` and `crawl_host_gates`, and on UPDATE of the sitemap and robots outcome
+  columns. It takes `FOR KEY SHARE` on the parent — the same lock the composite foreign key already takes
+  in the same statement — so the subsystem's one lock order is unchanged and no new cycle is reachable.
+  It is an AFTER trigger, because a BEFORE trigger runs ahead of a policy's WITH CHECK limb and would
+  answer a cross-tenant write with a state message; PROOF 40b exists to prove that refusal is RLS.
+* Admission's unlocked hard-expired branch is removed. Both wall-clock thresholds are now recorded by the
+  single post-lock `wall_clock` call, after revalidation, so a run cancelled during the wait is refused
+  `admission_crawl_not_running` before either is written.
+* `CompleteCrawl#resolve_pending_sitemaps` is removed and `TerminalSelection::Facts` gains
+  `unattempted_discovery`, which lowers coverage under :458's not-evaluated sentence and deliberately does
+  not touch :452's completion reason.
+
+**THE ONE FROZEN-PATH CHANGE, NAMED AND AUTHORIZED.**
+`spec/architecture/wf005_time_single_surface_spec.rb` is a frozen path under
+`AutonomousBuild::FrozenContracts`, and the owner's programme names it explicitly for repair under R6-7.
+That instruction is the authority for the change, which is recorded here rather than inferred from the
+diff. The check keeps ADR-117 R5-2's narrow scope — WF-005 PostgreSQL timestamp decoding through
+`Platform::PgInstant` — and does not expand into limits, locks, event envelopes, deadlines or
+acceptance-history derivation. Its detector is inverted from an enumeration of four forbidden spellings
+into a structural ban on naming `Time` or `DateTime` in the tracked corpus, which the corpus already
+satisfies, plus a ban on naming the UTC protocol as data. No new family of checks is created.
+
+**R6-8 AND R6-9, AND THE STRUCTURAL CAUSE UNDER BOTH.** ADR-117's "records that authority before
+implementation" is withdrawn as false of git and corrected in place. The completion report's proof counts
+are now derived rather than maintained. The cause under both is that
+`spec/architecture/repository_truth_spec.rb` bound only `acceptance_evidence.block`, the last ACCEPTED
+tranche, so the report of the tranche under review was validated by nothing for the entire period five
+review rounds spent reading it — which is where R4-8, R5-4, R5-5, R6-8 and R6-9 all accumulated. It now
+also binds `BUILD_STATE.current_tranche`, re-counts every proof row from the file it names, resolves that
+report's path and migration citations, and fails on the withdrawn provenance sentence.
+
+Authority And Precedence:
+These rulings supersede ADR-117's "do not commission Round 6" terminus for this programme and withdraw the
+FU-9 transfer recorded at ADR-096 and in S-07-009's BUILD_PLAN preconditions. They do not supersede the
+contracts they interpret, do not broaden the tranche beyond the named repairs, do not authorize another
+frozen path beyond the one named above, do not accept S-07-009, and do not resolve FU-32, FU-33, FU-43 or
+R3-P1..R3-P3. Allocated the next unused number after ADR-119.

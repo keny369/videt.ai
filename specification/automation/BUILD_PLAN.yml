@@ -974,22 +974,29 @@ blocks:
 
   - id: S-07-009
     name: Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl
-    # TRANSFERRED OBLIGATION, RECEIVED FROM FU-9 AT S-07-012's ACCEPTANCE (ADR-096). FU-9 is CLOSED,
-    # and this is the part of it that was NOT delivered, moved here rather than left in a closed item
-    # where nothing would read it.
+    # THE FU-9 TRANSFER IS WITHDRAWN BY OWNER RULING (2026-08-04; ADR-120; round-6 blocker R6-4).
+    # Recorded rather than deleted, because it was ratified twice and the correction is the point.
     #
-    # DERIVE :450's `sitemap_unavailable` FOR A GATE NO PRODUCTION PATH CAN TERMINALIZE. S-07-012
-    # delivered the scheduler re-entry FU-9 asked for, so sustained host-gate contention no longer
-    # writes a false terminal outcome. The cost is that the honest one is now unreachable:
-    # `Workflows::Wf005::DiscoverSitemaps` writes `sitemap_unavailable` only once the run has expired,
-    # while `Workflows::Wf005::CrawlDriver` halts on the same wall clock BEFORE it calls discovery,
-    # with the same `now`. A `crawl_host_gates` row under sustained contention therefore stays
-    # `sitemap_state = 'pending'` for ever, and :450's outcome has to be derived from that state at
-    # the terminal checkpoint instead of written during discovery. THIS BLOCK IS THE RIGHT OWNER
-    # because it owns `crawls.coverage_status`, `crawls.completion_reason` and
-    # `crawl_terminal_outcomes` — the coverage record :452 reads. It is the same shape as the two
-    # obligations already recorded below (FU-21's attempt-less terminal entry, FU-22's unscheduled
-    # `crawl_terminal_deadline`), and all three are coverage derivation at the checkpoint.
+    # WHAT THIS BLOCK WAS ASKED TO DO, at S-07-012's acceptance (ADR-096): "DERIVE :450's
+    # `sitemap_unavailable` FOR A GATE NO PRODUCTION PATH CAN TERMINALIZE", because
+    # `Workflows::Wf005::DiscoverSitemaps` writes that outcome only once the run has expired while
+    # `Workflows::Wf005::CrawlDriver` halts on the same wall clock before calling discovery, so a
+    # contended `crawl_host_gates` row stays `sitemap_state = 'pending'` for ever.
+    #
+    # WHY IT IS WITHDRAWN. Volume I WORKFLOW_SPECIFICATIONS.md :450 governs: "IF A DECLARED SITEMAP
+    # EXISTS, or the default returns a non-404/410 response, AND no sitemap candidate succeeds after
+    # retries/validation, record `sitemap_unavailable`." The obligation asked for the consequent
+    # without the antecedent — a gate the run never attempted has neither a declared sitemap that was
+    # tried nor a default response to have observed — so it instructed this block to write an
+    # observation the contract does not authorise. BUILD_STATE's own FU-9 `note` had already stated
+    # exactly that objection while its `closure` field transferred the opposite obligation.
+    #
+    # WHAT THIS BLOCK OWNS INSTEAD. The COVERAGE consequence, which is real and which the withdrawn
+    # obligation was a wrong route to: :458's "any in-scope candidate NOT EVALUATED ... makes coverage
+    # partial". An unattempted gate is left exactly as the run left it and counted as
+    # `unattempted_discovery`, which lowers coverage and does not touch :452's completion reason.
+    # FU-21's attempt-less terminal entry and FU-22's unscheduled `crawl_terminal_deadline` are
+    # unaffected and remain this block's.
     #
     # BLOCKING PRECONDITION. A terminal Crawl can carry NULL in both `coverage_status` and
     # `completion_reason` today, and this tranche writes exactly those two columns.
