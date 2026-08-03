@@ -1105,3 +1105,172 @@ already ratify.
 
 **Round 5 must be run by five fresh contexts.** No repair in this programme may be authored by a
 reviewer of it.
+
+# ROUND 5 — the round-4 repaired candidate `7f043a2..ac962bb`
+
+Candidate: `7f043a2..ac962bb`, pinned (HEAD was `46dc6da`; one governance commit sits above the range).
+Round run: 2026-08-03, full ADR-026 five-lens form, five reviewers in five independent contexts with no
+shared conversational state.
+
+**VERDICT: FAIL. Four of five lenses. FIVE confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | In-candidate blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R5-1, R5-2 |
+| Concurrency / atomicity / idempotency | FAIL | R5-3 |
+| Schema / migration-safety | FAIL | R5-4 |
+| Architecture / scope / test-quality | FAIL | R5-1, R5-2, R5-5 |
+| Security / tenant-isolation | PASS_WITH_OBSERVATIONS | 0 |
+
+**FOUR OF THE FIVE BLOCKERS ARE DEFECTS IN ROUND 4'S OWN REPAIRS.** The pattern is now five rounds old
+and has not weakened once: round 2 found two defects in round 1's repairs, round 3 refuted all three of
+round 2's, round 4 found five in round 3's, and round 5 finds four in round 4's. **A repair that is
+present, gated green and mutation-proved against one named mutation is still not evidence that it is
+correct.**
+
+## Confirmed blockers
+
+**R5-1 — R4-6's `other_hard_limit?` suppresses the wall-clock record for bounds that stop nothing.**
+`crawl_start_store.rb:282-288`, consumed at `complete_crawl.rb:347`. Reached independently by the
+contract and architecture lenses.
+
+:442 defines TWO classes of hard limit. Six named bounds — "A URL deeper than 10, response with a
+sentinel beyond 10 MiB on either byte path, request exceeding 15 seconds, fourth-level sitemap index,
+fifty-first sitemap, or eleventh redirect" — **fail that URL** and the run continues. Only "at ANY OTHER
+hard limit" is it "stop scheduling affected work". :442 further requires `CrawlLimitReached` **exactly
+once PER DIMENSION and run**, so the wall clock is entitled to its own record.
+
+The guard matches `limit_dimension <> 'wall_clock_run_duration'` — any dimension. One oversized page at
+minute two therefore suppresses BOTH wall-clock limbs, hard and soft, for a run that abandoned thousands
+of candidates at minute sixty. Immutable and uncorrectable.
+
+**THE REPOSITORY ALREADY CARRIED THE CORRECT CLASSIFICATION AND THE REPAIR DID NOT USE IT.**
+`limit_decisions.rb:139`: `RUN_STOPPING = ["accounted_response_body_bytes_per_run",
+"wall_clock_run_duration"]`, commented "exactly the two bounds that DO stop scheduling — every other
+dimension abandons something NARROWER".
+
+*Why the proofs missed it:* PROOF 131 **pins the defect**. It uses `response_body_per_url` — one of the
+six :442 says merely fails a URL — as its "other hard bound that halted the run", and asserts the
+suppression is correct. **VERIFIED BY EXECUTION:** restricting the guard to a genuinely run-stopping
+dimension makes PROOF 131 FAIL (`the wall clock claimed ["1", "0"] URLs`). The correct fix breaks the
+proof written to defend the repair.
+
+**R5-2 — R4-1 repaired one call site of a defect class with several live sites, and locked the fix away.**
+`fetch_content.rb:167`, `complete_crawl.rb:327` and `:365`, all in range. Contract and architecture lenses.
+
+`Time#to_s` formats to whole seconds and the raw connection decodes `timestamptz` to a microsecond
+`Time`, so `Time.parse(x.to_s)` truncates. R4-1 fixed `cancel_crawl.rb` and made `utc_instant` a PRIVATE
+method of that class, so no other reader can use it. `complete_crawl.rb:327` therefore lets a checkpoint
+delivered in `[floor(deadline), deadline)` terminalize a **still-running** Crawl up to a second early and
+write an immutable hard `wall_clock_run_duration` decision; `:365`'s `elapsed_minutes` can report 60 for
+a 59.99-minute run. **After R4-1 the two handlers disagree about where :458's boundary is.**
+
+*Why the proofs missed it:* exactly R4-1's own stated reason — every checkpoint fixture ages the run
+through `DbInspector`'s untyped connection, i.e. whole-second instants on a different decoding path.
+PROOF 128/129 cover `CancelCrawl` alone.
+
+**R5-3 — a SECOND frontier/crawls lock inversion survives R4-2, and this range is what makes it a
+deadlock.** `admission.rb:147 -> :152` against `cancel_crawl.rb:117-118` and `complete_crawl.rb:117-118`.
+Concurrency lens.
+
+`Admission#claim` writes a `crawl_limit_decisions` row — which carries an FK to `crawls` and therefore
+takes `FOR KEY SHARE` — on the SOFT wall-clock limb, which **falls through** rather than returning, and
+only then takes `crawl-frontier:<crawl>` at `:152`. So:
+
+    T1 Admission    holds crawls FOR KEY SHARE  ->  waits crawl-frontier
+    T2 CancelCrawl  holds crawl-frontier        ->  waits crawls FOR UPDATE
+
+`FOR UPDATE` conflicts with `FOR KEY SHARE`. **This was inert before the candidate**: nothing took
+`FOR UPDATE` on `crawls`, and `start`/`fail`/`cancel` are bare UPDATEs taking `FOR NO KEY UPDATE`, which
+does not conflict. `lock_crawl` was introduced by `ee8dbe0` INSIDE this range and is used only by the two
+handlers this range adds. **The candidate creates the cycle.** `Handlers::CancelCrawl` contains no
+rescue, so a customer command surfaces a raw `PG::TRDeadlockDetected` where ADR-103 and :458 require a
+`Platform::CommandResult`.
+
+**VERIFIED BY EXECUTION:** the lock pairing was reproduced directly on PG 17 — `T1:
+PG::TRDeadlockDetected ERROR: deadlock detected`, SQLSTATE 40P01. The FK, the fall-through soft limb and
+the in-range introduction of `lock_crawl` were each verified from the catalogue and the source.
+
+`ac962bb`'s claim that `StartCrawl` was "the subsystem's ONLY lock-order inversion" is false.
+
+*Why the proofs missed it:* every lock proof in the candidate races a transaction that ALREADY holds the
+frontier lock (PROOF 91/100/101/117 gate after it) or one holding nothing (110/118). No proof gates a
+transaction holding a `crawls` FK lock that has not yet reached the frontier lock. PROOF 126 was written
+for exactly this class and covers only the StartCrawl pair.
+
+**R5-4 — the R4-8 record repair introduced a NEW false statement, inverting the lesson it records.**
+`S-07-009_COMPLETION_REPORT.md:79` and `:82`. Schema lens.
+
+The rewritten table says migration 350 "Shipped the Source link with **FK arity 2**, which `…380`
+repairs". **No foreign key on `source_id` ever existed.** VERIFIED three ways: migration 350's only
+commit contains zero `source_fk` matches; migration 380's own header says the link "carried **NO** foreign
+key at all"; the live catalogue shows three FKs, all arity 3. The statement REPLACED a true one ("the
+composite Source link the review found missing").
+
+It matters because PROOF 39 enumerated `pg_constraint` and asserted arity on **every row returned** — an
+arity-2 FK is precisely what it WOULD have caught. It was blind to ABSENCE. The false correction destroys
+the one lesson ADR-110 calls "the more important half".
+
+**R5-5 — the acceptance record still describes a superseded candidate and contradicts itself.**
+Contract, schema and architecture lenses independently. At `ac962bb`: `:6` "Three full ADR-026 five-lens
+rounds have run … a fourth round is owed" (four have run; round 4's review `686bf5e` is INSIDE the
+range); `:26` pins `7f043a2..7034e25`, which excludes every round-4 repair, while `:204` instructs the
+reviewer to take the range from §Identity and nowhere else; `:98` "Review history — three rounds, three
+FAILs" omits round 4; `:195` lists FU-38 "Open and unchanged" and `:186` still states FU-41's superseded
+reasoning, while `BUILD_STATE` marks both `resolved` in the SAME commit; the proofs table is split by an
+interposed paragraph so four rows render as literal pipe text. R4-8 made the report internally consistent
+about round 4 and did not advance it for the round it was itself creating.
+
+## What round 5 confirmed sound
+
+**The security lens returned PASS_WITH_OBSERVATIONS with zero blocking, having re-derived R3-10 from the
+ratified table rather than trusting it.** It enumerated all sixteen materialized capabilities and read
+each one's sixth cell directly: every one is `deny`, so `READ_ONLY_CAPABILITIES = []` is correct and the
+corrected count is true. `permission_mode` is `NOT NULL` with a two-value CHECK, so `mode_permits?` is
+total and `standard` actors are provably unaffected on every path including `bootstrap_admin_exception`.
+Exactly four `UPDATE crawls` statements exist application-wide and every terminal-producing one is
+authorized; `CancelCrawl` is correctly absent from the ScheduledAction registry. PROOF 40a/40b genuinely
+exercise the RLS policy rather than a foreign-key refusal. No `f1` role holds `SUPERUSER` or `BYPASSRLS`;
+every table the candidate touches has FORCE RLS with the correct tenant predicate.
+
+Also confirmed: R4-2 genuinely closes the StartCrawl↔CancelCrawl cycle **for its named pair**, and the
+frontier lock is released correctly on both rollback paths; R3-1's "one caller, one reason" claim is true;
+R3-3's `CrawlCanceled` envelope is correct; R4-3's contract half is correct — :452's exclusion list is
+exactly four conditions and only `policy_excluded` maps to `excluded`; the `IS NOT DISTINCT FROM`
+refutation is true, re-evaluated live on PG 17.10; R3-P1/P2/P3 remain genuinely pre-existing and outside
+the range; the only frozen-path touch is the ADR-027/029 additive grant, so no escalation is owed.
+
+## Notable non-blocking observations
+
+- `cancel_crawl.rb:117` takes an org-agnostic advisory lock on a caller-supplied `crawl_id` BEFORE any
+  tenancy check (R3-6). Both the security and concurrency lenses judged it non-blocking — every holder
+  works inside a short DB-only transaction and no cycle is constructible — but it is a real cross-tenant
+  timing channel, and `StartCrawl` shows the shape that avoids it.
+- PROOF 126's `ROW_WAIT_SQL` has no "behind our winner" filter, so it counts ANY ungranted row waiter in
+  the database. It is only a disjunct of the wait, but on a busy shared database it can short-circuit the
+  wait before the cancellation reaches `lock_frontier` and fail the assertion spuriously — the R4-4 defect
+  class reintroduced as a disjunct in the proof that repairs R4-2.
+- `blocked_on(gate_key)` uses FIXED gate names in PROOF 91/92/117/126, so two concurrent runs of one file
+  satisfy each other's predicate. `race_harness.rb`'s "no unrelated transaction can satisfy this" claim is
+  true only of the per-crawl frontier keys.
+- `FetchContent#fetch`'s `rescue StandardError` swallows the bounded-wait raise, so a `POP_TIMEOUT_S`
+  timeout reaches the reader as an unrelated assertion mismatch rather than as its own message.
+- FU-41's and FU-38's closing claims are false: `CrawlStartStore#fail` writes the `crawls` row from the
+  gate path, which never reaches `lock_frontier`. FU-41's CONCLUSION (retain `FOR UPDATE`) survives, but
+  through `#fail` rather than the `#start` argument the record gives.
+- PROOF 78's `not_to include(:excluded)` cannot fail given the `contain_exactly` on the next line; PROOF
+  131's closing `expect(hard).not_to be_empty` cannot fail given its own precondition.
+- `permission_baseline.rb`'s description of the Read-Only column's non-deny cells as "READ capabilities"
+  is inaccurate for `session.terminate` and `export.create`; the operative claim (none are materialized)
+  is true.
+
+## Repair programme, in dependency order
+
+1. **R5-3 first.** A deadlock in a customer command, in the lock graph everything else races on, and the
+   second one this tranche has produced.
+2. **R5-1** — the run-stopping classification already exists; the wall clock's own per-dimension record
+   is a contract obligation.
+3. **R5-2** — the truncation must be repaired as a CLASS, not one call site at a time.
+4. **R5-4 and R5-5** — the record, written against the final vocabulary and the round it is creating.
+
+**Round 6 must be run by five fresh contexts, and no repair may be authored by a reviewer of it.**
