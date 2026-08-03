@@ -257,7 +257,7 @@ module Workflows
 
         delay = FetchRetryPolicy::DELAYS_S.fetch(attempt["attempt_number"].to_i,
                                                  FetchRetryPolicy::DELAYS_S.values.last)
-        Time.parse(completed.to_s).utc + delay
+        Platform::PgInstant.utc(completed) + delay
       end
 
       # THE FETCH, AND WHAT ITS OUTCOME OWES. Exactly one attempt, then one of two dispositions:
@@ -327,8 +327,8 @@ module Workflows
       def retry_due_at(execution, crawl)
         return nil unless execution.retry_owed? && execution.completed_at
 
-        at = Time.parse(execution.completed_at.to_s).utc + (execution.retry_after_ms.to_i / 1000.0)
-        deadline = crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc
+        at = Platform::PgInstant.utc(execution.completed_at) + (execution.retry_after_ms.to_i / 1000.0)
+        deadline = Platform::PgInstant.utc(crawl["deadline_at"])
         return nil if deadline && at > deadline
 
         at
@@ -453,7 +453,7 @@ module Workflows
       # RECORDS the ratified `wall_clock_run_duration` decision.
       def within_wall_clock?(crawl, now)
         deadline = crawl["deadline_at"]
-        deadline.nil? || Time.parse(deadline.to_s).utc > now.utc
+        deadline.nil? || Platform::PgInstant.utc(deadline) > now.utc
       end
 
       # An unstartable run still goes through `Admission`, which is the ratified observation point for
@@ -657,7 +657,7 @@ module Workflows
         last = reservation["last_heartbeat_at"]
         return true if last.nil?
 
-        Time.parse(last.to_s).utc + Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS <= now.utc
+        Platform::PgInstant.utc(last) + Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS <= now.utc
       end
 
       def load_crawl(organization_id, crawl_id)

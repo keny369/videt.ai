@@ -324,7 +324,7 @@ module Workflows
         # run it is not the run's working duration at all.
         def observe_wall_clock(d, crawl)
           deadline = crawl["deadline_at"]
-          return false if deadline.nil? || d[:now] < Time.parse(deadline.to_s).utc
+          return false if deadline.nil? || d[:now] < Platform::PgInstant.utc(deadline)
 
           # Read FIRST, because it is the predicate and not merely a field of the record.
           affected = affected_by_wall_clock(d, crawl)
@@ -362,7 +362,7 @@ module Workflows
           started = crawl["started_at"]
           return 0 if started.nil?
 
-          ((now.utc - Time.parse(started.to_s).utc) / 60).floor
+          Platform::PgInstant.elapsed_minutes(started, now)
         end
 
         # The candidates the deadline prevented from being evaluated: the ones the run never reached,

@@ -113,7 +113,7 @@ module Workflows
       def run_deadline(pg, organization_id, crawl_id)
         crawl = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg).crawl(organization_id, crawl_id)
         instant = crawl && crawl["deadline_at"]
-        instant && Time.parse(instant.to_s).utc
+        Platform::PgInstant.utc(instant)
       end
 
       # The candidate's own host gate, which may be a DIFFERENT host from the one just fetched: a

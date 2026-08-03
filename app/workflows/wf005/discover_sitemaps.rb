@@ -223,7 +223,7 @@ module Workflows
         deadline = crawl["deadline_at"]
         return false if deadline.nil?
 
-        Time.parse(deadline.to_s).utc <= now.utc
+        Platform::PgInstant.utc(deadline) <= now.utc
       end
 
       # Hand the claim back and tell the caller when the host is next startable, so a scheduler can

@@ -258,7 +258,7 @@ module Workflows
       def wall_clock(raw, organization_id, crawl, crawl_id, limits, now)
         elapsed = elapsed_minutes(crawl, now)
         deadline = crawl["deadline_at"]
-        expired = !deadline.nil? && Time.parse(deadline.to_s).utc <= now.utc
+        expired = !deadline.nil? && Platform::PgInstant.utc(deadline) <= now.utc
 
         # SOFT IS INDEPENDENT OF HARD, as at every other observation point. Gating it behind
         # `elsif expired` lost the soft event permanently for any run whose first admission after
@@ -279,7 +279,7 @@ module Workflows
         started = crawl["started_at"]
         return nil if started.nil?
 
-        ((now.utc - Time.parse(started.to_s).utc) / 60).floor
+        Platform::PgInstant.elapsed_minutes(started, now)
       end
 
       def observe(raw, organization_id, crawl, crawl_id, dimension, threshold, observed, limits, now)

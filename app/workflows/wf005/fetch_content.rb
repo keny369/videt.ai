@@ -164,7 +164,7 @@ module Workflows
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i,
           # :442's wall clock, carried to the request itself. See `request_budget`.
-          deadline_at: crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc,
+          deadline_at: Platform::PgInstant.utc(crawl["deadline_at"]),
           # THE INSTANT `now` WAS TRUE, so the request's budget can be computed from the instant the
           # REQUEST starts rather than from the instant the pass was delivered (R3-4). Taken from the
           # CALLER when the caller observed `now` earlier than this method did (R4-5).
