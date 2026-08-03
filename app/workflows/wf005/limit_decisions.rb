@@ -112,6 +112,9 @@ module Workflows
                   limits:, now:, affected: nil)
         raise ArgumentError, "unknown limit dimension #{dimension}" unless LimitDimensions.known?(dimension)
         raise ArgumentError, "unknown threshold #{threshold}" unless LimitDimensions::THRESHOLDS.include?(threshold)
+        unless LimitSemantics.decision_producing?(dimension)
+          raise ArgumentError, "#{dimension} is a pacing control and does not produce crawl-limit decisions"
+        end
 
         store = IdentityAccess::Infrastructure::CrawlLimitDecisionStore.new(pg)
         configured = limits.configured(dimension, threshold)
@@ -129,17 +132,16 @@ module Workflows
       private
 
       # ":442 — at any other hard limit, STOP SCHEDULING AFFECTED WORK … record … affected Source
-      # and URL counts." The unselected frontier is the right population for exactly the two bounds
-      # that DO stop scheduling: the run's byte budget and its wall clock. Every other dimension
-      # abandons something narrower and passes it explicitly — one URL for a per-URL bound or a
-      # queue discard, the skipped sitemap candidates for a sitemap bound. Defaulting all of them to
-      # the whole frontier reported ~20,000 abandoned URLs for a queue discard that cost exactly one.
+      # and URL counts." `LimitSemantics` owns which dimensions default to the frontier population.
+      # Every local dimension passes its causal population explicitly — one URL for a per-URL bound
+      # or queue discard, the skipped sitemap candidates for a sitemap bound. Defaulting all hard
+      # decisions to the whole frontier reported ~20,000 abandoned URLs for a queue discard that cost
+      # exactly one, and treating only two hand-listed dimensions here made this a second classifier.
       #
       # A soft crossing stops nothing, so nothing is affected by it.
-      RUN_STOPPING = ["accounted_response_body_bytes_per_run", "wall_clock_run_duration"].freeze
-
       def default_affected(store, organization_id, crawl_id, dimension, threshold)
-        return NONE unless threshold == LimitDimensions::HARD && RUN_STOPPING.include?(dimension)
+        return NONE unless threshold == LimitDimensions::HARD &&
+                           LimitSemantics.default_unselected_affected?(dimension)
 
         row = store.unselected_counts(organization_id, crawl_id)
         Affected.new(sources: row["sources"].to_i, urls: row["urls"].to_i)

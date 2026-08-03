@@ -313,7 +313,7 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
   #
   # `TerminalSelection` is proved exhaustively as a pure function, with the facts handed in by hand. The
   # SQL that SUPPLIES those facts had no behavioural anchor at all: zeroing `uncovered`, `fetch_failures`
-  # or `hard_limits` in `count_facts` left 218 examples green. `uncovered` is :458's coverage denominator,
+  # or the terminal-limit count in `count_facts` left 218 examples green. `uncovered` is :458's coverage denominator,
   # so zeroing it turns `partial` into `full` — the one error direction `CoverageClassification`'s own
   # header says it exists to prevent — and no example noticed. These three make each fact decide.
   describe "each counted fact decides something a run can be wrong about (B9)" do
@@ -395,11 +395,10 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(events).to be_empty
     end
 
-    it "PROOF 99 — a hard limit before the checkpoint is the DECIDING fact: `limit_reached`" do
-      # :442 — "at any other hard limit … set `coverage_status=partial` and
-      # `completion_reason=limit_reached`"; :452 — "a limit hit takes the HIGHER `limit_reached`
-      # precedence". Before this, `limit_reached` was never written to a real `crawls` row anywhere in
-      # the suite: it existed only inside the pure-function spec, which hands the fact in by hand.
+    it "PROOF 99 — a local hard decision remains local at the terminal checkpoint" do
+      # A hard decision and a terminal reason are separate facts. The per-URL body limit below is a
+      # real hard decision, but its disposition is the affected URL only. It therefore contributes
+      # partial coverage and a source failure without promoting the whole run to `limit_reached`.
       #
       # The limit is REAL, recorded by the accepted per-fetch observation point — a body past the
       # per-URL maximum — not a row this example inserted.
@@ -414,10 +413,58 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       result = checkpoint(ctx)
 
       expect(result.payload[:hard_limit_decisions]).to be >= 1
+      expect(result.payload[:terminal_forcing_limit_decisions]).to eq(0)
+      expect(result.payload[:sitemap_terminal_limit_facts]).to eq(0)
       expect(result.payload[:documents]).to eq(1)
       crawl = crawl_row(ctx[:crawl_id])
-      # The run COMPLETED — one root produced a Document — so `failed` does not outrank the limit, and
-      # `limit_reached` outranks the `partial_source_failure` this run would otherwise have read.
+      expect(crawl["state"]).to eq("completed")
+      expect(crawl["completion_reason"]).to eq("partial_source_failure")
+      expect(crawl["coverage_status"]).to eq("partial")
+    end
+
+    it "PROOF 144 — a persisted sitemap request-time limit selects `limit_reached`" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+      robots = <<~ROBOTS
+        User-agent: *
+        Allow: /
+        Sitemap: https://shop.acme.example/a.xml
+        Sitemap: https://shop.acme.example/z.xml
+      ROBOTS
+      resolve_robots(ctx, outbound_returning(response(status: 200, body: robots)))
+
+      valid = %(<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"/>)
+      timeout_attempts = 0
+      outbound = Object.new
+      outbound.define_singleton_method(:fetch) do |url, **_kwargs|
+        if url.end_with?("z.xml")
+          timeout_attempts += 1
+          next Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
+        end
+
+        body = url.end_with?("a.xml") ? valid : ""
+        Platform::Outbound::Outcome.response(
+          status: url.end_with?("a.xml") ? 200 : 404,
+          headers: { "content-type" => "application/xml" }, body:, byte_count: body.bytesize,
+          truncated: false, canonical_host: "shop.acme.example", port: 443,
+          pinned_address: "198.51.100.7", final_url: url, redirect_count: 0, latency_ms: 1
+        )
+      end
+      sitemap = resolve_sitemaps(ctx, outbound)
+      expect(sitemap.state).to eq("succeeded")
+      expect(sitemap.limit_reasons)
+        .to include(Workflows::Wf005::DiscoverSitemaps::REQUEST_TIME_LIMIT)
+      expect(timeout_attempts).to eq(Workflows::Wf005::DiscoverSitemaps::MAX_ATTEMPTS)
+
+      clear_rate_window_for_crawl(ctx[:crawl_id])
+      drain(ctx, outbound_by_path("/" => page))
+      result = checkpoint(ctx)
+
+      expect(result.payload[:documents]).to eq(1)
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      expect(result.payload[:terminal_forcing_limit_decisions]).to eq(0)
+      expect(result.payload[:sitemap_terminal_limit_facts]).to eq(1)
+      crawl = crawl_row(ctx[:crawl_id])
       expect(crawl["state"]).to eq("completed")
       expect(crawl["completion_reason"]).to eq("limit_reached")
       expect(crawl["coverage_status"]).to eq("partial")
@@ -667,10 +714,10 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     # bites harder: a run a DIFFERENT hard bound halted leaves its remaining candidates `queued`, and
     # `unevaluated_reach` counted every one of them as wall-clock-affected.
     #
-    # Here the run hits its per-URL byte ceiling — a real hard decision from the accepted per-fetch
-    # observation point — while a second candidate is still queued. At minute sixty the clock finds that
-    # candidate unevaluated, but the byte bound is what abandoned it.
-    it "PROOF 131 — candidates ANOTHER hard bound abandoned are not the wall clock's" do
+    # Here the run hits its per-URL byte ceiling — a real LOCAL hard decision from the accepted
+    # observation point — while a second candidate is still queued. At minute sixty the clock owns
+    # that unrelated queued candidate; the per-URL decision did not stop the run's frontier.
+    it "PROOF 131 — a local hard decision does not steal the wall clock's causal population" do
       ctx = fetchable
       org = ctx[:g][:organization_id]
       root = entries(ctx[:crawl_id]).first
@@ -698,20 +745,20 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(still_queued).to be >= 1, "nothing was left queued, so this proves nothing"
 
       at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc)
-      checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
 
-      # THE ASSERTION THE REPAIR TURNS ON. No wall-clock decision, and the once-per-run CrawlLimitReached
-      # is NOT spent a second time on a dimension that bounded nothing. Both records are immutable.
-      wall = decisions(ctx[:crawl_id]).select { |r| r["limit_dimension"] == "wall_clock_run_duration" }
-      expect(wall).to be_empty,
-                      "the wall clock claimed #{wall.map { |r| r['affected_url_count'] }.inspect} URLs the byte bound abandoned"
-      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(1)
+      # THE ASSERTION THE REPAIR TURNS ON. The wall decision exists and owns exactly the queued
+      # population the clock prevented from being evaluated. Both per-dimension records are immutable.
+      wall = decisions(ctx[:crawl_id]).select do |row|
+        row["limit_dimension"] == "wall_clock_run_duration" && row["threshold_kind"] == "hard"
+      end
+      expect(wall.size).to eq(1)
+      expect(wall.first["affected_url_count"].to_i).to eq(still_queued)
+      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(2)
+      expect(result.payload[:hard_limit_decisions]).to eq(2)
+      expect(result.payload[:terminal_forcing_limit_decisions]).to eq(1)
 
-      # NOTHING IS LOST BY DECLINING THE SECOND DECISION. The byte bound's own hard row is committed and
-      # counted, so the run's terminal reason is derived from the facts as it always was. Here that is
-      # `failed` rather than `limit_reached`: the oversized page created no Document, and :458 puts
-      # "zero valid Documents yields `Crawl.Failed`" ABOVE `limit_reached` in the precedence. Asserted as
-      # the value the precedence actually produces, not the one the byte bound alone would suggest.
+      # Failure still outranks the terminal wall limit because the oversized root produced no Document.
       expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("failed")
       expect(hard).not_to be_empty
     end
@@ -784,6 +831,45 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(result.payload[:hard_limit_decisions]).to eq(0)
       expect(decisions(ctx[:crawl_id])).to be_empty
       expect(limit_events(ctx[:crawl_id])).to be_empty
+    end
+
+    it "PROOF 145 — the checkpoint preserves the deadline's exact microsecond" do
+      began = start_now + Rational(123_456, 1_000_000)
+      ctx = running_crawl(at: began)
+      ensure_gate(ctx)
+      resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
+      resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
+      clear_rate_window_for_crawl(ctx[:crawl_id])
+      drain(ctx, outbound_by_path("/" => page), at: began)
+
+      # The drained pass made a due-now checkpoint. Reintroduce one legitimate frontier candidate so
+      # the wall-clock predicate has a causal population to misattribute if the typed PostgreSQL Time
+      # is stringified and truncated. This is a reachable post-pass offer through the real frontier.
+      root = entries(ctx[:crawl_id]).first
+      in_frontier(ctx) do |store|
+        Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system,
+                                              correlation_id: SecureRandom.uuid_v7)
+                                  .offer(organization_id: ctx[:g][:organization_id],
+                                         project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+                                         source_id: root["source_id"],
+                                         canonical_url: "https://shop.acme.example/late-candidate",
+                                         origin: "link", depth: 1, now: began,
+                                         discovering_document_url: "https://shop.acme.example/",
+                                         link_position: 1, parent_entry_id: root["id"],
+                                         scope_policy_id: root["scope_policy_id"],
+                                         scope_policy_version: root["scope_policy_version"])
+      end
+
+      exact = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
+      expect(exact.usec).to eq(123_456), "the fixture did not produce a sub-second deadline"
+      just_before = age_run_to(ctx, exact - Rational(1, 1_000_000))
+      result = checkpoint(ctx, action: drained_action(ctx[:crawl_id]), at: just_before)
+
+      # `Time.parse(typed_time.to_s)` moves the boundary back to `.000000` and makes this one-
+      # microsecond-before delivery falsely record the immutable wall-clock crossing.
+      expect(result.payload[:hard_limit_decisions]).to eq(0)
+      expect(decisions(ctx[:crawl_id])).to be_empty
+      expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("completed")
     end
 
     it "PROOF 97 — a pass that already recorded the crossing is not double-counted" do

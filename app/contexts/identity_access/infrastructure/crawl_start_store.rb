@@ -178,8 +178,12 @@ module IdentityAccess
       #                    bound discarded and the ones the run simply never reached
       #   `unresolved`     :450 `sitemap_unavailable` ("coverage is partial") and :452
       #                    `robots_unavailable_fail_closed` ("makes that Source root failed")
-      #   `hard_limits`    :442 "at any other hard limit ... set `coverage_status=partial` and
-      #                    `completion_reason=limit_reached`"
+      #   `hard_limit_dimensions` — every HARD decision dimension, retained for audit and then
+      #                    classified by the canonical R5-1 table. A hard decision is not by itself
+      #                    a run-terminal reason (ADR-117).
+      #   `sitemap_limit_facts` — :450's persisted sitemap XML/body/time/context limit reasons. Those
+      #                    are terminal facts even when no general crawl-limit decision represents
+      #                    the contextual sitemap outcome.
       def terminal_facts(organization_id, crawl_id, project_id)
         exec(<<~SQL, [organization_id, crawl_id, project_id]).to_a.first
           WITH roots AS (
@@ -211,9 +215,13 @@ module IdentityAccess
             (SELECT COUNT(*) FROM crawl_host_gates g
               WHERE g.organization_id = $1::uuid AND g.crawl_id = $2::uuid
                 AND (g.sitemap_state = 'unavailable' OR g.robots_state = 'unavailable')) AS unresolved,
-            (SELECT COUNT(*) FROM crawl_limit_decisions d
+            COALESCE((SELECT jsonb_agg(d.limit_dimension ORDER BY d.limit_dimension)
+              FROM crawl_limit_decisions d
               WHERE d.organization_id = $1::uuid AND d.project_id = $3::uuid AND d.crawl_id = $2::uuid
-                AND d.threshold_kind = 'hard') AS hard_limits
+                AND d.threshold_kind = 'hard'), '[]'::jsonb)::text AS hard_limit_dimensions,
+            (SELECT COALESCE(SUM(jsonb_array_length(g.sitemap_limit_reasons)), 0)
+              FROM crawl_host_gates g
+              WHERE g.organization_id = $1::uuid AND g.crawl_id = $2::uuid) AS sitemap_limit_facts
         SQL
       end
 
@@ -274,16 +282,23 @@ module IdentityAccess
       #
       # `UNION` rather than `UNION ALL`: an entry cannot be in both populations, but a future one that
       # was would be one affected URL, not two.
-      # Has a HARD limit on some OTHER dimension already stopped this run scheduling work?
+      # Has a HARD decision whose canonical disposition abandons the UNSELECTED frontier already been
+      # made? Only that causal population can make the queued rows cease to be the wall clock's. A local
+      # per-URL decision, a depth refusal and a queue-admission refusal do not own unrelated queued rows;
+      # treating every other hard decision as a run stop was the R5-1/R5-4 classifier defect.
       #
-      # :442 at a hard limit is "stop scheduling affected work", so the candidates such a run leaves
-      # `queued` were abandoned BY THAT BOUND. The wall clock arriving at minute sixty then finds them
-      # unevaluated, but it is not what prevented them (round 4, R4-6).
-      def other_hard_limit?(organization_id, crawl_id, wall_clock_dimension)
-        exec(<<~SQL, [organization_id, crawl_id, wall_clock_dimension]).to_a.first["n"].to_i.positive?
+      # `dimensions` comes only from `LimitSemantics::UNSELECTED_FRONTIER_STOP_DIMENSIONS`, whose
+      # classifier invariant fixes this causal population at exactly two dimensions. Keep even the
+      # placeholder arity static: the store must reject classifier drift rather than turn it into SQL.
+      def unselected_frontier_already_stopped?(organization_id, crawl_id, dimensions)
+        dimensions = Array(dimensions)
+        raise ArgumentError, "expected the two unselected-frontier stop dimensions" unless dimensions.length == 2
+
+        params = [organization_id, crawl_id, *dimensions]
+        exec(<<~SQL, params).to_a.first["n"].to_i.positive?
           SELECT COUNT(*) AS n FROM crawl_limit_decisions
           WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
-            AND threshold_kind = 'hard' AND limit_dimension <> $3
+            AND threshold_kind = 'hard' AND limit_dimension IN ($3, $4)
         SQL
       end
 

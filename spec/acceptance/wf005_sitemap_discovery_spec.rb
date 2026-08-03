@@ -528,6 +528,36 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
       expect(documents_spent(ctx)).to eq(2)
     end
 
+    it "PROOF 143 — exhausted sitemap request time is a persisted :450 limit fact" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/a.xml",
+                                   "https://shop.acme.example/z.xml"])
+      attempts = 0
+      valid = urlset("https://shop.acme.example/p1")
+      outbound = Object.new
+      outbound.define_singleton_method(:fetch) do |url, **_kwargs|
+        if url.end_with?("z.xml")
+          attempts += 1
+          next Platform::Outbound::Outcome.timeout(canonical_host: "shop.acme.example")
+        end
+
+        body = url.end_with?("a.xml") ? valid : ""
+        Platform::Outbound::Outcome.response(
+          status: url.end_with?("a.xml") ? 200 : 404,
+          headers: { "content-type" => "application/xml" }, body:, byte_count: body.bytesize,
+          truncated: false, canonical_host: "shop.acme.example", port: 443,
+          pinned_address: "198.51.100.7", final_url: url, redirect_count: 0, latency_ms: 1
+        )
+      end
+
+      result = discover(ctx, outbound)
+
+      expect(attempts).to eq(Workflows::Wf005::DiscoverSitemaps::MAX_ATTEMPTS)
+      expect(result.state).to eq("succeeded")
+      expect(result.limit_reasons).to include(Workflows::Wf005::DiscoverSitemaps::REQUEST_TIME_LIMIT)
+      persisted = JSON.parse(gate_row(ctx[:crawl_id])["sitemap_limit_reasons"])
+      expect(persisted).to include(Workflows::Wf005::DiscoverSitemaps::REQUEST_TIME_LIMIT)
+    end
+
     # ---- the MIXED case: one candidate reaches the network and fails, another is paced ----------
     #
     # Four of the five delta lenses found that the in-memory `@charged` memo could only mean "once

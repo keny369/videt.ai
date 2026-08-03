@@ -453,7 +453,10 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
         Workflows::Wf005::TerminalSelection::Facts.new(
           documents: payload[:documents], roots_total: payload[:source_roots],
           roots_succeeded: payload[:source_roots_succeeded], fetch_failures: payload[:content_fetch_failures],
-          unresolved_discovery: payload[:unresolved_discovery], hard_limits: payload[:hard_limit_decisions],
+          unresolved_discovery: payload[:unresolved_discovery],
+          hard_limit_decisions: payload[:hard_limit_decisions],
+          terminal_limit_decisions: payload[:terminal_forcing_limit_decisions],
+          sitemap_limit_facts: payload[:sitemap_terminal_limit_facts],
           uncovered: payload[:uncovered_candidates], unevaluated: payload[:unevaluated_candidates]
         )
       )

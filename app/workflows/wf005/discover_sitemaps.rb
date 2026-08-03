@@ -64,10 +64,11 @@ module Workflows
       # `limit_reached`; everything else is telemetry once a candidate has succeeded.
       DOCUMENTS_LIMIT = "sitemap_documents_limit"
       INDEX_DEPTH_LIMIT = "sitemap_index_depth_limit"
+      REQUEST_TIME_LIMIT = "sitemap_request_time_limit"
       # The two ratified `limit_dimension` members this service is the observation point for.
       DOCUMENTS_DIMENSION = "sitemap_documents_per_run"
       INDEX_DEPTH_DIMENSION = "sitemap_index_nesting_depth"
-      LIMIT_REASONS = [SitemapParser::LIMIT, DOCUMENTS_LIMIT, INDEX_DEPTH_LIMIT].freeze
+      LIMIT_REASONS = [SitemapParser::LIMIT, DOCUMENTS_LIMIT, INDEX_DEPTH_LIMIT, REQUEST_TIME_LIMIT].freeze
       CONTENDED = "sitemap_discovery_contended"
 
       # A gate refusal is a SCHEDULING condition, never a candidate failure: :442 says a start over
@@ -796,10 +797,20 @@ module Workflows
 
             last = attempt
             return attempt unless attempt.retryable
+            next if index + 1 == DiscoverSitemaps::MAX_ATTEMPTS
 
-            break if @service.pace(FetchRetryPolicy.delay_ms(index + 1, attempt.outcome)) ==
-                     Platform::ScheduledActions::LeaseKeeper::LOST
+            return last if @service.pace(FetchRetryPolicy.delay_ms(index + 1, attempt.outcome)) ==
+                           Platform::ScheduledActions::LeaseKeeper::LOST
           end
+
+          # :450 makes a sitemap request-time exhaustion a persisted sitemap LIMIT, not merely an
+          # unreachable candidate. It is contextual to sitemap discovery, so the gate fact below is
+          # authoritative even though the generic request-time decision remains a local URL decision.
+          if last&.outcome&.kind == :timeout
+            return last.with(parsed: SitemapParser.failure(DiscoverSitemaps::REQUEST_TIME_LIMIT),
+                             retryable: false)
+          end
+
           last
         end
 

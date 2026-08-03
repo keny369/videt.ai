@@ -187,7 +187,10 @@ module Workflows
             "source_root_failures" => facts.root_failures,
             "content_fetch_failures" => facts.fetch_failures,
             "uncovered_candidates" => facts.uncovered, "unevaluated_candidates" => facts.unevaluated,
-            "unresolved_discovery" => facts.unresolved_discovery, "hard_limit_decisions" => facts.hard_limits,
+            "unresolved_discovery" => facts.unresolved_discovery,
+            "hard_limit_decisions" => facts.hard_limit_decisions,
+            "terminal_forcing_limit_decisions" => facts.terminal_limit_decisions,
+            "sitemap_terminal_limit_facts" => facts.sitemap_limit_facts,
             # FU-9's obligation, reported so its exercise is visible rather than silent.
             "sitemap_outcomes_derived" => sitemaps,
             "entitlement_reservation_id" => crawl["entitlement_reservation_id"],
@@ -330,10 +333,9 @@ module Workflows
           affected = affected_by_wall_clock(d, crawl)
           return false if affected.urls.zero?
 
-          # AND THE CANDIDATES MUST BE THE CLOCK'S (round 4, R4-6). R3-1 removed the `discarded` leg —
-          # candidates another bound affirmatively disposed of — and stopped there. It left the leg that
-          # matters more: a run a DIFFERENT hard bound halted leaves its remaining candidates `queued`,
-          # and `unevaluated_reach` counts every one of them.
+          # AND THE CANDIDATES MUST BE THE CLOCK'S. A prior decision suppresses this one only when the
+          # classifier says that dimension stopped the UNSELECTED frontier. Local URL/depth decisions do
+          # not own unrelated queued rows; accepted-page and run-byte exhaustion do.
           #
           # :442 at a hard limit is "stop scheduling affected work", so those candidates were abandoned
           # by THAT dimension and the clock merely arrived afterwards to find them. Attributing them
@@ -342,9 +344,9 @@ module Workflows
           # R3-1 exists to prevent, and uncorrectable because `f1_crawls_guard` refuses every UPDATE of a
           # terminal row.
           #
-          # The run still reads `limit_reached`: :452's precedence takes it from the hard decision the
-          # other dimension already recorded, so nothing is lost by declining to add a second one.
-          return false if d[:store].other_hard_limit?(d[:org], crawl["id"], Admission::WALL_CLOCK_DIMENSION)
+          return false if d[:store].unselected_frontier_already_stopped?(
+            d[:org], crawl["id"], LimitSemantics::UNSELECTED_FRONTIER_STOP_DIMENSIONS
+          )
 
           limits = EffectiveLimits.resolve(d[:store].active_crawl_policies(d[:org], crawl["project_id"]))
           observer = LimitDecisions.new(ids: d[:ctx].ids, correlation_id: d[:ctx].correlation_id)
@@ -375,10 +377,16 @@ module Workflows
 
         def count_facts(store, org, crawl, project_id)
           row = store.terminal_facts(org, crawl["id"], project_id)
+          hard_dimensions = JSON.parse(row["hard_limit_dimensions"].to_s)
           TerminalSelection::Facts.new(
             documents: row["documents"].to_i, roots_total: row["roots_total"].to_i,
             roots_succeeded: row["roots_succeeded"].to_i, fetch_failures: row["fetch_failures"].to_i,
-            unresolved_discovery: row["unresolved"].to_i, hard_limits: row["hard_limits"].to_i,
+            unresolved_discovery: row["unresolved"].to_i,
+            hard_limit_decisions: hard_dimensions.size,
+            terminal_limit_decisions: hard_dimensions.count do |dimension|
+              LimitSemantics.terminal_forcing_decision?(dimension)
+            end,
+            sitemap_limit_facts: row["sitemap_limit_facts"].to_i,
             uncovered: row["uncovered"].to_i, unevaluated: row["unevaluated"].to_i
           )
         end

@@ -14,7 +14,8 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
   def clean(**overrides)
     described_class::Facts.new(
       documents: 1, roots_total: 1, roots_succeeded: 1, fetch_failures: 0,
-      unresolved_discovery: 0, hard_limits: 0, uncovered: 0, unevaluated: 0
+      unresolved_discovery: 0, hard_limit_decisions: 0, terminal_limit_decisions: 0,
+      sitemap_limit_facts: 0, uncovered: 0, unevaluated: 0
     ).with(**overrides)
   end
 
@@ -54,10 +55,11 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       # `partial_source_failure`, then `completed`"; :452 says the same from the other end — "a limit hit
       # takes the HIGHER `limit_reached` precedence already defined". Asserted as an ORDER rather than
       # three independent cases: the run below satisfies all three conditions at once.
-      both = derive(hard_limits: 1, roots_total: 2, roots_succeeded: 1, fetch_failures: 1,
+      both = derive(hard_limit_decisions: 1, terminal_limit_decisions: 1,
+                    roots_total: 2, roots_succeeded: 1, fetch_failures: 1,
                     unresolved_discovery: 1)
       expect(both.completion_reason).to eq("limit_reached")
-      expect(derive(hard_limits: 0, roots_total: 2, roots_succeeded: 1).completion_reason)
+      expect(derive(roots_total: 2, roots_succeeded: 1).completion_reason)
         .to eq("partial_source_failure")
       expect(derive.completion_reason).to eq("completed")
     end
@@ -73,7 +75,7 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
   end
 
   describe ":458's `full` rule, which is a different question from the completion reason" do
-    it "PROOF 76 — `full` requires ALL FOUR absences, and each one alone makes it partial" do
+    it "PROOF 76 — every uncovered, terminal-limit, and unresolved cause independently makes coverage partial" do
       # :458 — "a completed Crawl is `full` ONLY WHEN every in-scope candidate admitted by the frozen
       # discovery rules reached a terminal covered outcome AND no Source or discovery path has an
       # unresolved failure", plus the preceding sentence's "any in-scope candidate NOT EVALUATED because
@@ -82,20 +84,28 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       expect(derive.coverage_status).to eq("full")
       expect(derive(uncovered: 1, fetch_failures: 1).coverage_status).to eq("partial")
       expect(derive(unevaluated: 1).coverage_status).to eq("partial")
-      expect(derive(hard_limits: 1).coverage_status).to eq("partial")
+      expect(derive(hard_limit_decisions: 1, terminal_limit_decisions: 1).coverage_status).to eq("partial")
+      expect(derive(sitemap_limit_facts: 1).coverage_status).to eq("partial")
       expect(derive(unresolved_discovery: 1).coverage_status).to eq("partial")
       expect(derive(roots_total: 2, roots_succeeded: 1).coverage_status).to eq("partial")
     end
 
     it "PROOF 77 — a clean completion can still be PARTIAL, which is the pair most easily collapsed" do
-      # An in-scope candidate discarded by the discovered-queue bound is not a Source failure and there
-      # is no `content_fetch_failed` to point at, so :452's reason stays `completed` while :458's
-      # coverage is `partial`. Deriving one from the other — in either direction — is the mistake, and
-      # the direction that matters is the one that makes coverage read better than the run was.
-      selection = derive(unevaluated: 1)
+      # A depth-bound refusal is a real HARD decision and makes its candidate unevaluated, but it is a
+      # LOCAL disposition rather than a run-terminal limit. So :452's reason stays `completed` while
+      # :458's coverage is `partial`. Promoting every hard decision to the terminal reason erased that
+      # distinction.
+      selection = derive(hard_limit_decisions: 1, terminal_limit_decisions: 0, unevaluated: 1)
       expect(selection.state).to eq("completed")
       expect(selection.completion_reason).to eq("completed")
       expect(selection.coverage_status).to eq("partial")
+    end
+
+    it "PROOF 142 — a persisted sitemap limit fact independently selects `limit_reached`" do
+      selection = derive(sitemap_limit_facts: 1)
+      expect(selection.completion_reason).to eq("limit_reached")
+      expect(selection.coverage_status).to eq("partial")
+      expect(selection.state).to eq("completed")
     end
 
     it "PROOF 78 — this function cannot see an exclusion at all, which is why :452's rule is proved elsewhere" do
@@ -117,7 +127,8 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       expect(described_class::Facts.members).not_to include(:excluded)
       expect(described_class::Facts.members)
         .to contain_exactly(:documents, :roots_total, :roots_succeeded, :fetch_failures,
-                            :unresolved_discovery, :hard_limits, :uncovered, :unevaluated)
+                            :unresolved_discovery, :hard_limit_decisions, :terminal_limit_decisions,
+                            :sitemap_limit_facts, :uncovered, :unevaluated)
 
       # The behavioural half — a real run whose only non-document candidate is `policy_excluded` still
       # reads `full` — is PROOF 127 in `spec/acceptance/wf005_terminal_checkpoint_spec.rb`, which runs
@@ -133,7 +144,7 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       # the guard refuses every edge out of it, so a checkpoint arriving afterwards derives nothing at
       # all. A `canceled` limb here would be a second implementation of a rule the state machine already
       # enforces — and two implementations of one rule is how they come to disagree.
-      states = [derive, derive(documents: 0), derive(hard_limits: 1), derive(unevaluated: 1)]
+      states = [derive, derive(documents: 0), derive(terminal_limit_decisions: 1), derive(unevaluated: 1)]
       expect(states.map(&:state).uniq).to match_array(%w[completed failed])
       expect(states.map(&:completion_reason)).not_to include("canceled")
     end

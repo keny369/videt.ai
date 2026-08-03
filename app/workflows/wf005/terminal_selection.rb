@@ -50,13 +50,17 @@ module Workflows
       #     denominator and which makes coverage partial.
       #   * `unresolved_discovery` — hosts whose sitemap discovery ended `sitemap_unavailable` (:450 —
       #     "link discovery may continue but coverage is PARTIAL") or whose robots record is fail-closed.
-      #   * `hard_limits` — `crawl_limit_decisions` rows at the hard threshold. :442 — at a hard limit
-      #     "set `coverage_status=partial` and `completion_reason=limit_reached`."
+      #   * `hard_limit_decisions` — every hard `crawl_limit_decisions` row, retained for audit.
+      #   * `terminal_limit_decisions` — the subset whose canonical R5-1 classification selects a
+      #     run-terminal `limit_reached`; a local hard decision does not enter this count.
+      #   * `sitemap_limit_facts` — persisted :450 XML/body/time/context limit reasons. These select
+      #     `limit_reached` independently of the general decision table.
       #   * `uncovered` — outcomes in the denominator that did not reach a covered outcome, and
       #     `unevaluated` — in-scope candidates discarded by a bound without an outcome at all. :458's
       #     `full` requires that neither exists.
       Facts = Data.define(:documents, :roots_total, :roots_succeeded, :fetch_failures,
-                          :unresolved_discovery, :hard_limits, :uncovered, :unevaluated) do
+                          :unresolved_discovery, :hard_limit_decisions, :terminal_limit_decisions,
+                          :sitemap_limit_facts, :uncovered, :unevaluated) do
         # :453 — "A run is failed when it yields zero valid Documents OR every active Source root fails."
         # The second limb is not implied by the first: a run can create a Document from a sitemap-found URL
         # while every root itself failed, and :452 is explicit that another URL succeeding does not rescue
@@ -66,6 +70,7 @@ module Workflows
         def failed? = documents.zero? || roots_total.zero? || roots_succeeded.zero?
 
         def root_failures = roots_total - roots_succeeded
+        def terminal_limits = terminal_limit_decisions + sitemap_limit_facts
       end
 
       Selection = Data.define(:state, :completion_reason, :coverage_status)
@@ -82,7 +87,7 @@ module Workflows
       # `completed`, and :452 states the same order from the other end — "a limit hit takes the higher
       # `limit_reached` precedence already defined".
       def self.completion_reason(facts)
-        return LIMIT_REACHED if facts.hard_limits.positive?
+        return LIMIT_REACHED if facts.terminal_limits.positive?
         # :452 — "For a completed run with NO LIMIT HIT, any Source-root failure, `content_fetch_failed`,
         # or `sitemap_unavailable` yields `completion_reason=partial_source_failure`; otherwise it is
         # `completed`." Three causes, one reason, and all three are counted separately by the caller so
@@ -106,7 +111,7 @@ module Workflows
       # here is always the same one — coverage that reads better than the run was.
       def self.coverage_status(facts)
         uncovered = facts.uncovered.positive? || facts.unevaluated.positive?
-        return PARTIAL if uncovered || facts.hard_limits.positive?
+        return PARTIAL if uncovered || facts.terminal_limits.positive?
         return PARTIAL if facts.root_failures.positive? || facts.unresolved_discovery.positive?
 
         FULL

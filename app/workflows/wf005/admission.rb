@@ -142,14 +142,39 @@ module Workflows
 
           bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
 
-          # :442 — "At 60 elapsed minutes, no new request starts." Checked BEFORE the entry is
-          # claimed, so an expired run does not take work out of the frontier only to refuse it.
-          next limited(WALL_CLOCK) if wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
+          # THE HARD-EXPIRED RETURN DOES NOT ENTER THE FRONTIER CRITICAL SECTION. It may therefore
+          # record the terminal wall-clock observation without taking the frontier lock: this
+          # transaction returns immediately and can never form the `crawls FOR KEY SHARE -> frontier`
+          # half of the R5-3 cycle. The soft-only limb is different — it FALLS THROUGH — and is
+          # deliberately deferred until after the lock and revalidation below.
+          if wall_clock_expired?(crawl, now)
+            wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
+            next limited(WALL_CLOCK)
+          end
 
           frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
-          # The same advisory lock the dequeue already takes. Holding it across the reservation is
-          # what makes admission order equal dequeue order.
+          # THE FIRST LOCK OF EVERY FALL-THROUGH ADMISSION (ADR-117 / R5-3). A soft wall-clock
+          # decision inserts a child row whose Crawl FK takes `FOR KEY SHARE`; writing it before this
+          # lock creates the cycle `Admission: crawl -> frontier`, `Cancel/Complete: frontier ->
+          # crawl`. Nothing durable has happened above this line.
           frontier.lock_frontier(crawl_id)
+
+          # THE PREFLIGHT WAS NOT AUTHORITY TO ACT AFTER A WAIT. Cancellation or completion may have
+          # committed while Admission queued on the advisory lock, and Organization/Project/
+          # entitlement state may also have changed. Re-read and re-authorize all four run-scoped
+          # limbs under the lock before the first decision, reservation or claim. Re-resolve policy
+          # as well, so the numbers enforced after the wait are the numbers currently active.
+          crawl = gates.crawl(organization_id, crawl_id)
+          next idle if crawl.nil?
+          denial = authorize(gates, organization_id, crawl, now)
+          next limited(denial) if denial
+
+          bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
+          # :442 — "At 60 elapsed minutes, no new request starts." This second check is the
+          # authoritative one for the fall-through path and is also where the soft observation is
+          # allowed to acquire its implicit Crawl tuple lock: the frontier lock is already held.
+          next limited(WALL_CLOCK) if wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
+
           # PEEK, then pay, then claim. `in_progress` has no way back under the frontier guard, so an
           # entry claimed and then refused its bytes is stranded — and `sealed_depth` would pin the
           # run's breadth-first frontier at that depth forever. The lock makes peek-then-claim
@@ -257,8 +282,7 @@ module Workflows
       # same instant read a different way.
       def wall_clock(raw, organization_id, crawl, crawl_id, limits, now)
         elapsed = elapsed_minutes(crawl, now)
-        deadline = crawl["deadline_at"]
-        expired = !deadline.nil? && Platform::PgInstant.utc(deadline) <= now.utc
+        expired = wall_clock_expired?(crawl, now)
 
         # SOFT IS INDEPENDENT OF HARD, as at every other observation point. Gating it behind
         # `elsif expired` lost the soft event permanently for any run whose first admission after
@@ -273,6 +297,11 @@ module Workflows
                   LimitDimensions::HARD, elapsed.to_i, limits, now)
         end
         expired
+      end
+
+      def wall_clock_expired?(crawl, now)
+        deadline = crawl["deadline_at"]
+        !deadline.nil? && Platform::PgInstant.utc(deadline) <= now.utc
       end
 
       def elapsed_minutes(crawl, now)
