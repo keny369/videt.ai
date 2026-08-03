@@ -233,6 +233,36 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(events(ctx[:crawl_id]).sole["event_type"]).to eq("CrawlCompleted")
     end
 
+    it "PROOF 152 — a checkpoint whose wait outlasts the lease RELEASES instead of committing" do
+      # :551 — "the durable commit point must have committed STRICTLY BEFORE" the effective deadline,
+      # and expiry wins at equality. The commit point is THIS TRANSACTION'S terminal transition, not
+      # the instant the delivery arrived, and `Entitlement::Service#commit` decides commit versus
+      # release from the instant it is handed and nothing else.
+      #
+      # THE RUN IS THE COMMITTING ONE. PROOF 60 is this same fixture and it commits, so the only
+      # difference here is that the checkpoint waited past the lease — which is the whole finding.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+      action = drained_action(ctx[:crawl_id])
+      at = Platform::PgInstant.utc(action["due_at"])
+      set_lease_due(ctx[:crawl_id], at + 1)
+
+      result = wait_out_frontier(ctx, 1.5) { checkpoint(ctx, action:, at:) }
+
+      expect(result).to be_a(Platform::CommandResult), result.inspect
+      expect(result.success?).to be(true)
+      # The run still terminalizes and still completed: the entitlement outcome is the only thing the
+      # lapsed lease changes, which is exactly what :551 says it changes.
+      expect(result.payload[:state]).to eq("completed")
+      expect(result.payload[:entitlement_outcome]).to eq("released")
+      expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
+      # MTX-030's "exactly once" is not satisfied by a commit intent that should never have existed.
+      expect(DbInspector.one(<<~SQL, [ctx[:crawl_id]])["n"].to_i).to eq(0)
+        SELECT count(*) AS n FROM entitlement_commit_intents WHERE reservation_id IN
+          (SELECT entitlement_reservation_id FROM crawls WHERE id = $1::uuid)
+      SQL
+    end
+
     it "PROOF 61 — zero valid Documents is FAILED, whatever the coverage looked like" do
       # :453 — "A run is failed when it yields zero valid Documents or every active Source root fails."
       # A 404 root is :452-COVERED (`content_absent`), so this run's every candidate reached a covered
@@ -834,7 +864,19 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     end
 
     it "PROOF 145 — the checkpoint preserves the deadline's exact microsecond" do
-      began = start_now + Rational(123_456, 1_000_000)
+      # THE MARGIN IS 400ms, NOT ONE MICROSECOND, AND THE FRACTION IS .987654 (round 6, R6-1/R6-6).
+      # The checkpoint no longer decides on the instant it was DELIVERED at: it takes both its locks
+      # and then reads its decision instant from the database, so the transaction's own elapsed time
+      # is part of the answer. A one-microsecond margin was smaller than that elapsed time, which made
+      # this example measure scheduling noise rather than the decode it exists for.
+      #
+      # THE TWO BOUNDS THE MARGIN SITS BETWEEN, both real. It must exceed the handler's own transaction
+      # time (milliseconds) or the example fails without any defect; it must stay under the truncation
+      # error the mutation introduces (987,654µs) or the example passes WITH one. 400ms is two orders
+      # of magnitude clear of the first and less than half the second, so `Time.parse(typed.to_s)`
+      # still moves the boundary from `.987654` back to `.000000`, still puts this delivery AFTER it,
+      # and still makes the immutable wall-clock crossing fire falsely.
+      began = start_now + Rational(987_654, 1_000_000)
       ctx = running_crawl(at: began)
       ensure_gate(ctx)
       resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
@@ -861,8 +903,8 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       end
 
       exact = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc
-      expect(exact.usec).to eq(123_456), "the fixture did not produce a sub-second deadline"
-      just_before = age_run_to(ctx, exact - Rational(1, 1_000_000))
+      expect(exact.usec).to eq(987_654), "the fixture did not produce a sub-second deadline"
+      just_before = age_run_to(ctx, exact - Rational(400, 1_000))
       result = checkpoint(ctx, action: drained_action(ctx[:crawl_id]), at: just_before)
 
       # `Time.parse(typed_time.to_s)` moves the boundary back to `.000000` and makes this one-
@@ -989,14 +1031,25 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
     end
   end
 
-  describe "FU-9's transferred obligation: :450's unreachable outcome" do
-    it "PROOF 67 — a gate left `pending` is terminalized `sitemap_unavailable` at the checkpoint" do
-      # FU-9, transferred whole at S-07-012's acceptance (ADR-096). `DiscoverSitemaps` writes :450's
-      # terminal outcome only once the run has EXPIRED, and `CrawlDriver#advance` halts on the same
-      # wall clock BEFORE it calls discovery with the same `now` — so a gate under sustained contention
-      # stayed `pending` for ever and :450's `sitemap_unavailable` was unreachable on every production
-      # path. At the checkpoint no candidate can ever be attempted, which is exactly the "after
-      # retries/validation" premise :450 conditions the outcome on.
+  # OWNER RULING 3: VOLUME I :450 GOVERNS, AND PENDING IS NOT AN OUTCOME (round-6 blocker R6-4).
+  #
+  # ":450 — If a DECLARED SITEMAP EXISTS, or the default returns a non-404/410 response, and no
+  # sitemap candidate succeeds AFTER RETRIES/VALIDATION, record `sitemap_unavailable`." The sentence
+  # has an antecedent. The checkpoint used to satisfy only its consequent — "at this instant no
+  # candidate can ever be attempted" — and write the outcome anyway, and the proof that pinned it used
+  # allow-all robots with NO declared sitemap and NO default fetch, so the expectation itself asserted
+  # the invented observation.
+  #
+  # THESE THREE EXAMPLES ARE THE STATES THE OLD ONE COULD NOT TELL APART: never attempted, attempted
+  # and genuinely unavailable, and terminalized by a sitemap-specific limit. Only the second and third
+  # may produce a :450 outcome, and the first must produce none while still stopping the run being
+  # `full`.
+  describe ":450's antecedents, and the three states a gate can end in" do
+    it "PROOF 67 — a PENDING, NEVER-ATTEMPTED gate gets no outcome, and still makes coverage partial" do
+      # Allow-all robots, no declared sitemap, no default fetch: exactly the fixture the old PROOF 67
+      # used, and on these facts :450 authorises NOTHING. `absent` needs the default to have answered
+      # 404/410 and `unavailable` needs a declared sitemap or a non-404/410 default, and this run
+      # observed neither because it never asked.
       ctx = running_crawl
       ensure_gate(ctx)
       resolve_robots(ctx, outbound_returning(response(status: 200, body: ALLOW_ALL_ROBOTS)))
@@ -1004,20 +1057,78 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
 
       result = checkpoint(ctx)
 
+      # THE GATE IS EXACTLY AS THE RUN LEFT IT. Nothing was claimed, nothing was terminalized, and the
+      # customer's record carries no statement about a host nobody contacted.
+      gate = gate_rows(ctx[:crawl_id]).sole
+      expect(gate["sitemap_state"]).to eq("pending")
+      expect(gate["sitemap_outcome_reason"]).to be_nil
+      expect(gate["sitemap_terminal_at"]).to be_nil
+      # :450's count stays zero, because :450 recorded nothing.
+      expect(result.payload[:unresolved_discovery]).to eq(0)
+      # :458's not-evaluated limb is what carries it instead: coverage partial, and the completion
+      # reason is NOT `partial_source_failure`, because :452 lists three causes and this is none.
+      expect(result.payload[:unattempted_discovery]).to eq(1)
+      # This run fetched nothing, so :453 makes it `failed` and ADR-097 leaves coverage NULL. The
+      # coverage claim is PROOF 162's, on a run that actually completes.
+      expect(result.payload[:state]).to eq("failed")
+      expect(result.payload[:completion_reason]).not_to eq("partial_source_failure")
+    end
+
+    it "PROOF 162 — a COMPLETED run with an unattempted host is `partial`, not `full`" do
+      # THE ANSWER THE OLD ROUTE REACHED, KEPT. `resolve_pending_sitemaps` existed because an
+      # unattempted host must stop a run being `full`, and it got there by writing an outcome :450 does
+      # not authorise. The answer was right; only the route was invented. This proves the answer
+      # survives the route's removal, on a run that genuinely completed with a valid Document.
+      ctx = fetchable
+      drain(ctx, outbound_by_path("/" => page))
+      # A SECOND HOST THE RUN TOUCHED AND NEVER GOT TO. A gate is created the first time a pass reaches
+      # a host, so a run that ran out of clock between creating the gate and resolving it leaves exactly
+      # this row: no robots, no discovery, no outcome.
+      in_gate(ctx[:g][:organization_id]) do |_s, gate|
+        gate.ensure_gate(organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+                         crawl_id: ctx[:crawl_id], canonical_host: "www.acme.example", now: start_now)
+      end
+      second = gate_rows(ctx[:crawl_id]).find { |g| g["canonical_host"] == "www.acme.example" }
+      expect(second["sitemap_state"]).to eq("pending")
+
+      result = checkpoint(ctx, action: drained_action(ctx[:crawl_id]))
+
+      expect(result.payload[:state]).to eq("completed")
+      expect(result.payload[:unattempted_discovery]).to be >= 1
+      expect(result.payload[:coverage_status]).to eq("partial")
+      expect(crawl_row(ctx[:crawl_id])["coverage_status"]).to eq("partial")
+    end
+
+    it "PROOF 68 — an ATTEMPTED gate whose candidates all fail IS `sitemap_unavailable`" do
+      # The antecedent satisfied: a DECLARED sitemap, fetched, failing after :450's retries. This is
+      # the outcome the ruling preserves, and the one the old checkpoint made indistinguishable from
+      # the case above by writing the same token for both.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      resolve_robots(ctx, outbound_returning(
+        response(status: 200, body: "User-agent: *\nAllow: /\nSitemap: https://shop.acme.example/s.xml\n")
+      ))
+      resolve_sitemaps(ctx, outbound_returning(response(status: 503, body: "")))
+
       gate = gate_rows(ctx[:crawl_id]).sole
       expect(gate["sitemap_state"]).to eq("unavailable")
       expect(gate["sitemap_outcome_reason"]).to eq("sitemap_unavailable")
-      expect(gate["sitemap_terminal_at"]).not_to be_nil
-      expect(result.payload[:sitemap_outcomes_derived]).to eq(1)
-      # :450 — "link discovery may continue but COVERAGE IS PARTIAL", counted through `unresolved`.
+
+      result = checkpoint(ctx)
+
+      # :450 — "link discovery may continue but COVERAGE IS PARTIAL", counted through `unresolved`,
+      # and it is a Source failure, so :452's completion reason DOES fire here.
+      # :450's count is the one that moves here, and the unattempted count stays at zero: this host WAS
+      # attempted. That separation is the whole of the ruling — PROOF 67's gate and this one used to
+      # produce the identical `sitemap_unavailable` row and were indistinguishable afterwards.
       expect(result.payload[:unresolved_discovery]).to be >= 1
+      expect(result.payload[:unattempted_discovery]).to eq(0)
     end
 
-    it "PROOF 68 — a fail-closed robots host is NOT also recorded sitemap-unavailable" do
-      # :448 denies all content fetching for that host, so discovery never had a sitemap to fail at.
-      # Recording `sitemap_unavailable` there would count one host's robots failure twice in the
-      # coverage measure — and coverage that is wrong in that direction is the one that matters least,
-      # but a count that double-charges a host is still a count nobody can reconcile.
+    it "PROOF 69 — a fail-closed robots host is neither unavailable nor counted unattempted" do
+      # :448 denies all content fetching for that host, so discovery correctly never ran and the gate
+      # is legitimately `pending`. `unresolved` already counts it through `robots_state`, so counting
+      # it again as unattempted would double-charge one host in the coverage measure.
       ctx = running_crawl
       ensure_gate(ctx)
       resolve_robots(ctx, outbound_returning(response(status: 403, body: "no")))
@@ -1027,7 +1138,36 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
 
       gate = gate_rows(ctx[:crawl_id]).sole
       expect(gate["sitemap_state"]).to eq("pending")
-      expect(result.payload[:sitemap_outcomes_derived]).to eq(0)
+      expect(gate["sitemap_outcome_reason"]).to be_nil
+      expect(result.payload[:unresolved_discovery]).to eq(1)
+      expect(result.payload[:unattempted_discovery]).to eq(0)
+    end
+
+    it "PROOF 161 — a sitemap-specific LIMIT still terminalizes the gate, which :450 does authorise" do
+      # ":450 — any sitemap depth/count/body/time/XML limit still produces `limit_reached`." The ruling
+      # withdraws the INVENTED outcome, not the recorded ones: a gate the run genuinely attempted and
+      # bounded keeps its terminal state and its limit reason, and the checkpoint reads them.
+      ctx = running_crawl
+      ensure_gate(ctx)
+      resolve_robots(ctx, outbound_returning(
+        response(status: 200, body: "User-agent: *\nAllow: /\nSitemap: https://shop.acme.example/s.xml\n")
+      ))
+      oversized = "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">" \
+                  "#{'<url><loc>https://shop.acme.example/x</loc></url>' * 3}</urlset>"
+      resolve_sitemaps(ctx, outbound_returning(
+        response(status: 200, body: oversized, truncated: true,
+                 headers: { "content-type" => "application/xml" })
+      ))
+
+      gate = gate_rows(ctx[:crawl_id]).sole
+      expect(gate["sitemap_state"]).not_to eq("pending")
+      expect(gate["sitemap_terminal_at"]).not_to be_nil
+
+      result = checkpoint(ctx)
+
+      # Attempted, so it is not the unattempted count; terminal, so the checkpoint left it alone.
+      expect(result.payload[:unattempted_discovery]).to eq(0)
+      expect(gate_rows(ctx[:crawl_id]).sole["sitemap_state"]).to eq(gate["sitemap_state"])
     end
   end
 

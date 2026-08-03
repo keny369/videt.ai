@@ -7,12 +7,43 @@ require "ripper"
 # ADR-117's one authorised WF-005 fitness check. PostgreSQL instants in this workflow have one
 # decoder, `Platform::PgInstant`; this check discovers the tracked recursive corpus and parses Ruby
 # syntax so comments and string literals cannot manufacture either a violation or conformity.
+#
+# IT IS AN ALLOWLIST NOW, NOT A LIST OF KNOWN-BAD SHAPES (round 6, R6-7).
+#
+# THE DEFECT THIS REPLACES. The first version enumerated four AST forms — `Time.parse`,
+# `x.is_a?(Time)`, `x.respond_to?(:getutc)` with parentheses, `x.class == Time` — and proved itself
+# against those same four. Round 6 called the committed `violations` helper directly and got an empty
+# finding set for four ordinary spellings of the very thing it exists to forbid:
+#
+#     Time.zone.parse(value.to_s)     # the receiver is a call, so `constant_name` returned nil
+#     Time.rfc3339(value.to_s)        # `rfc3339` was not in the method list
+#     value.respond_to? :getutc       # no parentheses, so it is `command_call`, not `method_add_arg`
+#     Time === value ? value.getutc : value   # neither operand is a `.class` call
+#
+# Adding four more shapes would have reproduced the defect one round later, because the flaw was never
+# the coverage of the list — it was that a list of forbidden spellings can always be respelled.
+#
+# WHAT IT ASSERTS INSTEAD, and why this is enforceable rather than aspirational: THE TRACKED WF-005
+# CORPUS NAMES `Time` AND `DateTime` NOWHERE AT ALL. Not once, in any of the tracked files. Every
+# instant this workflow reads out of PostgreSQL goes through `Platform::PgInstant`, and every instant
+# it writes is one the application already holds. So the rule is not "these four shapes are
+# forbidden", it is "this constant may not be named here" — which no respelling can evade, because
+# every parser, every type test, every `case/when`, every `===` and every `.class ==` comparison has
+# to name it to do its work.
+#
+# THE SECOND RULE IS THE PROTOCOL'S. `respond_to?(:getutc)` needs no constant, so a symbol literal
+# naming the UTC protocol is banned alongside. The two `.getutc` method CALLS in the corpus are
+# untouched and correct: they format an instant the application already holds, which is a different
+# act from deciding how to decode one.
 RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
   # Methods, not example-group constants: constants assigned in an RSpec block land on Object and can
   # collide with another spec according to load order (FU-42).
-  def parser_methods = %w[parse iso8601 strptime]
-  def type_tests = %w[is_a? kind_of? instance_of?]
-  def utc_protocol = %w[getutc to_time]
+  #
+  # NAMING EITHER OF THESE IN WF-005 IS THE VIOLATION. There is no list of methods, because the rule
+  # is about the constant rather than about what is done with it.
+  def banned_constants = %w[Time DateTime]
+  # The UTC protocol, AS A SYMBOL LITERAL — which is dispatch — never as a method call, which is use.
+  def banned_symbols = %w[getutc to_time]
 
   def tracked_ruby_files
     stdout, status = Open3.capture2("git", "ls-files", "--", "app/workflows/wf005")
@@ -69,42 +100,54 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
     found || 1
   end
 
-  # Returns syntax-derived findings. This is deliberately a callable detector so the examples below
-  # prove it both rejects local implementations and accepts canonical calls before it scans production.
+  # The UTC protocol NAMED AS DATA, in whichever spelling produced it: `:getutc`, `%i[getutc]`,
+  # `"getutc"`. All three are dispatch — `respond_to?` and `send` accept a String as readily as a
+  # Symbol — and all three reach the same decision a type test would.
+  #
+  # A METHOD CALL IS NOT REACHED BY ANY OF THEM. `time.getutc` is an `@ident` in call position, which
+  # is use rather than dispatch, and the corpus contains two legitimate ones.
+  #
+  # THE STRING LIMB MATCHES THE WHOLE CONTENT, WHICH IS WHY IT IS NOT A PROSE RULE. A comment is not in
+  # the tree at all, and a sentence that mentions the protocol — `"value.respond_to?(:getutc)"` — is
+  # one `@tstring_content` token holding the whole sentence and does not equal the protocol name. Only
+  # a literal whose entire content IS the method name matches, and that literal has exactly one use.
+  def protocol_names(node)
+    case node.first
+    when :symbol then [token(node[1], :@ident), token(node[1], :@const), token(node[1], :@kw)].compact
+    else [token(node, :@tstring_content)].compact
+    end
+  end
+
+  # Returns syntax-derived findings. Deliberately a callable detector so the examples below prove it
+  # against independently constructed programs before it scans production.
+  #
+  # TWO RULES, BOTH STRUCTURAL. Neither enumerates a spelling, so neither can be respelled around:
+  #
+  #   1. the tracked corpus may not NAME `Time` or `DateTime`, in any syntactic position;
+  #   2. it may not name the UTC protocol AS A SYMBOL, which is the one way to dispatch on a
+  #      timestamp without naming its class.
   def violations(source, file: "synthetic.rb")
     tree = Ripper.sexp(source)
     return ["#{file}:1 is not parseable Ruby"] if tree.nil?
 
     findings = []
     each_node(tree) do |node|
-      case node.first
-      when :call
-        receiver, method = node[1], node[3]
-        if %w[Time DateTime].include?(constant_name(receiver)) && parser_methods.include?(token(method, :@ident))
-          findings << "#{file}:#{line_of(method)} locally parses a timestamp"
-        end
-      when :method_add_arg
-        call, arguments = node[1], node[2]
-        next unless call.is_a?(Array) && call.first == :call
+      # RULE 1. Any `@const` token, wherever it sits: `Time.parse`, `::Time`, `Time.zone.parse`,
+      # `when Time`, `Time === x`, `x.class == Time`, `x.is_a?(Time)`, `Time::at` — all of them have
+      # to produce this token to mean anything.
+      constant = token(node, :@const)
+      if banned_constants.include?(constant)
+        findings << "#{file}:#{node[2].is_a?(Array) ? node[2][0] : 1} names #{constant}; " \
+                    "PostgreSQL instants are decoded only by Platform::PgInstant"
+      end
 
-        method = token(call[3], :@ident)
-        if type_tests.include?(method) && contains_constant?(arguments, "Time", "DateTime")
-          findings << "#{file}:#{line_of(call[3])} locally dispatches on timestamp type"
-        elsif method == "respond_to?" && contains_token?(arguments, :@ident, *utc_protocol)
-          findings << "#{file}:#{line_of(call[3])} locally dispatches on timestamp protocol"
-        end
-      when :when, :in
-        if contains_constant?(node[1], "Time", "DateTime")
-          findings << "#{file}:#{line_of(node[1])} locally dispatches on timestamp type"
-        end
-      when :binary
-        left, _operator, right = node[1], node[2], node[3]
-        left_class = left.is_a?(Array) && left.first == :call && token(left[3], :@ident) == "class"
-        right_class = right.is_a?(Array) && right.first == :call && token(right[3], :@ident) == "class"
-        if (left_class && contains_constant?(right, "Time", "DateTime")) ||
-           (right_class && contains_constant?(left, "Time", "DateTime"))
-          findings << "#{file}:#{line_of(node)} locally dispatches on timestamp class"
-        end
+      # RULE 2. `respond_to? :getutc`, with or without parentheses, and every other symbol-shaped
+      # dispatch on the UTC protocol.
+      protocol_names(node).each do |name|
+        next unless banned_symbols.include?(name)
+
+        findings << "#{file}:#{line_of(node)} dispatches on the :#{name} protocol; " \
+                    "PostgreSQL instants are decoded only by Platform::PgInstant"
       end
     end
     findings.uniq
@@ -129,20 +172,74 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
       # Time.parse(row["deadline_at"])
       warning = "value.respond_to?(:getutc)"
       deadline = Platform::PgInstant.utc(row["deadline_at"])
+      elapsed = Platform::PgInstant.elapsed_minutes(row["started_at"], now)
+      stamped = now.getutc.iso8601(6)
       now.utc < deadline
     RUBY
     expect(violations(conforming)).to be_empty
 
-    violating = {
-      "parser" => "Time.parse(value.to_s)",
-      "type test" => "value.is_a?(Time) ? value.getutc : value",
-      "protocol test" => "value.respond_to?(:getutc) ? value.getutc : value",
-      "case dispatch" => "case value; when Time; value.getutc; else; value; end",
-      "class dispatch" => "value.class == Time ? value.getutc : value"
+    # THE FOUR ROUND-6 ESCAPES, VERBATIM FROM THE REVIEW. Each returned an empty finding set against
+    # the committed detector, and each is the first thing this rewrite must catch.
+    escaped = {
+      "zone parser" => "Time.zone.parse(value.to_s)",
+      "rfc3339" => "Time.rfc3339(value.to_s)",
+      "parenless protocol" => "value.respond_to? :getutc",
+      "case equality" => "Time === value ? value.getutc : value"
     }
-    violating.each do |label, program|
-      expect(violations(program, file: "#{label}.rb")).not_to be_empty, "detector missed #{label}"
+    escaped.each do |label, program|
+      expect(violations(program, file: "#{label}.rb")).not_to be_empty,
+                                                             "R6-7 escape still undetected: #{label}"
     end
+
+    # AND FORMS THE DETECTOR HAS NEVER BEEN TOLD ABOUT, constructed from the rule rather than copied
+    # from its implementation. None of these appears in `violations`.
+    independent = {
+      "top-level scope" => "::Time.parse(value)",
+      "scope resolution call" => "Time::at(value)",
+      "datetime parser" => "DateTime.iso8601(value)",
+      "safe navigation" => "value&.is_a?(Time)",
+      "pattern match" => "case value; in Time then value; end",
+      "assignment" => "klass = Time; klass.parse(value)",
+      "rescue clause" => "begin; f; rescue Time::Error; nil; end",
+      "array membership" => "[Time, DateTime].any? { |k| value.is_a?(k) }",
+      "method reference" => "value.method(:to_time).call",
+      "symbol array" => "%i[getutc to_time].any? { |m| value.respond_to?(m) }",
+      "send dispatch" => "value.send(:getutc)",
+      "keyword argument" => "decode(protocol: :to_time)"
+    }
+    independent.each do |label, program|
+      expect(violations(program, file: "#{label}.rb")).not_to be_empty,
+                                                             "detector missed an unlisted form: #{label}"
+    end
+  end
+
+  it "rejects the banned constants under method names it has never been given" do
+    # THE PROPERTY THAT DISTINGUISHES AN ALLOWLIST FROM A LONGER DENYLIST. The old detector carried
+    # `%w[parse iso8601 strptime]` and was blind to everything else, which is exactly how `rfc3339`
+    # walked through it. These method names are invented for this example and are not mentioned
+    # anywhere in the detector, so a rule keyed to a method list cannot pass.
+    %w[rfc2822 httpdate xmlschema at now local gm mktime json_create some_future_constructor].each do |method|
+      banned_constants.each do |constant|
+        program = "#{constant}.#{method}(value)"
+        expect(violations(program, file: "#{constant}-#{method}.rb")).not_to be_empty,
+                                                                            "detector missed #{program}"
+      end
+    end
+  end
+
+  it "does not fire on the legitimate uses the corpus actually contains" do
+    # THE RULE MUST NOT BE A BLANKET BAN ON THE WORD. `.getutc` as a METHOD CALL formats an instant the
+    # application already holds — `CrawlLedger#iso` and `CrawlDriver`'s due-instant comparison both do
+    # it — and that is a different act from deciding how to DECODE one. Banning it would have forced
+    # those two call sites to invent a workaround, which is how a fitness check starts being routed
+    # around instead of obeyed.
+    permitted = <<~RUBY
+      def iso(time) = time&.getutc&.iso8601(6)
+      return nil unless due_at && stage_instant(latest) == due_at.getutc
+      outcome.respond_to?(:response?) && outcome.response?
+      value.is_a?(::Hash)
+    RUBY
+    expect(violations(permitted)).to be_empty
   end
 
   it "finds no second timestamp decoder in the recursive tracked WF-005 corpus" do

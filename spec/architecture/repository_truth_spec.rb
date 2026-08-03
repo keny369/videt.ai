@@ -265,6 +265,81 @@ RSpec.describe "Repository truth", type: :model do
     end
   end
 
+  # THE RECORD UNDER REVIEW, CHECKED WHILE IT IS UNDER REVIEW (round 6, R6-9).
+  #
+  # THE STRUCTURAL GAP THIS CLOSES, which is the reason R6-9 exists at all. Every check above binds
+  # `acceptance_evidence.block` — the last ACCEPTED tranche. S-07-009 is not accepted, so
+  # `S-07-009_COMPLETION_REPORT.md` was validated by nothing for the entire period in which five
+  # review rounds were reading it, and the record-defect blockers accumulated in exactly that blind
+  # spot: R4-8, R5-4, R5-5, R6-8 and R6-9 are all one class, and all five are statements about the
+  # repository that the repository could have refuted mechanically.
+  #
+  # THIS BLOCK BINDS `current_tranche` INSTEAD. It runs whether or not the tranche is accepted, so a
+  # false claim is caught by the gate that authored it rather than by the round after it.
+  describe "the record of the tranche currently under review" do
+    let(:in_flight_path) { ROOT.join("#{BUILD_STATE.fetch('current_tranche')}_COMPLETION_REPORT.md") }
+    let(:in_flight) do
+      skip "#{in_flight_path.basename} does not exist yet" unless in_flight_path.exist?
+      in_flight_path.read
+    end
+
+    # A row of the report's proof table: the spec file, and the number of distinct `PROOF n`
+    # identifiers it claims. The report defines the count that way in its own prose, so the check
+    # measures the thing the report says it is reporting.
+    def proof_rows(text) = text.scan(/^\|\s*`(spec\/[^`]+)`\s*\|\s*(\d+)\s*\|/)
+
+    def distinct_proof_ids(path) = ROOT.join(path).read.scan(/PROOF\s+(\d+[a-z]*)/).flatten.uniq
+
+    it "derives every proof count from the file it names, rather than restating a maintained number" do
+      # R6-9: the report claimed 13 for a file containing 16, the round-4 review recorded the
+      # discrepancy, the R5-5 rewrite kept it, and round 6 promoted it to a blocker. A number a human
+      # maintains beside a file that changes is a number that will disagree with it; this makes the
+      # disagreement a gate failure instead of a review finding.
+      rows = proof_rows(in_flight)
+      expect(rows).not_to be_empty, "the report's proof table did not parse — has its format changed?"
+
+      rows.each do |path, claimed|
+        expect(ROOT.join(path)).to exist, "the report's proof table names #{path}, which does not exist"
+        actual = distinct_proof_ids(path)
+        expect(actual.length).to eq(claimed.to_i),
+                                 "#{path}: the report says #{claimed} distinct PROOF identifiers, " \
+                                 "the file contains #{actual.length} (#{actual.sort_by(&:to_i).join(', ')})"
+      end
+    end
+
+    it "cites only file paths and migrations that resolve" do
+      dirs = ROOT.children.select(&:directory?).map { |d| d.basename.to_s } - %w[. .. .git tmp log node_modules]
+      pattern = /`((?:#{dirs.map { |d| Regexp.escape(d) }.join('|')})\/[\w.\/-]+)`/
+      cited = in_flight.scan(pattern).flatten.uniq
+      expect(cited).not_to be_empty, "no path citations found — has the record's format changed?"
+      cited.each do |path|
+        expect(ROOT.join(path)).to exist, "the report under review cites #{path}, which does not exist"
+      end
+
+      migrations = in_flight.scan(/`(\d{14}_\w+)`/).flatten.uniq
+      migrations.each do |name|
+        expect(ROOT.join("db/migrate/#{name}.rb")).to exist,
+                                                      "the report under review cites migration #{name}, " \
+                                                      "which does not exist"
+      end
+    end
+
+    # R6-8: ADR-117 says it "records that authority BEFORE IMPLEMENTATION", and git says otherwise —
+    # the ADR is absent from the parent of `f7472aa`, the commit that implemented `Platform::PgInstant`,
+    # and first appears in `5860bb4` alongside the repairs it authorizes.
+    #
+    # AUTONOMOUS_BUILD_CONTROLLER §3.1 is why that is a defect rather than a quibble: "the controller
+    # must derive work from versioned repository files, not conversational memory. CHAT SESSIONS ARE
+    # NOT AUTHORITATIVE STATE." A ruling given in conversation and committed afterwards is a perfectly
+    # ordinary thing; a RECORD claiming the repository shows an order the repository does not show is
+    # the one thing that rule forbids, because the next reader has only the repository.
+    it "makes no ADR claim about commit order that git refutes" do
+      decisions = ROOT.join("DECISIONS.md").read
+      expect(decisions).not_to match(/records that authority \*\*before implementation\*\*/i),
+                               "an ADR claims to precede an implementation it does not precede in git"
+    end
+  end
+
   # THE REFUTATION CANNOT DRIFT BACK, AND IT CANNOT HIDE IN A PLACE NOBODY LISTED (FU-36, ADR-115).
   #
   # ADR-097 recorded that a NULL-safe rewrite of `crawls_coverage_status_check` using

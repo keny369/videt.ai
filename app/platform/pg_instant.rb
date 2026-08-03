@@ -52,6 +52,50 @@ module Platform
       Time.parse(value.to_s).getutc
     end
 
+    # THE INSTANT A DECISION IS MADE AT, AFTER THE TRANSACTION HAS WAITED FOR A LOCK (R6-1, R6-5,
+    # R6-6; owner ruling 1 of the round-6 programme). PostgreSQL computes it; nothing here reads a
+    # clock.
+    #
+    # WHY THIS EXISTS. `Admission`, `CancelCrawl` and `CompleteCrawl` each capture an instant, then
+    # block on `crawl-frontier:<crawl>` or on `crawls FOR UPDATE`, then decide. The wait is unbounded
+    # — it lasts as long as the transaction ahead of it holds the lock — and all three used the
+    # instant they entered with. Round 6 reproduced the consequence on real PostgreSQL: a frontier
+    # lock held until `clock_timestamp()` was past `deadline_at`, after which Admission still
+    # admitted, claimed a frontier row and reserved 10,485,760 bytes. The same stale value let an
+    # entitlement whose lease expired during the wait pass `reservation_executing?`, and let
+    # `Entitlement::Service#commit` commit a reservation whose effective deadline the durable
+    # terminal point had already passed. :442's "no new request starts", :458's boundary and :551's
+    # strict-before lease rule are all decided by this one value.
+    #
+    # WHY IT IS AN ADVANCE AND NOT `clock_timestamp()` ITSELF, which is the subtle half. Every
+    # instant this value is compared against was WRITTEN BY AN APPLICATION CLOCK: `crawls.deadline_at`
+    # and `crawls.started_at` come from `CrawlStartStore#start`'s `now`, and
+    # `entitlement_reservations.lease_due` from F-05's. `CrawlHostGateStore#reservation_executing?`
+    # already states the rule this obeys — "F-05 owns the reservation lifecycle and is `now:`-driven
+    # throughout, so this must agree with it; two surfaces judging one reservation against two
+    # different clocks would disagree about whether a run is still metered." Substituting a raw
+    # `clock_timestamp()` reading would judge an application-clock deadline on the database's own
+    # axis, which is a SECOND clock rather than a corrected one, and it would make every deadline
+    # boundary depend on host-to-database skew.
+    #
+    # So PostgreSQL measures the thing that was actually missing — HOW LONG THIS TRANSACTION WAITED —
+    # and adds it, in the database, at microsecond precision, to the instant the caller entered with.
+    # `transaction_timestamp()` is fixed at BEGIN and `clock_timestamp()` advances inside the
+    # transaction, so their difference is exactly the elapsed time this transaction has spent alive,
+    # which for a handler whose first act is to take its locks is the wait. One axis, one clock
+    # reading, no application measurement of elapsed time.
+    #
+    # IT NEVER GOES BACKWARDS, because the difference is non-negative by construction. A handler that
+    # did not wait gets its own instant back plus the microseconds it took to get here, so the
+    # non-contended path is unchanged and no proof that depends on a fixed clock loses its anchor.
+    def after_wait(connection, entered_with:)
+      value = connection.exec_params(
+        "SELECT $1::timestamptz + (clock_timestamp() - transaction_timestamp()) AS decided_at",
+        [entered_with.getutc.iso8601(6)]
+      ).getvalue(0, 0)
+      utc(value)
+    end
+
     # Whole elapsed minutes between two instants, floored — :442's "60 elapsed minutes" measure.
     #
     # It lives here because both of its callers used to derive it from a TRUNCATED `started_at`, which

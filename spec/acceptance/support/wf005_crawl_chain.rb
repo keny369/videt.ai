@@ -358,4 +358,87 @@ module Wf005CrawlChain
     # The cadence must be due, or an authoritative guard would answer from its last renewal.
     keeper.instance_variable_set(:@renewed_at, keeper.send(:monotonic) - (keeper.interval * 2))
   end
+
+  # ---- the post-wait decision harness (owner ruling 1; R6-1, R6-5, R6-6) ------
+  #
+  # Shared rather than copied, for the reason this whole module exists: two spec files need the same
+  # frontier-wait construction, and round-2's O8 already recorded outbound stubs drifting apart when
+  # each file kept its own.
+
+  # PostgreSQL's own clock, decoded through the single surface. Nothing in-process measures elapsed
+  # time in a post-wait proof: the database reports it and the harness polls the report.
+  def db_clock = Platform::PgInstant.utc(DbInspector.one("SELECT clock_timestamp() AS t")["t"])
+
+  def lease_due(cid)
+    Platform::PgInstant.utc(DbInspector.one(<<~SQL, [cid])["lease_due"])
+      SELECT r.lease_due FROM entitlement_reservations r
+      JOIN crawls c ON c.entitlement_reservation_id = r.id WHERE c.id = $1::uuid
+    SQL
+  end
+
+  # Move the reservation's lease so it lapses at a chosen instant. `f1_entitlement_reservations_guard`
+  # freezes identity, units and the state machine and leaves `lease_due` writable, which is what makes
+  # this a fixture rather than a hole: the same column the heartbeat renews.
+  def set_lease_due(cid, instant)
+    DbInspector.connection.exec_params(<<~SQL, [cid, instant.getutc.iso8601(6)])
+      UPDATE entitlement_reservations SET lease_due = $2::timestamptz
+      WHERE id = (SELECT entitlement_reservation_id FROM crawls WHERE id = $1::uuid)
+    SQL
+  end
+
+  # :331's ratified serialization point for effective access. Advancing it IS a revocation, a
+  # suspension or a policy change as far as any handler can tell.
+  def advance_authorization_epoch(org)
+    DbInspector.connection.exec_params(
+      "UPDATE organizations SET authorization_epoch = authorization_epoch + 1 WHERE id = $1::uuid", [org]
+    )
+  end
+
+  def reservation_row(cid)
+    DbInspector.one(<<~SQL, [cid])
+      SELECT r.* FROM entitlement_reservations r
+      JOIN crawls c ON c.entitlement_reservation_id = r.id WHERE c.id = $1::uuid
+    SQL
+  end
+
+  # HOLD THE FRONTIER LOCK UNTIL POSTGRESQL SAYS THE WAIT HAS LASTED LONG ENOUGH, then release.
+  #
+  # Deliberately not a sleep-ordered race. The operation is released only once TWO database-observed
+  # conditions hold: it is registered in `pg_locks` as an ungranted waiter on `crawl-frontier:<crawl>`,
+  # and `clock_timestamp()` has moved more than `seconds` since that was observed. Nothing is ordered
+  # by `Kernel.sleep`, and a predicate that never becomes true fails the example rather than
+  # degrading it into a sequential run.
+  #
+  # THE ELAPSED LIMB IS THE PRECONDITION UNDER TEST, not an ordering device. These proofs are about a
+  # decision instant that must move while a lock is held, so the elapsed time has to be real and has
+  # to be measured by the same clock the production code consults.
+  def wait_out_frontier(ctx, seconds, &operation)
+    frontier_key = RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}")
+    controller = RaceHarness.open_connection
+    op = nil
+    result = nil
+
+    begin
+      controller.exec_params("SELECT pg_advisory_lock($1)", [frontier_key])
+      op = RaceHarness.spawn_operation(operation)
+      RaceHarness.wait_until("the operation blocked on crawl-frontier:#{ctx[:crawl_id]}") do
+        RaceHarness.blocked_on(frontier_key) >= 1
+      end
+      from = db_clock
+      RaceHarness.wait_until("PostgreSQL reported #{seconds}s elapsed with the frontier lock held") do
+        db_clock - from > seconds
+      end
+      # Still queued on the intended lock at the moment of release, not merely at some point earlier.
+      expect(RaceHarness.blocked_on(frontier_key)).to be >= 1
+    ensure
+      controller.exec_params("SELECT pg_advisory_unlock_all()")
+      result = op&.value
+      controller.close
+    end
+
+    # A deadlock arrives here as the exception object rather than the operation's return value, so
+    # every post-wait proof asserts "no 40P01" simply by requiring the real result type.
+    expect(result).not_to be_a(StandardError), result.inspect
+    result
+  end
 end

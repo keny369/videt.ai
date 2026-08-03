@@ -140,39 +140,50 @@ module Workflows
           denial = authorize(gates, organization_id, crawl, now)
           next limited(denial) if denial
 
-          bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
-
-          # THE HARD-EXPIRED RETURN DOES NOT ENTER THE FRONTIER CRITICAL SECTION. It may therefore
-          # record the terminal wall-clock observation without taking the frontier lock: this
-          # transaction returns immediately and can never form the `crawls FOR KEY SHARE -> frontier`
-          # half of the R5-3 cycle. The soft-only limb is different — it FALLS THROUGH — and is
-          # deliberately deferred until after the lock and revalidation below.
-          if wall_clock_expired?(crawl, now)
-            wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
-            next limited(WALL_CLOCK)
-          end
-
           frontier = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
-          # THE FIRST LOCK OF EVERY FALL-THROUGH ADMISSION (ADR-117 / R5-3). A soft wall-clock
-          # decision inserts a child row whose Crawl FK takes `FOR KEY SHARE`; writing it before this
-          # lock creates the cycle `Admission: crawl -> frontier`, `Cancel/Complete: frontier ->
-          # crawl`. Nothing durable has happened above this line.
+          # THE FIRST LOCK OF EVERY ADMISSION (ADR-117 / R5-3). A wall-clock decision inserts a child
+          # row whose Crawl FK takes `FOR KEY SHARE`; writing it before this lock creates the cycle
+          # `Admission: crawl -> frontier`, `Cancel/Complete: frontier -> crawl`. Nothing durable has
+          # happened above this line.
+          #
+          # EVERY ADMISSION, INCLUDING THE HARD-EXPIRED ONE (round 6, R6-2). This branch used to
+          # return BEFORE the lock, recording both wall-clock decisions on the strength of a preflight
+          # read, and justified it by never entering the critical section — true of the deadlock
+          # cycle, and irrelevant to the fact it was writing. Round 6 held `crawls FOR UPDATE` in
+          # CancelCrawl, transitioned to `canceled`, and let this transaction commit two IMMUTABLE
+          # decisions onto the cancelled Crawl afterwards. The unlocked shortcut IS the defect, so it
+          # is gone: `wall_clock` below records the same two thresholds for the same runs, under the
+          # lock and after revalidation, and a run cancelled during the wait is refused by
+          # `authorize` before either is written.
           frontier.lock_frontier(crawl_id)
 
-          # THE PREFLIGHT WAS NOT AUTHORITY TO ACT AFTER A WAIT. Cancellation or completion may have
-          # committed while Admission queued on the advisory lock, and Organization/Project/
-          # entitlement state may also have changed. Re-read and re-authorize all four run-scoped
-          # limbs under the lock before the first decision, reservation or claim. Re-resolve policy
-          # as well, so the numbers enforced after the wait are the numbers currently active.
+          # THE PREFLIGHT WAS NOT AUTHORITY TO ACT AFTER A WAIT (ADR-117 / R5-3, and round 6's R6-1).
+          # Cancellation or completion may have committed while Admission queued on the advisory
+          # lock, and Organization/Project/entitlement state may also have changed. Re-read and
+          # re-authorize all four run-scoped limbs under the lock before the first decision,
+          # reservation or claim. Re-resolve policy as well, so the numbers enforced after the wait
+          # are the numbers currently active.
+          #
+          # AND THE INSTANT IS RE-READ FIRST, because it is what the other four are judged against.
+          # R5-3's repair added the rows and kept the caller's `now`, so a wait that outlasted the
+          # deadline still produced a `running` re-read that AGREED with a stale clock: round 6 held
+          # the frontier lock until `clock_timestamp()` was past `deadline_at`, and this admission
+          # then reserved 10,485,760 bytes and claimed an entry for a run whose sixty minutes were
+          # over. `reservation_executing?` took the same value, so an entitlement lease that expired
+          # during the wait also passed. One re-read of the instant repairs both, because both are
+          # the same question asked of the same number.
+          now = PostWaitDecision.new(raw, entered_with: now).now
           crawl = gates.crawl(organization_id, crawl_id)
           next idle if crawl.nil?
           denial = authorize(gates, organization_id, crawl, now)
           next limited(denial) if denial
 
           bounds = EffectiveLimits.resolve(gates.active_crawl_policies(organization_id, crawl["project_id"]))
-          # :442 — "At 60 elapsed minutes, no new request starts." This second check is the
-          # authoritative one for the fall-through path and is also where the soft observation is
-          # allowed to acquire its implicit Crawl tuple lock: the frontier lock is already held.
+          # :442 — "At 60 elapsed minutes, no new request starts." THE ONLY wall-clock check, for
+          # every admission, soft and hard alike. It is where both observations are allowed to
+          # acquire their implicit Crawl tuple lock, because the frontier lock is already held, and
+          # it is measured against the post-wait instant, so the sixty minutes it tests are the ones
+          # that have actually elapsed rather than the ones that had when the caller set out.
           next limited(WALL_CLOCK) if wall_clock(raw, organization_id, crawl, crawl_id, bounds, now)
 
           # PEEK, then pay, then claim. `in_progress` has no way back under the frontier guard, so an

@@ -263,6 +263,39 @@ $$;
 
 
 --
+-- Name: f1_crawl_child_fact_closed(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_crawl_child_fact_closed() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+  parent_state text;
+BEGIN
+  -- FOR KEY SHARE, not a plain read: this must BLOCK on an uncommitted terminal transition
+  -- rather than pass on its preimage. It is the same lock this row's foreign key takes on the
+  -- same row in the same statement, so it adds no edge to the subsystem's lock order.
+  SELECT c.state INTO parent_state
+  FROM crawls c WHERE c.id = NEW.crawl_id FOR KEY SHARE;
+
+  -- FAIL CLOSED. The foreign key guarantees the parent exists, so an invisible row means this
+  -- statement is running outside a proved Organization context, and a child fact written from
+  -- outside one may not be admitted on the strength of a check that could not run.
+  IF parent_state IS NULL THEN
+    RAISE EXCEPTION 'crawl_child_fact_parent_unreadable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF parent_state IN ('completed', 'failed', 'canceled') THEN
+    RAISE EXCEPTION 'crawl_child_fact_after_terminal' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: f1_crawl_frontier_entries_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5111,10 +5144,24 @@ CREATE TRIGGER crawl_frontier_entries_guard BEFORE DELETE OR UPDATE ON public.cr
 
 
 --
+-- Name: crawl_frontier_entries crawl_frontier_entries_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_frontier_entries_terminal_closure AFTER INSERT ON public.crawl_frontier_entries FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
+
+
+--
 -- Name: crawl_frontier_occurrences crawl_frontier_occurrences_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER crawl_frontier_occurrences_guard BEFORE DELETE OR UPDATE ON public.crawl_frontier_occurrences FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_frontier_occurrences_guard();
+
+
+--
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_frontier_occurrences_terminal_closure AFTER INSERT ON public.crawl_frontier_occurrences FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
 
 
 --
@@ -5132,10 +5179,31 @@ CREATE TRIGGER crawl_host_gates_sitemap_guard BEFORE UPDATE ON public.crawl_host
 
 
 --
+-- Name: crawl_host_gates crawl_host_gates_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_host_gates_terminal_closure AFTER INSERT ON public.crawl_host_gates FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
+
+
+--
+-- Name: crawl_host_gates crawl_host_gates_terminal_outcome_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN (((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at))) EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
+
+
+--
 -- Name: crawl_limit_decisions crawl_limit_decisions_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER crawl_limit_decisions_guard BEFORE DELETE OR UPDATE ON public.crawl_limit_decisions FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_limit_decisions_guard();
+
+
+--
+-- Name: crawl_limit_decisions crawl_limit_decisions_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_limit_decisions_terminal_closure AFTER INSERT ON public.crawl_limit_decisions FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
 
 
 --
@@ -5164,6 +5232,13 @@ CREATE TRIGGER crawl_sources_guard BEFORE DELETE OR UPDATE ON public.crawl_sourc
 --
 
 CREATE TRIGGER crawl_terminal_outcomes_guard BEFORE DELETE OR UPDATE ON public.crawl_terminal_outcomes FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_terminal_outcomes_guard();
+
+
+--
+-- Name: crawl_terminal_outcomes crawl_terminal_outcomes_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER crawl_terminal_outcomes_terminal_closure AFTER INSERT ON public.crawl_terminal_outcomes FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
 
 
 --
@@ -6415,6 +6490,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260727120390'),
 ('20260727120380'),
 ('20260727120370'),
 ('20260727120360'),

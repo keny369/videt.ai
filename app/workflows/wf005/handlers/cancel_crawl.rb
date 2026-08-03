@@ -73,8 +73,11 @@ module Workflows
             return in_memory_failure(command, ctx, actor.to_s) if actor.is_a?(Symbol)
 
             request_sha256 = request_hash(command, actor)
+            # `requested_at` is the instant this cancellation ARRIVED at, kept separately from `now`
+            # because :458's third sentence is a statement about arrival and `now` becomes the
+            # post-wait decision instant below. The tie limb in `process` is its only reader.
             d = { command:, ctx:, store:, auth_store:, actor:, org: actor.organization_id, now:,
-                  request_sha256:, pg:,
+                  requested_at: now, request_sha256:, pg:,
                   crawls: IdentityAccess::Infrastructure::CrawlStartStore.new(pg) }
             process(d, auth)
           end
@@ -118,6 +121,14 @@ module Workflows
           crawl = d[:crawls].lock_crawl(d[:org], command.crawl_id)
           return denied(d, "tenant_mismatch") if crawl.nil? || crawl["project_id"] != command.project_id
 
+          # THE WAIT IS OVER, SO EVERYTHING TIME-SENSITIVE IS RE-READ FROM HERE DOWN (owner ruling 1;
+          # `Wf005::PostWaitDecision` states the rule). Both locks above can block for as long as the
+          # transaction ahead of them holds them, and every test below this line — :458's boundary
+          # tie, the audit and event instants, the reservation release — was being decided on the
+          # instant this command entered with.
+          post_wait = PostWaitDecision.new(d[:pg], entered_with: d[:now])
+          d = d.merge(now: post_wait.now)
+
           key_digest = Digest::SHA256.digest(command.idempotency_key)
           existing = d[:store].find_idempotency(org: d[:org], command_type: command.command_type,
                                                 target_type: TARGET_TYPE, target_id: command.crawl_id,
@@ -126,9 +137,7 @@ module Workflows
           return denied(d, "idempotency_conflict") if existing
 
           # :458's own token, for the run that had its one terminal selection first.
-          if %w[completed failed canceled].include?(crawl["state"])
-            return denied(d, "crawl_already_terminal")
-          end
+          return denied(d, "crawl_already_terminal") if post_wait.terminal?(crawl)
           # :458's THIRD SENTENCE, AT THE INSTANT IT IS ABOUT AND NOT A MOMENT LONGER (round 3, R3-2).
           # "At exactly the 60-minute boundary the WALL-CLOCK TERMINAL HANDLER WINS over a SIMULTANEOUS
           # cancellation."
@@ -173,12 +182,43 @@ module Workflows
           # Invisible to the suite because every fixture instant is a whole second and the proofs read
           # `deadline_at` back through a raw `PG.connect` with no type map, which is a DIFFERENT
           # DECODING PATH from production. PROOF 128 uses a sub-second deadline for that reason.
+          #
+          # THE TIE IS TESTED AGAINST ARRIVAL, AND IT IS THE ONE TEST HERE THAT IS (round 6, R6-5's
+          # sibling question). Every other time-sensitive test in this handler moved to the post-wait
+          # instant, because every other one asks "may this effect still happen", which is a question
+          # about NOW. Sentence 3 asks something different: it names the instant the cancellation IS
+          # ABOUT, and declares that a request made AT the boundary loses to the handler whose whole
+          # subject is that boundary. Measuring it against the post-wait instant would not make it
+          # stricter or looser, it would DELETE it: the post-wait instant is the arrival instant plus
+          # however long the locks took, so it can never equal a stored microsecond, and `==` would be
+          # dead code. That is round 1's B1 — ":458's third sentence is unimplemented" — reintroduced
+          # by an unrelated repair, which is the exact failure mode this tranche exists to stop.
+          #
+          # NOTHING STALE SURVIVES IT. A `true` refuses and writes only a denial record stamped with
+          # the post-wait instant; a `false` falls through to the authority recheck and the
+          # post-wait-stamped transition below. The pre-wait value decides no durable effect.
           deadline = Platform::PgInstant.utc(crawl["deadline_at"])
-          return denied(d, "crawl_already_terminal") if deadline && d[:now] == deadline
+          return denied(d, "crawl_already_terminal") if deadline && d[:requested_at] == deadline
           # MTX-030's request schema carries the expected state version; a cancellation holding a
           # version the run has moved past is refused rather than applied to a Crawl its sender was not
           # looking at.
           return denied(d, "stale_state_version") if command.expected_state_version != crawl["state_version"].to_i
+
+          # THE HUMAN AUTHORITY, RE-READ IMMEDIATELY BEFORE THE IRREVERSIBLE ACT (round 6, R6-5; :335,
+          # SEC-REQ-004/005). `authorize` ran before `lock_frontier`, and what follows this line
+          # cancels the Crawl, releases its entitlement reservation and emits `CrawlCanceled` — none
+          # of which `f1_crawls_guard` will let anything undo.
+          #
+          # THE PLATFORM DEFERRAL DOES NOT REACH THIS HANDLER, and the owner ruled on exactly that.
+          # DECISIONS.md records the missing epoch recheck as a consistent platform pattern shared
+          # with `DecideSourceScopeChange` and the `source.register` family. Every one of those
+          # authorizes and acts with no wait in between, so the window is a few statements wide. This
+          # one can block on `crawl-frontier:<crawl>` for as long as an in-flight pass or checkpoint
+          # holds it, and a revocation, suspension or policy change committed inside that window
+          # would otherwise be spent by an allowed decision that no longer exists.
+          unless post_wait.authority_current?(auth_store: d[:auth_store], actor:)
+            return denied(d, "crawl_cancel_unauthorized")
+          end
 
           commit(d, crawl, key_digest)
         end

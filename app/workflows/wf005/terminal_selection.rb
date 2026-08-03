@@ -58,8 +58,14 @@ module Workflows
       #   * `uncovered` — outcomes in the denominator that did not reach a covered outcome, and
       #     `unevaluated` — in-scope candidates discarded by a bound without an outcome at all. :458's
       #     `full` requires that neither exists.
+      #   * `unattempted_discovery` — hosts whose sitemap discovery never reached ANY outcome, because
+      #     the run ended first (owner ruling 3; round-6 blocker R6-4). :458 — "any in-scope candidate
+      #     NOT EVALUATED ... makes coverage partial." It lowers coverage and does NOT touch the
+      #     completion reason, because :452 lists exactly three causes of `partial_source_failure` and
+      #     a host nobody contacted is none of them.
       Facts = Data.define(:documents, :roots_total, :roots_succeeded, :fetch_failures,
-                          :unresolved_discovery, :hard_limit_decisions, :terminal_limit_decisions,
+                          :unresolved_discovery, :unattempted_discovery, :hard_limit_decisions,
+                          :terminal_limit_decisions,
                           :sitemap_limit_facts, :uncovered, :unevaluated) do
         # :453 — "A run is failed when it yields zero valid Documents OR every active Source root fails."
         # The second limb is not implied by the first: a run can create a Document from a sitemap-found URL
@@ -113,6 +119,12 @@ module Workflows
         uncovered = facts.uncovered.positive? || facts.unevaluated.positive?
         return PARTIAL if uncovered || facts.terminal_limits.positive?
         return PARTIAL if facts.root_failures.positive? || facts.unresolved_discovery.positive?
+        # A HOST WHOSE DISCOVERY NEVER RAN (owner ruling 3; R6-4). The checkpoint used to convert that
+        # gate into `sitemap_unavailable`, which made it an `unresolved_discovery` and reached this
+        # answer by asserting an observation :450 does not authorise on those facts. The answer was
+        # right and the route to it was invented, so the route is gone and the answer is stated
+        # directly: not evaluated, therefore not `full`.
+        return PARTIAL if facts.unattempted_discovery.positive?
 
         FULL
       end

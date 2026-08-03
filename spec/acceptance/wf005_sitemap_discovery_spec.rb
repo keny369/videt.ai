@@ -201,6 +201,75 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
     end
   end
 
+  describe "a run that ends while discovery is out on the network (R6-3)" do
+    # THE TRAVERSAL IS OUTSIDE EVERY TRANSACTION, CORRECTLY. MTX-030 forbids a network call inside
+    # one, so `DiscoverSitemaps` commits `in_progress`, goes to the host, and comes back to write its
+    # outcome. Round 6 held it in that real outbound request, ran the deadline checkpoint to a
+    # committed `failed` Crawl, and then released a valid sitemap: discovery returned `succeeded` and
+    # inserted `/late` as a queued frontier entry on a run that was over, and a second variant wrote
+    # `sitemap_unavailable` after the checkpoint had already counted `unresolved_discovery = 0`.
+    #
+    # The stub below terminalizes the Crawl AT THE MOMENT OF THE FETCH, which is that interleaving
+    # with the network standing where the network stands.
+    def terminalizing_outbound(ctx, body)
+      Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |_url, **_k|
+          DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id]])
+            UPDATE crawls SET state='failed', terminal_at=now(), completion_reason='failed',
+                              state_version = state_version + 1, updated_at = now()
+            WHERE id = $1::uuid AND state = 'running'
+          SQL
+          Platform::Outbound::Outcome.response(
+            status: 200, headers: { "content-type" => "application/xml" }, body:,
+            byte_count: body.bytesize, truncated: false, canonical_host: "shop.acme.example",
+            port: 443, pinned_address: "198.51.100.7",
+            final_url: "https://shop.acme.example/s.xml", redirect_count: 0, latency_ms: 5
+          )
+        end
+      end
+    end
+
+    it "PROOF 159 — a valid sitemap released after terminalization writes NOTHING and says so" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      before = frontier_entries(ctx[:crawl_id]).length
+
+      result = discover(ctx, terminalizing_outbound(ctx, urlset("https://shop.acme.example/late")))
+
+      # A CONTROLLED, IDEMPOTENT DOMAIN OUTCOME, not a raw PostgreSQL exception reaching a worker that
+      # cannot tell it from a defect.
+      expect(result.state).to eq("pending")
+      expect(result.reason_code).to eq(Workflows::Wf005::DiscoverSitemaps::TERMINAL)
+      # NOT `sitemap_unavailable`: :450 conditions that on candidates failing after retries and
+      # validation, and this candidate SUCCEEDED. The run ending proves nothing about the host.
+      expect(result.reduces_coverage?).to be(false)
+
+      expect(DbInspector.one("SELECT state FROM crawls WHERE id=$1::uuid", [ctx[:crawl_id]])["state"])
+        .to eq("failed")
+      # `/late` is not in the frontier, and no occurrence records it either.
+      expect(frontier_entries(ctx[:crawl_id]).length).to eq(before)
+      expect(frontier_entries(ctx[:crawl_id]).map { |e| e["canonical_url"] })
+        .not_to include("https://shop.acme.example/late")
+      # The gate keeps its claim rather than gaining an outcome. Sweeping it is S-07-011's
+      # stranded-claim recovery (FU-22), deliberately not improvised here.
+      expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("in_progress")
+      expect(gate_row(ctx[:crawl_id])["sitemap_outcome_reason"]).to be_nil
+    end
+
+    it "PROOF 160 — a second delivery after the run ended gets the same answer and still writes nothing" do
+      ctx = with_robots(sitemaps: ["https://shop.acme.example/s.xml"])
+      discover(ctx, terminalizing_outbound(ctx, urlset("https://shop.acme.example/late")))
+
+      again = discover(ctx, outbound_map("https://shop.acme.example/s.xml" =>
+                                         { status: 200, body: urlset("https://shop.acme.example/late") }))
+
+      expect(again.state).to eq("pending")
+      expect(again.reason_code).to eq(Workflows::Wf005::DiscoverSitemaps::TERMINAL)
+      expect(gate_row(ctx[:crawl_id])["sitemap_state"]).to eq("in_progress")
+      expect(frontier_entries(ctx[:crawl_id]).map { |e| e["canonical_url"] })
+        .not_to include("https://shop.acme.example/late")
+    end
+  end
+
   describe "the :450 outcome table" do
     it "records ABSENT only when robots declares none AND the default is 404/410 (coverage NOT reduced)" do
       ctx = with_robots(sitemaps: [])

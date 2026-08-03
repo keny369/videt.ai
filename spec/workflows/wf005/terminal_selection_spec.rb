@@ -14,8 +14,8 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
   def clean(**overrides)
     described_class::Facts.new(
       documents: 1, roots_total: 1, roots_succeeded: 1, fetch_failures: 0,
-      unresolved_discovery: 0, hard_limit_decisions: 0, terminal_limit_decisions: 0,
-      sitemap_limit_facts: 0, uncovered: 0, unevaluated: 0
+      unresolved_discovery: 0, unattempted_discovery: 0, hard_limit_decisions: 0,
+      terminal_limit_decisions: 0, sitemap_limit_facts: 0, uncovered: 0, unevaluated: 0
     ).with(**overrides)
   end
 
@@ -87,7 +87,25 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       expect(derive(hard_limit_decisions: 1, terminal_limit_decisions: 1).coverage_status).to eq("partial")
       expect(derive(sitemap_limit_facts: 1).coverage_status).to eq("partial")
       expect(derive(unresolved_discovery: 1).coverage_status).to eq("partial")
+      expect(derive(unattempted_discovery: 1).coverage_status).to eq("partial")
       expect(derive(roots_total: 2, roots_succeeded: 1).coverage_status).to eq("partial")
+    end
+
+    it "PROOF 163 — an UNATTEMPTED host lowers coverage and does NOT invent a Source failure" do
+      # OWNER RULING 3 (round-6 blocker R6-4). The checkpoint used to reach the coverage answer by
+      # writing `sitemap_unavailable` onto a gate the run never attempted, which :450 does not
+      # authorise on those facts — and, as a side effect, made :452's completion reason say
+      # `partial_source_failure` about a host nobody had contacted. The two consequences are separated
+      # here, because separating them is the whole of the repair.
+      unattempted = derive(unattempted_discovery: 1)
+      expect(unattempted.state).to eq("completed")
+      expect(unattempted.coverage_status).to eq("partial")
+      # :452 lists exactly three causes of `partial_source_failure`, and this is none of them.
+      expect(unattempted.completion_reason).to eq("completed")
+
+      # The contrast: :450's genuine outcome IS one of the three, so it does move the reason.
+      unresolved = derive(unresolved_discovery: 1)
+      expect(unresolved.completion_reason).to eq("partial_source_failure")
     end
 
     it "PROOF 77 — a clean completion can still be PARTIAL, which is the pair most easily collapsed" do
@@ -127,8 +145,8 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       expect(described_class::Facts.members).not_to include(:excluded)
       expect(described_class::Facts.members)
         .to contain_exactly(:documents, :roots_total, :roots_succeeded, :fetch_failures,
-                            :unresolved_discovery, :hard_limit_decisions, :terminal_limit_decisions,
-                            :sitemap_limit_facts, :uncovered, :unevaluated)
+                            :unresolved_discovery, :unattempted_discovery, :hard_limit_decisions,
+                            :terminal_limit_decisions, :sitemap_limit_facts, :uncovered, :unevaluated)
 
       # The behavioural half — a real run whose only non-document candidate is `policy_excluded` still
       # reads `full` — is PROOF 127 in `spec/acceptance/wf005_terminal_checkpoint_spec.rb`, which runs

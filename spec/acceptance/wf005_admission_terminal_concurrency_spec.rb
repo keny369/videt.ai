@@ -82,6 +82,16 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
     }
   end
 
+  def events(cid)
+    DbInspector.all(<<~SQL, [cid])
+      SELECT event_type FROM event_registry WHERE aggregate_id = $1::uuid ORDER BY created_at
+    SQL
+  end
+
+  # `db_clock`, `lease_due`, `set_lease_due`, `advance_authorization_epoch` and `wait_out_frontier`
+  # are the shared post-wait harness in `Wf005CrawlChain`, used by these proofs and by PROOF 152 in
+  # the terminal-checkpoint spec.
+
   # THE RUNTIME STRUCTURAL PROBE. It executes at the actual child-row INSERT and derives the expected
   # frontier identity from NEW.crawl_id. A soft fall-through may insert only while this backend already
   # holds that xact advisory lock. With the old decision-then-frontier order the trigger raises before
@@ -277,5 +287,175 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
     expect(admitted).to be_a(Workflows::Wf005::Admission::Decision), admitted.inspect
     expect(admitted.reason_code).to eq("admission_crawl_not_running")
     expect(effects(ctx)).to eq({ decisions: 0, reserved: 0, claimed: 0 })
+  end
+
+  # ---- the post-wait decision instant (owner ruling 1; R6-1, R6-5, R6-6) -------
+  #
+  # PROOFS 133-135 established that the ROWS are re-read after the wait. These establish that the
+  # INSTANT is too, which is the half round 5's repair left behind: a `running` re-read agreeing with
+  # a stale clock is exactly as wrong as no re-read at all, and it is harder to see because the state
+  # assertion passes.
+
+  it "PROOF 149 — a frontier wait that outlasts the deadline refuses instead of admitting" do
+    # :442 — "At 60 elapsed minutes, NO NEW REQUEST STARTS." The admission sets out one second inside
+    # the run's sixty minutes and is held on the frontier lock until PostgreSQL reports that more than
+    # a second has passed, so by the time it may decide, the run's own deadline is behind it.
+    ctx = running_crawl
+    deadline = Platform::PgInstant.utc(crawl_row(ctx[:crawl_id])["deadline_at"])
+    at = age_run_to(ctx, deadline - 1)
+
+    decision = wait_out_frontier(ctx, 1.5) { admit(ctx, at:) }
+
+    expect(decision).to be_a(Workflows::Wf005::Admission::Decision), decision.inspect
+    expect(decision.reason_code).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+    # NOTHING WAS SPENT. Under the pre-wait instant this admission reserved the per-URL maximum and
+    # took a frontier entry for a run whose wall clock had already stopped it.
+    expect(effects(ctx)).to include(reserved: 0, claimed: 0)
+    expect(DbInspector.one(<<~SQL, [ctx[:crawl_id]])).not_to be_nil
+      SELECT id FROM crawl_limit_decisions
+      WHERE crawl_id = $1::uuid AND limit_dimension = 'wall_clock_run_duration' AND threshold_kind = 'hard'
+    SQL
+  end
+
+  it "PROOF 150 — a frontier wait that outlasts the entitlement lease refuses instead of admitting" do
+    # :551's strict-before lease rule, at the other surface that reads it. `reservation_executing?`
+    # compares `lease_due` against the instant it is handed, so a lease that lapses inside the wait was
+    # invisible: the run kept reserving budget and claiming work while no longer metered.
+    ctx = running_crawl
+    at = age_run_to(ctx, start_now + (10 * 60))
+    set_lease_due(ctx[:crawl_id], at + 1)
+    expect(lease_due(ctx[:crawl_id])).to eq(at + 1)
+
+    decision = wait_out_frontier(ctx, 1.5) { admit(ctx, at:) }
+
+    expect(decision).to be_a(Workflows::Wf005::Admission::Decision), decision.inspect
+    expect(decision.reason_code).to eq(Workflows::Wf005::Admission::DENIALS[:entitlement])
+    # The denial is reached in `authorize`, ahead of every observation, so not even a limit decision
+    # is written for a run this admission never had the authority to touch.
+    expect(effects(ctx)).to eq({ decisions: 0, reserved: 0, claimed: 0 })
+  end
+
+  it "PROOF 151 — a cancellation whose authority is revoked while it waits does not commit" do
+    # :335 and SEC-REQ-004/005. The command authenticates and authorizes, then blocks on the frontier
+    # lock, and the Organization's authorization epoch advances underneath it — the ratified
+    # serialization point for every effective-access mutation, so this is a revocation, a suspension
+    # or a policy change as far as this handler can tell, which is exactly as far as it should need to.
+    ctx = running_crawl
+    command = cancel_command(ctx)
+    org = ctx[:g][:organization_id]
+    frontier_key = RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}")
+    controller = RaceHarness.open_connection
+    cancelled = nil
+
+    begin
+      controller.exec_params("SELECT pg_advisory_lock($1)", [frontier_key])
+      op = RaceHarness.spawn_operation(-> { cancel(ctx, command) })
+      RaceHarness.wait_until("the cancellation blocked on the frontier lock") do
+        RaceHarness.blocked_on(frontier_key) >= 1
+      end
+      # COMMITTED UNDERNEATH THE WAITER, which is what makes this a revocation rather than a fixture.
+      advance_authorization_epoch(org)
+      expect(RaceHarness.blocked_on(frontier_key)).to be >= 1
+    ensure
+      controller.exec_params("SELECT pg_advisory_unlock_all()")
+      cancelled = op&.value
+      controller.close
+    end
+
+    expect(cancelled).to be_a(Platform::CommandResult), cancelled.inspect
+    expect(cancelled.success?).to be(false)
+    expect(cancelled.failure.reason_code).to eq("crawl_cancel_unauthorized")
+    # IRREVERSIBILITY IS THE POINT. `f1_crawls_guard` admits no edge out of a terminal state, so a
+    # cancellation committed on revoked authority could never be undone.
+    expect(crawl_row(ctx[:crawl_id])["state"]).to eq("running")
+    expect(events(ctx[:crawl_id]).map { |e| e["event_type"] }).not_to include("CrawlCanceled")
+    expect(DbInspector.one(<<~SQL, [ctx[:crawl_id]])["n"].to_i).to eq(0)
+      SELECT count(*) AS n FROM entitlement_commit_intents WHERE reservation_id IN
+        (SELECT entitlement_reservation_id FROM crawls WHERE id = $1::uuid)
+    SQL
+  end
+
+  # ---- the closed fact set (owner ruling 2; R6-2, R6-3) -----------------------
+
+  # A child fact written by a worker that is neither Admission nor a terminal handler: the shape every
+  # unfenced producer has, reduced to the one statement they all end in.
+  def insert_limit_decision_as_runtime(ctx)
+    pg = PgTestConnection.connect(user: "f1_web")
+    pg.exec("BEGIN")
+    pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                   [ctx[:g][:organization_id], SecureRandom.uuid_v7])
+    pg.exec_params(<<~SQL, [SecureRandom.uuid_v7, ctx[:g][:organization_id], ctx[:g][:project_id], ctx[:crawl_id]])
+      INSERT INTO crawl_limit_decisions
+        (id, schema_version, created_at, correlation_id, causation_id, organization_id, project_id,
+         crawl_id, limit_dimension, threshold_kind, configured_value, observed_value,
+         affected_source_count, affected_url_count, decision_type, decision_value, decision_status,
+         decision_reason_code, decided_by_service_identity_id, definition_versions, input_sha256,
+         output_sha256, decided_at)
+      VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,
+              'accepted_pages_per_run','hard',10,10,1,1,'crawl_limit_observation','hard_reached','final',
+              'limit_reached',gen_random_uuid(),'["v1"]'::jsonb,sha256(''::bytea),sha256(''::bytea),now())
+    SQL
+    pg.exec("COMMIT")
+    :inserted
+  rescue StandardError => e
+    e
+  ensure
+    begin
+      pg&.exec("ROLLBACK")
+    rescue StandardError
+      nil
+    end
+    pg&.close
+  end
+
+  it "PROOF 158 — a late fact racing a cancellation serializes and is refused, and the cancel stands" do
+    # ROUND 6'S R6-2 INTERLEAVING, EXACTLY. CancelCrawl holds `crawl-frontier` and `crawls FOR UPDATE`,
+    # has written `canceled`, and has not committed. A producer that read `running` a moment earlier
+    # then arrives at its INSERT. Before this tranche it blocked on the foreign key's own tuple lock,
+    # waited for the cancellation to commit, and then wrote its immutable fact onto the cancelled
+    # Crawl — a valid row, permanently disagreeing with a frozen outcome that `f1_crawls_guard` makes
+    # uncorrectable.
+    ctx = running_crawl
+    command = cancel_command(ctx)
+    gate_key = RaceHarness.key_for("f1-test-late-fact-#{ctx[:crawl_id]}")
+    controller = RaceHarness.open_connection
+    cancelled = late = nil
+
+    begin
+      controller.exec_params("SELECT pg_advisory_lock($1)", [gate_key])
+      gate_terminal("wf005.cancel_crawl", gate_key) do
+        cancellation_op = late_op = nil
+        begin
+          cancellation_op = RaceHarness.spawn_operation(-> { cancel(ctx, command) })
+          RaceHarness.wait_until("cancellation paused holding frontier and the Crawl row") do
+            RaceHarness.blocked_on(gate_key).positive?
+          end
+          late_op = RaceHarness.spawn_operation(-> { insert_limit_decision_as_runtime(ctx) })
+          # THE SERIALIZATION IS OBSERVED, NOT ASSUMED: the late writer is queued on a row lock behind
+          # the backend that holds the gate, which is the closure trigger's `FOR KEY SHARE` waiting on
+          # the cancellation's `FOR UPDATE`.
+          RaceHarness.wait_until("the late fact blocked on the cancelling transaction's Crawl row") do
+            RaceHarness.blocked_on_row_behind(gate_key).positive?
+          end
+        ensure
+          controller.exec_params("SELECT pg_advisory_unlock_all()")
+          cancelled = cancellation_op&.value
+          late = late_op&.value
+        end
+      end
+    ensure
+      controller.exec_params("SELECT pg_advisory_unlock_all()")
+      controller.close
+    end
+
+    # THE TERMINAL TRANSITION IS NOT ROLLED BACK BY THE STALE WORKER. The loser is the late fact.
+    expect(cancelled).to be_a(Platform::CommandResult), cancelled.inspect
+    expect(cancelled.success?).to be(true)
+    expect(crawl_row(ctx[:crawl_id])["state"]).to eq("canceled")
+    # And it is refused for the right reason: not privileges, not the foreign key, not the tenant
+    # predicate — all three of which this row satisfies — but the parent's state.
+    expect(late).to be_a(PG::RaiseException), late.inspect
+    expect(late.message).to include("crawl_child_fact_after_terminal")
+    expect(effects(ctx)).to include(decisions: 0)
   end
 end

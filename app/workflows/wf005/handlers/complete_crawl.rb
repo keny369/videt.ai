@@ -25,19 +25,12 @@ module Workflows
       # before that checkpoint yields `Crawl.Canceled`"), so a cancelled Crawl is already terminal when
       # this arrives and this writes nothing.
       #
-      # FOUR THINGS HAPPEN IN THE ONE TRANSACTION, and the order is the specification's:
+      # THREE THINGS HAPPEN IN THE ONE TRANSACTION, and the order is the specification's:
       #
-      #   1. FU-9's TRANSFERRED OBLIGATION, first, because the coverage count reads its result.
-      #      `DiscoverSitemaps` writes :450's terminal sitemap outcome only once the run has expired,
-      #      and `CrawlDriver#advance` halts on the same wall clock BEFORE it calls discovery with the
-      #      same `now` — so a gate under sustained contention stayed `pending` for ever and :450's
-      #      `sitemap_unavailable` was unreachable on any production path. Here it is reachable and
-      #      TRUE: at this instant no candidate can ever be attempted, which is exactly the "after
-      #      retries/validation" premise :450 conditions the outcome on.
-      #   2. THE COUNT, in one statement (`CrawlStartStore#terminal_facts`).
-      #   3. THE SELECTION AND THE TRANSITION — :458's state, its single completion reason and, for a
+      #   1. THE COUNT, in one statement (`CrawlStartStore#terminal_facts`).
+      #   2. THE SELECTION AND THE TRANSITION — :458's state, its single completion reason and, for a
       #      completed run, its coverage status.
-      #   4. THE RESERVATION, committed or released EXACTLY ONCE (MTX-030 transaction_boundary; :551).
+      #   3. THE RESERVATION, committed or released EXACTLY ONCE (MTX-030 transaction_boundary; :551).
       #      `entitlement-interim-v1` names the durable commit point
       #      `crawl_completed_with_valid_document`, so a completed run commits and a failed one
       #      releases — and `Service#commit` itself releases instead if the lease has expired, which
@@ -118,6 +111,25 @@ module Workflows
           crawl = store.lock_crawl(org, command.crawl_id)
           return mismatch(d) if crawl.nil?
 
+          # THE WAIT IS OVER, SO THE DECISION INSTANT IS RE-READ (owner ruling 1, round 6 R6-6;
+          # `Wf005::PostWaitDecision` states the rule). Both locks above block for as long as an
+          # in-flight retirement or a concurrent delivery holds them.
+          #
+          # THE ENTITLEMENT SETTLEMENT IS WHY THIS MATTERS MOST. `settle_reservation` hands this value
+          # to `Entitlement::Service#commit`, which chooses commit versus release from it alone —
+          # `now >= effective_deadline(r)` releases, anything earlier commits. :551 makes expiry win
+          # at equality and requires the commit point to be STRICTLY BEFORE expiry, and the commit
+          # point is the durable terminal transition this transaction is about to make, not the
+          # instant the delivery arrived. On the pre-wait value a reservation whose lease expired
+          # while this handler queued was still COMMITTED, so the customer was metered for a run whose
+          # entitlement had already lapsed.
+          #
+          # It is the same value the wall-clock observation, the terminal row and every ledger row
+          # below use, so the record says when the checkpoint actually happened.
+          post_wait = PostWaitDecision.new(pg, entered_with: now)
+          now = post_wait.now
+          d = d.merge(now:)
+
           # Idempotency BEFORE the domain preconditions, as every other WF-005 handler orders it: a
           # duplicate delivery returns its stored result faithfully, whether that was the terminal
           # decision or a recorded refusal.
@@ -139,7 +151,7 @@ module Workflows
           # decide. A `queued` Crawl never started, so it has no run to terminalize either; its own
           # `crawl_dispatch` owns that outcome.
           unless crawl["state"] == "running"
-            reason = %w[completed failed canceled].include?(crawl["state"]) ? "crawl_already_terminal" : "crawl_not_running"
+            reason = post_wait.terminal?(crawl) ? "crawl_already_terminal" : "crawl_not_running"
             return deny(**d, crawl:, outward: reason, internal: reason)
           end
 
@@ -160,9 +172,6 @@ module Workflows
 
           write_execution(store, command, ctx, org, ids[:execution], d[:request_sha256], d[:key_digest], now)
 
-          gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(d[:pg])
-          sitemaps = resolve_pending_sitemaps(store, gates, org, crawl, now)
-          # BEFORE THE COUNT, because the count reads its result.
           wall_clock = observe_wall_clock(d, crawl)
           facts = count_facts(store, org, crawl, pid)
           selection = TerminalSelection.derive(facts)
@@ -188,11 +197,12 @@ module Workflows
             "content_fetch_failures" => facts.fetch_failures,
             "uncovered_candidates" => facts.uncovered, "unevaluated_candidates" => facts.unevaluated,
             "unresolved_discovery" => facts.unresolved_discovery,
+            # :458's not-evaluated limb for sitemap discovery, reported separately from :450's
+            # `sitemap_unavailable` so a reader can tell "we never asked" from "we asked and failed".
+            "unattempted_discovery" => facts.unattempted_discovery,
             "hard_limit_decisions" => facts.hard_limit_decisions,
             "terminal_forcing_limit_decisions" => facts.terminal_limit_decisions,
             "sitemap_terminal_limit_facts" => facts.sitemap_limit_facts,
-            # FU-9's obligation, reported so its exercise is visible rather than silent.
-            "sitemap_outcomes_derived" => sitemaps,
             "entitlement_reservation_id" => crawl["entitlement_reservation_id"],
             "entitlement_outcome" => metering
           }
@@ -252,41 +262,38 @@ module Workflows
           selection.state == TerminalSelection::FAILED ? "CrawlFailed" : "CrawlCompleted"
         end
 
-        # FU-9's TRANSFERRED OBLIGATION (ADR-096). Returns how many gates this checkpoint decided.
+        # THE CHECKPOINT DERIVES NO SITEMAP OUTCOME, AND FU-9's TRANSFER IS WITHDRAWN (owner ruling 3;
+        # round-6 blocker R6-4). What used to live here is recorded rather than deleted, because the
+        # reasoning it replaced was ratified twice and the correction is the point.
         #
-        # :450's outcome table, applied to a gate the run left `pending`: "when robots declares no
-        # sitemap AND the default sitemap returns 404 or 410, record `sitemap_absent`" — but a gate
-        # still `pending` never completed a traversal, so it cannot have observed the default's 404, and
-        # the `absent` limb's second condition is unmet by construction. Every such gate is therefore
-        # `unavailable`, which is also what :450's own sentence says: "if a declared sitemap exists, or
-        # the default returns a non-404/410 response, AND NO SITEMAP CANDIDATE SUCCEEDS after
-        # retries/validation, record `sitemap_unavailable`". At the terminal checkpoint no candidate can
-        # ever succeed, so the premise is satisfied for the run as a whole rather than guessed at.
+        # WHAT IT DID. `resolve_pending_sitemaps` claimed every `pending` non-robots-failed gate and
+        # wrote `sitemap_unavailable`, on the argument that at the terminal checkpoint "no candidate can
+        # ever succeed, so the premise is satisfied for the run as a whole."
         #
-        # A GATE WHOSE ROBOTS RECORD IS FAIL-CLOSED IS SKIPPED. :448 denies all content fetching for
-        # that host, so discovery never had a sitemap to fail at; recording `sitemap_unavailable` there
-        # would count one host's robots failure twice in the coverage measure.
+        # WHY THAT WAS WRONG, and Volume I :450 is the authority: "IF A DECLARED SITEMAP EXISTS, or the
+        # default returns a non-404/410 response, AND NO SITEMAP CANDIDATE SUCCEEDS after
+        # retries/validation, record `sitemap_unavailable`." The sentence has an ANTECEDENT and a
+        # consequent, and the argument above established only the consequent. A gate the run never
+        # attempted has neither a declared sitemap that was tried nor a default response to have
+        # observed, so :450 authorises no outcome for it at all. PROOF 67 itself used allow-all robots
+        # with no declared sitemap and no default fetch and then REQUIRED `sitemap_unavailable`, which
+        # is the invented observation stated as an expectation. The repository's own record said so:
+        # BUILD_STATE's FU-9 note reads ":450 conditions `sitemap_unavailable` on 'no candidate succeeds
+        # AFTER retries/validation'; a candidate the rate limiter never released has had neither, so
+        # nothing is recorded" — and the closure field of the same item transferred the opposite
+        # obligation to this block.
         #
-        # THROUGH THE ACCEPTED CLAIM/TERMINALIZE SURFACE, not around it.
-        # `f1_crawl_host_gates_sitemap_guard` admits `pending -> in_progress -> unavailable` and nothing
-        # wider, so the checkpoint claims the gate exactly as a discovery pass does and then writes the
-        # outcome under its own token. That is not a detour around the guard, it is the reason the guard
-        # is right: a worker that still holds the claim BLOCKS this, so the checkpoint can never write
-        # over a decision another delivery is in the middle of making. `retained` and `discarded` are
-        # empty because this claim performs no traversal — it records that none is possible any more.
-        def resolve_pending_sitemaps(store, gates, org, crawl, now)
-          store.pending_sitemap_gates(org, crawl["id"]).count do |gate|
-            next false if gate["robots_state"] == "unavailable"
-
-            token = SecureRandom.uuid_v7
-            next false unless gates.begin_sitemaps(gate["id"], gate["state_version"].to_i, now,
-                                                   [], [], token).to_i.positive?
-
-            gates.terminalize_sitemaps(gate["id"], token, now, state: "unavailable",
-                                       reason: DiscoverSitemaps::UNAVAILABLE,
-                                       documents: 0, max_depth: 0).to_i.positive?
-          end
-        end
+        # WHAT REPLACES IT IS NOT NOTHING. The old code reached a true COVERAGE answer by a false route:
+        # an unattempted host should indeed stop a run being `full`. :458 says that directly — "any
+        # in-scope candidate NOT EVALUATED ... makes coverage partial" — so the gate is left exactly as
+        # the run left it and counted as `unattempted_discovery`, which lowers coverage and does not
+        # touch :452's completion reason. Nothing is written to the customer's record about a host
+        # nobody contacted.
+        #
+        # AND THE GATE IS LEFT ALONE ON PURPOSE. A `pending` gate on a terminal Crawl is now inert: it
+        # is closed against late writes by `f1_crawl_child_fact_closed` and read only as a count. It
+        # needs no sweep, and giving it one here would be the ad hoc stranded-claim substitute the
+        # programme forbids; FU-22 under S-07-011 owns that.
 
         # :442's WALL CLOCK, OBSERVED WHERE IT ACTUALLY ENDS THE RUN (DECISIONS ADR-107).
         #
@@ -382,6 +389,7 @@ module Workflows
             documents: row["documents"].to_i, roots_total: row["roots_total"].to_i,
             roots_succeeded: row["roots_succeeded"].to_i, fetch_failures: row["fetch_failures"].to_i,
             unresolved_discovery: row["unresolved"].to_i,
+            unattempted_discovery: row["unattempted"].to_i,
             hard_limit_decisions: hard_dimensions.size,
             terminal_limit_decisions: hard_dimensions.count do |dimension|
               LimitSemantics.terminal_forcing_decision?(dimension)

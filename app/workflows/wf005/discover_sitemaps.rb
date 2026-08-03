@@ -70,6 +70,20 @@ module Workflows
       INDEX_DEPTH_DIMENSION = "sitemap_index_nesting_depth"
       LIMIT_REASONS = [SitemapParser::LIMIT, DOCUMENTS_LIMIT, INDEX_DEPTH_LIMIT, REQUEST_TIME_LIMIT].freeze
       CONTENDED = "sitemap_discovery_contended"
+      # THE RUN ENDED WHILE THIS TRAVERSAL WAS OUT ON THE NETWORK (owner ruling 2; R6-3). A controlled,
+      # idempotent domain outcome: nothing is written, nothing is decided, and a redelivery gets the
+      # same answer. It is deliberately NOT `sitemap_unavailable` — :450 conditions that on candidates
+      # having failed after retries and validation, and a run that simply ended proves nothing about
+      # the host.
+      TERMINAL = "crawl_terminal"
+      # The token `f1_crawl_child_fact_closed` raises. Matched on the message rather than on SQLSTATE
+      # because the guard family this joins all raise `raise_exception`, and the message is what
+      # distinguishes a closed fact set from an immutability violation.
+      CLOSED_AFTER_TERMINAL = "crawl_child_fact_after_terminal"
+
+      # Raised only by `in_unit`, caught only by `call`. Private to this service: the database's
+      # refusal is an implementation fact, and every caller sees the `Result` instead.
+      class CrawlWentTerminal < StandardError; end
 
       # A gate refusal is a SCHEDULING condition, never a candidate failure: :442 says a start over
       # the rate is "DELAYED", and treating the delay as a failure would silently turn the rate
@@ -130,12 +144,19 @@ module Workflows
         return already(gate) if gate && terminal?(gate["sitemap_state"])
         return pending("robots_not_resolved") unless gate && robots_terminal?(gate)
 
+
         # The Project is resolved from the CRAWL, never from the caller. `FetchAuthorization` already
         # does this deliberately; reading a caller-supplied value here would evaluate Source Scope
         # against another Project's policy before a composite foreign key rejected the insert —
         # fail-closed, but a decision taken on unverified input, which is not the same thing.
         crawl = load_crawl(organization_id, crawl_id)
         return pending("crawl_not_found") if crawl.nil?
+        # DEFENCE IN DEPTH, NOT THE ENFORCEMENT (owner ruling 2; R6-3). The database closes a terminal
+        # Crawl's fact set and is the authority; this read only spares the common case an aborted
+        # transaction. It cannot be the rule, and that is the whole finding: the traversal below runs
+        # OUTSIDE every transaction, so whatever this read saw may be false by the time the outcome
+        # commits. `f1_crawl_child_fact_closed` is what makes the late case impossible.
+        return pending(TERMINAL) if terminal_crawl?(crawl)
 
         # :390 — the operative sitemap bounds are the most restrictive of global safety and every
         # active Organization/Project policy. They were class constants here, so a Project that
@@ -175,6 +196,19 @@ module Workflows
 
         terminalize(organization_id, crawl["project_id"], crawl_id, gate["id"], token, state, now)
         state
+      rescue CrawlWentTerminal
+        # THE CONTROLLED OUTCOME (owner ruling 2; R6-3). The run reached its terminal selection while
+        # this traversal was out on the network, so the coverage record is already frozen and there is
+        # nothing here that may join it. Round 6 reproduced both halves of what this replaces: a
+        # `/late` URL inserted as a queued frontier entry after the Crawl was `failed`, and
+        # `sitemap_unavailable` committed after the checkpoint had recorded `unresolved_discovery = 0`.
+        #
+        # THE CLAIM IS NOT HANDED BACK, and that is deliberate rather than overlooked. `release_sitemaps`
+        # writes `sitemap_state`, which is itself closed on a terminal Crawl, so the gate stays
+        # `in_progress` on a run that is over. Nothing reads it again. Sweeping it is stranded-claim
+        # recovery, which is S-07-011's (FU-22), and inventing a sweep here would be the ad hoc
+        # substitute the programme forbids.
+        pending(TERMINAL)
       end
 
       def pending(reason, retry_after: nil)
@@ -423,6 +457,9 @@ module Workflows
         in_unit(organization_id) { |store| store.crawl(organization_id, crawl_id) }
       end
 
+      # :458's terminal set, in the vocabulary `Wf005::PostWaitDecision` owns for the whole workflow.
+      def terminal_crawl?(crawl) = PostWaitDecision::TERMINAL_STATES.include?(crawl["state"])
+
       # Reserve one slot from the RUN-WIDE sitemap-document budget (:437 — 50 distinct canonical
       # sitemap URLs PER RUN). Returns false when the run has spent it.
       #
@@ -664,6 +701,11 @@ module Workflows
 
       # Yields the gate store AND the raw connection, so a caller needing a sibling store on the same
       # transaction can build one without the gate store publishing its own connection as public API.
+      # EVERY DATABASE WRITE THIS SERVICE MAKES GOES THROUGH HERE, which is why the translation lives
+      # here and not at four call sites. `begin_discovery`, `offer_urls`, `terminalize` and
+      # `release_sitemaps` can each be the statement that arrives after the run went terminal, and
+      # each would otherwise surface a raw `PG::RaiseException` to a scheduled-action worker that has
+      # no way to tell it from a defect.
       def in_unit(organization_id)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
@@ -671,6 +713,10 @@ module Workflows
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
           yield store, raw
         end
+      rescue StandardError => e
+        raise CrawlWentTerminal, e.message if e.message.to_s.include?(CLOSED_AFTER_TERMINAL)
+
+        raise
       end
 
       def candidate_json(candidate)

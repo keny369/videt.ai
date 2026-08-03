@@ -178,6 +178,18 @@ module IdentityAccess
       #                    bound discarded and the ones the run simply never reached
       #   `unresolved`     :450 `sitemap_unavailable` ("coverage is partial") and :452
       #                    `robots_unavailable_fail_closed` ("makes that Source root failed")
+      #   `unattempted`    :458 "any in-scope candidate NOT EVALUATED ... makes coverage partial", for a
+      #                    host whose sitemap discovery never reached an outcome at all (owner ruling 3;
+      #                    round-6 blocker R6-4). IT IS COUNTED SEPARATELY FROM `unresolved` ON PURPOSE.
+      #                    :450's `sitemap_unavailable` requires an antecedent — a declared sitemap, or a
+      #                    default answering non-404/410 — followed by failure after retries and
+      #                    validation, and a gate the run never attempted has none of them. Folding it
+      #                    into `unresolved` would make :452's completion reason say
+      #                    `partial_source_failure`, which asserts a SOURCE FAILURE about a host nobody
+      #                    contacted. So it lowers COVERAGE, which is what :458 says it does, and leaves
+      #                    the completion reason to the three causes :452 actually lists.
+      #                    A fail-closed robots host is excluded because `unresolved` already counts it
+      #                    and :448 means discovery correctly never ran there.
       #   `hard_limit_dimensions` — every HARD decision dimension, retained for audit and then
       #                    classified by the canonical R5-1 table. A hard decision is not by itself
       #                    a run-terminal reason (ADR-117).
@@ -215,6 +227,10 @@ module IdentityAccess
             (SELECT COUNT(*) FROM crawl_host_gates g
               WHERE g.organization_id = $1::uuid AND g.crawl_id = $2::uuid
                 AND (g.sitemap_state = 'unavailable' OR g.robots_state = 'unavailable')) AS unresolved,
+            (SELECT COUNT(*) FROM crawl_host_gates g
+              WHERE g.organization_id = $1::uuid AND g.crawl_id = $2::uuid
+                AND g.sitemap_state IN ('pending', 'in_progress')
+                AND g.robots_state IS DISTINCT FROM 'unavailable') AS unattempted,
             COALESCE((SELECT jsonb_agg(d.limit_dimension ORDER BY d.limit_dimension)
               FROM crawl_limit_decisions d
               WHERE d.organization_id = $1::uuid AND d.project_id = $3::uuid AND d.crawl_id = $2::uuid
@@ -333,16 +349,6 @@ module IdentityAccess
       # `#terminalize_sitemaps`) exactly as a discovery pass does. That is not a workaround for the
       # guard, it is the reason the guard is right: a worker that still holds the claim BLOCKS the
       # checkpoint from writing over the decision it is in the middle of making.
-      def pending_sitemap_gates(organization_id, crawl_id)
-        exec(<<~SQL, [organization_id, crawl_id]).to_a
-          SELECT id, state_version, robots_state, sitemap_state,
-                 sitemap_candidates::text AS sitemap_candidates
-          FROM crawl_host_gates
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND sitemap_state = 'pending'
-          ORDER BY id
-        SQL
-      end
-
       # The one pending initial Evaluation of an accepted root start, keyed by
       # `(crawl_id, kind='initial')`. `orchestration_slot_active` stays FALSE: the slot is the
       # WF-011 reassessment/retry single-flight (POSTGRESQL_SCHEMA.md :340), and OD-018's initial
