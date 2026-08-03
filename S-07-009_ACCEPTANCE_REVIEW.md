@@ -1274,3 +1274,146 @@ the range; the only frozen-path touch is the ADR-027/029 additive grant, so no e
 4. **R5-4 and R5-5** — the record, written against the final vocabulary and the round it is creating.
 
 **Round 6 must be run by five fresh contexts, and no repair may be authored by a reviewer of it.**
+
+# ROUND 6 — the complete repaired candidate `7f043a2..cf2059e`
+
+Candidate: `7f043a2..cf2059e`, pinned (not `..HEAD`). The endpoint includes implementation commit
+`5860bb4` and its governance-record commit `cf2059e`.
+
+Round run: 2026-08-03, full ADR-026 five-lens form, on the owner's explicit instruction after the
+round-5 repair stop. Five reviewers ran in five fresh independent contexts with no shared conclusions
+and no repair authorship. Every reviewer was read-only. The owner's instruction superseded ADR-117's
+earlier “do not commission Round 6” terminus for this one review; it did not authorize a repair cycle.
+
+**VERDICT: FAIL. All five lenses. NINE confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R6-2, R6-3, R6-4 |
+| Concurrency / atomicity / idempotency | FAIL | R6-1, R6-2, R6-3 |
+| Security / tenant-isolation | FAIL | R6-1, R6-5, R6-6 |
+| Schema / migration-safety | FAIL | R6-2 |
+| Architecture / scope / test-quality | FAIL | R6-7, R6-8, R6-9 |
+
+## Confirmed blockers
+
+**R6-1 — Admission revalidates state after the frontier wait, but reuses the pre-wait instant.**
+Security and concurrency independently. `Admission#claim` takes `lock_frontier`, re-reads the Crawl and
+policy, then calls `authorize(..., now)` and `wall_clock(..., now)` with the caller's original instant.
+That value was captured before the wait. A real-PG interleaving held the actual Crawl frontier lock until
+`clock_timestamp()` was after `deadline_at`; Admission then returned admitted, claimed one frontier row
+and reserved 10,485,760 bytes. The observed release was after the deadline. The same stale instant lets
+an entitlement whose lease expires during the wait pass `reservation_executing?`. This violates :442's
+“no new request starts” boundary, :551's strict-before lease rule and ADR-117's post-wait reauthorization.
+
+**R6-2 — the terminal fact set remains appendable after the once-only terminal commit.** Contract,
+concurrency and schema independently. The hard-expired Admission branch records soft/hard wall-clock
+decisions without taking frontier and without a terminal-state re-read. In a deterministic PG race,
+CancelCrawl held frontier and `crawls FOR UPDATE`, transitioned to `canceled`, and held the transaction;
+Admission read the committed `running` preimage and blocked on the child FK's implicit tuple lock. After
+CancelCrawl committed, Admission committed both immutable decisions onto the canceled Crawl. Catalog
+inspection proves the general backstop gap: `f1_runtime` retains INSERT on both
+`crawl_limit_decisions` and `crawl_terminal_outcomes`; their guards cover UPDATE/DELETE only; their Crawl
+FKs and RLS predicates validate identity/tenant, not parent state. A valid child fact can therefore be
+inserted after any terminal state and permanently disagree with the frozen Crawl outcome. :458's
+serialized-once selection and the immutable-first-decision rule fail.
+
+**R6-3 — CompleteCrawl does not serialize with in-progress sitemap discovery.** Contract and concurrency
+independently. Discovery commits `sitemap_state='in_progress'`, performs traversal outside that
+transaction, and neither holds the Crawl frontier lock throughout nor re-reads terminal Crawl state
+before offering URLs and committing the gate outcome. CompleteCrawl reconciles only `pending` gates and
+its fact query excludes `in_progress`. A deterministic application/PG race held discovery in its real
+outbound request, ran the real deadline checkpoint to a committed `failed` Crawl, then released a valid
+sitemap. Discovery returned `succeeded` and inserted `/late` as a queued sitemap frontier entry after the
+Crawl was terminal. A second variant committed `sitemap_unavailable` after the checkpoint had recorded
+`unresolved_discovery=0`. The supposedly frozen :450/:458 fact snapshot is not frozen.
+
+**R6-4 — the checkpoint invents `sitemap_unavailable` for a merely pending, unattempted gate.** Contract
+alone. `resolve_pending_sitemaps` turns every pending non-robots-failed gate into unavailable. Pending does
+not establish either :450 antecedent — a declared sitemap exists, or the default returned non-404/410 —
+and does not prove retries/validation completed. PROOF 67 itself uses allow-all robots with neither a
+declared sitemap nor a default fetch, then requires `sitemap_unavailable`. Volume I :450 wins over the
+BUILD_PLAN transfer prose and does not admit that invented observation.
+
+**R6-5 — CancelCrawl can commit after the human authority it used has been revoked.** Security alone.
+CancelCrawl authenticates and authorizes, can then wait at `lock_frontier`, and performs the irreversible
+cancel/release/event sequence without checking the Organization authorization epoch again. The repository
+already provides `CommandAuthorizer.authority_current?` for exactly “authorize, wait, protected side
+effect”; this handler does not call it. A revocation, suspension or policy change can commit while the
+command waits, after which the stale allowed decision still cancels the Crawl. This violates :335 and
+SEC-REQ-004/005.
+
+**R6-6 — CompleteCrawl settles entitlement using an instant captured before its frontier wait.** Security
+alone. The handler captures `now`, later waits on frontier/Crawl, terminalizes, and calls entitlement
+commit with the old value. `Entitlement::Service#commit` chooses commit versus release from the supplied
+timestamp, so a reservation can be committed even though the durable terminal point occurred at or after
+its effective deadline. :551 makes expiry win at equality and requires the commit point to be strictly
+before expiry.
+
+**R6-7 — the authorized timestamp detector has trivial syntax escapes.** Architecture alone. Directly
+calling the committed `violations` helper returned an empty finding set for all four obvious local
+decoder/type-dispatch forms:
+
+```ruby
+Time.zone.parse(value.to_s)
+Time.rfc3339(value.to_s)
+value.respond_to? :getutc
+Time === value ? value.getutc : value
+```
+
+The detector's synthetic tests restate only the AST forms it recognizes. A second local decoder can enter
+the derived tracked corpus while the check remains green, contrary to ADR-117's explicit detection and
+self-test criterion.
+
+**R6-8 — ADR-117 falsely says it recorded authority before implementation.** Architecture alone. History
+is `fc069c9` (round-5 review), `f7472aa` (PgInstant implementation), `5860bb4` (ADR-117 plus repairs), then
+`cf2059e` (records). ADR-117 is absent from the parent of `f7472aa`, yet says both that it records the
+authority “before implementation” and that “Record this ruling” is the first binding step. This conflicts
+with the repository-as-authority rule in AUTONOMOUS_BUILD_CONTROLLER §2.1.
+
+**R6-9 — the completion report's mechanically stated proof count is false.** Architecture blocker,
+independently corroborated as a contract observation. The report defines its numbers as distinct
+`PROOF n` identifiers and reports 13 for `crawl_terminal_outcome_invariants_spec.rb`. The file contains
+16: PROOF 30 through 39, 39b, 40, 40a, 40b, 41 and 42. The prior round-4 review had already recorded the
+13-versus-16 discrepancy; the R5-5 rewrite retained it. This fails the owner-required accuracy and
+internal-consistency review and repeats the false-evidence-record blocker class.
+
+## Evidence established by execution
+
+The concurrency reviewer ran 91 committed focused PostgreSQL examples with zero failures, then three
+additional deterministic real-PG interleavings. Those interleavings, not the green examples, established
+R6-1, R6-2 and R6-3. The committed proofs remain genuinely useful but incomplete: PROOF 132 detects the
+original decision-before-frontier inversion; PROOFs 133-135 keep their races inside the soft fall-through
+branch and do not cross the deadline or enter hard-expired Admission; checkpoint/pass races fence
+retirement, not sitemap traversal.
+
+The schema reviewer used read-only PG17 catalog queries. It confirmed ENABLE+FORCE RLS, exact-org policies,
+validated arity-3 outcome links, SELECT/INSERT-only runtime grants, migration/structure parity, and the
+truth of the repaired migration-350/380 record. The same catalog showed no INSERT guard closing the child
+fact set after parent terminalization.
+
+The architecture and contract reviewers each ran 21 focused non-truncating examples with zero failures;
+security ran 11 plus Brakeman with zero warnings. All five checked the exact committed range and left the
+worktree unchanged. No full suite was rerun because the first confirmed blocker made acceptance
+impossible and the user required reviewers to stop without repairing.
+
+## Confirmed sound and carried observations
+
+The original R5-3 Admission soft-path deadlock is repaired: the real insert probe is non-vacuous, both
+named terminal orientations avoid 40P01, and losing fall-through Admission produces no durable effect.
+The twelve-row classifier's live projections correctly separate decision production, terminal forcing,
+default affected counts and unselected-frontier ownership; rate/concurrency remain pacing-only. PgInstant
+itself preserves typed/text/nil/subsecond/UTC/nonmutation semantics and PROOF 145 independently drives the
+real checkpoint boundary. RLS, tenant predicates, fixed SQL parameters and the migration-380 Source link
+are sound.
+
+Carried non-blocking observations remain carried, including the bounded cross-tenant advisory-lock timing
+channel, FU-2 GrantScope containment, the outcome links not tying Crawl/Source to the chosen frontier
+entry, FU-12's service-identity link, FU-40's empty `failed_attempts`, and the pre-existing BUILD_PLAN YAML
+parse failure. None is silently repaired or promoted by this record.
+
+## Stop
+
+This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
+start another repair cycle from any of the reviewer contexts. FU-32, FU-33, FU-43 and R3-P1..R3-P3 are
+unchanged.

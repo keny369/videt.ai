@@ -3156,3 +3156,21 @@ The owner accepted the independent architectural memorandum's three decisions an
 
 Authority And Precedence:
 This explicit owner ruling supersedes the round-5 review's instruction to commission Round 6 and resolves the architectural owner decisions raised at that boundary. It does not supersede the contracts it interprets, broaden the tranche beyond the named repairs, authorize another frozen path, or change S-07-009's status from NOT ACCEPTED.
+
+## ADR-118: The Owner-Commissioned Independent Review Of The Complete S-07-009 Repair — All Five Lenses Fail
+
+Status: Accepted review record (2026-08-03); S-07-009 is NOT accepted
+Date: 2026-08-03
+Owner: explicit instruction to commission one fresh independent acceptance review of the complete repaired candidate ending at `cf2059e`
+Reversibility: Governance record only. No candidate, production, migration, test or frozen-path repair is authorized or made.
+
+The owner accepted the round-5 repair work as completed, then explicitly commissioned the next independent ADR-026 acceptance review against the complete state ending at `cf2059e`. That instruction superseded ADR-117's earlier “do not commission Round 6” terminus for this review only. Five fresh contexts that authored none of the repair reviewed the exact range `7f043a2..cf2059e`, one context per contract, concurrency, security, schema and architecture lens. Reviewers shared no conclusions, changed no files and were prohibited from repairing findings.
+
+**ALL FIVE LENSES RETURNED FAIL. NINE CONFIRMED-BLOCKING FINDINGS. S-07-009 REMAINS NOT ACCEPTED.** The complete evidence and provenance are recorded in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 6. In dependency-neutral summary: R6-1, Admission reuses a pre-wait instant and can claim after the Crawl/entitlement deadline; R6-2, hard-expired Admission and the schema can append immutable terminal facts after a terminal commit; R6-3, in-progress sitemap discovery can commit URLs/outcomes after the checkpoint; R6-4, pending sitemap state is converted to unavailable without :450's antecedents; R6-5, CancelCrawl can act on human authority revoked while it waits; R6-6, CompleteCrawl settles entitlement with a pre-wait instant; R6-7, the authorized Ripper detector admits obvious local decoder/type-dispatch spellings; R6-8, ADR-117's “recorded before implementation” claim is false in git history; R6-9, the completion report says 13 distinct outcome proof identifiers when there are 16.
+
+Three blockers were reproduced as deterministic real-PostgreSQL/application interleavings after 91 focused examples remained green: Admission claimed and reserved after the real deadline; hard-expired Admission committed both wall-clock decisions after cancellation committed; and sitemap discovery inserted `/late` after CompleteCrawl committed a failed Crawl. Read-only catalog evidence independently proves the terminal child-fact set is not closed on parent terminalization. The architecture detector returned no findings for `Time.zone.parse`, `Time.rfc3339`, no-parentheses `respond_to?`, and `Time === value`.
+
+No acceptance transition is made. No repair cycle is commissioned. S-07-010 and S-07-011 remain blocked on S-07-009. The outstanding owner decisions FU-32, FU-33, FU-43 and R3-P1..R3-P3 remain unchanged.
+
+Authority And Precedence:
+Records the exact owner-commissioned review outcome and supersedes only ADR-117's no-review stop boundary. It does not supersede ADR-117's semantic rulings, authorize implementation, resolve any blocker, accept S-07-009, or alter unrelated backlog ownership. Allocated the next unused number after ADR-117.
