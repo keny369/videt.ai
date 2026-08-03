@@ -964,3 +964,144 @@ is made necessary by the kind.
 7. **R3-P1..P3** — owner scope decision. Not absorbed into this tranche.
 
 **Round 4 must be run by five fresh contexts.** Round 3's own method is the reason it found what it did.
+
+# ROUND 4 — the round-3 repaired candidate `7f043a2..7034e25`
+
+Candidate: `7f043a2..7034e25`, pinned (not `..HEAD`; two governance commits sit above it).
+Round run: 2026-08-03, full ADR-026 five-lens form, five reviewers in five independent contexts with no
+shared conversational state and no knowledge of who authored which repair.
+Gates at the candidate, re-measured on a quiet cluster: **rspec 2085/0**, architecture fitness 65/0,
+brakeman 0, packwerk clean, zeitwerk ok, bundler-audit clean, verify_runtime 15/15 RLS intact, no
+structure.sql drift.
+
+**VERDICT: FAIL. Three of five lenses. EIGHT confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | In-candidate blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | 4 (R4-1, R4-5, R4-6, R4-7) |
+| Concurrency / atomicity / idempotency | FAIL | 2 (R4-2, R4-4) |
+| Architecture / scope / test-quality | FAIL | 2 (R4-3, R4-8) |
+| Schema / migration-safety | PASS_WITH_OBSERVATIONS | 0 |
+| Security / tenant-isolation | PASS_WITH_OBSERVATIONS | 0 |
+
+**FOUR OF THE EIGHT BLOCKERS ARE DEFECTS IN ROUND 3's OWN REPAIRS** (R4-1 in R3-2, R4-2 in R3-6, R4-4 in
+R3-5-as-amended-by-R3-6, R4-5 in R3-4(b), R4-6 in R3-1 — five, counting R4-6). That is now the pattern in
+every round: round 2 found two defects in round 1's repairs, round 3 refuted all three of round 2's, and
+round 4 finds five in round 3's. **A repair being present, gated green and mutation-proved against ONE
+named mutation is not evidence that it is correct.**
+
+## Consolidated blockers
+
+Provenance preserved. **U** = discovered by that lens alone; **J** = joint.
+
+| id | finding | lens(es) | file |
+| --- | --- | --- | --- |
+| R4-1 | R3-2's boundary compares against a deadline TRUNCATED TO THE WHOLE SECOND. `Time.parse(t.to_s)` drops subseconds, so :458 s.3 never fires at the true boundary and s.2's "strictly before" cancellations are refused for up to 999,999µs | contract **U** | `cancel_crawl.rb:161-163` |
+| R4-2 | R3-6 created a LOCK-ORDER INVERSION with `StartCrawl`, which takes the `crawls` ROW lock (`store.start`) before the frontier advisory lock (`seed_roots`). `CancelCrawl` now takes them in the opposite order. Reachable by cancelling a `queued` Crawl; `CancelCrawl` has no rescue, so `PG::TRDeadlockDetected` escapes a customer command raw | concurrency **U** | `cancel_crawl.rb:117-118` vs `start_crawl.rb:275,298` |
+| R4-3 | PROOF 78's assertion cannot fail, and :452's "policy_excluded is OUTSIDE the denominator" is asserted by NOTHING. The whole suite passes with the rule inverted | architecture **U** | `terminal_selection_spec.rb:101-108`, `crawl_start_store.rb:206` |
+| R4-4 | R3-6 deleted `locktype IN ('transactionid','tuple')` from `blocked_behind`, so the predicate counts ANY ungranted lock behind the gated backend. R3-5's defect class narrowed, not removed | concurrency **U** | `race_harness.rb:130-146` |
+| R4-5 | R3-4(b) anchors `entered_monotonic` at `FetchContent#call`, but robots and sitemap discovery run in `CrawlDriver#advance` BEFORE that — so the elapsed time the repair exists to measure is still invisible | contract **U** | `fetch_content.rb:164` vs `crawl_driver.rb:149,153` |
+| R4-6 | R3-1 removed only the `discarded` leg. Candidates a DIFFERENT run-wide bound left `queued` are still counted as wall-clock-affected — byte-for-byte the harm R3-1 was written to remove | contract **U** | `crawl_start_store.rb:277-291` |
+| R4-7 | `CrawlCompleted` omits `transition_reason_code`, a required :938 `state_transition` BASE member, while both siblings carry it. The inconsistency is created inside this range | contract **U** | `complete_crawl.rb:225-234` |
+| R4-8 | The completion report names TWO different candidate ranges, and the one under "What a round-4 reviewer must know" is the SUPERSEDED pin | architecture **J** + security **J** + schema **J** | `S-07-009_COMPLETION_REPORT.md:19` vs `:133`, `:182` |
+
+## Evidence established by execution, recorded separately from discovery
+
+Three blockers were settled mechanically rather than by reading:
+
+- **R4-1** — evaluated in the real runtime: a `deadline_at` of `12:01:30.123456Z` truncates to
+  `12:01:30.000000Z`. At the true boundary the branch does NOT fire; 123ms strictly before it, it DOES.
+  Both halves of :458's rule are inverted. Invisible to the suite because every fixture instant is a
+  whole second (`wf005_crawl_chain.rb:16`) and the proofs read the deadline back through a raw PG
+  connection with no type map — a different decoding path from production.
+- **R4-3** — `AND o.coverage_effect = 'not_covered'` mutated to `<> 'covered'`, which counts
+  `policy_excluded` rows in the denominator, exactly what :452 forbids. **FULL SUITE 2085 examples,
+  0 failures.** The rule is asserted by no executable proof anywhere in the repository.
+- **R4-2** — the two lock statements are explicit and unconditional and were read directly:
+  `StartCrawl` = crawls-row then frontier-advisory; `CancelCrawl` = frontier-advisory then crawls-row.
+  A `queued` Crawl is cancellable (`state = ANY (ARRAY['queued','running'])`), so the race is ordinary
+  rather than exotic. `CancelCrawl` contains zero `rescue` clauses.
+
+## Records that state something untrue
+
+The code held up better than the record did. Every item below is a claim the repository makes about
+itself that a reviewer disproved:
+
+- **The candidate range** (R4-8): three lenses independently. `dfb6437` asserted it re-pinned the range
+  "forward and in the open" and updated ONE of THREE occurrences.
+- **"all fourteen" capabilities** (`permission_baseline.rb`, `BUILD_STATE` FU-1, the R3-10 commit
+  message): there are **SIXTEEN**, and the cited range `:137-:151` excludes three of them at `:170`,
+  `:172`, `:173`. The SUBSTANCE is correct — all sixteen sixth cells read `deny`, verified — and the
+  transcription spec derives from `CAPABILITIES.keys`, so the MECHANISM was right where the prose was
+  wrong.
+- **"Every repair was mutation-proved: the fix was reverted and a NAMED proof required to fail"**
+  (report `:114`): FALSE for R3-9, whose recorded evidence is "forcing the order both ways, 24/24" —
+  no named proof fails on reversion. STALE for R3-5, whose named mutation leaves the suite green after
+  `bc965dd`, as FU-41 itself records.
+- **"every claim below is mechanically checked by `repository_truth_spec`"** (report `:12`): FALSE.
+  That spec derives its report path from `acceptance_evidence.block`, which is S-07-012, so it checks a
+  different tranche's report.
+- **"an eighth cannot be written silently"** (report `:84`): OVERSTATED. `HARMLESS` is a precondition
+  for being examined, so a false claim phrased without "no-op", "admitted" or "yields true" is never
+  looked at. Three constructed paraphrases pass.
+- **The Schema-changes table** (report `:72`, `:73`, `:75`): `20260727120360` also adds
+  `crawl_terminal_immutable` (a blanket freeze on any UPDATE of a terminal row) and
+  `crawl_run_identity_immutable` — two NEW irreversible restrictions on a production table, unmentioned.
+  `:75` reads as though the missing Source link were pre-existing; it was introduced by
+  `20260727120350` inside this same range and repaired by `20260727120380`.
+- **The proof-count table** (report `:156`, `:157`): 13 should be 16, 10 should be 7. The errors cancel
+  in the total, and the inflated row is the file carrying the R3-6 proofs.
+- **FU-41's reasoning is wrong.** `lock_crawl` has two callers, but the ROW has a THIRD writer that
+  takes no frontier lock — `CrawlStartStore#start`/`#fail` from `StartCrawl`. `FOR UPDATE` is therefore
+  NOT superseded, and the record as written would license removing a load-bearing control.
+- **"Open and unchanged: FU-38"**: FALSE. R3-6 added a customer-reachable second party to the inverted
+  side, which is precisely what makes FU-38 reachable (R4-2). FU-38's own note still carries the
+  now-invalidated "no reachable interleaving" justification.
+
+## What the round confirmed sound
+
+Recorded so the next round need not re-derive it. **R3-10 is correct AND complete** — the ratified table
+was parsed mechanically and all sixteen materialized capabilities deny the Read-Only Executive Buyer, so
+`READ_ONLY_CAPABILITIES = []` is right by transcription; no other route to an irreversible cancellation
+exists; a `standard` actor is provably unaffected. **R3-11 is genuinely repaired** — PROOF 40a/40b
+exercise the policy predicate as a real `f1_web` connection on both limbs, and test the policy rather
+than a foreign-key refusal. **PROOF 117 is sound and falsifiable**, object-scoped on the frontier key;
+**PROOF 118 is honestly scoped** to `retire`'s re-read rather than to the lock. **Zero structure drift**,
+independently reproduced. `crawls_terminal_shape` is fully two-valued across all 16 shapes, refusing
+FU-11's bad shape and preserving `CrawlStartStore#fail`'s. All three `crawl_terminal_outcomes` FKs are
+arity-3. The run-clock freeze does not over-freeze. **R3-P1/P2/P3 are genuinely pre-existing and outside
+the range**, and the candidate neither introduces nor worsens them. **Scope is clean** — nothing in the
+49-file range lies outside S-07-009's remit, and the only frozen-path touch is `runtime_grants.rb` under
+the ADR-027/029 additive exception. R3-2's removal of the `>=` guard opens no metering path :551 does not
+already ratify.
+
+## Notable non-blocking observations
+
+- **Cross-tenant advisory lock** (security OBS-2 / concurrency O6): `cancel_crawl.rb:117` takes an
+  org-agnostic `pg_advisory_xact_lock` on a caller-supplied crawl id BEFORE the tenancy check, so an
+  actor in org A can hold org B's frontier lock for the duration of a denial. Introduced by R3-6.
+  Bounded by uuid_v7 unguessability. The fix composes with R4-2's: tenancy check, then frontier, then row.
+- **PROOF 39 does not derive** (schema O-1): its expected link set is a hardcoded three-element literal,
+  so `20260727120380`'s header claim is false. FU-7's detector remains unbuilt; next recurrence path
+  is dated S-07-010.
+- **A `POP_TIMEOUT_S` timeout reports the wrong cause** (concurrency O3): `FetchContent#fetch` rescues
+  `StandardError`, so the await's message never surfaces; the example fails on `expected "halted", got
+  "retrying"`.
+- PROOF 119 is reason-blind (only PROOF 120 pins `missing_authority`); the transcription guard cannot
+  fail if `materialized` shrinks; `repository_truth_spec`'s new `predicate_records` uses backticks with
+  interpolation in the one file whose header condemns exactly that.
+
+## Repair programme, in dependency order
+
+1. **R4-2 first.** A deadlock in a customer command is the most serious finding and it is in the lock
+   graph everything else races on. Take the tenancy check first, then frontier, then row — the shape
+   `start_crawl.rb` already uses — or make `StartCrawl` conform.
+2. **R4-4**, before any concurrency evidence is trusted again: restore an object-scoped predicate.
+   `blocked_on(frontier_key)` expresses PROOF 100/101 exactly and PROOF 92 never needed the change.
+3. **R4-3** — the denominator rule needs a real proof, and PROOF 78 needs to be able to fail.
+4. **R4-1** — compare against the untruncated instant.
+5. **R4-5**, **R4-6**, **R4-7** — the contract repairs.
+6. **R4-8 and the record defects** — last, so they are written against the final vocabulary.
+
+**Round 5 must be run by five fresh contexts.** No repair in this programme may be authored by a
+reviewer of it.
