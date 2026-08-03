@@ -1418,3 +1418,183 @@ parse failure. None is silently repaired or promoted by this record.
 This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
 start another repair cycle from any of the reviewer contexts. FU-32, FU-33, FU-43 and R3-P1..R3-P3 are
 unchanged.
+
+# ROUND 7 — the round-6 repair candidate `7f043a2..4e2d8cf`
+
+Implementation candidate: `7f043a2..4e2d8cf`, pinned (never `..HEAD`). Governance commit: `72724f1`.
+Review HEAD: `9720d25`. Round run: 2026-08-04, full ADR-026 five-lens form, on the owner's explicit
+final-acceptance instruction.
+
+**EXCLUDED FROM THE ACCEPTANCE DIFF: `9720d25`.** That commit contains five owner-authored markdown
+files under `branding/`, `investor/`, `operations/` and `research/` and nothing else. Verified by the
+architecture lens: it touches zero files under `app/ db/ spec/ specification/ schemas/ lib/ config/
+governance/ DECISIONS.md`, and neither `4e2d8cf` nor `72724f1` touches any owner-material path. It is
+present in the reviewed state as unrelated content and is not product implementation evidence.
+
+**VERDICT: FAIL. Three of five lenses. FIVE confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | PASS_WITH_OBSERVATIONS | none |
+| Concurrency / atomicity / idempotency | FAIL | C-1, C-2 |
+| Security / tenant-isolation | FAIL | SEC-B1 |
+| Schema / migration-safety | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | FAIL | A-1, A-2 |
+
+## Review conditions, and a methodology fault in this round's own setup
+
+Five fresh contexts, none of which authored the round-6 repairs, reviewed the complete resulting state
+in a detached worktree at `9720d25`. Each had its own database, provisioned FROM EMPTY by the migration
+chain under review, so "the schema builds from empty" is established five times independently.
+
+**THE FIVE LENSES SHARED ONE WORKTREE, AND THAT WAS AN ERROR BY THE REVIEW COORDINATOR.** Databases
+were isolated; the working tree was not. Three lenses independently observed foreign live mutations to
+tracked files mid-run (`app/platform/pg_instant.rb` twice, `handlers/complete_crawl.rb`,
+`crawl_start_store.rb`). This is the repository's own one-session-per-worktree rule, broken by the
+setup rather than by the candidate. Its cost was measured and contained rather than assumed:
+
+* the contract lens detected a contaminated run, discarded it (50 examples / 1 failure), waited, and
+  re-ran clean (50 / 0);
+* the architecture lens found its own backup had captured a foreign mutation, discarded that round and
+  redid every mutation in an isolated copy of HEAD;
+* the concurrency lens never edited a tracked file at all, worked in an isolated copy throughout, and
+  re-ran every finding end to end after the coordinator's stop-order, reproducing each identically;
+* the schema lens refused to revert another lens's in-flight mutation on the grounds that doing so
+  could hand that lens a false PASS, and reported it instead.
+
+No mutation was banked. The review worktree ended pristine against `9720d25` and no commit was made in
+it. Every finding below was re-verified in clean conditions by the lens that raised it. The fault
+cost time and required re-runs; it did not produce any finding recorded here.
+
+## Confirmed blockers
+
+**C-1 — `after_wait` is blind to elapsed time before `BEGIN`, which is exactly where the driver spends
+its outbound work.** Concurrency. `Platform::PgInstant.after_wait` returns
+`entered_with + (clock_timestamp() - transaction_timestamp())`, and that delta measures elapsed time
+since BEGIN only. `CrawlDriver#advance` captures `now` once at the top, then performs the robots fetch
+and sitemap discovery OUTSIDE every transaction — up to eleven bounded requests and roughly 165 seconds
+for robots alone by `EnsureRobots`' own accounting — and hands that same instant to `claim_entry`. The
+elapsed time in that window is invisible to the repair. Reproduced: with 1.5s burned AFTER BEGIN the
+admission correctly refuses `wall_clock_exhausted` and claims nothing; with the identical 1.5s burned
+BEFORE BEGIN it admits, reserves 10,485,760 bytes and claims a frontier entry — the same figure ADR-118
+recorded for the original R6-1. `reservation_executing?` takes the same value, so :551's lease limb has
+the identical hole. `crawl_driver.rb:133` already carries `entered_monotonic` for precisely this
+problem on the request budget and does not pass it to Admission. :442's "no new request starts" and
+ADR-120 Ruling 1's "current database time". The lock-wait limb IS genuinely repaired; the fix is right
+in kind and incomplete in reach. Owner: `Wf005::Admission` / `CrawlDriver#advance`.
+
+**C-2 — Ruling 2's controlled-outcome half is implemented for one producer only.** Concurrency.
+ADR-120 Ruling 2 requires that "a stale or late worker must receive a controlled domain outcome and
+must not append facts after terminalization." The database half is sound and proved. The translation
+half exists at exactly one site, `discover_sitemaps.rb:717`. `EnsureRobots#record`/`#decide` write
+`robots_state`, `robots_terminal_reason` and `robots_terminal_at` — all governed by
+`crawl_host_gates_terminal_outcome_closure` — with no translation, and `CrawlHostGateStore` line 39's
+gate INSERT is likewise governed and untranslated. Reproduced with the tranche's own PROOF-159 device:
+a cancellation committing during the robots fetch makes `PG::RaiseException:
+crawl_child_fact_after_terminal` escape `EnsureRobots#call`, leaving the gate `robots_state`
+`in_progress`; `ScheduledActions::Worker#run_handler:142` then classifies it
+`scheduled_action_execution_failed`, the token meaning DEFECT — which is exactly what
+`discover_sitemaps.rb`'s own comment says must not happen. `EnsureRobots` holds no advisory lock across
+its fetch, so nothing serializes it against the terminal handlers. THE CONVERSE WAS RUN SERIALLY AND
+CONFIRMS THE TRANSLATION IS LOAD-BEARING: commenting out the `CrawlWentTerminal` raise fails PROOF 159
+and PROOF 160 with an uncaught `PG::RaiseException` at `discover_sitemaps.rb:183`, so its absence next
+door is a gap and not redundancy. Bounded: no corruption, the fact is correctly refused, the residue is
+one defect-classified transport failure plus a stranded `in_progress` robots claim. Owner:
+`Wf005::EnsureRobots` and the driver's `ensure_gate`.
+
+**SEC-B1 — `CancelCrawl` is not the only WF-005 handler that authorizes a human capability and then
+waits.** Security. ADR-120 Ruling 1 draws its line at "can wait", and states that the ADR-063/S-06-006
+deferral "does not apply once a command can wait before an irreversible effect; that deferral continues
+to cover handlers that authorize and act with no wait between the two." Two handlers meet the
+antecedent and were not repaired: `handlers/queue_crawl.rb` authorizes `crawl.trigger` at :68, takes
+`pg_advisory_xact_lock('crawl-queue:<org>:<project>')` at :75 and commits at :98; and
+`handlers/activate_crawl_policy.rb` authorizes `policy.crawl.manage` at :60, takes
+`pg_advisory_xact_lock('crawl-policy:<org>')` at :71 and commits at :91. Neither calls
+`authority_current?` and neither constructs `PostWaitDecision`. Both reproduced on real PostgreSQL by
+advancing `organizations.authorization_epoch` under an OBSERVED ungranted waiter: QueueCrawl committed
+a Crawl (0 -> 1) and ActivateCrawlPolicy committed a policy (0 -> 1), each on an authority that no
+longer existed at the moment of the effect. QueueCrawl additionally creates the `crawl_dispatch`
+action, so the revoked authority goes on to start a metered run that makes outbound requests.
+:333/:335, SEC-REQ-004/005. The window is narrower than CancelCrawl's — these two keys are only ever
+held by database-only critical sections, never across an outbound fetch — but the ruling's own line is
+"can wait", and R6-5 was confirmed blocking on exactly that reasoning. Owner: the two handlers, through
+the existing `Wf005::PostWaitDecision`.
+
+**A-1 — R6-7 is not closed: the "structural ban" is still an enumeration.** Architecture. The detector
+inverted from four forbidden SPELLINGS to two forbidden NAMES, and a name can be renamed around exactly
+as a spelling can be respelled. NINE decoder and type-dispatch forms were injected into the real tracked
+corpus and the committed frozen check stayed green at 7 examples / 0 failures: `row["x"].to_time`,
+`.to_datetime`, `.in_time_zone`, `respond_to?(:strftime)`, `acts_like?(:time)`,
+`Object.const_get("Time").parse`, `ActiveSupport::TimeZone["UTC"].parse`, `class.name == "Time"`, and
+`send(:strftime, ...)`. Twenty-odd further forms evade the helper directly. The sharpest instance is
+`to_time`, which the check bans as a SYMBOL and permits as a CALL: the file's own justification for
+permitting calls is about `getutc`, where formatting an instant you already hold is genuinely different
+from decoding one, and that reasoning does not transfer to `to_time`, which decodes. Confirmed
+independently at the AST level: `row["x"].to_time` yields no `@const` token and `to_time` as an
+`@ident` in call position, so neither rule fires. R6-7's original wording — "a second local decoder can
+enter the derived tracked corpus while the check remains green" — remains literally true. ADR-117 R5-2
+requires the check to "detect local parsing and type-dispatch decoders"; ADR-120 :3266-3268 and
+`S-07-009_COMPLETION_REPORT.md:148-154` assert a completeness the check does not have. Owner:
+`spec/architecture/wf005_time_single_surface_spec.rb`, a FROZEN PATH, so the repair needs the same
+explicit recorded owner authority ADR-120 supplied for the round-6 change.
+
+**A-2 — the record states false, mechanically countable facts about itself.** Architecture, and it is
+the R6-9 class recurring inside the repair that closes R6-9. Two instances. (1) `COMPLETION_REPORT
+:153` says "Both `.getutc` METHOD CALLS in the corpus are untouched and correct" and the frozen check
+at `:36-37` and `:230-235` says "the two `.getutc` method CALLS", enumerating them as `CrawlLedger#iso`
+and `CrawlDriver`'s due-instant comparison. There are NINE, in five files: `crawl_driver.rb:241`,
+`crawl_ledger.rb:145`, `handlers/start_crawl.rb:407,686,691`,
+`handlers/record_fetch_attempt.rb:206,344`, `handlers/complete_crawl.rb:557,562`. Seven were missed, in
+a file whose own header calls hand enumeration "PROOF 39's mistake in a third costume". (2) PROOF 145's
+margin is stated three ways: `COMPLETION_REPORT:136-140` says 400ms, its own mutation table at `:229`
+still says "one microsecond", and `wf005_terminal_checkpoint_spec.rb:910-911` says "one-microsecond-
+before" eleven lines below the comment at `:867` that says "THE MARGIN IS 400ms, NOT ONE MICROSECOND".
+The new in-flight truth check catches neither: it re-derives proof COUNTS and resolves CITATIONS, and
+nothing else in the record is mechanically bound. Owner: `S-07-009_COMPLETION_REPORT.md`, the frozen
+check, and `wf005_terminal_checkpoint_spec.rb`.
+
+## What the round confirmed genuinely repaired
+
+R6-5 is closed: epoch advanced during the frontier wait produces a refusal, the Crawl stays `running`,
+no `CrawlCanceled` is emitted and the reservation stays `executing` at an unchanged `state_version`;
+the control case commits. R6-6 is closed and discriminating: a committing run whose lease lapses during
+the wait is `completed` / `released` with zero commit intents, while the identical run with a live lease
+and the same wait commits. R6-2 and R6-3's DATABASE enforcement is real: the late insert observably
+blocks on the parent row with the causal edge verified through `pg_blocking_pids`, is rejected after the
+terminal commit, writes zero rows, and the terminal transition survives intact. Dropping only
+`crawl_frontier_entries_terminal_closure` reproduces R6-3 exactly, which establishes that the rule is
+database-owned rather than application-owned. R6-8 is closed: ADR-117 has zero occurrences in
+`fc069c9`, `f7472aa` and `f7472aa^` and one in `5860bb4`, and the replacement paragraph is true of git.
+:450's three states are genuinely distinguished and the two SQL predicates are provably disjoint
+against the live CHECK domain. `unattempted_discovery` enters at exactly one site and is a pure monotone
+move toward `partial`, so it cannot make a run report better than it was. Lock order is one order
+throughout, `crawl-frontier:<crawl>` then `crawls`, with no reverse edge and zero deadlocks in 48
+contended operations. The migration is exactly reversible with the catalog byte-identical after redo,
+purely additive against `db/structure.sql`, and no pre-existing guard is weakened. Cross-tenant writes
+are refused BY RLS with byte-identical messages and no timing channel. All four round-6 escapes are
+genuinely closed. Every claimed round-6 mutation was independently re-run and each killed its named
+proofs; no proof survived its mutation.
+
+## Carried non-blocking observations
+
+Recorded in full so none is lost and none is silently repaired: the `:458` citation for
+`unattempted_discovery` names the wrong sentence (the final `full`-is-only-when sentence carries it, not
+the not-evaluated one); the withdrawn FU-9 rationale block survives in `crawl_start_store.rb:337-351`
+and now reads as documentation for `insert_evaluation`; `Entitlement::Service#commit`'s `>=` equality
+rule is pinned by no proof and `>=` -> `>` survives 50 examples (F-05's, outside this range); PROOF 69
+is used twice; PROOF 67's completion-reason assertion is vacuous on a `failed` run; PROOF 157 does not
+pin `sitemap_limit_reasons` and narrowing the WHEN clause survives the whole 241-example persistence
+suite; `CrawlStartStore#fail` takes `FOR NO KEY UPDATE`, which does not conflict with the closure's
+`FOR KEY SHARE`, so the migration header and ADR-120 overstate the guarantee (latent, not live); two
+exclusion reasons in `UNGOVERNED_WITH_REASON` are factually wrong though both exclusions are correct;
+post-terminal `crawl_frontier_entries.state` UPDATE is ungoverned; the ADR-117 provenance guard is a
+literal-string regex any reword walks through; the proof table's measure counts cross-references,
+overstating by 8; `BUILD_PLAN.yml:966` still reads "FU-9 closed by transfer to S-07-009"; the
+pre-existing BUILD_PLAN YAML parse failure and the bounded cross-tenant advisory-lock timing channel
+remain carried.
+
+## Stop
+
+This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
+start a repair cycle from any reviewer context or from the round-6 repair-author context. FU-32, FU-33,
+FU-43 and R3-P1..R3-P3 are unchanged.

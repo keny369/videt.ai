@@ -3282,3 +3282,57 @@ FU-9 transfer recorded at ADR-096 and in S-07-009's BUILD_PLAN preconditions. Th
 contracts they interpret, do not broaden the tranche beyond the named repairs, do not authorize another
 frozen path beyond the one named above, do not accept S-07-009, and do not resolve FU-32, FU-33, FU-43 or
 R3-P1..R3-P3. Allocated the next unused number after ADR-119.
+
+## ADR-121: The Independent Acceptance Review Of The Round-6 Repair — Three Of Five Lenses Fail
+
+Status: Accepted review record (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: explicit owner instruction to run the final independent acceptance review for S-07-009
+Reversibility: Governance record only. No candidate, production, migration, test or frozen-path repair is authorized or made.
+
+The owner instructed that the owner's unrelated working-tree materials be committed separately, that a
+clean isolated worktree be created, and that a fresh independent ADR-026 five-lens review run against
+the complete resulting state, assuming every round-6 repair incorrect until independently verified.
+
+**OWNER MATERIALS, SEPARATED: `9720d25`.** Five owner-authored markdown files under `branding/`,
+`investor/`, `operations/captures/` and `research/`. Screened before committing: all UTF-8 text, no
+credential, key, token, connection string, dump or binary. Verified by the architecture and security
+lenses to touch zero files under `app/ db/ spec/ specification/ schemas/ lib/ config/ governance/
+DECISIONS.md`, and neither `4e2d8cf` nor `72724f1` touches any owner-material path. It is outside the
+acceptance diff and is not product implementation evidence.
+
+**VERDICT: FAIL. FIVE CONFIRMED-BLOCKING FINDINGS. S-07-009 REMAINS NOT ACCEPTED.** Contract
+PASS_WITH_OBSERVATIONS, schema PASS_WITH_OBSERVATIONS, concurrency FAIL (C-1, C-2), security FAIL
+(SEC-B1), architecture FAIL (A-1, A-2). Complete evidence, provenance, reproductions and repair
+ownership are in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 7. In dependency-neutral summary: C-1,
+`after_wait` measures elapsed time only since `BEGIN` and is blind to the driver's pre-transaction
+outbound window, where a run can pass its deadline and still be admitted 10,485,760 bytes; C-2, Ruling
+2's controlled-outcome half is implemented at one producer and `EnsureRobots` surfaces a raw
+`PG::RaiseException` a worker classifies as a defect; SEC-B1, `QueueCrawl` and `ActivateCrawlPolicy`
+also authorize a human capability and then wait on a blocking advisory lock, and both commit on a
+revoked authority; A-1, the timestamp check's "structural ban" is still an enumeration and nine
+decoder/dispatch forms enter the tracked corpus with it green; A-2, the record states false
+mechanically countable facts about itself, which is the R6-9 class recurring inside the repair that
+closes R6-9.
+
+**A METHODOLOGY FAULT IN THE REVIEW'S OWN SETUP, RECORDED BECAUSE IT IS THE KIND OF THING THAT OTHERWISE
+GETS FORGOTTEN.** The coordinator isolated a database per lens but let all five share one worktree, and
+then authorized them to apply temporary mutations to tracked files. Three lenses independently observed
+foreign live mutations mid-run. This breaks the repository's own one-session-per-worktree rule, at the
+setup rather than in the candidate. It was detected by the lenses themselves, the coordinator halted
+further tracked-file mutation, and every finding was re-verified in clean conditions by the lens that
+raised it. No mutation was banked; the review worktree ended pristine at `9720d25` with no commit in
+it. Any future review must give each lens its own worktree, not merely its own database.
+
+**WHAT THE ROUND CONFIRMS GENUINELY REPAIRED**, so the next tranche does not re-litigate it: R6-5, R6-6
+and R6-8 are closed; R6-2 and R6-3's database enforcement is real and is the enforcer rather than the
+application pre-read; :450's three states are genuinely distinguished on provably disjoint predicates;
+the migration is exactly reversible, purely additive and weakens no existing guard; lock order is one
+order throughout with zero deadlocks in 48 contended operations; all four round-6 detector escapes are
+closed; and every claimed round-6 mutation was independently re-run and killed its named proofs.
+
+Authority And Precedence:
+Records the outcome of the owner-commissioned final acceptance review. It makes no acceptance
+transition, authorizes no repair, resolves no blocker, and alters no outstanding owner decision. FU-32,
+FU-33, FU-43 and R3-P1..R3-P3 remain unchanged. S-07-010 and S-07-011 remain blocked on S-07-009.
+Allocated the next unused number after ADR-120.
