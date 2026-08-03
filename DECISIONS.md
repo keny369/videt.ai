@@ -3161,10 +3161,10 @@ This explicit owner ruling supersedes the round-5 review's instruction to commis
 
 Status: Accepted review record (2026-08-03); S-07-009 is NOT accepted
 Date: 2026-08-03
-Owner: explicit instruction to commission one fresh independent acceptance review of the complete repaired candidate ending at `cf2059e`
+Owner: explicit instruction to commission one fresh independent acceptance review of the complete resulting state through `cf2059e`
 Reversibility: Governance record only. No candidate, production, migration, test or frozen-path repair is authorized or made.
 
-The owner accepted the round-5 repair work as completed, then explicitly commissioned the next independent ADR-026 acceptance review against the complete state ending at `cf2059e`. That instruction superseded ADR-117's earlier “do not commission Round 6” terminus for this review only. Five fresh contexts that authored none of the repair reviewed the exact range `7f043a2..cf2059e`, one context per contract, concurrency, security, schema and architecture lens. Reviewers shared no conclusions, changed no files and were prohibited from repairing findings.
+The owner accepted the round-5 repair work as completed, then explicitly commissioned the next independent ADR-026 acceptance review against the complete resulting state through `cf2059e`: the implementation candidate pinned at `7f043a2..5860bb4` plus the record-only governance commit `cf2059e`. That instruction superseded ADR-117's earlier “do not commission Round 6” terminus for this review only. Five fresh contexts that authored none of the repair reviewed the exact resulting-state range `7f043a2..cf2059e`, one context per contract, concurrency, security, schema and architecture lens. Reviewers shared no conclusions, changed no files and were prohibited from repairing findings.
 
 **ALL FIVE LENSES RETURNED FAIL. NINE CONFIRMED-BLOCKING FINDINGS. S-07-009 REMAINS NOT ACCEPTED.** The complete evidence and provenance are recorded in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 6. In dependency-neutral summary: R6-1, Admission reuses a pre-wait instant and can claim after the Crawl/entitlement deadline; R6-2, hard-expired Admission and the schema can append immutable terminal facts after a terminal commit; R6-3, in-progress sitemap discovery can commit URLs/outcomes after the checkpoint; R6-4, pending sitemap state is converted to unavailable without :450's antecedents; R6-5, CancelCrawl can act on human authority revoked while it waits; R6-6, CompleteCrawl settles entitlement with a pre-wait instant; R6-7, the authorized Ripper detector admits obvious local decoder/type-dispatch spellings; R6-8, ADR-117's “recorded before implementation” claim is false in git history; R6-9, the completion report says 13 distinct outcome proof identifiers when there are 16.
 
@@ -3174,3 +3174,17 @@ No acceptance transition is made. No repair cycle is commissioned. S-07-010 and 
 
 Authority And Precedence:
 Records the exact owner-commissioned review outcome and supersedes only ADR-117's no-review stop boundary. It does not supersede ADR-117's semantic rulings, authorize implementation, resolve any blocker, accept S-07-009, or alter unrelated backlog ownership. Allocated the next unused number after ADR-117.
+
+## ADR-119: S-07-009 Review Boundary Terminology Corrected — Candidate At `5860bb4`, Complete State Through `cf2059e`
+
+Status: Accepted record correction (2026-08-03); review verdict unchanged
+Date: 2026-08-03
+Owner: explicit correction to the instruction that commissioned ADR-118's independent review
+Reversibility: Governance wording only. No reviewed byte, finding, verdict, candidate, production path or acceptance state changes.
+
+The owner's commissioning prompt called `cf2059e` the candidate endpoint. The owner has corrected that terminology: the implementation candidate is pinned at `7f043a2..5860bb4`; `cf2059e` is the governance-record commit above it. The required independent review scope was the **complete resulting state through `cf2059e`**, which is exactly what all five fresh contexts inspected. The review therefore remains valid and complete; only the label applied to the two boundaries was wrong.
+
+ADR-118 and `S-07-009_ACCEPTANCE_REVIEW.md` now state the distinction explicitly. ADR-118's nine blockers, five FAIL verdicts and review commit `9d8da35` are unchanged. S-07-009 remains NOT ACCEPTED and no repair is authorized.
+
+Authority And Precedence:
+Corrects the terminology of the owner's immediately preceding review instruction and ADR-118. It does not alter ADR-117's repair pin, the bytes reviewed through `cf2059e`, or any outstanding owner decision. Allocated the next unused number after ADR-118.

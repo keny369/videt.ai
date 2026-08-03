@@ -1275,10 +1275,11 @@ the range; the only frozen-path touch is the ADR-027/029 additive grant, so no e
 
 **Round 6 must be run by five fresh contexts, and no repair may be authored by a reviewer of it.**
 
-# ROUND 6 — the complete repaired candidate `7f043a2..cf2059e`
+# ROUND 6 — the complete resulting state through `cf2059e`
 
-Candidate: `7f043a2..cf2059e`, pinned (not `..HEAD`). The endpoint includes implementation commit
-`5860bb4` and its governance-record commit `cf2059e`.
+Implementation candidate: `7f043a2..5860bb4`, pinned (not `..HEAD`). Governance-record commit:
+`cf2059e`. Review scope: the complete resulting state through `cf2059e`, so the reviewers inspected both
+the implementation candidate and the record-only commit while keeping their roles distinct.
 
 Round run: 2026-08-03, full ADR-026 five-lens form, on the owner's explicit instruction after the
 round-5 repair stop. Five reviewers ran in five fresh independent contexts with no shared conclusions
