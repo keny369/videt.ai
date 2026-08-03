@@ -7,9 +7,16 @@ accepted. Nothing here may be read as acceptance. Three full ADR-026 five-lens r
 this tranche and **all three returned FAIL**; the eleven round-3 blockers are repaired and a fourth
 round is owed.
 
-This record describes the candidate. It does not narrate how the candidate was reached — git holds
-that — and every claim below is either mechanically checked by
-`spec/architecture/repository_truth_spec.rb` or reproducible by the commands in **Verification**.
+This record describes the candidate. It does not narrate how the candidate was reached — git holds that.
+
+**What is and is not mechanically checked, stated precisely (round 4).** An earlier draft claimed every
+claim below was "mechanically checked by `spec/architecture/repository_truth_spec.rb` or reproducible by
+the commands in Verification". The first half was false: that spec derives the report it validates from
+`BUILD_STATE.acceptance_evidence.block`, which is **S-07-012**, so its citation checks run against a
+different tranche's report entirely. The only part of it that reads THIS file is the derived
+`IS NOT DISTINCT FROM` corpus (R3-7). Everything else here is reproducible by the commands in
+**Verification** and by the diff, and should be read as a claim to be checked rather than one already
+enforced.
 
 ## Identity
 
@@ -69,10 +76,10 @@ handler wins only the tie at exactly the deadline instant.
 | Migration | Effect |
 | --- | --- |
 | `20260727120340_crawls_terminal_completeness` | `crawls_terminal_shape` gains a terminal-completeness conjunct: every terminal state requires `completion_reason`, and `completed` additionally requires `coverage_status` |
-| `20260727120350_create_crawl_terminal_outcomes` | the per-candidate coverage record; T-IMM; forced RLS |
-| `20260727120360_crawls_terminal_transitions` | :736's edge set, with terminal states only on the right |
+| `20260727120350_create_crawl_terminal_outcomes` | the per-candidate coverage record; T-IMM; forced RLS; re-applies the runtime grant set. Shipped the Source link with FK arity 2, which `…380` below repairs — FU-7's defect class, introduced and repaired inside this one candidate |
+| `20260727120360_crawls_terminal_transitions` | :736's edge set, with terminal states only on the right — AND two new irreversible restrictions the earlier draft of this table omitted: `crawl_terminal_immutable` (a blanket freeze on any UPDATE of a terminal row) and `crawl_run_identity_immutable`. The migration's own header calls those the more important half |
 | `20260727120370_crawls_run_clock_immutable` | the run's clock frozen alongside the metering identity (FU-30) |
-| `20260727120380_crawl_terminal_outcomes_source_link` | the composite Source link the review found missing |
+| `20260727120380_crawl_terminal_outcomes_source_link` | raises the Source link to the arity-3 composite POSTGRESQL_SCHEMA.md :128 requires. NOT a pre-existing gap: `…350` above introduced it in this same range |
 
 **A note the record has now been wrong about twice, stated correctly here.** The constraint at fault for
 the original FU-11 hole was `crawls_terminal_shape`, not `crawls_coverage_status_check`. The
@@ -81,7 +88,12 @@ the original FU-11 hole was `crawls_terminal_shape`, not `crawls_coverage_status
 `NULL IS NOT DISTINCT FROM 'full' OR …` — evaluates to FALSE, which a CHECK REFUSES, so it would reject
 every `queued` and `running` Crawl. PROOF 104 pins this against a live PG17 cluster. Seven ratified
 records stated the opposite; `spec/architecture/repository_truth_spec.rb` now derives its corpus from
-`git ls-files` so an eighth cannot be written silently (R3-7).
+`git ls-files`, so an eighth copy in any tracked record is examined rather than missed (R3-7).
+
+Scoped honestly: that check bites on the LITERALS `no-op`, `admitted` and `yields true`. A paraphrase
+that avoids all three is not examined, which round 4 demonstrated with three constructed claims. It
+closes the "someone forgot to add the file to a list" hole, not the "someone phrased it differently"
+hole.
 
 ## Review history — three rounds, three FAILs
 
@@ -111,8 +123,13 @@ live RLS policy predicate was asserted by nothing.
 | R3-2, R3-3 | :458's boundary is the checkpoint's commit; `CrawlCanceled` carries `coverage_status` | `a2a990d` |
 | R3-7 | the durable check derives its corpus from `git ls-files` | `332c52b` |
 
-**Every repair was mutation-proved**: the fix was reverted and a NAMED proof required to fail. Both
-production mutations and two temporary record mutations were restored and verified by diff.
+**Mutation evidence, stated per repair rather than as a blanket claim (round 4).** For R3-1, R3-2, R3-3,
+R3-4(b), R3-6, R3-7, R3-8, R3-10 and R3-11 the fix was reverted and a NAMED proof required to fail. Two
+are weaker and are not covered by that sentence: **R3-9**'s recorded evidence is "forcing the order both
+ways, 24/24 either direction", which is not a named proof failing on reversion; and **R3-5**'s named
+mutation (delete `FOR UPDATE` from `lock_crawl` → PROOF 100/101 fail) was measured at `ad0cec0` and is
+STALE — FU-41 records that after `bc965dd` the same mutation leaves the whole suite green. All
+production mutations and the temporary record mutations were restored and verified by diff.
 
 ## One in-candidate item is NOT closed
 
@@ -130,7 +147,7 @@ change crawl semantics. **FU-34 is therefore also not closed** — two of its th
 
 ## Verification
 
-Run from the candidate `332c52b` on a quiet cluster (PostgreSQL 17 on `127.0.0.1:5433`):
+Run from the candidate tip on a quiet cluster (PostgreSQL 17 on `127.0.0.1:5433`):
 
 ```sh
 bin/rspec                                     # 2085 examples, 0 failures
@@ -151,12 +168,16 @@ the moment of the verdict.
 
 | Spec | Proofs |
 | --- | --- |
-| `spec/acceptance/wf005_terminal_checkpoint_spec.rb` | 25 |
-| `spec/acceptance/wf005_cancel_crawl_spec.rb` | 15 |
+| `spec/acceptance/wf005_terminal_checkpoint_spec.rb` | 29 |
+| `spec/acceptance/wf005_cancel_crawl_spec.rb` | 17 |
 | `spec/persistence/crawl_terminal_outcome_invariants_spec.rb` | 13 |
 | `spec/acceptance/wf005_checkpoint_pass_concurrency_spec.rb` | 10 |
-| `spec/workflows/wf005/terminal_selection_spec.rb` | 9 |
-| `spec/acceptance/wf005_start_cancel_concurrency_spec.rb` | 2 |
+
+Counts are DISTINCT `PROOF n` identifiers, which is not the same measure as RSpec example counts —
+several commit messages cite the latter (`16/16`, `7/7`). Round 4's architecture lens read the two as
+contradicting; they do not, and the contract lens verified the table independently.
+| `spec/workflows/wf005/terminal_selection_spec.rb` | 10 |
+| `spec/acceptance/wf005_start_cancel_concurrency_spec.rb` | 3 |
 | `spec/acceptance/wf005_heartbeat_concurrency_spec.rb` | 1 |
 | `spec/architecture/permission_baseline_transcription_spec.rb` | the :135 transcription, derived from the ratified table (R3-10) |
 
@@ -179,7 +200,9 @@ both lenses proposed the same repair and it is implemented, so the disagreement 
 
 ## What a round-4 reviewer must know
 
-1. The candidate is the **fixed range `7f043a2..332c52b`**. Do not review `..HEAD`.
+1. The candidate is the **fixed range named in §Identity above**. Do not review `..HEAD`, and do
+   not take a range from anywhere else in this file: round 4 found this very line naming a superseded
+   pin while §Identity named the correct one (R4-8).
 2. Review by **PATH over the range**, never by treating a single commit as a slice.
 3. The **round-3 repairs are candidate material** and must be reviewed as such. Rounds 1 and 2 both had
    repairs that were themselves defective, and round 3 found all three of round 2's refuted.

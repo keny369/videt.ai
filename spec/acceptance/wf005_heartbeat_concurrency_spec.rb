@@ -126,12 +126,18 @@ RSpec.describe "WF-005 entitlement heartbeat under two deliveries", type: :accep
         # unhandled `PG::CheckViolation`: its renewed expiry would not advance the winner's.
         loser = RaceHarness.spawn_operation(-> { deliver(ctx, action, at: at - 30) })
         # Observably contending for the reservation ROW THE WINNER HOLDS — not merely running later, and
-        # not merely "something on this cluster is waiting". `blocked_behind` asserts the causal
-        # edge: an ungranted row waiter in THIS database whose blocker is the backend queued on
+        # not merely "something on this cluster is waiting". `blocked_on_row_behind` asserts the causal
+        # edge: an ungranted ROW waiter in THIS database whose blocker is the backend queued on
         # `gate_key`. The unscoped `pg_locks` count this replaced was satisfiable by any transaction in
         # any database, which made PROOF 92 pass 10/10 with `lock_reservation` deleted (round 3, R3-5).
+        #
+        # THIS RACE COLLIDES ON A ROW, so the `transactionid`/`tuple` filter is what makes the predicate
+        # specific and it is required here. R3-6 removed it for a reason that applied only to PROOF
+        # 100/101 — whose collision had moved onto an advisory key — and removing it weakened this proof
+        # for no benefit (round 4, R4-4). Those two now use `blocked_on(frontier_key)`, which names the
+        # object directly; this one keeps the typed form because a row wait has no key to name.
         RaceHarness.wait_until("the loser blocked behind the winner") do
-          RaceHarness.blocked_behind(gate_key) >= 1
+          RaceHarness.blocked_on_row_behind(gate_key) >= 1
         end
 
         controller.exec_params("SELECT pg_advisory_unlock($1)", [gate_key])

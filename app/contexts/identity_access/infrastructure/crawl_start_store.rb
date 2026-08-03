@@ -274,6 +274,19 @@ module IdentityAccess
       #
       # `UNION` rather than `UNION ALL`: an entry cannot be in both populations, but a future one that
       # was would be one affected URL, not two.
+      # Has a HARD limit on some OTHER dimension already stopped this run scheduling work?
+      #
+      # :442 at a hard limit is "stop scheduling affected work", so the candidates such a run leaves
+      # `queued` were abandoned BY THAT BOUND. The wall clock arriving at minute sixty then finds them
+      # unevaluated, but it is not what prevented them (round 4, R4-6).
+      def other_hard_limit?(organization_id, crawl_id, wall_clock_dimension)
+        exec(<<~SQL, [organization_id, crawl_id, wall_clock_dimension]).to_a.first["n"].to_i.positive?
+          SELECT COUNT(*) AS n FROM crawl_limit_decisions
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid
+            AND threshold_kind = 'hard' AND limit_dimension <> $3
+        SQL
+      end
+
       def unevaluated_reach(organization_id, crawl_id, wall_clock_reason)
         exec(<<~SQL, [organization_id, crawl_id, wall_clock_reason]).to_a.first
           WITH prevented AS (

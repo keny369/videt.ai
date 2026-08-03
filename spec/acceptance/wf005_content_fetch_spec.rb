@@ -873,6 +873,67 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
       expect(requests.last[:timeout_s]).to eq(2)
     end
 
+    # R4-5. PROOF 121 and 122 construct `FetchContent` DIRECTLY, so the clock they inject starts at
+    # `FetchContent#call`. A real pass does not: `CrawlDriver#advance` reads `now` once and then runs
+    # `EnsureRobots` and `DiscoverSitemaps` — two network calls — before the content request. R3-4(b)
+    # anchored at `FetchContent#call`, which is AFTER all of that, so the elapsed time the repair exists
+    # to measure was still invisible and a mutation inserting thirty seconds of robots work left every
+    # proof green.
+    #
+    # This drives the WHOLE PASS through the registered handler, which is the path production uses.
+    it "PROOF 130 — time the PASS spent before the request comes out of the request's budget" do
+      ctx = fetchable
+      # Sitemap discovery resolved too, so the pass reaches its CONTENT request. This spec's `fetchable`
+      # resolves robots only, and an unresolved sitemap gate makes the driver re-enter discovery instead
+      # of fetching — which is correct behaviour and not the property under test.
+      resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
+      at = live_at(ctx, deadline_of(ctx) - 5)
+
+      # Linked in its own transaction and read back AFTER it commits — `DbInspector` holds a separate
+      # connection and cannot see rows still inside the unit of work.
+      action_id = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
+                                                          .enter_org_context(org: ctx[:g][:organization_id],
+                                                                             correlation_id: SecureRandom.uuid_v7)
+        Workflows::Wf005::CrawlFetchDueSchedule.link_next(
+          pg:, organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+          crawl_id: ctx[:crawl_id], now: at, correlation_id: SecureRandom.uuid_v7
+        )[:action_id]
+      end
+      action = DbInspector.one("SELECT * FROM scheduled_actions WHERE id = $1::uuid", [action_id])
+      expect(action).not_to be_nil, "the pass was never linked, so this example would prove nothing"
+
+      # Five seconds remain to the run. The pass spends three of them on robots and discovery before it
+      # reaches the content request; the clock is an input so the example states that exactly.
+      readings = [0.0, 3.0]
+      advancing = -> { readings.shift || 3.0 }
+
+      Workflows::Wf005::Handlers::RecordFetchAttempt.new.call(
+        command: Workflows::Wf005::Commands::RecordFetchAttempt.new(
+          command_id: SecureRandom.uuid_v7, schema_version: action["action_schema_version"],
+          organization_id: action["organization_id"], target_type: action["target_type"],
+          frontier_entry_id: action["target_id"], due_at: Time.parse(action["due_at"]).getutc,
+          action_id: action["id"],
+          action_identity_sha256: [action["identity_sha256"].sub(/\A\\x/, "")].pack("H*"),
+          requested_at_utc: at
+        ),
+        request_context: executor_ctx(at),
+        outbound: content_outbound(timeout_outcome), pacer: pacer_for(ctx), monotonic: advancing
+      )
+
+      # THE CONTENT REQUEST SPECIFICALLY. The driver hands this one stub to robots, sitemap discovery
+      # and the content fetch alike, so `requests.last` is whichever ran last — the sitemap probe, at
+      # the unbounded ceiling. Selecting by URL is what makes this assertion about the fetch.
+      content = requests.select { |r| URI.parse(r[:url].to_s).path == "/" }
+      expect(content).not_to be_empty, "no content request was made; saw #{requests.map { |r| r[:url] }.inspect}"
+
+      # Two seconds of the run remain when the request starts, so two seconds is what it may have.
+      # Anchored at `FetchContent#call` this reads 5 — a request permitted to run three seconds past
+      # `deadline_at`, against the customer's site, on a run that is over.
+      expect(content.last[:timeout_s]).to eq(2)
+    end
+
     it "PROOF 122 — a pass whose earlier work consumed the whole run makes no request at all" do
       # The same arithmetic at its limit. `budget.expired?` is what stops the request, and against the
       # delivery instant it CANNOT fire while `now` is before the deadline, however long the pass has

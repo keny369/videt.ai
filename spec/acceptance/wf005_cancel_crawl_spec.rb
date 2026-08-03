@@ -257,6 +257,51 @@ RSpec.describe "WF-005 cancel crawl", type: :acceptance,
       expect(reservation(ctx[:crawl_id])["state"]).to eq("released")
     end
 
+    # R4-1. Every other example in this file runs on whole-second fixtures, and `deadline_at` is read
+    # back through `DbInspector`'s raw `PG.connect` with no type map — so the boundary limb was only
+    # ever exercised at `.000000` and through a decoding path production does not use. Round 4 measured
+    # the consequence in the real runtime: the handler compared `now` against
+    # `Time.parse(deadline.to_s)`, and `Time#to_s` formats to whole seconds.
+    #
+    # Both halves of :458 broke at once, so both halves are asserted here.
+    it "PROOF 128 — the boundary is the deadline's EXACT instant, microseconds included" do
+      # STARTED at a sub-second instant, so the run's own clock carries microseconds. `f1_crawls_guard`
+      # freezes `deadline_at` once `started_at` is set, so it cannot be adjusted afterwards — the
+      # boundary has to be arranged at the origin, which is also how production produces one.
+      ctx = running_crawl(at: start_now + Rational(123_456, 1_000_000))
+      exact = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).utc
+      expect(exact.usec).to eq(123_456), "the fixture did not produce a sub-second deadline"
+
+      # 123ms STRICTLY BEFORE the boundary. :458 sentence 2 — a cancellation committed strictly before
+      # the checkpoint yields `Crawl.Canceled`. Against the truncated instant this was REFUSED, and the
+      # refusal said `crawl_already_terminal` about a Crawl that was `running` with `terminal_at` NULL.
+      before = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}",
+                                     session: session_at(ctx, exact.floor)),
+        request_context: executor_ctx_for_actor(exact.floor)
+      )
+
+      expect(before.success?).to be(true),
+                                 "a cancellation 123ms before the deadline was refused: #{before.inspect}"
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("canceled")
+    end
+
+    it "PROOF 129 — at the deadline's exact microsecond the wall clock still wins" do
+      # The other half. Sentence 3 must still fire, and against the truncated instant it never could:
+      # `now` would have had to equal an instant 123ms in the past.
+      ctx = running_crawl(at: start_now + Rational(123_456, 1_000_000))
+      exact = Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).utc
+
+      at_boundary = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+        command: cancel_command(ctx, key: "cc-#{SecureRandom.hex(6)}", session: session_at(ctx, exact)),
+        request_context: executor_ctx_for_actor(exact)
+      )
+
+      expect(at_boundary.success?).to be(false)
+      expect(at_boundary.failure.reason_code).to eq("crawl_already_terminal")
+      expect(crawl_row(ctx[:crawl_id])["state"]).to eq("running")
+    end
+
     it "PROOF 125 — once the checkpoint HAS committed, a past-deadline cancellation is still refused" do
       # The other side of sentence 1, and what makes PROOF 124 a boundary rather than a hole. The line
       # is the CHECKPOINT'S COMMIT, so the two conditions the old `>=` form ran together are separated

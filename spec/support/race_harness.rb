@@ -116,18 +116,33 @@ module RaceHarness
   # would still satisfy each other's predicate. So this asserts the actual causal edge the specs mean —
   # the waiter is blocked by a backend that is itself queued on the controller's gate — which no
   # unrelated transaction anywhere can satisfy.
-  # Waiters blocked BY A BACKEND THAT IS ITSELF QUEUED ON `key` — whatever object they are queued on.
+  # ROW waiters blocked BY A BACKEND THAT IS ITSELF QUEUED ON `key`.
   #
-  # Deliberately not restricted by lock type. Which object two transactions collide on is a property of
-  # the implementation under test, not of the race: when `CancelCrawl` began taking the frontier
-  # advisory lock before the `crawls` row (R3-6), cancel-versus-checkpoint stopped colliding on the row
-  # and started colliding on the advisory lock. A predicate naming `transactionid`/`tuple` silently
-  # stopped observing the very race it was written for, and would have to be edited again the next time
-  # a lock moved. The causal edge is what the specs actually mean, and it does not move.
+  # THE LOCK-TYPE FILTER IS LOAD-BEARING AND WAS BRIEFLY REMOVED (round 4, R4-4). R3-6 dropped it on
+  # the reasoning that "the causal edge does not move when a lock does". The edge does not, but the
+  # PREDICATE stopped being specific: without the filter this counts ANY ungranted lock of ANY type
+  # behind the gated backend, and the gated backend is suspended mid-transaction holding ACCESS SHARE
+  # and ROW EXCLUSIVE on every table it has touched. Round 4 measured the consequence on this very
+  # database — with three unrelated advisory-lock holders arranged in a chain, the unfiltered form
+  # returned 1 where the filtered form returned 0. The suite's own `ReceiptMinter.truncate_all` and
+  # `CREATE`/`DROP TRIGGER` statements produce exactly such relation waiters.
+  #
+  # So this is R3-5's defect narrowed (from "any database" to "this database, behind our winner")
+  # rather than removed, and narrowing is not the standard R3-5 set.
+  #
+  # THE RIGHT PREDICATE DEPENDS ON WHAT THE RACE ACTUALLY COLLIDES ON, and the two are different
+  # questions rather than one general one:
+  #   * a race that collides on a ROW (`SELECT ... FOR UPDATE`) registers as an ungranted
+  #     `transactionid` or `tuple` lock and cannot be seen by `blocked_on` — this method is for that,
+  #     and PROOF 92 is its only caller;
+  #   * a race that collides on a NAMED OBJECT — an advisory key — is expressed exactly by
+  #     `blocked_on(that_key)`, which no unrelated transaction can satisfy because the key identifies
+  #     the object. That is what PROOF 100/101 use since R3-6 moved their collision onto the frontier
+  #     lock, and it is strictly stronger than any "behind our winner" formulation.
   #
   # The `gated` CTE is the set of backends WAITING on `key` (ungranted). The controller HOLDS `key`
   # granted, so it is correctly excluded — otherwise every waiter in the database would match.
-  def blocked_behind(key)
+  def blocked_on_row_behind(key)
     sql = <<~SQL
       WITH gated AS (
         SELECT pid FROM pg_locks
@@ -139,6 +154,7 @@ module RaceHarness
       SELECT count(*) FROM pg_locks l
       JOIN pg_stat_activity a ON a.pid = l.pid
       WHERE NOT l.granted
+        AND l.locktype IN ('transactionid', 'tuple')
         AND a.datname = current_database()
         AND EXISTS (SELECT 1 FROM gated g WHERE g.pid = ANY(pg_blocking_pids(l.pid)))
     SQL

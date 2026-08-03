@@ -247,14 +247,30 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
     # so the committing one blocks on it and the harness deadlocks against its own gate. The primitives
     # express it directly: gate the WINNER inside its transaction, start the LOSER, observe the loser
     # contending for the row (an ungranted `transactionid` lock, not an advisory key), then release.
-    def race_on_the_crawl_row(winner, loser, key)
+    # THE LOSER IS OBSERVED ON THE OBJECT IT ACTUALLY CONTENDS FOR (round 4, R4-4).
+    #
+    # This waited on `blocked_behind(key)` — "any ungranted lock behind the gated backend" — which is
+    # not specific: the gated winner is suspended mid-transaction holding ACCESS SHARE and ROW
+    # EXCLUSIVE on every table it has touched, so an unrelated `TRUNCATE` or `CREATE TRIGGER` queueing
+    # behind any of them satisfied it. Round 4 measured that on this database.
+    #
+    # Since R3-6 both `CompleteCrawl` and `CancelCrawl` take `crawl-frontier:<crawl>` as their FIRST
+    # lock, so the loser queues on THAT NAMED OBJECT and `blocked_on` expresses it exactly. An advisory
+    # key identifies the object, so no unrelated transaction anywhere can satisfy this — strictly
+    # stronger than any "behind our winner" formulation, and it stops being true the moment the
+    # handlers stop colliding there, which is the property a lock proof should have.
+    #
+    # The method is named for the OBJECT the race collides on, and that name is now `contended_key`
+    # rather than "the crawl row": R3-6 moved the collision off the row, and the previous name and
+    # comment survived the move and became false.
+    def race_on(winner, loser, key, contended_key:)
       controller = RaceHarness.open_connection
       controller.exec_params("SELECT pg_advisory_lock($1)", [key])
       w = RaceHarness.spawn_operation(winner)
       RaceHarness.wait_until("the winner blocked inside its transaction") { RaceHarness.blocked_on(key) >= 1 }
       l = RaceHarness.spawn_operation(loser)
-      RaceHarness.wait_until("the loser blocked behind the winner") do
-        RaceHarness.blocked_behind(key) >= 1
+      RaceHarness.wait_until("the loser queued on the contended object") do
+        RaceHarness.blocked_on(contended_key) >= 1
       end
       controller.exec_params("SELECT pg_advisory_unlock($1)", [key])
       [w.value, l.value]
@@ -270,7 +286,8 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       key = RaceHarness.key_for("f1-test-checkpoint-first")
 
       _won, cancelled = gate_command("wf005.complete_crawl", key) do
-        race_on_the_crawl_row(-> { run_checkpoint(ctx, checkpoint_action) }, -> { run_cancel(ctx) }, key)
+        race_on(-> { run_checkpoint(ctx, checkpoint_action) }, -> { run_cancel(ctx) }, key,
+                contended_key: RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}"))
       end
 
       expect(cancelled).to be_a(Platform::CommandResult),
@@ -287,7 +304,8 @@ RSpec.describe "WF-005 checkpoint versus an in-flight pass", type: :acceptance,
       key = RaceHarness.key_for("f1-test-cancel-first")
 
       _won, checkpointed = gate_command("wf005.cancel_crawl", key) do
-        race_on_the_crawl_row(-> { run_cancel(ctx) }, -> { run_checkpoint(ctx, checkpoint_action) }, key)
+        race_on(-> { run_cancel(ctx) }, -> { run_checkpoint(ctx, checkpoint_action) }, key,
+                contended_key: RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}"))
       end
 
       expect(checkpointed).to be_a(Platform::CommandResult),

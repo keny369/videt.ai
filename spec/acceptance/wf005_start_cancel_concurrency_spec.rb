@@ -157,6 +157,142 @@ RSpec.describe "WF-005 start versus cancel", type: :acceptance,
     SQL
   end
 
+  # THE WINDOW PROOF 88 CANNOT REACH (round 4, R4-2).
+  #
+  # PROOF 88 gates StartCrawl at its FIRST statement, so the start is suspended before `store.start` has
+  # locked anything. The deadlock window opens LATER: between `store.start` (a bare UPDATE, which holds
+  # an exclusive row lock on `crawls` to commit) and `seed_roots` (which takes `crawl-frontier:<crawl>`).
+  # `insert_evaluation` sits exactly there, so a BEFORE INSERT trigger on `evaluations` suspends the
+  # start holding the ROW and not yet holding the FRONTIER — the only interleaving in which the
+  # inversion is observable.
+  #
+  # Before the repair this is a genuine cycle and PostgreSQL aborts one side with SQLSTATE 40P01.
+  # `Handlers::CancelCrawl` has no rescue, so the customer command surfaces `PG::TRDeadlockDetected`
+  # rather than a `Platform::CommandResult`.
+  # Ungranted ROW waiters in THIS database — a `SELECT ... FOR UPDATE` queued behind another
+  # transaction. Joined through `pg_stat_activity` because `transactionid` rows carry `database = NULL`,
+  # so `pg_locks.database` cannot narrow them (the reason `RaceHarness#blocked_on` cannot express a row
+  # wait at all).
+  #
+  # OBSERVED ON A CONNECTION OF THE EXAMPLE'S OWN, NEVER `DbInspector`. The racing operation reads
+  # committed state through `DbInspector` from its own thread, so polling that shared connection here
+  # interleaves two conversations on one socket — `RaceHarness` keeps a private `observer` connection
+  # for exactly this reason and says so. Getting it wrong does not fail loudly: the poll simply never
+  # observes the waiter and the example times out looking like a hang, which is how this was found.
+  ROW_WAIT_SQL = <<~SQL
+    SELECT count(*) AS c FROM pg_locks l
+    JOIN pg_stat_activity a ON a.pid = l.pid
+    WHERE NOT l.granted AND a.datname = current_database()
+      AND l.locktype IN ('transactionid', 'tuple')
+  SQL
+
+  WAITING_SQL = <<~SQL
+    SELECT l.locktype FROM pg_locks l
+    JOIN pg_stat_activity a ON a.pid = l.pid
+    WHERE NOT l.granted AND a.datname = current_database()
+  SQL
+
+  def row_waiters(conn) = conn.exec(ROW_WAIT_SQL).getvalue(0, 0).to_i
+
+  # What every ungranted waiter in this database is queued on, for the failure message.
+  def waiting_locktypes(conn) = conn.exec(WAITING_SQL).values.flatten
+
+  def gate_evaluation_insert(key)
+    conn = DbInspector.connection
+    conn.exec(<<~SQL)
+      CREATE OR REPLACE FUNCTION f1_test_gate_eval() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(#{key});
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER f1_test_gate_eval BEFORE INSERT ON evaluations
+        FOR EACH ROW EXECUTE FUNCTION f1_test_gate_eval();
+    SQL
+    yield
+  ensure
+    conn.exec(<<~SQL)
+      DROP TRIGGER IF EXISTS f1_test_gate_eval ON evaluations;
+      DROP FUNCTION IF EXISTS f1_test_gate_eval();
+    SQL
+  end
+
+  it "PROOF 126 — a cancellation racing the accepted start cannot deadlock it" do
+    ctx = queued_crawl
+    gate = RaceHarness.key_for("f1-test-start-eval-window")
+    frontier_key = RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}")
+
+    controller = RaceHarness.open_connection
+    observer = RaceHarness.open_connection
+    started = nil
+    canceled = nil
+    begin
+      controller.exec_params("SELECT pg_advisory_lock($1)", [gate])
+
+      gate_evaluation_insert(gate) do
+        start_op = nil
+        cancel_op = nil
+        # THE GATE IS RELEASED IN AN INNER ENSURE, so a failed assertion does not leave the two
+        # suspended transactions holding `evaluations` while `gate_evaluation_insert`'s own ensure
+        # tries to DROP the trigger — that DDL needs ACCESS EXCLUSIVE, blocks behind them, and is
+        # cancelled, which then MASKS the real failure behind a `PG::QueryCanceled` from teardown.
+        # Measured: without this, the diagnostic below reached the reader only as "Caused by".
+        begin
+          start_op = RaceHarness.spawn_operation(-> { start(ctx) })
+          # The start is INSIDE its transaction, past `store.start`. Observed, never slept for.
+          RaceHarness.wait_until("the start blocked before seeding the frontier") do
+            RaceHarness.blocked_on(gate) >= 1
+          end
+
+          cancel_op = RaceHarness.spawn_operation(-> { cancel(ctx) })
+          # Wait for the cancellation to queue on SOMETHING, then assert WHICH object. Waiting
+          # directly on the frontier key would make the defect present as a bare timeout —
+          # indistinguishable from a hang, which is the least actionable failure there is.
+          RaceHarness.wait_until("the cancellation to queue on a lock") do
+            RaceHarness.blocked_on(frontier_key) >= 1 || row_waiters(observer).positive?
+          end
+
+          # THE ASSERTION THE REPAIR TURNS ON. With the start holding the frontier lock FIRST, the
+          # cancellation queues on the FRONTIER — it never reaches `lock_crawl`, so it never holds
+          # one object while waiting for another and no cycle can form. Before the repair it sailed
+          # past here, took the frontier lock, and queued on the crawls ROW instead, completing the
+          # cycle: start holds row + waits frontier, cancel holds frontier + waits row.
+          expect(RaceHarness.blocked_on(frontier_key)).to be >= 1,
+                                                          "the cancellation is NOT queued on the frontier lock — it is waiting on " \
+                                                          "#{waiting_locktypes(observer).inspect}. The start therefore reached the " \
+                                                          "`crawls` row before taking the frontier lock, which is R4-2's cycle."
+        ensure
+          controller.exec_params("SELECT pg_advisory_unlock_all()")
+          started = start_op&.value
+          canceled = cancel_op&.value
+        end
+      end
+    ensure
+      controller.exec_params("SELECT pg_advisory_unlock_all()")
+      controller.close
+      observer.close
+    end
+
+    # NEITHER SIDE IS AN EXCEPTION. `spawn_operation` returns a raised error rather than raising it
+    # here, so a deadlock abort arrives as a value — which is exactly how this reads before the repair.
+    expect(started).to be_a(Platform::CommandResult),
+                       "the start raised instead of returning: #{started.inspect}"
+    expect(canceled).to be_a(Platform::CommandResult),
+                        "the cancellation raised instead of returning: #{canceled.inspect}"
+
+    # The start won the frontier lock, so it commits; the cancellation then answers against committed
+    # state. :458's ordering is settled by commit order, and the run is genuinely running.
+    expect(started.success?).to be(true)
+    crawl = crawl_row(ctx[:crawl_id])
+    expect(crawl["state"]).to eq("running")
+
+    # The cancellation held a `state_version` from before the start committed, so MTX-030's expected
+    # version refuses it — a domain refusal, which is the whole point: an ordinary race produces an
+    # ordinary outcome rather than a crash.
+    expect(canceled.success?).to be(false)
+    expect(canceled.failure.reason_code).to eq("stale_state_version")
+  end
+
   it "PROOF 89 — a lost compare-and-set the state does NOT explain still escalates" do
     # The discrimination that stops this repair from being a blanket rescue. `f1_crawls_guard` permits a
     # non-state update on a non-terminal row, so `state_version` can move while `state` stays `queued` —

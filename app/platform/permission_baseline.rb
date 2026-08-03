@@ -200,7 +200,13 @@ module Platform
     #
     # THE TABLE DECIDES THIS, NOT A JUDGEMENT. Every capability `CAPABILITIES`
     # materializes is a WRITE capability whose Read-Only Executive Buyer cell reads
-    # exactly `deny` — all fourteen, verified against :137-:151. The cells that column
+    # exactly `deny` — all SIXTEEN of them, verified against the ratified table. (An
+    # earlier note said "fourteen" and cited `:137-:151`; both were wrong. The count
+    # missed `source.verify` and `policy.source_scope.manage`, and three of the sixteen
+    # sit at :170, :172 and :173, outside the cited span. The CONCLUSION was unaffected —
+    # every one of the sixteen denies — and `permission_baseline_transcription_spec`
+    # derives its subject from `CAPABILITIES.keys`, so the check was already covering all
+    # sixteen while the prose undercounted them.) The cells that column
     # ALLOWS (`organization.read`, `project.read`, `source.read`, `crawl.read`,
     # `evaluation.read`, `notification.inbox.read`, the `issue`/`score`/`history`/
     # `recommendation` reads, `session.terminate` for the actor's own Session, and

@@ -602,6 +602,120 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(evicted.size).to be >= 1
     end
 
+    # R4-3. :452's "robots-disallowed URLs, duplicate occurrences, unsupported media types, and redirect
+    # targets rejected by current scope are recorded as `policy_excluded` and are OUTSIDE the
+    # denominator" was asserted by NOTHING that could fail. Its only claimed proof, PROOF 78, evaluated
+    # `derive(uncovered: 0)` against a fixture that already sets `uncovered: 0` — byte-identical to the
+    # assertion PROOF 76 makes one screen above.
+    #
+    # THE RULE CANNOT BE PROVED WHERE PROOF 78 SAT. `TerminalSelection::Facts` has no field for excluded
+    # candidates; the exclusion lives entirely in one SQL predicate, `AND o.coverage_effect =
+    # 'not_covered'` in `CrawlStartStore#terminal_facts`. So the proof has to run the store.
+    #
+    # Round 4 measured the cost: inverting that predicate to `<> 'covered'` — which counts excluded rows
+    # in the denominator, exactly what :452 forbids — left THE WHOLE SUITE GREEN at 2085/0.
+    it "PROOF 127 — an EXCLUDED candidate leaves the denominator, so a run that covered the rest is `full`" do
+      ctx = fetchable
+      org = ctx[:g][:organization_id]
+      root = entries(ctx[:crawl_id]).first
+
+      # A depth-1 candidate admitted through :454's own path, exactly as PROOF 123 admits one. This
+      # tranche has no HTML link extraction — candidates reach the frontier through `Frontier#offer` —
+      # so offering one is the real admission, not a substitute for it.
+      in_frontier(ctx) do |store|
+        Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
+                                  .offer(organization_id: org, project_id: ctx[:g][:project_id],
+                                         crawl_id: ctx[:crawl_id], source_id: root["source_id"],
+                                         canonical_url: "https://shop.acme.example/brochure.pdf",
+                                         origin: "link", depth: 1, now: start_now,
+                                         discovering_document_url: "https://shop.acme.example/",
+                                         link_position: 1, parent_entry_id: root["id"],
+                                         scope_policy_id: root["scope_policy_id"],
+                                         scope_policy_version: root["scope_policy_version"])
+      end
+
+      # The root creates a Document; the brochure is refused for its media type, which :452 puts
+      # OUTSIDE the denominator rather than merely uncovered.
+      drain(ctx, outbound_by_path("/" => page,
+                                  "/brochure.pdf" => page(type: "application/pdf", body: "%PDF-1.4 binary",
+                                                          path: "/brochure.pdf")))
+
+      # THE PRECONDITION, ASSERTED SO THE EXAMPLE CANNOT PASS VACUOUSLY. A run that never produced an
+      # excluded outcome would satisfy every assertion below for the wrong reason.
+      by_outcome = DbInspector.all(
+        "SELECT * FROM crawl_terminal_outcomes WHERE crawl_id = $1::uuid", [ctx[:crawl_id]]
+      ).to_h { |o| [o["outcome"], o] }
+      expect(by_outcome.keys).to include("document_created", "policy_excluded")
+      expect(by_outcome["policy_excluded"]["reason"]).to eq("unsupported_media_type")
+      expect(by_outcome["policy_excluded"]["coverage_effect"]).to eq("excluded")
+      expect(by_outcome["document_created"]["coverage_effect"]).to eq("covered")
+
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc)
+      result = checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+
+      # THE ASSERTION THE RULE TURNS ON. The excluded candidate is outside the denominator, so the run
+      # covered everything that counts and coverage is `full`. Counting it would read `partial`, and
+      # `f1_crawls_guard` refuses every correction of a terminal row — so the customer would be told
+      # permanently that their crawl was incomplete because it declined to parse a PDF.
+      expect(result.payload[:uncovered_candidates]).to eq(0)
+      crawl = crawl_row(ctx[:crawl_id])
+      expect(crawl["coverage_status"]).to eq("full")
+      expect(crawl["completion_reason"]).to eq("completed")
+    end
+
+    # R4-6. R3-1 removed the `discarded` leg and PROOF 123 pins it. The leg it LEFT is the one that
+    # bites harder: a run a DIFFERENT hard bound halted leaves its remaining candidates `queued`, and
+    # `unevaluated_reach` counted every one of them as wall-clock-affected.
+    #
+    # Here the run hits its per-URL byte ceiling — a real hard decision from the accepted per-fetch
+    # observation point — while a second candidate is still queued. At minute sixty the clock finds that
+    # candidate unevaluated, but the byte bound is what abandoned it.
+    it "PROOF 131 — candidates ANOTHER hard bound abandoned are not the wall clock's" do
+      ctx = fetchable
+      org = ctx[:g][:organization_id]
+      root = entries(ctx[:crawl_id]).first
+
+      in_frontier(ctx) do |store|
+        Workflows::Wf005::Frontier.new(store, ids: Platform::Ids.system, correlation_id: SecureRandom.uuid_v7)
+                                  .offer(organization_id: org, project_id: ctx[:g][:project_id],
+                                         crawl_id: ctx[:crawl_id], source_id: root["source_id"],
+                                         canonical_url: "https://shop.acme.example/second",
+                                         origin: "link", depth: 1, now: start_now,
+                                         discovering_document_url: "https://shop.acme.example/",
+                                         link_position: 1, parent_entry_id: root["id"],
+                                         scope_policy_id: root["scope_policy_id"],
+                                         scope_policy_version: root["scope_policy_version"])
+      end
+
+      # One pass only: the root exceeds the per-URL ceiling and records a HARD byte decision.
+      oversized = "x" * (Workflows::Wf005::ByteAccounting::PER_URL_CEILING + 64)
+      execute_fetch(ctx, link_first(ctx), outbound_by_path("/" => page(body: oversized)))
+
+      hard = decisions(ctx[:crawl_id]).select { |r| r["threshold_kind"] == "hard" }
+      expect(hard.map { |r| r["limit_dimension"] }).to include("response_body_per_url"),
+                                                       "no other hard bound fired, so this proves nothing"
+      still_queued = entries(ctx[:crawl_id]).count { |e| e["state"] == "queued" }
+      expect(still_queued).to be >= 1, "nothing was left queued, so this proves nothing"
+
+      at = age_run_to(ctx, Time.parse(crawl_row(ctx[:crawl_id])["deadline_at"]).getutc)
+      checkpoint(ctx, action: deadline_action(ctx[:crawl_id]), at:)
+
+      # THE ASSERTION THE REPAIR TURNS ON. No wall-clock decision, and the once-per-run CrawlLimitReached
+      # is NOT spent a second time on a dimension that bounded nothing. Both records are immutable.
+      wall = decisions(ctx[:crawl_id]).select { |r| r["limit_dimension"] == "wall_clock_run_duration" }
+      expect(wall).to be_empty,
+                      "the wall clock claimed #{wall.map { |r| r['affected_url_count'] }.inspect} URLs the byte bound abandoned"
+      expect(limit_events(ctx[:crawl_id]).count { |e| e["event_type"] == "CrawlLimitReached" }).to eq(1)
+
+      # NOTHING IS LOST BY DECLINING THE SECOND DECISION. The byte bound's own hard row is committed and
+      # counted, so the run's terminal reason is derived from the facts as it always was. Here that is
+      # `failed` rather than `limit_reached`: the oversized page created no Document, and :458 puts
+      # "zero valid Documents yields `Crawl.Failed`" ABOVE `limit_reached` in the precedence. Asserted as
+      # the value the precedence actually produces, not the one the byte bound alone would suggest.
+      expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("failed")
+      expect(hard).not_to be_empty
+    end
+
     it "PROOF 113 — TRANSPORT LATENCY ALONE cannot change the verdict, and the predicate is the count" do
       # The same run reached through the DRAINED checkpoint (ADR-101's own instant) delivered a minute
       # late. Nothing about the run differs; only when the message arrived. A verdict that moved would
@@ -714,7 +828,17 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       expect(body["coverage_status"]).to eq("full")
       expect(body["completion_reason"]).to eq("completed")
       expect(body["reason_code"]).to be_nil
-      expect(body).not_to have_key("transition_reason_code")
+
+      # R4-7. This asserted `not_to have_key("transition_reason_code")`, which encoded the defect as the
+      # rule. :938 lists `transition_reason_code` among the BASE members of every `state_transition` and
+      # says "it is NULL where the catalogue source is `none`" — null is a VALUE, and :807 gives
+      # `CrawlCompleted` the source `none`. So the member is PRESENT AND NULL, and its two siblings
+      # already carried it: `CrawlCompleted` alone shipped an envelope missing a required base member.
+      #
+      # Present and null asserted as two facts, because :938's consumer rule rejects a missing required
+      # member and defines a null one — the same distinction R3-3 turned on for `coverage_status`.
+      expect(body).to have_key("transition_reason_code")
+      expect(body["transition_reason_code"]).to be_nil
     end
 
     it "PROOF 103 — `CrawlFailed` carries the reason the catalogue's `transition` source requires" do

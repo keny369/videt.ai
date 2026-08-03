@@ -107,19 +107,31 @@ module Workflows
       # without one, and named for the run rather than for the clock because that is what would be true.
       RUN_NOT_RUNNING = "crawl_not_running"
 
+      # `monotonic` is a seam in the shape `FetchContent` and `LeaseKeeper` already establish. The pass's
+      # elapsed time is real time, so a test that cannot advance it can only assert the zero case — and
+      # the zero case is exactly the one R4-5 showed was not the defect.
       def initialize(outbound: Platform::Outbound, ids: Platform::Ids.system, correlation_id: nil,
-                     pacer: nil)
+                     pacer: nil, monotonic: nil)
         @outbound = outbound
         @ids = ids
         @correlation_id = correlation_id || SecureRandom.uuid_v7
         @pacer = pacer
+        @monotonic = monotonic || -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
       end
+
+      def monotonic = @monotonic.call
 
       # `entry` is the `crawl_frontier_entries` row the action targets. Every field this reads from it
       # — `crawl_id`, `project_id`, `source_id`, `canonical_url` — is frozen for the life of the entry
       # by `f1_crawl_frontier_entries_guard`, so carrying it across the caller's transaction boundary
       # cannot go stale. Everything MUTABLE is re-read here.
       def advance(organization_id:, entry:, now:, due_at: nil)
+        # THE INSTANT `now` WAS TRUE FOR THIS PASS (round 4, R4-5). Everything below — the robots fetch,
+        # sitemap discovery, admission — happens between here and the content request, and all of it is
+        # real elapsed time that `now` cannot see. R3-4(b) anchored the request budget at
+        # `FetchContent#call`, which is AFTER all of it, so the very elapsed time that repair exists to
+        # measure was still invisible. Captured here and carried down.
+        entered_monotonic = monotonic
         crawl_id = entry["crawl_id"]
         crawl = load_crawl(organization_id, crawl_id)
         # The entry's composite foreign key REQUIRES its Crawl, so absence is corruption rather than a
@@ -167,7 +179,7 @@ module Workflows
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
-        admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
+        admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic)
       end
 
       private
@@ -180,7 +192,7 @@ module Workflows
       # attempt numbering and the depth seal are all continuous across :444's retries. `claim_entry`
       # cannot re-admit it (`peek_next` sees only `queued`), so the retry is recognised from COMMITTED
       # STATE instead: the entry's latest attempt is terminal, was retryable, and left the bound unspent.
-      def admit_or_resume(organization_id, crawl, entry, gate, now, due_at)
+      def admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic = nil)
         decision = admission.claim_entry(organization_id:, crawl_id: crawl["id"],
                                          entry_id: entry["id"], now:)
         # ":442 — a lost compare-and-update on the run's byte counter is NOT a limit." The entry was
@@ -188,12 +200,13 @@ module Workflows
         return deferred(Admission::CONTENDED, entry:, at: nil) if decision.reason_code == Admission::CONTENDED
         return halted(decision.reason_code, entry:) if decision.limited?
         return fetch_and_settle(organization_id, crawl, decision.entry, gate, now,
-                                decision.reserved_bytes) if decision.admitted?
+                                decision.reserved_bytes, entered_monotonic) if decision.admitted?
 
         resumable = resumable_retry(organization_id, crawl, entry, due_at)
         return superseded(entry) if resumable.nil?
 
-        fetch_and_settle(organization_id, crawl, resumable[:entry], gate, now, resumable[:reserved])
+        fetch_and_settle(organization_id, crawl, resumable[:entry], gate, now, resumable[:reserved],
+                         entered_monotonic)
       end
 
       # The retry state, or nil when this entry is not this run's to continue. Read once, from the row the
@@ -259,9 +272,9 @@ module Workflows
       # A retry that would fall past the run's own deadline is not scheduled at all. :442 ends the run at
       # 60 elapsed minutes, so such a re-entry could only arrive to be refused; treating it as exhaustion
       # instead releases the reservation and the seal now, and strands neither.
-      def fetch_and_settle(organization_id, crawl, entry, gate, now, reserved_bytes)
+      def fetch_and_settle(organization_id, crawl, entry, gate, now, reserved_bytes, entered_monotonic = nil)
         execution = fetch_content.call(organization_id:, crawl_id: crawl["id"], entry:,
-                                       gate_id: gate["id"], now:, reserved_bytes:)
+                                       gate_id: gate["id"], now:, reserved_bytes:, entered_monotonic:)
         result = execution.result
 
         # OWNERSHIP FIRST, ABOVE EVERY DISPOSITION BELOW IT — including the `deferred` one, which was the
@@ -660,8 +673,13 @@ module Workflows
       # No `pacer:`. Nothing in the fetch path waits any more — the scheduler owns waiting (ADR-089) — so
       # `FetchContent` has no pacer to inject. `DiscoverSitemaps` still does: its host-gate deferrals are
       # sub-second waits inside one traversal, not :444 retries.
+      # ONE CLOCK FOR THE WHOLE PASS (round 4, R4-5). `entered_monotonic` is read here and differenced
+      # inside `FetchContent#request_start`, so the two must be the SAME monotonic source — differencing
+      # readings from two different clocks is not a duration, it is noise. Handing the seam down is what
+      # makes the pass's elapsed time meaningful end to end.
       def fetch_content
-        @fetch_content ||= FetchContent.new(outbound: @outbound, ids: @ids, correlation_id: @correlation_id)
+        @fetch_content ||= FetchContent.new(outbound: @outbound, ids: @ids, correlation_id: @correlation_id,
+                                            monotonic: @monotonic)
       end
 
       # `pacer` is how `DiscoverSitemaps` takes its in-traversal waits; it is injectable so a test can

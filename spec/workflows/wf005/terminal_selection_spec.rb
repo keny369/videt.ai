@@ -98,13 +98,30 @@ RSpec.describe Workflows::Wf005::TerminalSelection do
       expect(selection.coverage_status).to eq("partial")
     end
 
-    it "PROOF 78 — an EXCLUDED candidate does not reduce coverage, because it left the denominator" do
+    it "PROOF 78 — this function cannot see an exclusion at all, which is why :452's rule is proved elsewhere" do
       # :452 — "robots-disallowed URLs, duplicate occurrences, unsupported media types, and redirect
       # targets rejected by current scope are recorded as `policy_excluded` and are OUTSIDE the
-      # denominator." `uncovered` counts `not_covered` only, so a run of nothing but exclusions is full.
-      # This is the reading that inflates coverage if it is got wrong in the other direction, which is
-      # why `crawl_terminal_outcomes_coverage_agreement` makes the classification a database fact.
-      expect(derive(uncovered: 0).coverage_status).to eq("full")
+      # denominator."
+      #
+      # THIS EXAMPLE USED TO ASSERT `derive(uncovered: 0).coverage_status == "full"` AND COULD NOT FAIL
+      # (round 4, R4-3). `clean` already sets `uncovered: 0`, so it was byte-identical to `derive`, and
+      # PROOF 76 asserts that same expression verbatim. It carried a title about a rule it did not
+      # touch — the R3-8 defect class, in the tranche that repaired R3-8.
+      #
+      # THE RULE IS NOT EXPRESSIBLE HERE, and that is the honest thing to record. `Facts` has no input
+      # for excluded candidates: the exclusion lives entirely in `CrawlStartStore#terminal_facts`, whose
+      # `uncovered` subquery counts `coverage_effect = 'not_covered'` and therefore never sees an
+      # `excluded` row. A pure function given no excluded input cannot demonstrate that exclusions are
+      # ignored. So this asserts the STRUCTURAL fact that makes that true — and it fails the moment
+      # someone adds an excluded input here without wiring it into the derivation.
+      expect(described_class::Facts.members).not_to include(:excluded)
+      expect(described_class::Facts.members)
+        .to contain_exactly(:documents, :roots_total, :roots_succeeded, :fetch_failures,
+                            :unresolved_discovery, :hard_limits, :uncovered, :unevaluated)
+
+      # The behavioural half — a real run whose only non-document candidate is `policy_excluded` still
+      # reads `full` — is PROOF 127 in `spec/acceptance/wf005_terminal_checkpoint_spec.rb`, which runs
+      # the store and dies under the `<> 'covered'` mutation this one could not see.
     end
   end
 

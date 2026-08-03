@@ -33,7 +33,9 @@ module Workflows
         ACTION = "crawl.fetch"
         POLICY_VERSION = "permission-baseline-v1"
 
-        def call(command:, request_context:, outbound: Platform::Outbound, pacer: nil)
+        # `monotonic` is passed straight to `CrawlDriver`, whose seam it is. Only a proof that must
+        # make the pass's elapsed time an INPUT supplies it (R4-5); production passes nothing.
+        def call(command:, request_context:, outbound: Platform::Outbound, pacer: nil, monotonic: nil)
           ctx = request_context
           return schema_failure(command, ctx) unless supported_schema?(command.schema_version)
           return in_memory_failure(command, ctx, "scheduled_action_target_mismatch") unless command.target_type == TARGET_TYPE
@@ -42,7 +44,7 @@ module Workflows
           return prepared if prepared.is_a?(Platform::CommandResult)
 
           pass = Workflows::Wf005::CrawlDriver.new(
-            outbound:, ids: ctx.ids, correlation_id: ctx.correlation_id, pacer:
+            outbound:, ids: ctx.ids, correlation_id: ctx.correlation_id, pacer:, monotonic:
           ).advance(organization_id: prepared[:org], entry: prepared[:entry], now: prepared[:now],
                     due_at: command.due_at)
 

@@ -158,10 +158,23 @@ module Workflows
           # those artifacts remain governed by their workflow but are NOT A USAGE COMMITMENT." A
           # cancellation that beats the checkpoint releasing rather than committing is the contract, not
           # an exploit of it, and a handler may not invent a broader bar to prevent what :551 permits.
-          deadline = crawl["deadline_at"]
-          if deadline && d[:now] == Time.parse(deadline.to_s).utc
-            return denied(d, "crawl_already_terminal")
-          end
+          # COMPARED AGAINST THE UNTRUNCATED INSTANT (round 4, R4-1). This read
+          # `Time.parse(deadline.to_s).utc`, and `Time#to_s` FORMATS TO WHOLE SECONDS — the raw
+          # connection decodes `timestamptz` to a Ruby `Time` carrying microseconds, so the round trip
+          # silently dropped them. `deadline_at` of `12:01:30.123456Z` became `12:01:30.000000Z`, which
+          # broke :458 in BOTH directions at once:
+          #
+          #   * sentence 3 NEVER FIRED at the real boundary — `now` would have to equal the truncated
+          #     instant, which is 123ms before the deadline the run actually has;
+          #   * sentence 2 was VIOLATED for the whole remainder of that second — a cancellation
+          #     committed STRICTLY BEFORE the checkpoint was refused `crawl_already_terminal`, the
+          #     exact objection this limb was narrowed from `>=` to answer.
+          #
+          # Invisible to the suite because every fixture instant is a whole second and the proofs read
+          # `deadline_at` back through a raw `PG.connect` with no type map, which is a DIFFERENT
+          # DECODING PATH from production. PROOF 128 uses a sub-second deadline for that reason.
+          deadline = utc_instant(crawl["deadline_at"])
+          return denied(d, "crawl_already_terminal") if deadline && d[:now] == deadline
           # MTX-030's request schema carries the expected state version; a cancellation holding a
           # version the run has moved past is refused rather than applied to a Crawl its sender was not
           # looking at.
@@ -291,6 +304,19 @@ module Workflows
         end
 
         def supported_schema?(version) = version.to_s.split(".").first == SUPPORTED_SCHEMA_MAJOR
+
+        # A `timestamptz` column as an exact UTC instant, whatever the connection handed back.
+        #
+        # NEVER `Time.parse(value.to_s)`: on a `Time` — which is what the type-mapped production
+        # connection yields — `to_s` formats to whole seconds and the microseconds are gone before
+        # `parse` ever sees them. On a `String`, which an unmapped connection yields, parsing is exact,
+        # so the two inputs must be handled differently rather than funnelled through one round trip.
+        def utc_instant(value)
+          return nil if value.nil?
+          return value.utc if value.is_a?(Time)
+
+          Time.parse(value.to_s).utc
+        end
       end
     end
   end

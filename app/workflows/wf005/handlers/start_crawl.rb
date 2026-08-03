@@ -272,6 +272,46 @@ module Workflows
           # executing lease (and with it the maximum-execution ceiling) begins here.
           started = d[:entitlement].start_execution(organization_id: org, reservation_id: decision.reservation_id, now:)
           raise LostRace unless started == :executing
+
+          # THE FRONTIER LOCK IS TAKEN BEFORE ANYTHING LOCKS THE `crawls` ROW (round 4, R4-2; FU-38).
+          #
+          # THIS HANDLER WAS THE SUBSYSTEM'S ONLY LOCK-ORDER INVERSION, and R3-6 turned it from latent
+          # into reachable. Every other path takes `crawl-frontier:<crawl>` and THEN the `crawls` row:
+          # `Admission#claim`, `CrawlDriver#retire`, `CrawlFetchDueSchedule.link_next`,
+          # `Handlers::CompleteCrawl` and — since R3-6 — `Handlers::CancelCrawl`. This one took the ROW
+          # first, because `store.start` is a bare UPDATE that holds an exclusive row lock to commit,
+          # and only reached the frontier lock later, inside `seed_roots`.
+          #
+          # ADR-116 O1 recorded the inversion and FU-38 tolerated it on ONE ground: "no reachable
+          # interleaving exists — a `crawl_terminal_deadline` action cannot exist until that StartCrawl
+          # transaction commits". That reasoning covers `CompleteCrawl` and NOTHING ELSE. `CancelCrawl`
+          # is a CUSTOMER COMMAND that depends on no prior commit, and :736 makes a `queued` Crawl
+          # cancellable — so after R3-6 the cycle was ordinary rather than exotic:
+          #
+          #   StartCrawl  holds crawls row (store.start), waits for crawl-frontier (seed_roots)
+          #   CancelCrawl holds crawl-frontier (lock_frontier), waits for crawls row (lock_crawl)
+          #
+          # PostgreSQL resolves that by aborting one side with SQLSTATE 40P01, and `Handlers::CancelCrawl`
+          # has no rescue of any kind, so `PG::TRDeadlockDetected` would leave a customer command as a
+          # raw exception instead of the `Platform::CommandResult` ADR-103 exists to guarantee — and
+          # WHICH side died would be chosen by the deadlock detector, so timing would once again decide
+          # whether an ordinary race is a domain refusal or a crash.
+          #
+          # THE FIX IS HERE RATHER THAN IN `CancelCrawl` because the order the rest of the subsystem
+          # already uses is frontier-then-crawls, and ADR-105 chose it deliberately: reversing
+          # `CancelCrawl` would invert it against `Admission`, `retire` and `CompleteCrawl` instead —
+          # three inversions in place of one. `pg_advisory_xact_lock` is re-entrant within a
+          # transaction, so `seed_roots`' own call below is now a no-op re-acquire and its guarantee is
+          # unchanged.
+          # PLACED IMMEDIATELY BEFORE `store.start`, WHICH IS THE FIRST STATEMENT IN THIS HANDLER THAT
+          # LOCKS THE `crawls` ROW AT ALL. `command_executions` and `entitlement_reservations` carry no
+          # foreign key to `crawls` (checked against `pg_constraint`), so nothing above holds even a
+          # `FOR KEY SHARE` on it — which is also why PROOF 88, gated at the `command_executions`
+          # INSERT, still runs its cancellation to completion underneath a start that holds NEITHER
+          # object. Taking this lock any earlier would block that cancellation on the frontier and
+          # break the window PROOF 88 exists to prove.
+          d[:frontier_store].lock_frontier(crawl["id"])
+
           if store.start(crawl["id"], crawl["state_version"].to_i, now, deadline,
                          decision.decision_id, decision.reservation_id).to_i.zero?
             classify_lost_transition(store, org, crawl)

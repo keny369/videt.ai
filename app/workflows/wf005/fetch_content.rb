@@ -147,7 +147,14 @@ module Workflows
       # `reserved_bytes`, when present, is what remains of Admission's reservation for this entry —
       # supplied fresh by an admission, or carried forward across a retry from the previous attempt's
       # committed row. It is never re-taken per attempt.
-      def call(organization_id:, crawl_id:, entry:, gate_id:, now:, reserved_bytes: nil)
+      # `entered_monotonic` is the instant `now` WAS TRUE, supplied by the caller when the caller is the
+      # one that observed it. `CrawlDriver#advance` reads its `now` once and then performs the robots
+      # fetch and sitemap discovery — both real network calls — BEFORE reaching here, so anchoring at
+      # this method's own entry would make that elapsed time invisible and hand the request a budget
+      # measured from an instant already minutes in the past (round 4, R4-5). A direct caller that has
+      # no earlier instant to offer passes nothing and gets this method's entry, which is correct for it.
+      def call(organization_id:, crawl_id:, entry:, gate_id:, now:, reserved_bytes: nil,
+               entered_monotonic: nil)
         crawl = load_crawl(organization_id, crawl_id)
         return execution(excluded(REASONS[:unauthorized]), nil, nil, nil) if crawl.nil?
 
@@ -159,9 +166,9 @@ module Workflows
           # :442's wall clock, carried to the request itself. See `request_budget`.
           deadline_at: crawl["deadline_at"] && Time.parse(crawl["deadline_at"].to_s).utc,
           # THE INSTANT `now` WAS TRUE, so the request's budget can be computed from the instant the
-          # REQUEST starts rather than from the instant the pass was delivered (R3-4). See
-          # `request_start`.
-          entered_monotonic: monotonic
+          # REQUEST starts rather than from the instant the pass was delivered (R3-4). Taken from the
+          # CALLER when the caller observed `now` earlier than this method did (R4-5).
+          entered_monotonic: entered_monotonic || monotonic
         }
         one_pass(context, entry, reserved_bytes:)
       end

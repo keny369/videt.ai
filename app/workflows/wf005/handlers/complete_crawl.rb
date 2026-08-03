@@ -223,10 +223,20 @@ module Workflows
         # puts it — the `CrawlFailed` envelope". `CrawlCompleted` keeps both null: :807 gives it the
         # source `none`, and :938 says a `none` source requires null.
         def terminal_envelope(selection, crawl, facts)
+          # `transition_reason_code` IS A BASE MEMBER OF EVERY `state_transition`, INCLUDING THIS ONE
+          # (round 4, R4-7). :938 lists it among the base members and says "it is NULL where the
+          # catalogue source is `none`" — null, which is a value, not absent. :807 gives `CrawlCompleted`
+          # the source `none`, so it carries the member as null; the early return below omitted it
+          # entirely and only the two `transition`-sourced siblings had it.
+          #
+          # THE SAME ABSENT-VERSUS-NULL DISTINCTION R3-3 WAS RAISED ON, in the same envelope builder and
+          # one member along. :938's consumer rule REJECTS a missing required member and DEFINES a null
+          # one, so the two are different bytes and different outcomes for a consumer.
           base = { "from_state" => "running", "to_state" => selection.state,
                    "crawl_id" => crawl["id"], "completion_reason" => selection.completion_reason,
                    "coverage_status" => selection.coverage_status,
-                   "accepted_document_count" => facts.documents }
+                   "accepted_document_count" => facts.documents,
+                   "transition_reason_code" => nil }
           return base if selection.state == TerminalSelection::COMPLETED
 
           base.merge("reason_code" => selection.completion_reason,
@@ -319,6 +329,22 @@ module Workflows
           # Read FIRST, because it is the predicate and not merely a field of the record.
           affected = affected_by_wall_clock(d, crawl)
           return false if affected.urls.zero?
+
+          # AND THE CANDIDATES MUST BE THE CLOCK'S (round 4, R4-6). R3-1 removed the `discarded` leg —
+          # candidates another bound affirmatively disposed of — and stopped there. It left the leg that
+          # matters more: a run a DIFFERENT hard bound halted leaves its remaining candidates `queued`,
+          # and `unevaluated_reach` counts every one of them.
+          #
+          # :442 at a hard limit is "stop scheduling affected work", so those candidates were abandoned
+          # by THAT dimension and the clock merely arrived afterwards to find them. Attributing them
+          # here writes an immutable hard `wall_clock_run_duration` decision and spends the run's
+          # once-per-run `CrawlLimitReached` on a dimension that bounded nothing — byte for byte the harm
+          # R3-1 exists to prevent, and uncorrectable because `f1_crawls_guard` refuses every UPDATE of a
+          # terminal row.
+          #
+          # The run still reads `limit_reached`: :452's precedence takes it from the hard decision the
+          # other dimension already recorded, so nothing is lost by declining to add a second one.
+          return false if d[:store].other_hard_limit?(d[:org], crawl["id"], Admission::WALL_CLOCK_DIMENSION)
 
           limits = EffectiveLimits.resolve(d[:store].active_crawl_policies(d[:org], crawl["project_id"]))
           observer = LimitDecisions.new(ids: d[:ctx].ids, correlation_id: d[:ctx].correlation_id)

@@ -110,7 +110,12 @@ module Wf005CrawlChain
   # A started Crawl over one Source, or over SEVERAL when `hosts` is given — which the run driver
   # needs, because a single-root frontier has nowhere for its next-frontier link to go and so cannot
   # distinguish "drained" from "advancing".
-  def running_crawl(host: "shop.acme.example", hosts: [host])
+  # `at:` is the instant the run STARTS, and therefore the origin of its wall clock: `deadline_at`
+  # is derived from it. It defaults to `start_now` (a whole second, as every fixture instant is),
+  # and a caller passes a sub-second instant when the property under test is the EXACT boundary
+  # rather than the second containing it — `f1_crawls_guard` freezes the run clock once
+  # `started_at` is set, so a sub-second deadline cannot be arranged after the fact (R4-1).
+  def running_crawl(host: "shop.acme.example", hosts: [host], at: start_now)
     g = bootstrap
     ids = hosts.map { |h| register_source(g, "https://#{h}").tap { |sid| verify(g, sid) } }
     ids.each { |sid| activate_source(g, sid) }
@@ -126,8 +131,8 @@ module Wf005CrawlChain
       command: Workflows::Wf005::Commands::StartCrawl.new(
         command_id: SecureRandom.uuid_v7, schema_version: a["action_schema_version"], organization_id: a["organization_id"],
         target_type: a["target_type"], crawl_id: a["target_id"], due_at: Time.parse(a["due_at"]).getutc, action_id: a["id"],
-        action_identity_sha256: [a["identity_sha256"].sub(/\A\\x/, "")].pack("H*"), requested_at_utc: start_now),
-      request_context: executor_ctx(start_now))
+        action_identity_sha256: [a["identity_sha256"].sub(/\A\\x/, "")].pack("H*"), requested_at_utc: at),
+      request_context: executor_ctx(at))
     { g:, crawl_id:, source_id: sid, source_ids: ids, host: hosts.first }
   end
 
