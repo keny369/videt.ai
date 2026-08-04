@@ -181,6 +181,10 @@
       "result": "9 examples, 5 failures",
       "verdict": "killed",
       "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:2]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:3]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:4]",
         "spec/acceptance/wf005_post_wait_authority_spec.rb:267"
       ]
     },
@@ -195,6 +199,10 @@
       "result": "9 examples, 5 failures",
       "verdict": "killed",
       "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:2]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:3]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:4]",
         "spec/acceptance/wf005_post_wait_authority_spec.rb:267"
       ]
     },
@@ -208,7 +216,9 @@
       "command": "bundle exec rspec spec/acceptance/wf005_post_wait_authority_spec.rb",
       "result": "9 examples, 1 failure",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:3]"
+      ]
     },
     {
       "id": "m5b-queue-branch-bypass",
@@ -220,7 +230,9 @@
       "command": "bundle exec rspec spec/acceptance/wf005_post_wait_authority_spec.rb",
       "result": "9 examples, 1 failure",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:3]"
+      ]
     },
     {
       "id": "m5c-queue-recheck-before-wait",
@@ -232,7 +244,10 @@
       "command": "bundle exec rspec spec/acceptance/wf005_post_wait_authority_spec.rb",
       "result": "9 examples, 2 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:3]"
+      ]
     },
     {
       "id": "m5d-activate-denial-swallowed",
@@ -244,7 +259,10 @@
       "command": "bundle exec rspec spec/acceptance/wf005_post_wait_authority_spec.rb",
       "result": "9 examples, 2 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:3]"
+      ]
     },
     {
       "id": "m5e-activate-write-before-recheck",
@@ -256,7 +274,12 @@
       "command": "bundle exec rspec spec/acceptance/wf005_post_wait_authority_spec.rb",
       "result": "9 examples, 4 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:2]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:3]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:1:4]"
+      ]
     },
     {
       "id": "m5f-queue-stale-authority",
@@ -269,6 +292,10 @@
       "result": "9 examples, 5 failures",
       "verdict": "killed",
       "failing_examples": [
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:1]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:2]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:3]",
+        "spec/acceptance/wf005_post_wait_authority_spec.rb[1:2:4]",
         "spec/acceptance/wf005_post_wait_authority_spec.rb:267"
       ]
     },
@@ -282,7 +309,11 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 3 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:2]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:3]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:4]"
+      ]
     },
     {
       "id": "m6b-receiver-fails-open",
@@ -294,7 +325,10 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 2 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:40]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:41]"
+      ]
     },
     {
       "id": "m6c-no-block-taint",
@@ -306,7 +340,9 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 1 failure",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:23]"
+      ]
     },
     {
       "id": "m6d-no-binding-taint",
@@ -318,7 +354,12 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 4 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:17]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:18]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:22]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:38]"
+      ]
     },
     {
       "id": "m6e-paren-terminates",
@@ -330,7 +371,12 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 4 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:16]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:25]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:38]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:40]"
+      ]
     },
     {
       "id": "m6f-decoder-class-limb",
@@ -342,7 +388,10 @@
       "command": "bundle exec rspec spec/architecture/wf005_time_single_surface_spec.rb",
       "result": "63 examples, 2 failures",
       "verdict": "killed",
-      "failing_examples": []
+      "failing_examples": [
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:19]",
+        "spec/architecture/wf005_time_single_surface_spec.rb[1:20]"
+      ]
     },
     {
       "id": "m9-wall-clock-lte-to-lt",

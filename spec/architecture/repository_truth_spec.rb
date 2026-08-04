@@ -363,14 +363,25 @@ RSpec.describe "Repository truth", type: :model do
     it "counts the review rounds the same way the review record does" do
       # R8-7: ":204 says 'six rounds, six FAILs' against :5's 'Seven full ADR-026 five-lens rounds'."
       # The number of rounds is not a matter of recollection: the review record has one heading each.
+      # Round 1 predates the `# ROUND n` convention and carries `## ROUND 1`, so both levels count.
+      # What must hold is that the headings are the consecutive run 1..n with no gap and no repeat —
+      # a record that skipped or duplicated a round would make every count below meaningless.
       review = ROOT.join("S-07-009_ACCEPTANCE_REVIEW.md").read
-      rounds = review.scan(/^# ROUND (\d+)/).flatten.map(&:to_i)
+      # The em dash distinguishes a ROUND SECTION heading from a subsection of one
+      # ("## ROUND 2 CONFIRMED-BLOCKING"), which would otherwise be counted as another round.
+      rounds = review.scan(/^#+ ROUND (\d+) —/).flatten.map(&:to_i)
       expect(rounds).to eq((1..rounds.length).to_a), "the review record's round headings are not 1..n"
 
-      in_flight.scan(/(\w+|\d+) (?:full )?(?:ADR-026 )?(?:five-lens )?rounds/i).flatten.each do |claim|
-        numeric = claim.to_i.positive? ? claim.to_i : NUMBER_WORDS[claim.downcase]
-        next if numeric.nil?
+      # THE FORMS THE RECORD USES TO STATE ITS TOTAL, and only those. "three rounds for a number the
+      # repository could count" is a sentence about a defect's history, not a claim about how many
+      # reviews have run, and a rule that could not tell them apart would be noise rather than a gate.
+      claims = [/(\w+) full ADR-026 five-lens rounds/i,
+                /Review history — (\w+) rounds/i,
+                /(\w+) rounds, \w+ FAILs/i].flat_map { |pattern| in_flight.scan(pattern).flatten }
+      expect(claims).not_to be_empty, "the record states no review-round total in any recognised form"
 
+      claims.each do |claim|
+        numeric = claim.to_i.positive? ? claim.to_i : NUMBER_WORDS[claim.downcase]
         expect(numeric).to eq(rounds.length),
                            "the record says #{claim} rounds; the review record contains #{rounds.length}"
       end
@@ -387,13 +398,18 @@ RSpec.describe "Repository truth", type: :model do
 
       changed = git!("diff", "--name-only", range).lines.map(&:strip).reject(&:empty?)
       frozen = AutonomousBuild::FrozenContracts.frozen_changes(changed)
-      claimed = in_flight[/(\w+) frozen-path changes?/i, 1]
-      skip "the record makes no numeric frozen-path claim" if claimed.nil?
+      # EVERY numeric claim, not the first phrase that happens to match: the record also QUOTES round
+      # 8's finding ("the record claiming 'the only frozen-path change'"), and a rule that read the
+      # first match would judge the quotation rather than the claim.
+      claims = in_flight.scan(/(\w+) frozen-path changes?/i).flatten
+             .filter_map { |word| word.to_i.positive? ? word.to_i : NUMBER_WORDS[word.downcase] }
+      skip "the record makes no numeric frozen-path claim" if claims.empty?
 
-      numeric = claimed.to_i.positive? ? claimed.to_i : NUMBER_WORDS[claimed.downcase]
-      expect(numeric).to eq(frozen.length),
-                         "the record claims #{claimed} frozen-path change(s); the candidate diff has " \
-                         "#{frozen.length}: #{frozen.join(', ')}"
+      claims.uniq.each do |claimed|
+        expect(claimed).to eq(frozen.length),
+                           "the record claims #{claimed} frozen-path change(s); the candidate diff has " \
+                           "#{frozen.length}: #{frozen.join(', ')}"
+      end
     end
 
     # ---- mutation evidence, which may not be inferred (R8-7, and FU-44's re-derivation) ------------

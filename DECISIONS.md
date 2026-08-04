@@ -3453,3 +3453,89 @@ Records the outcome of the owner-commissioned independent acceptance review. It 
 transition, authorizes no repair, resolves no blocker, and alters no outstanding owner decision. FU-32,
 FU-33, FU-43, FU-44 and R3-P1..R3-P3 remain unchanged. S-07-010 and S-07-011 remain blocked on
 S-07-009. Allocated the next unused number after ADR-122.
+
+## ADR-124: Owner Authority For The Round-9 Repair — Repair The PROOF System, Not Only The Code
+
+Status: Authorized and implemented (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: explicit owner instruction granting authority to repair the nine blockers recorded by the round-8 independent acceptance review, and to strengthen the proof system until it detects the false implementations that review identified
+Reversibility: Integration branch only. The authorization permits the repairs below, including production changes at R8-2 and R8-9 and minimum-extent frozen-path changes; it makes no acceptance transition.
+
+**THIS ADR DOES NOT CLAIM TO PRECEDE THE IMPLEMENTATION.** ADR-117 made that claim, git refuted it, and
+round 6 recorded it as blocker R6-8. The owner's authority was given before the work; this written record
+was committed with it.
+
+**WHAT ROUND 8 ACTUALLY FOUND, AND WHY THIS ROUND IS DIFFERENT IN KIND.** Eight of the nine blockers were
+PROOF defects rather than behaviour defects. Three lenses independently verified the shipped code correct
+on every path they exercised; what failed was what defends it. A control no proof pins is a control the
+next tranche deletes silently, and this tranche's own history is the argument — R5-2, R6-7 and A-1 were
+each that failure one round earlier. The owner's instruction is therefore explicit that adding tests is
+not the deliverable: every mutation must be PROVED to have landed, every proof must be PROVED to reach the
+production path it claims to defend, and every failure must occur for the intended reason.
+
+**THE GRANT.** Authority to repair R8-1 through R8-9; to make the production changes R8-2 and R8-9
+require; to change tests, mutations, corpora, fixtures, architecture rules, repository-truth records and
+governance; to make the minimum frozen-path changes necessary to implement the already approved contract;
+to correct or remove false, stale, incomplete or contradictory evidence; and to re-derive FU-44 from clean
+evidence. It is NOT authority to redesign the approved contract, broaden product scope, weaken security,
+alter acceptance standards, or convert proof defects into observations.
+
+**THE HARD ISOLATION INVARIANT, EXTENDED TO REDIS.** ADR-122 made one worktree and one database per
+active session mandatory. Round 8 kept that and recorded its own remaining gap rather than glossing it:
+Redis at `127.0.0.1:6379/0` was shared across lenses and produced one spurious F-04 failure. The owner has
+now extended the invariant to Redis, temporary files, ports, queues and every other mutable external
+resource. This repair session ran in a dedicated worktree at `/Users/leepowell/websites/F1-r9-impl`, on
+`f1_test_r9impl` provisioned from empty, against an ISOLATED Redis at `127.0.0.1:6390` started for this
+session alone.
+
+**WHAT WAS BUILT.** Two production repairs, four new proof surfaces, and two instruments.
+
+* **R8-2 — the translation boundary moved from "each producer someone remembered" to THE PASS.** An
+  execution census of the corpus found governed writes reaching PostgreSQL from EIGHT WF-005 source lines,
+  not the three the record named. `CrawlDriver#advance` now runs inside `ClosedFactSet.translate`, so
+  every governed write a stale worker can make — existing, added later, or never enumerated — is covered;
+  `FetchContent` gained its own translation at its entry point, covering both `settle` and the host-gate
+  claim; and `DiscoverSitemaps` stopped re-implementing the translation inline and now calls it.
+* **R8-9 — :442's boundary has one owner.** `Platform::PgInstant.expired?` replaces four separate
+  comparisons in `Admission`, `CrawlDriver`, `DiscoverSitemaps` and `CompleteCrawl`. The `<=` survived the
+  entire suite because no proof could construct exact equality: the instant those four compared came from
+  `after_wait`, whose advance is microseconds nobody can predict. At the owner, the operands are chosen
+  rather than measured, and the boundary is pinned at one microsecond either side.
+* **R8-1, R8-3, R8-4, R8-5 — proofs that drive the real production entry points.** Nothing new calls
+  `Admission`, `CrawlDriver` or a handler's internals directly: every proof enters at the registered
+  `crawl_fetch_due` handler or at the real command handler, which is precisely what PROOF 164, 165 and 168
+  did not do.
+* **R8-6 — rule 3 inverted on both axes.** A call is recognised by Ruby's three call OPERATORS rather than
+  by Ripper's node kinds, and a receiver must be PROVED in memory rather than proved to be a row. Forty-one
+  bypass forms are injected into the real source of a real tracked file and all forty-one are caught;
+  fifteen legitimate forms are injected the same way and none is.
+* **R8-7 — the truth gate measures instead of comparing two records.** Suite size is now taken from
+  `rspec --dry-run`, the candidate range must agree between record and state file AND be reachable, the
+  round count must equal the review record's headings, and frozen-path claims must equal what
+  `FrozenContracts.frozen_changes` returns.
+* **THE TWO INSTRUMENTS.** `GovernedWriteSentinel` observes every governed write at the wire and records
+  which WF-005 line issued it and whether the translation was on the stack; `ExecutionProbe` reports the
+  lines Ruby actually executed. Together they answer the question round 8 turned on — did this proof reach
+  the code it names — mechanically rather than by assertion.
+
+**FU-44 IS SUPERSEDED, NOT CARRIED.** Its stated failure model was false and the reason is exact:
+`app/platform/entitlement/service.rb` contains THREE identical `if now >= effective_deadline(r)`
+comparisons, and an unscoped substitution lands on the FIRST — `start_execution` at :113 — not on
+`commit` at :150, which is the site FU-44 names. With the mutation verified applied at :150 by diff, the
+named example fails deterministically, four times out of four. The follow-up is closed as an erroneous
+record. **A DIFFERENT AND REAL SURVIVOR WAS FOUND IN ITS PLACE**: `start_execution`'s prestart boundary at
+:113 genuinely survived the entire entitlement suite, and it is now closed by a named boundary proof that
+kills it three times out of three. No F-05 implementation was changed to preserve FU-44's existence.
+
+**THE MUTATION LEDGER.** `specification/automation/S-07-009_MUTATION_LEDGER.json` is written by the
+harness, entry by entry, and records for each mutation that it LANDED (confirmed against git, not
+intended), the command, the examples run, the failures observed, the failing example names and the
+verdict. The harness aborts rather than record a verdict for an edit git cannot see, which is the exact
+failure that produced FU-44. `repository_truth_spec.rb` fails if the record names a mutation the ledger
+does not contain, or if any ledger entry lacks confirmation that it landed.
+
+Authority And Precedence:
+Grants repair authority for S-07-009 round 9 and extends the isolation invariant to Redis and every other
+mutable external resource. It makes no acceptance transition, does not accept S-07-009, does not authorize
+S-07-010, and does not resolve FU-32, FU-33, FU-43 or R3-P1..R3-P3. It SUPERSEDES FU-44. Allocated the
+next unused number after ADR-123.
