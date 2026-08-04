@@ -62,6 +62,23 @@ a multixact id, and an invariant that can raise spuriously in production is wors
 gap. Closing D3 requires that multixact proof first, or an owner-authorised narrowing of what the
 post-wait mechanism claims.
 
+**FIRST MEASUREMENT OF THE MULTIXACT HAZARD, 2026-08-05. IT LOOKS SMALLER THAN FEARED, AND ONE PROBE
+IS NOT A PROOF.** A transaction took `SELECT ... FOR UPDATE` on a parent row and held it while a
+second transaction inserted a child row, which is the FK-induced `FOR KEY SHARE` case the hazard was
+about. The locking transaction's `xmax` on that row REMAINED EQUAL TO ITS OWN XID
+(`A_xid=13739220`, `xmax_after_other=13739220`, `MATCH_AFTER=true`).
+
+The mechanism is that `FOR UPDATE` CONFLICTS with `FOR KEY SHARE`, so the second transaction waited
+rather than joining a multixact, and the holder stayed the sole locker. If that generalises, the
+row-bound invariant is safe for rows locked with an explicit `FOR UPDATE`, which is what WF-005 takes.
+
+**WHAT THIS DOES NOT ESTABLISH, and why D3 stays open.** The probe demonstrated BLOCKING; it did not
+construct a multixact and then observe the predicate. It does not cover `FOR NO KEY UPDATE`, which a
+plain non-key `UPDATE` takes and which does NOT conflict with `FOR KEY SHARE`, nor a row that already
+carries a live multixact when the handler arrives. A designed concurrency proof over those cases is
+what D3 needs before the invariant is adopted, and adopting it on one favourable probe is precisely
+the shape of reasoning that produced ten failed rounds.
+
 ### D4 — R10-15, PROOF 157 does not defend the closure trigger's UPDATE limb. VERIFIED OPEN.
 
 Replacing `OR` with `AND` in the trigger's WHEN clause keeps all seven column names present, so the
