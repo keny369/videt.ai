@@ -100,7 +100,7 @@ No S-05 domain behaviour, and no G5/G6 machinery beyond the single-scheduler con
 
 - **973 examples, 0 failures** (full suite, post-review + post-confirmation hardening). Zeitwerk clean;
   Packwerk no offenses; Brakeman 0 warnings; bundler-audit no vulnerabilities; `structure.sql` re-dumps
-  with no drift; both databases build from empty.
+  with no drift; both databases was verified by structure load, not migration replay (ADR-129).
 - New/changed transport specs: `dispatch_retry_spec`, `scheduler_lease_spec`, `dispatcher_spec`,
   `envelope_spec`, `execution_job_spec`, `claiming_spec`, `store_spec`, `worker_spec`,
   `f04_background_execution_acceptance_spec`, `background_execution_single_surface_spec`.

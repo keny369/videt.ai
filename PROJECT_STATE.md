@@ -19,7 +19,7 @@
 
 - Date: 2026-07-23
 - Branch: `implementation/s01-registration-access` (local only; the origin-trust gate still forbids pushing or moving tags)
-- Suite: 678 examples, 0 failures; Zeitwerk and Packwerk clean; Brakeman clean; bundler-audit clean; both databases build from empty with no `db/structure.sql` drift
+- Suite: 678 examples, 0 failures; Zeitwerk and Packwerk clean; Brakeman clean; bundler-audit clean; both databases was verified by structure load, not migration replay (ADR-129) with no `db/structure.sql` drift
 
 **The project has crossed from platform construction into workflow implementation.**
 The architectural primitives below are complete and are no longer under

@@ -3670,3 +3670,116 @@ Authority And Precedence:
 Grants repair authority for S-07-009 round 10 and for the :442 follow-up. It makes no acceptance
 transition, does not accept S-07-009, does not authorize S-07-010, and does not resolve FU-32, FU-33,
 FU-43 or R3-P1..R3-P3. Allocated the next unused number after ADR-125.
+
+---
+
+## ADR-129: Database Bootstrap Provenance — Model C, Baseline Plus Forward Migrations
+
+Date: 2026-08-04
+Status: Accepted
+Scope: Repository-wide prerequisite. Not a tranche.
+
+Context:
+
+The S-07-009 round-3 review recorded R3-P2 — that `bin/f1db db:migrate` against an empty database
+loads `db/structure.sql` and runs zero migrations — and no round acted on it because it was outside
+every candidate range. It is not a tranche defect. It invalidates the meaning of "from empty"
+everywhere the phrase appears, and this ADR dispositions it.
+
+**THE MECHANISM, NAMED EXACTLY.** `db:migrate` calls `DatabaseTasks.migrate_all`, which calls
+`initialize_database` for each config (activerecord-8.1.3.1
+`lib/active_record/tasks/database_tasks.rb:243`). That method (`:651-669`) asks whether the
+`schema_migrations` table exists; on an empty database it does not, so — because a schema dump path
+exists — it calls `load_schema`. `db/structure.sql` carries `INSERT INTO schema_migrations` rows for
+all 70 versions, so the migration run that follows finds nothing pending and executes nothing.
+
+**REPRODUCED WITH A CONTROLLED MARKER, NOT INFERRED FROM SCHEMA CORRECTNESS.** A sentinel migration
+dated after every real one was added to `db/migrate`. `structure.sql` cannot contain it and its
+recorded versions cannot name it, so its fate separates the two operations. From a database created
+with 0 tables, 0 functions, 0 extensions and no `schema_migrations`:
+
+| Observation | Value |
+| --- | --- |
+| exit status of `bin/f1db db:migrate` | 0 |
+| migrations reporting `migrating` | **1 — the sentinel, and only the sentinel** |
+| of the 70 retained migrations, executed | **0** |
+| tables afterwards | 56 |
+| `schema_migrations` rows afterwards | 71 (70 imported by the structure load, 1 from the sentinel) |
+| `f1_find_invitation_acceptance_replay` present | yes — a function **no migration creates**, so its presence is independent proof the structure file was loaded |
+
+**THE RETAINED CHAIN CANNOT REPLAY, AND THIS IS NOT ONE BAD MIGRATION.** With the schema dump moved
+aside so the chain is the only thing that can build the database, it dies at **14 of 71**:
+
+```
+== 20260722120013 CreateInvitationActivation: migrated (0.0021s)
+== 20260722120014 CreateOrganizationLifecycle: migrating
+PG::DuplicateColumn: ERROR:  column "lifecycle_reason" of relation "organizations" already exists
+```
+
+`20260721120004_create_tenant_accounts_sessions.rb:68` CREATES `organizations` with a
+`lifecycle_reason` column, and `20260722120014_create_organization_lifecycle.rb:25` ADDS it. An
+earlier migration was amended to contain a column a later migration introduces. The retained chain is
+therefore not a faithful history of how any database was built; it is a set of files that were edited
+after the fact, which is ordinary and harmless in a pre-release repository and fatal to any claim
+that replaying them proves anything.
+
+**THE CHAIN ALSO CANNOT PRODUCE THE CANONICAL SCHEMA.** Of 63 functions in `db/structure.sql`, one —
+`f1_find_invitation_acceptance_replay` — is created by no migration at all. Even a fully repaired
+chain would end at a different schema than the one the repository ships.
+
+**THE EXISTING GATE IS THE CLOSED LOOP.** `VERIFICATION_MANIFEST.yml:83`,
+`migration_safety_no_drift`, runs `bin/f1db db:schema:dump && git diff --exit-code db/structure.sql`
+against a database that was itself built by loading `db/structure.sql`. It compares a file with a
+dump of itself and cannot fail for any migration reason, while its own comment states that "migration
+safety here is 'the schema builds from empty'".
+
+**AND THE BOOTSTRAP COMMAND MUTATES THE CANONICAL ARTIFACT.** `db:migrate` invokes `db:_dump`, so a
+provisioning run REWRITES `db/structure.sql` in the working tree. The sentinel run above added
+`CREATE TABLE public.f1_bootstrap_probe` and a version row to the repository's canonical schema file
+as a side effect of provisioning a scratch test database.
+
+Decision:
+
+**MODEL C — BASELINE PLUS FORWARD MIGRATIONS.**
+
+Model B (migration chain is canonical bootstrap) is REJECTED on evidence, not preference: it would
+require repairing a chain that was retroactively edited, and back-filling DDL the chain has never
+contained. Replaying a rewritten history proves nothing about any upgrade any installation performed,
+so the work would buy a green gate and no real assurance.
+
+Model A (structure load is canonical, migrations are not bootstrap artifacts) is REJECTED because it
+permanently forfeits upgrade-path proof. This repository has no deployed installation today, which is
+exactly why a baseline can be cut cleanly NOW and never again this cheaply.
+
+Model C is adopted:
+
+1. An immutable, named BASELINE schema is established, cut from the canonical current schema, with
+   the last pre-baseline migration version recorded alongside it.
+2. New databases are created by loading the baseline, then executing EVERY post-baseline migration.
+3. The 70 pre-baseline migrations are retained as HISTORICAL RECORDS. They are not the supported
+   bootstrap chain and the repository must stop claiming they are.
+4. Every post-baseline migration must replay from the baseline, and a gate proves it — including the
+   adversarial case that a run executing ZERO migrations while one is pending is a FAILURE.
+5. The resulting schema is compared mechanically to the canonical schema.
+6. Supported upgrade origins are stated explicitly. Today that set contains exactly one member: the
+   baseline. It grows as releases are cut.
+
+**THE REPOSITORY MAY NOT REMAIN IN AN IMPLICIT HYBRID STATE**, which is what it is in now: a
+structure load that calls itself a migration build.
+
+Consequences:
+
+The phrase "from empty" is retired unqualified. Every authoritative record carrying it, or "clean
+database", "fresh database", "all migrations", "migration replay" or "provisioned from scratch", must
+be classified as STRUCTURE LOAD, MIGRATION-CHAIN BUILD, BASELINE-PLUS-FORWARD BUILD or UNKNOWN, and
+corrected. 25 files carry such language.
+
+This ADR does NOT accept S-07-009, does not resolve R10-10 or the WF-013 stability failure, and does
+not authorise progression. A corrected bootstrap process cannot convert a blocked item into an
+accepted one.
+
+Authority And Precedence:
+
+Repository-wide. It supersedes the standing interpretation of `migration_safety_no_drift` and every
+record that describes a structure load as a migration-chain build. Allocated the next unused number
+after ADR-128; ADR-127 and ADR-128 are recorded on `repair/s07-009-r10`, which is preserved unmerged.

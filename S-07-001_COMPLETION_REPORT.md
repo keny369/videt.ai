@@ -45,7 +45,7 @@ per owner decision **D1 (ADR-068)** as a dedicated table, with the owner-approve
 
 - Whole repository: **1361 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- The migration **builds from empty** (scratch-DB provision by the schema lens) with **zero structure.sql
+- The migration **was verified by STRUCTURE LOAD, not migration replay (ADR-129)** (scratch-DB provision by the schema lens) with **zero structure.sql
   drift**. `verify_runtime` OK — 15 checks, RLS intact.
 - 31 crawl-policy examples (7 resolver unit; 15 acceptance: org/project narrowing, supersession, all
   rejections, strict scope enforcement, scope-invalid audit, idempotency, tenant; 10 persistence invariants

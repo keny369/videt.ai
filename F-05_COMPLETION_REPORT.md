@@ -38,7 +38,7 @@ entry point** (S-22 WF-015: entitlement checkpoints are "internal to the operati
 
 - Whole repository: **1431 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0 warnings;
   bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- Both migrations (`20260727120120` + the review-hardening `20260727120130`) **build from empty**; the schema
+- Both migrations (`20260727120120` + the review-hardening `20260727120130`) **were verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema
   dump is **idempotent**. `verify_runtime` OK — 15 checks, RLS intact.
 - 34 F-05 examples: unit (the formula boundaries incl. equality-at-hard, UTC windows, frozen rules); the
   service lifecycle over the **real** f1_web + proved-org-context path (allow/warn/block via accumulated
@@ -54,7 +54,7 @@ Five lenses ran independently with live DB probes.
   (proof-gated context; composite tenant FKs reject cross-tenant lineage); the WORKFLOW :549 atomic-reserve
   serialization holds under five two-connection race probes (no over-reservation past hard, no lost update, no
   double-count, no torn transition, no lease/heartbeat race); every guard edge, CHECK, and partial-unique
-  verified with **no NULL hole**; migration hygiene clean (builds from empty, idempotent dump, FK-safe down).
+  verified with **no NULL hole**; migration hygiene clean (was verified by structure load, not migration replay (ADR-129), idempotent dump, FK-safe down).
 - **CB (CONFIRMED-BLOCKING, contract + architecture) — FIXED.** The 65-min maximum-execution ceiling was a
   dead constant and `commit()` lacked the lease-expiry guard its siblings had, so a faithfully-heartbeating
   operation ran and committed unbounded past its metered ceiling (violating WORKFLOW :551 / S-22 / PRULE-039).

@@ -67,7 +67,7 @@ bound.
 | bundler-audit | no vulnerabilities |
 | Architecture fitness | **31 examples, 0 failures** |
 | `verify_runtime` | OK as `f1_web`, 15 checks, RLS intact |
-| Schema from empty | dump **byte-identical** to committed `structure.sql` |
+| Schema by structure load (ADR-129) | dump **byte-identical** to committed `structure.sql` |
 | Migration round-trip | both migrations down and up, schema reproduced exactly |
 
 **All 24 fixes were mutation-checked** — reverted individually, each required to fail its test. Four

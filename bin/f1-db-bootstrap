@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# MODEL C BOOTSTRAP — baseline plus forward migrations (DECISIONS.md ADR-129).
+#
+# WHAT THIS DOES, STATED EXACTLY, BECAUSE THE PREVIOUS ROUTE DID NOT. It creates a database with no
+# application schema objects, LOADS THE IMMUTABLE BASELINE, and then EXECUTES EVERY POST-BASELINE
+# MIGRATION. It does not execute the 70 pre-baseline migrations and it does not claim to: those are
+# historical records, they were amended after the fact, and the chain dies at 14 of 71 (ADR-129).
+#
+# WHY THE OLD ROUTE WAS NOT THIS. `bin/f1-provision-db` ran `bin/f1db db:migrate` against an empty
+# database and printed "provisioned from empty". Rails' `initialize_database` sees no
+# `schema_migrations` table, loads `db/structure.sql` — whose recorded versions cover all 70 — and
+# the migration run that follows executes NOTHING. The operation was a structure load throughout.
+# This script performs the same materialisation but says what it is and proves each step.
+#
+# Usage: bin/f1-db-bootstrap [DATABASE] [RAILS_ENV]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+DB="${1:-f1_development}"
+ENV="${2:-development}"
+HOST="${F1_DATABASE_HOST:-localhost}"
+PORT="${F1_DATABASE_PORT:-5433}"
+SUPERUSER="${F1_SUPERUSER:-$(whoami)}"
+PG_BIN="${F1_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}"
+if [ -d "$PG_BIN" ]; then export PATH="$PG_BIN:$PATH"; fi
+
+BASELINE_SQL="db/baseline/BASELINE.sql"
+BASELINE_JSON="db/baseline/BASELINE.json"
+ask() { psql -h "$HOST" -p "$PORT" -U "$1" -d "$2" -t -A -v ON_ERROR_STOP=1 -c "$3"; }
+
+echo "== [1/7] ensure cluster roles =="
+psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q -f db/roles.sql
+
+echo "== [2/7] the baseline is intact =="
+# IMMUTABILITY IS CHECKED, NOT ASSUMED. A baseline edited in place would silently redefine what every
+# "built from the baseline" claim in this repository means.
+RECORDED=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV[0]))["baseline_sha256"]' "$BASELINE_JSON")
+ACTUAL=$(shasum -a 256 "$BASELINE_SQL" | cut -d' ' -f1)
+[ "$RECORDED" = "$ACTUAL" ] || { echo "BASELINE DRIFT: $BASELINE_SQL is $ACTUAL, manifest records $RECORDED"; exit 1; }
+NAME=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV[0]))["baseline_name"]' "$BASELINE_JSON")
+COUNT=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV[0]))["pre_baseline_version_count"]' "$BASELINE_JSON")
+echo "   ${NAME}, ${COUNT} pre-baseline versions, sha256 ${ACTUAL:0:12}"
+
+echo "== [3/7] create a database with no application schema objects =="
+# F1_BOOTSTRAP_NO_DROP exists so the GATE can prove the empty-state guard below actually fires. A
+# guard that is never driven is indistinguishable from one that was deleted, and "start from an
+# already-current database" is one of the adversarial cases this route must refuse.
+if [ "${F1_BOOTSTRAP_NO_DROP:-0}" != "1" ]; then
+  psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q \
+    -c "DROP DATABASE IF EXISTS ${DB} WITH (FORCE);" -c "CREATE DATABASE ${DB} OWNER f1_schema_owner;"
+fi
+TABLES=$(ask "$SUPERUSER" "$DB" "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+SM=$(ask "$SUPERUSER" "$DB" "SELECT to_regclass('public.schema_migrations') IS NOT NULL")
+# THE DECLARED INITIAL STATE IS VERIFIED, NOT ASSERTED IN A COMMENT. Bootstrapping onto a database
+# that already carried the schema is how "it worked" hides the fact that nothing ran.
+[ "$TABLES" = "0" ] && [ "$SM" = "f" ] || { echo "NOT AN EMPTY DATABASE: tables=$TABLES schema_migrations=$SM"; exit 1; }
+echo "   tables=0, schema_migrations absent"
+
+echo "== [4/7] load the baseline (owner) =="
+PGOPTIONS='--client-min-messages=warning' psql -h "$HOST" -p "$PORT" -U f1_schema_owner -d "$DB" \
+  -v ON_ERROR_STOP=1 -q -f "$BASELINE_SQL" > /dev/null
+LOADED=$(ask f1_schema_owner "$DB" "SELECT count(*) FROM schema_migrations")
+EXPECTED=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV[0]))["pre_baseline_version_count"]' "$BASELINE_JSON")
+[ "$LOADED" = "$EXPECTED" ] || { echo "BASELINE LOAD INCOMPLETE: $LOADED of $EXPECTED versions recorded"; exit 1; }
+echo "   $LOADED pre-baseline versions recorded"
+
+echo "== [5/7] execute every POST-BASELINE migration (owner) =="
+# The dump is suppressed so provisioning cannot rewrite the repository's canonical schema artifact,
+# which the old route did: a scratch test database left `CREATE TABLE f1_bootstrap_probe` in
+# db/structure.sql as a side effect of `db:migrate` invoking `db:_dump`.
+MIGRATE_LOG=$(mktemp)
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" F1_SUPPRESS_SCHEMA_DUMP=1 bin/f1db db:migrate 2>&1 | tee "$MIGRATE_LOG"
+RAN=$(grep -c ': migrated' "$MIGRATE_LOG" || true)
+echo "   post-baseline migrations executed: $RAN"
+rm -f "$MIGRATE_LOG"
+
+echo "== [6/7] grants, proof key, encryption key, service identities (owner) =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" F1_SUPPRESS_SCHEMA_DUMP=1 \
+  bin/f1db f1:db:grants f1:db:ensure_context_key f1:db:ensure_encryption_key f1:db:ensure_service_identities
+
+echo "== [7/7] verify as f1_web (runtime), RLS intact =="
+RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:verify_runtime
+
+echo "== '$DB' ($ENV) built by BASELINE LOAD + $RAN POST-BASELINE MIGRATION(S) =="
+echo "== this is NOT a migration-chain build; the 70 pre-baseline migrations did not execute =="

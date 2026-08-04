@@ -192,7 +192,7 @@ Run from the repository root, from a database built FROM EMPTY. The commands are
 | `bin/f1db f1:db:verify_runtime` | `OK as f1_web — 15 checks passed (RLS intact)` |
 | `bundle exec rspec spec/architecture` | `58 examples, 0 failures` |
 | `bundle exec rspec spec/platform/scheduled_actions` | `116 examples, 0 failures` |
-| `bin/f1-provision-db f1_test test` | provisioned from empty; suite green from the rebuilt database |
+| `bin/f1-provision-db f1_test test` | provisioned by structure load (ADR-129); suite green from the rebuilt database |
 
 Two manifest checks could not run: `controller_locking` and `controller_crash_recovery` name spec
 directories that have never existed in this repository, so under `fail_on_missing_required_check: true`

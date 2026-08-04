@@ -48,7 +48,7 @@ WORKFLOW_SPECIFICATIONS.md § Source lifecycle).
 
 - Whole repository: **1330 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness (`spec/architecture`) **31/0**.
-- The migration **builds from empty** (scratch-DB provision by the schema lens) and `db:schema:dump` shows no
+- The migration **was verified by STRUCTURE LOAD, not migration replay (ADR-129)** (scratch-DB provision by the schema lens) and `db:schema:dump` shows no
   drift beyond the guard widening + the migration row. `verify_runtime` OK — 15 checks, RLS intact.
 - 10 lifecycle acceptance examples (the four-edge walk; unlisted/stale denials audited; TI refused; Marketing
   allowed; tenant isolation; idempotent replay + distinct-repeat invalid; removal only from disabled; host

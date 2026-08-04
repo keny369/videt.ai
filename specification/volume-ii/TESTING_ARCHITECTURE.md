@@ -172,7 +172,7 @@ Each authorized collection test proves total ordering, cursor stability, index u
 
 CI runs three PostgreSQL paths:
 
-1. build current schema from empty;
+1. build the current schema from the named immutable baseline plus every post-baseline migration (ADR-129 Model C; `bin/f1-db-bootstrap`). The pre-baseline migrations are historical records and are NOT the supported bootstrap chain;
 2. migrate a fixture at the prior production schema to current; and
 3. restore a sanitized production-shaped logical fixture, migrate and validate.
 

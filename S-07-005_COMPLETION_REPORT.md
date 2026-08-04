@@ -91,7 +91,7 @@ carries `:452`'s coverage penalty.
 
 - Whole repository: **1603 examples, 0 failures** (re-run after the ADR-080 correction). Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- All migrations **build from empty**; the schema dump is **idempotent** with no drift.
+- All migrations **were verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema dump is **idempotent** with no drift.
   `verify_runtime` OK — 15 checks, RLS intact.
 - Acceptance over the production-real chain with only the **frozen F-01 façade** stubbed; the robots
   golden corpus; and host-gate persistence invariants at the database.

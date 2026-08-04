@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# THE CLEAN-DATABASE GATE (ADR-129). Replaces `migration_safety_no_drift`, which could not fail:
+# it dumped a database that had been built by loading `db/structure.sql` and diffed the dump against
+# `db/structure.sql`. This gate drives the real bootstrap and tries to break it.
+#
+# EVERY CHECK IS EXPLICIT AND THE SUMMARY IS PRINTED ONLY AFTER ALL OF THEM PASS. `set -e` plus a
+# counter means a crash, a timeout, a partial import or a missing output ends the run without the
+# success line — none of those can be read as success.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export PATH="${F1_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}:$PATH"
+
+HOST="${F1_DATABASE_HOST:-localhost}"; PORT="${F1_DATABASE_PORT:-5433}"; SU="${F1_SUPERUSER:-$(whoami)}"
+GATE_DB="${F1_GATE_DB:-f1_gate_bootstrap}"; REF_DB="${GATE_DB}_ref"
+PASSED=0
+ok()   { PASSED=$((PASSED+1)); echo "  PASS  $1"; }
+fail() { echo "  FAIL  $1"; exit 1; }
+ask()  { psql -h "$HOST" -p "$PORT" -U "$1" -d "$2" -t -A -v ON_ERROR_STOP=1 -c "$3"; }
+
+# ---- the gate measures the CANDIDATE, not the working tree -----------------------------------
+CANDIDATE="$(git rev-parse HEAD)"
+if ! git diff --quiet HEAD -- db bin lib config; then
+  fail "the working tree differs from HEAD under db/ bin/ lib/ config/; this gate would measure the tree, not the candidate $CANDIDATE"
+fi
+ok "measuring candidate ${CANDIDATE:0:12} with no tracked drift under db/ bin/ lib/ config/"
+
+PROBE="db/migrate/20260804235959_bootstrap_gate_probe.rb"
+cleanup() { rm -f "$PROBE"; }
+trap cleanup EXIT
+
+# ---- 1. the documented bootstrap, from a declared initial state --------------------------------
+OUT="$(F1_GATE=1 ./bin/f1-db-bootstrap "$GATE_DB" test 2>&1)" || { echo "$OUT" | tail -20; fail "bootstrap exited non-zero"; }
+echo "$OUT" | grep -q "tables=0, schema_migrations absent" \
+  || fail "bootstrap did not verify the declared initial state"
+ok "the database began with no application schema objects, verified rather than assumed"
+
+BASE_COUNT="$(ruby -rjson -e 'puts JSON.parse(File.read("db/baseline/BASELINE.json"))["pre_baseline_version_count"]')"
+echo "$OUT" | grep -q "   ${BASE_COUNT} pre-baseline versions recorded" \
+  || fail "the baseline load did not record ${BASE_COUNT} versions"
+ok "the baseline was loaded and recorded all ${BASE_COUNT} pre-baseline versions"
+
+# The number of post-baseline migrations is DERIVED from the two artifacts, never written here.
+EXPECTED_POST="$(ruby -rjson -e '
+  base = JSON.parse(File.read("db/baseline/BASELINE.json"))["pre_baseline_versions"]
+  files = Dir["db/migrate/*.rb"].map { |f| File.basename(f)[0, 14] }
+  puts (files - base).length')"
+RAN="$(echo "$OUT" | sed -n 's/^   post-baseline migrations executed: //p')"
+[ "$RAN" = "$EXPECTED_POST" ] || fail "expected ${EXPECTED_POST} post-baseline migration(s) to execute, ${RAN} did"
+ok "exactly ${EXPECTED_POST} post-baseline migration(s) executed, the number the artifacts imply"
+
+# ---- 2. the recorded version state is exactly right --------------------------------------------
+RECORDED="$(ask f1_schema_owner "$GATE_DB" "SELECT count(*) FROM schema_migrations")"
+TOTAL=$((BASE_COUNT + EXPECTED_POST))
+[ "$RECORDED" = "$TOTAL" ] || fail "schema_migrations holds ${RECORDED} rows; baseline + post-baseline is ${TOTAL}"
+MISSING="$(ruby -rjson -e '
+  base = JSON.parse(File.read("db/baseline/BASELINE.json"))["pre_baseline_versions"]
+  files = Dir["db/migrate/*.rb"].map { |f| File.basename(f)[0, 14] }
+  puts ((base | files) - STDIN.read.split).join(",")' <<< "$(ask f1_schema_owner "$GATE_DB" "SELECT version FROM schema_migrations")")"
+[ -z "$MISSING" ] || fail "versions absent from schema_migrations: ${MISSING}"
+ok "the recorded version set is exactly the baseline plus every migration file"
+
+# ---- 3. the schema matches the canonical schema, DEEPLY ----------------------------------------
+psql -h "$HOST" -p "$PORT" -U "$SU" -d postgres -v ON_ERROR_STOP=1 -q \
+  -c "DROP DATABASE IF EXISTS ${REF_DB} WITH (FORCE);" -c "CREATE DATABASE ${REF_DB} OWNER f1_schema_owner;"
+PGOPTIONS='--client-min-messages=warning' psql -h "$HOST" -p "$PORT" -U f1_schema_owner -d "$REF_DB" \
+  -v ON_ERROR_STOP=1 -q -f db/structure.sql > /dev/null
+RAILS_ENV=test F1_DATABASE_NAME="$REF_DB" F1_SUPPRESS_SCHEMA_DUMP=1 bin/f1db f1:db:grants > /dev/null 2>&1
+FP_GATE="$(RAILS_ENV=test F1_DATABASE_NAME="$GATE_DB" bin/f1db f1:db:fingerprint 2>/dev/null | tail -1)"
+FP_REF="$(RAILS_ENV=test F1_DATABASE_NAME="$REF_DB" bin/f1db f1:db:fingerprint 2>/dev/null | tail -1)"
+[ -n "$FP_GATE" ] && [ -n "$FP_REF" ] || fail "a fingerprint was empty; a missing output is not a pass"
+[ "$FP_GATE" = "$FP_REF" ] || { echo "  gate: $FP_GATE"; echo "  ref : $FP_REF"; fail "the bootstrapped schema differs from db/structure.sql"; }
+# NON-VACUITY OF THE COMPARISON ITSELF: a fingerprint of an empty schema must NOT equal this one, and
+# the dimensions must be populated — otherwise two nulls would compare equal and the gate would pass
+# while comparing nothing.
+for dim in tables constraints policies triggers functions; do
+  N="$(ruby -rjson -e 'puts JSON.parse(STDIN.read)["counts"][ARGV[0]]' "$dim" <<< "$FP_GATE")"
+  [ "$N" -gt 0 ] || fail "the fingerprint counted 0 ${dim}; it is comparing nothing"
+done
+ok "the schema matches db/structure.sql across columns, constraints, indexes, triggers, RLS, policies, functions, extensions and ownership"
+
+# ---- 4. ADVERSARIAL: a pending migration that does not execute is a FAILURE ---------------------
+cat > "$PROBE" <<'RUBY'
+# frozen_string_literal: true
+
+# Written and removed by bin/f1-db-bootstrap-gate. It exists so the gate can prove that a pending
+# migration ACTUALLY EXECUTES — the case the old route could never distinguish, because a structure
+# load leaves nothing pending and "0 migrations ran" looked identical to success.
+class BootstrapGateProbe < ActiveRecord::Migration[8.1]
+  def up = create_table(:f1_gate_probe, id: false) { |t| t.text :note, null: false }
+  def down = drop_table(:f1_gate_probe)
+end
+RUBY
+PROBE_OUT="$(RAILS_ENV=test F1_DATABASE_NAME="$GATE_DB" F1_SUPPRESS_SCHEMA_DUMP=1 bin/f1db db:migrate 2>&1)" \
+  || { echo "$PROBE_OUT" | tail -10; fail "migrating the probe failed"; }
+PROBE_RAN="$(echo "$PROBE_OUT" | grep -c ': migrated' || true)"
+[ "$PROBE_RAN" = "1" ] || fail "a pending migration was present and ${PROBE_RAN} migration(s) executed; zero-or-many is the defect this gate exists for"
+[ "$(ask f1_schema_owner "$GATE_DB" "SELECT to_regclass('public.f1_gate_probe') IS NOT NULL")" = "t" ] \
+  || fail "the probe reported migrated but its table does not exist"
+ok "a pending migration executes, exactly once, and its effect is present"
+
+# ---- 5. ADVERSARIAL: bootstrapping onto an already-current database must be REFUSED -------------
+if F1_BOOTSTRAP_NO_DROP=1 ./bin/f1-db-bootstrap "$GATE_DB" test > /tmp/f1_gate_nodrop.txt 2>&1; then
+  fail "bootstrap SUCCEEDED against an already-populated database; the empty-state guard does not fire"
+fi
+grep -q "NOT AN EMPTY DATABASE" /tmp/f1_gate_nodrop.txt \
+  || fail "bootstrap failed against a populated database for the wrong reason: $(tail -3 /tmp/f1_gate_nodrop.txt)"
+ok "bootstrapping onto an already-current database is refused, for the stated reason"
+
+# ---- 6. ADVERSARIAL: the baseline is immutable --------------------------------------------------
+RECORDED_SHA="$(ruby -rjson -e 'puts JSON.parse(File.read("db/baseline/BASELINE.json"))["baseline_sha256"]')"
+ACTUAL_SHA="$(shasum -a 256 db/baseline/BASELINE.sql | cut -d' ' -f1)"
+[ "$RECORDED_SHA" = "$ACTUAL_SHA" ] || fail "BASELINE.sql has drifted from its manifest"
+cp db/baseline/BASELINE.sql /tmp/f1_baseline_held.sql
+printf '\n-- gate tamper probe\n' >> db/baseline/BASELINE.sql
+if ./bin/f1-db-bootstrap "${GATE_DB}_tamper" test > /tmp/f1_gate_tamper.txt 2>&1; then
+  cp /tmp/f1_baseline_held.sql db/baseline/BASELINE.sql
+  fail "a tampered baseline was accepted; the immutability check does not fire"
+fi
+cp /tmp/f1_baseline_held.sql db/baseline/BASELINE.sql
+grep -q "BASELINE DRIFT" /tmp/f1_gate_tamper.txt || fail "the tampered baseline failed for the wrong reason"
+[ "$(shasum -a 256 db/baseline/BASELINE.sql | cut -d' ' -f1)" = "$RECORDED_SHA" ] || fail "the gate did not restore BASELINE.sql"
+ok "a one-byte change to the baseline is detected and refused, and the baseline is restored"
+
+echo
+echo "BOOTSTRAP GATE: ${PASSED} checks passed against candidate ${CANDIDATE:0:12}"
+echo "operation proved: BASELINE LOAD + ${EXPECTED_POST} POST-BASELINE MIGRATION(S). Not a migration-chain build."

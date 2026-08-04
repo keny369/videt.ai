@@ -61,7 +61,7 @@ Change Contract :420-421; contracts/S-06.json MTX-029; APPLICATION_LAYER.md § W
 
 - Whole repository: **1309 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0 warnings;
   bundler-audit no vulnerabilities. Architecture fitness (`spec/architecture`) **31/0**.
-- Both migrations **build from empty** (provision probe by the schema lens) and `db:schema:dump` shows no
+- Both migrations **were verified by STRUCTURE LOAD, not migration replay (ADR-129)** (provision probe by the schema lens) and `db:schema:dump` shows no
   drift beyond them. `verify_runtime` OK — 15 checks, RLS intact.
 - 44 WF-004 scope-change examples (propose fast-path + pending + boundary + idempotency + Decide dual control
   + reject + stale guards + terminal immutability + cancel authority + tenant + persistence invariants).
@@ -76,7 +76,7 @@ Five separately-invoked adversarial lenses, all **PASS**, zero confirmed-blockin
 - **Concurrency/atomicity/idempotency** — a two-connection race probe confirmed no double activation (the
   loser's guarded UPDATE returns 0 rows → rollback); single-transaction, lock-ordering and success-only replay
   verified.
-- **Schema/migration-safety** — builds from empty, 122 grants, verify_runtime green; guard edges live-tested.
+- **Schema/migration-safety** — was verified by structure load, not migration replay (ADR-129), 122 grants, verify_runtime green; guard edges live-tested.
 - **Architecture/scope** — no S-06-005/006 behaviour pulled forward, no frozen surface touched, baseline
   VERSION unchanged, pattern-faithful.
 

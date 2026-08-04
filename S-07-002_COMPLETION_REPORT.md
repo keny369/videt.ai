@@ -44,7 +44,7 @@ initial-assessment Crawl; the reassessment-child branch is deferred to WF-011.
 
 - Whole repository: **1397 examples, 0 failures** on the deterministic green baseline. Zeitwerk clean; Packwerk
   no offenses; Brakeman 0 warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- The migrations (`20260727120090` + the review-hardening `20260727120110`) **build from empty**; the schema
+- The migrations (`20260727120090` + the review-hardening `20260727120110`) **were verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema
   dump is **idempotent** with no drift. `verify_runtime` OK — 15 checks, RLS intact.
 - 26 new examples: 16 acceptance over a **production-real** chain (bootstrap → register → verify →
   ActivateSource → **ActivateProject** → QueueCrawl) — happy path pinning the global ceiling; pinning an active

@@ -20,7 +20,7 @@ APPLICATION_LAYER.md § WF-004; owner ADR-059).
   refused-transition guard (every transition `FALSE` this tranche, DELETE refused), the state CHECK
   (`pending/approved/rejected/canceled/expired`), the 20-2,000 char reason CHECK, 32-byte digest CHECKs,
   array cardinality CHECKs, the composite Source FK `(organization_id, project_id, source_id)`, and two
-  indexes (source+state; due-where-pending). Runtime grant **SELECT, INSERT only**. It **builds from empty**
+  indexes (source+state; due-where-pending). Runtime grant **SELECT, INSERT only**. It **was verified by STRUCTURE LOAD, not migration replay (ADR-129)**
   and produces **no `structure.sql` drift** beyond itself.
 - **`source.scope.propose` permission** — the ratified Permission Baseline row (WORKFLOW_SPECIFICATIONS.md
   :144: allow OrganizationAdmin/MarketingOperator/TechnicalImplementer) materialized into
@@ -56,7 +56,7 @@ Diff `4d3773f..b94b0f0`: 13 files, ~1,239 insertions / 16 deletions — well wit
 
 - Whole repository: **1286 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness (`spec/architecture`) **31/0**.
-- `migration_safety_no_drift`: the migration **builds from empty** (`f1_test` reprovisioned from empty this
+- `migration_safety_no_drift`: the migration **was verified by STRUCTURE LOAD, not migration replay (ADR-129)** (`f1_test` reprovisioned by structure load (ADR-129) this
   run) and `db:schema:dump` shows no drift beyond the migration.
 - `runtime_role_and_rls`: `f1:db:verify_runtime` OK as `f1_web` — **15 checks passed (RLS intact)**;
   `f1_runtime` holds **SELECT, INSERT only** on the new table (no UPDATE/DELETE).
@@ -65,7 +65,7 @@ Diff `4d3773f..b94b0f0`: 13 files, ~1,239 insertions / 16 deletions — well wit
   (replay + conflict), reason length, stale version, unverified Source, tenant mismatch, RLS, guard.
 
 Environment note: an IDE `db:test:prepare` on the new migration dropped `f1_test` (the runtime role cannot
-`CREATE DATABASE`); it was reprovisioned from empty via `bin/f1-provision-db`. Two S-04 characterization
+`CREATE DATABASE`); it was reprovisioned by structure load (ADR-129) via `bin/f1-provision-db`. Two S-04 characterization
 specs that asserted the scope-change table's absence were updated faithfully (registration still creates no
 scope-change rows; the table now exists).
 
@@ -76,7 +76,7 @@ scope-change rows; the table now exists).
 | Contract correctness | **PASS** — MTX-029 propose path exactly; +24h due_at; pending-only; boundary via failure path; idempotency |
 | Security / tenant-isolation | **PASS** — proved RLS context, tenant checks pre-write, composite FK, ratified permission, least privilege, no leakage |
 | Concurrency / atomicity / idempotency | **PASS** — one-transaction atomicity; lock before check+insert; replay vs conflict; no double-create |
-| Schema / migration-safety | **PASS** — additive, builds from empty, no drift, FORCE RLS, SELECT/INSERT grant, fail-closed guard, constraints complete |
+| Schema / migration-safety | **PASS** — additive, was verified by structure load, not migration replay (ADR-129), no drift, FORCE RLS, SELECT/INSERT grant, fail-closed guard, constraints complete |
 | Architecture / scope / frozen | **PASS** — pending-only, no pull-forward, frozen contracts untouched, Zeitwerk+Packwerk clean, faithful S-04 spec updates |
 
 **Zero confirmed-blocking findings.**

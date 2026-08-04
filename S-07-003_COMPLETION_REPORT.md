@@ -85,7 +85,7 @@ rejection** and changes no state. An accepted start, in **one transaction**:
 
 - Whole repository: **1471 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses (408 files);
   Brakeman 0 warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- All four S-07-003 migrations **build from empty**; the schema dump is **idempotent** with no drift.
+- All four S-07-003 migrations **were verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema dump is **idempotent** with no drift.
   `verify_runtime` OK — 15 checks, RLS intact.
 - **24 acceptance examples** over a **production-real** chain (bootstrap → register → verify →
   ActivateSource → ActivateProject → QueueCrawl → StartCrawl), with the command built from the

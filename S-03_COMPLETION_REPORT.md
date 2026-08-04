@@ -45,7 +45,7 @@ PRULE-004). Project pause / resume / archive remain withheld (OD-014).
 - Whole repository: **1371 examples, 0 failures** on a **deterministic** green baseline (see the WF-013
   repo-health note below), including the B1 adversarial order test. Zeitwerk clean; Packwerk no offenses;
   Brakeman 0 warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- The migration **builds from empty**; the schema dump is **idempotent** with the only structure.sql delta being
+- The migration **was verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema dump is **idempotent** with the only structure.sql delta being
   the guard relaxation. `verify_runtime` OK — 15 checks, RLS intact.
 - 9 acceptance examples over a production-real chain (bootstrap → register → verify → ActivateSource →
   ActivateProject): activation + `ProjectActivated`; `active_source_required` (no active Source, and a

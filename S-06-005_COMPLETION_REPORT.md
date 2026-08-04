@@ -50,7 +50,7 @@ Scope Change Contract :419; contracts/S-06.json MTX-029 domain_events/transactio
 
 - Whole repository: **1320 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness (`spec/architecture`) **31/0**.
-- The migration **builds from empty** (scratch-DB provision by the schema lens) and `db:schema:dump` shows no
+- The migration **was verified by STRUCTURE LOAD, not migration replay (ADR-129)** (scratch-DB provision by the schema lens) and `db:schema:dump` shows no
   drift beyond the guard widening + the migration row. `verify_runtime` OK — 15 checks, RLS intact.
 - 12 expiry acceptance examples (before/at/after `due_at`; emits once; no policy/Source change; idempotent
   replay; harmless late arrival; `due_at` mismatch; expiry precedence over approval/rejection/cancellation;

@@ -77,9 +77,28 @@ check_sets:
       - app/contexts/**/infrastructure/**
       - lib/f1/runtime_grants.rb
     checks:
-      # No strong_migrations gem exists; migration safety here is "the schema builds from empty
-      # and structure.sql shows no drift" — verified by the DB provision route + a dump/diff.
-      - id: migration_safety_no_drift
+      # REPLACED BY ADR-129. `migration_safety_no_drift` ran
+      # `bin/f1db db:schema:dump && git diff --exit-code db/structure.sql` against a database that
+      # had itself been built by LOADING db/structure.sql. It compared a file with a dump of itself
+      # and could not fail for any migration reason, while its own comment asserted that "the schema
+      # builds from empty" — an operation no run in this repository has ever performed.
+      #
+      # The replacement drives the real Model C bootstrap and tries to break it: it refuses a dirty
+      # tree so it measures the candidate rather than the working tree, derives the expected
+      # post-baseline migration count from the artifacts, compares the resulting schema to the
+      # canonical one across columns, constraints, indexes, triggers, RLS, policies, functions,
+      # extensions and ownership, and drives four adversarial cases — a pending migration that must
+      # execute exactly once with its effect present, a bootstrap onto an already-current database
+      # that must be refused, a one-byte baseline tamper that must be detected, and a fingerprint
+      # whose dimensions must be non-empty so that two nulls cannot compare equal.
+      - id: database_bootstrap_model_c
+        type: deterministic
+        command: bin/f1-db-bootstrap-gate
+        mandatory: true
+        timeout_seconds: 900
+      # The dump/diff limb is retained for what it CAN honestly answer — that the committed structure
+      # file matches a dump of the current schema — and no longer claims to be migration safety.
+      - id: structure_file_matches_current_schema
         type: deterministic
         command: bin/f1db db:schema:dump && git diff --exit-code db/structure.sql
         mandatory: true

@@ -1,54 +1,20 @@
 #!/usr/bin/env bash
-# Authoritative, reproducible database provisioning from a genuinely empty state.
+# DEPRECATED BY ADR-129. Use bin/f1-db-bootstrap.
 #
-# One route that: (1) ensures the cluster roles; (2) creates an empty database
-# owned by f1_schema_owner; (3) runs the migrations (which create pgcrypto owned
-# by the schema owner and seed the proof key — unlike db/structure.sql, whose
-# COMMENT ON EXTENSION requires foreign-owned pgcrypto and which carries no seed);
-# (4) applies runtime grants and re-ensures the proof key from the single source
-# (F1::RuntimeGrants and f1:db:ensure_context_key, also invoked automatically by
-# the enhanced db:migrate); (5) verifies access AS f1_web, not the owner. FORCE
-# ROW LEVEL SECURITY is preserved throughout.
+# WHAT THIS SCRIPT USED TO CLAIM AND WHY IT WAS WRONG. Its header began "Authoritative, reproducible
+# database provisioning from a genuinely empty state" and step [3/5] was "run migrations", and its
+# final line printed "provisioned '$DB' ($ENV) from empty". None of that described what happened.
+# `bin/f1db db:migrate` against an empty database calls Rails' `initialize_database`, which sees no
+# `schema_migrations` table and LOADS `db/structure.sql` — whose recorded versions cover all 70
+# migrations — so the migration run that followed executed ZERO migrations, every time, in every
+# provisioning run this repository has ever performed. It also rewrote `db/structure.sql` in the
+# working tree, because `db:migrate` invokes `db:_dump`.
 #
-# db:schema:load is the structure-only alternative and is likewise made
-# runtime-usable by the same enhancement (grants + key), but requires a genuinely
-# fresh database so its CREATE EXTENSION owns pgcrypto; the migrate route has no
-# such precondition, so it is the default here.
-#
-# Roles and CREATE DATABASE require a cluster superuser (by design the schema
-# owner has neither CREATEROLE nor CREATEDB); the schema, grants and proof key run
-# as the owner, and verification runs as the runtime role. Locally these use trust
-# auth (no passwords); in a managed environment supply credentials out of band.
-#
-# Usage: bin/f1-provision-db [DATABASE] [RAILS_ENV]
-#   bin/f1-provision-db f1_development development
-#   bin/f1-provision-db f1_test test
+# This wrapper now delegates to the route that says what it does and proves each step.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-
-DB="${1:-f1_development}"
-ENV="${2:-development}"
-HOST="${F1_DATABASE_HOST:-localhost}"
-PORT="${F1_DATABASE_PORT:-5433}"
-SUPERUSER="${F1_SUPERUSER:-$(whoami)}"
-PG_BIN="${F1_PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}"
-if [ -d "$PG_BIN" ]; then export PATH="$PG_BIN:$PATH"; fi
-
-echo "== [1/5] ensure cluster roles (superuser: $SUPERUSER) =="
-psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q -f db/roles.sql
-
-echo "== [2/5] (re)create empty database '$DB' owned by f1_schema_owner =="
-psql -h "$HOST" -p "$PORT" -U "$SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q \
-  -c "DROP DATABASE IF EXISTS ${DB} WITH (FORCE);" \
-  -c "CREATE DATABASE ${DB} OWNER f1_schema_owner;"
-
-echo "== [3/5] run migrations (owner) =="
-RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db db:migrate
-
-echo "== [4/5] apply runtime grants + proof key + wrapping-key version + reserved service identities (owner) =="
-RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:grants f1:db:ensure_context_key f1:db:ensure_encryption_key f1:db:ensure_service_identities
-
-echo "== [5/5] verify as f1_web (runtime), RLS intact =="
-RAILS_ENV="$ENV" F1_DATABASE_NAME="$DB" bin/f1db f1:db:verify_runtime
-
-echo "== provisioned '$DB' ($ENV) from empty =="
+echo "bin/f1-provision-db is DEPRECATED (ADR-129): it described a migration build it never performed."
+echo "Delegating to bin/f1-db-bootstrap, which loads the immutable baseline and then executes every"
+echo "post-baseline migration, and which states the operation it actually performed."
+echo
+exec ./bin/f1-db-bootstrap "$@"

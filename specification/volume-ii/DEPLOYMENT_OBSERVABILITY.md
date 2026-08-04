@@ -219,7 +219,7 @@ GitHub Actions is the sole production build initiator. Protected `main` requires
 2. secret, dependency vulnerability and license scans;
 3. formatting/lint, architecture-boundary and static-security checks;
 4. unit, domain, policy, repository, request, system, contract and acceptance-mapping tests;
-5. PostgreSQL schema creation from empty, migration from previous release and production-shaped migration rehearsal;
+5. PostgreSQL schema creation from the named immutable baseline plus every post-baseline migration (ADR-129 Model C), migration from each supported upgrade origin, and production-shaped migration rehearsal. The supported-upgrade-origin set is declared in `db/baseline/BASELINE.json` and today contains exactly one member;
 6. RLS, tenant-isolation, partition, FK/index, immutable-column and query-plan fitness tests;
 7. Sidekiq retry-disabled, job-catalogue and process-loss fault tests;
 8. adapter contract tests with network denied except explicit simulators;
@@ -387,7 +387,7 @@ Deployment architecture is ready only when:
 
 1. production topology and connection-pool preflight fit the selected managed plans;
 2. queue/cache Redis separation and DB-backed loss recovery pass;
-3. RLS, partition and role checks pass from empty and previous schemas;
+3. RLS, partition and role checks pass from the baseline and from every supported upgrade origin (ADR-129);
 4. private S3/KMS, exact-resource Secrets Manager and public-assets-only CDN policies pass automated inspection;
 5. dormant and unsupported provider variables/packages/routes are absent;
 6. Datadog receives redacted logs, metrics, traces, errors and synthetics with release correlation;

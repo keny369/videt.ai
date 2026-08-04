@@ -92,7 +92,7 @@ was *unreachable* (NFC normalization raises on invalid UTF-8) rather than merely
 
 - Whole repository: **1522 examples, 0 failures**. Zeitwerk clean; Packwerk no offenses; Brakeman 0
   warnings; bundler-audit no vulnerabilities. Architecture fitness **31/0**.
-- All migrations **build from empty**; the schema dump is **idempotent** with no drift.
+- All migrations **were verified by STRUCTURE LOAD, not migration replay (ADR-129)**; the schema dump is **idempotent** with no drift.
   `verify_runtime` OK — 15 checks, RLS intact.
 - **16 acceptance examples** over the production-real chain, **19 persistence invariants** on the
   database itself, and **16 ordering examples** including the exhaustive cross-product proof.

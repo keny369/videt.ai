@@ -80,7 +80,7 @@ was verified independently before and after the change.
 | bundler-audit | no vulnerabilities |
 | Architecture fitness | **31 examples, 0 failures** |
 | `verify_runtime` | OK as `f1_web`, 15 checks, RLS intact |
-| Schema from empty | dump **byte-identical** to committed `structure.sql` |
+| Schema by structure load (ADR-129) | dump **byte-identical** to committed `structure.sql` |
 | Migration round-trip | `20260727120220/230/240` down and up, no residue |
 
 Every fix in this tranche was **mutation-checked**: reverted one at a time, with the matching test
