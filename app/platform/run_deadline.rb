@@ -29,8 +29,13 @@ module Platform
       def none.expired?(**) = false
       def none.remaining_seconds(**) = nil
       def none.not_after(instant) = instant
+      # A RUN WITH NO DEADLINE IS PAST NOTHING AND AT NOTHING. Both are asked of a value that can be
+      # NONE — `CrawlFetchDueSchedule.link` asks `beyond?`, `CancelCrawl` asks `at?` — and shipping
+      # without them made both declared no-deadline branches raise `NoMethodError` (R10-4). A null
+      # object that does not satisfy the interface its callers use is a crash with a comment on it.
+      def none.beyond?(_instant) = false
+      def none.at?(_instant) = false
       def none.present? = false
-      def none.iso8601(*) = nil
       def none.inspect = "#<Platform::RunDeadline NONE>"
     end.freeze
 
@@ -76,8 +81,6 @@ module Platform
     # the one case the contract settles by commit order rather than by comparison, and `CancelCrawl`
     # needs to recognise it without being handed something it could compare loosely.
     def at?(instant) = PgInstant.utc(instant) == @instant
-
-    def iso8601(precision = 6) = @instant.iso8601(precision)
 
     # THE ONE WAY OUT, AND IT IS NAMED FOR WHY IT EXISTS. F-04's `scheduled_actions` is a FROZEN
     # transport that takes a plain instant and does its own arithmetic; it must not learn about a
