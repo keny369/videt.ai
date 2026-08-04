@@ -3395,3 +3395,61 @@ Authority And Precedence:
 Grants repair authority for S-07-009 and records the one-worktree-per-session invariant. It makes no
 acceptance transition, does not accept S-07-009, does not authorize S-07-010, and does not resolve FU-32,
 FU-33, FU-43, FU-44 or R3-P1..R3-P3. Allocated the next unused number after ADR-121.
+
+## ADR-123: The Independent Acceptance Review Of The Round-7 Repair — Four Of Five Lenses Fail
+
+Status: Accepted review record (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: explicit owner instruction to perform the complete independent acceptance review of the repaired S-07-009 candidate
+Reversibility: Governance record only. No candidate, production, migration, test or frozen-path repair is authorized or made.
+
+Five fresh lenses reviewed the complete resulting state at review HEAD `5dadf7f`, each in its OWN clean
+worktree with its OWN database provisioned from empty, under the hard isolation invariant ADR-122
+records. Implementation candidate `7f043a2..e1f5bab`; governance `5dadf7f`; excluded `9720d25` (owner
+materials), `5261cee` and `d52e66a` (round-7 findings records).
+
+**VERDICT: FAIL. NINE CONFIRMED-BLOCKING FINDINGS. S-07-009 REMAINS NOT ACCEPTED.** Contract FAIL,
+concurrency FAIL, security FAIL, architecture FAIL, schema PASS_WITH_OBSERVATIONS. Complete evidence,
+reproductions and repair ownership are in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 8.
+
+**THE SHAPE OF THE ROUND, WHICH IS THE FINDING THAT MATTERS.** Eight of the nine blockers are PROOF
+defects rather than behaviour defects. Three lenses independently verified that the shipped code is
+correct on every path they exercised: C-1's anchor makes elapsed time before and after `BEGIN`
+equivalent, C-2's producers return controlled outcomes, and SEC-B1's two handlers both refuse under an
+observed ungranted waiter with the authorization epoch advanced underneath. What fails is what DEFENDS
+those repairs — R8-1 (the anchor is unproved at the driver, and nulling it there survives 2148
+examples), R8-3 (PROOF 168 never reaches the code it names), R8-4 (`ActivateCrawlPolicy`'s recheck has
+no proof at all, and deleting it survives 388 examples), R8-5 (both SEC-B1 proofs are branch-depth-one
+and a one-line bypass is demonstrably exploitable), R8-6 (rule 3's receiver predicate is a new
+enumeration, and round 6's `command_call` escape recurs inside it), R8-7 and R8-8 (the record states
+mechanically checkable falsehoods about itself, including a candidate range and an authority that are
+still round-6 values, and an FU-44 failure model the repository refutes three times out of three).
+
+**THE ONE BEHAVIOUR DEFECT IS R8-2.** `FetchContent#settle` writes `crawl_limit_decisions` through a
+bare unit of work with no `ClosedFactSet.translate`, on the one path that spends unbounded real time
+outside every lock. Round 7 enumerated two producers; the repair fixed those two; this third was named
+by neither. Reproduced end to end.
+
+**R8-9 IS NEWLY DISCOVERED AND WAS RECORDED NOWHERE.** `Admission#wall_clock_expired?` weakened from
+`<=` to `<` survives the entire suite. :442 says "AT 60 elapsed minutes", so equality is refusal, and
+round 4's R4-1 found this same boundary broken once already. It is the FU-44 defect class inside
+S-07-009's own file and inside the candidate range.
+
+**AN ISOLATION GAP IN THIS REVIEW'S OWN SETUP, RECORDED RATHER THAN GLOSSED.** Worktrees and databases
+were isolated per lens, as ADR-122 requires. REDIS WAS NOT. The shared instance at `127.0.0.1:6379/0`
+produced one spurious `f04_background_execution_acceptance_spec.rb` failure in the concurrency lens's
+full-suite sweep, which passes 8/8 in isolation. No finding recorded here rests on that run. A future
+review must isolate Redis alongside the worktree and the database.
+
+**WHAT THE ROUND CONFIRMS GENUINELY REPAIRED**, so a repair tranche does not re-litigate it: C-1, C-2 and
+SEC-B1 are all behaviourally correct and independently reproduced; the recheck and the protected write
+provably share one transaction, backend and advisory lock; there is no fourth waiting WF-005 handler and
+`ActivateProject` does not share the `crawl-queue:` key; the schema is clean, reversible byte-identical
+across five cycles, rebuilds from empty identically, pins all seven outcome columns, and grants `f1_web`
+nothing new; all thirteen proof-table counts and the nine `.getutc` sites are exact.
+
+Authority And Precedence:
+Records the outcome of the owner-commissioned independent acceptance review. It makes no acceptance
+transition, authorizes no repair, resolves no blocker, and alters no outstanding owner decision. FU-32,
+FU-33, FU-43, FU-44 and R3-P1..R3-P3 remain unchanged. S-07-010 and S-07-011 remain blocked on
+S-07-009. Allocated the next unused number after ADR-122.

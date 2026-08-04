@@ -1598,3 +1598,189 @@ remain carried.
 This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
 start a repair cycle from any reviewer context or from the round-6 repair-author context. FU-32, FU-33,
 FU-43 and R3-P1..R3-P3 are unchanged.
+
+# ROUND 8 — the round-7 repair candidate `7f043a2..e1f5bab`
+
+Implementation candidate: `7f043a2..e1f5bab`, pinned. Governance commit: `5dadf7f`. Review HEAD:
+`5dadf7f`. Round run: 2026-08-04, full ADR-026 five-lens form, on the owner's explicit instruction.
+
+**EXCLUDED FROM THE ACCEPTANCE DIFF:** `9720d25` (owner branding/investor/operations/research markdown),
+`5261cee` and `d52e66a` (the round-7 findings records). Two lenses independently confirmed the exclusion
+is substantively sound — `9720d25` touches zero paths under `app/ db/ spec/ specification/ governance/
+lib/ config/` — and both also recorded that all three are ANCESTORS of `e1f5bab`, so the two-dot range
+literally contains them and the exclusion list is what makes it an implementation diff. The round-7
+repair commit `e1f5bab` is itself clean: 17 files, all `app/` and `spec/`.
+
+**ISOLATION.** Six separate worktrees at review HEAD and six databases provisioned FROM EMPTY by the
+candidate's own chain, one per lens plus an unused acceptance environment. No worktree or database was
+shared. Every lens ended with no modified tracked file. **ONE ISOLATION GAP REMAINED AND IS RECORDED
+RATHER THAN GLOSSED:** Redis at `127.0.0.1:6379/0` is shared across lenses, which produced one spurious
+`f04_background_execution_acceptance_spec.rb` failure in the concurrency lens's full-suite sweep (8/8 in
+isolation). Databases were isolated; Redis was not. A future review must isolate it too.
+
+**VERDICT: FAIL. Four of five lenses. NINE confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R8-2, R8-3, R8-4, R8-7, R8-8 |
+| Concurrency / atomicity / idempotency | FAIL | R8-1, R8-3, R8-9 |
+| Security / tenant-isolation | FAIL | R8-4, R8-5 |
+| Schema / migration-safety | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | FAIL | R8-6, R8-7, R8-8 |
+
+## The shape of this round
+
+EVERY BLOCKER BUT ONE IS A PROOF DEFECT, NOT A BEHAVIOUR DEFECT. Three lenses independently verified
+that the shipped code is CORRECT on every path they exercised: C-1's anchor makes elapsed time before
+and after `BEGIN` equivalent, C-2's three producers all return controlled outcomes, and SEC-B1's two
+handlers both refuse under an observed ungranted waiter with the epoch advanced underneath. What fails
+is what DEFENDS those repairs. A control no proof pins is a control the next tranche deletes silently,
+and this tranche's own history is the argument: R5-2, R6-7 and A-1 were each that failure one round
+earlier.
+
+## Confirmed blockers
+
+**R8-1 — the C-1 anchor is unproved at the only production call site that motivates it.** Concurrency.
+`CrawlDriver#advance` captures the anchor at `crawl_driver.rb:144` and admits at `:190`. Replacing
+`anchored_at` with `nil` at `:190` restores the exact C-1 defect and **survives 2148 examples, 0
+failures**. A second variant, recomputing the anchor after the pre-transaction work, survives 1818.
+Reproduced on real PostgreSQL: a run one second inside its deadline that spends 1.6s in its robots fetch
+is ADMITTED — frontier entry `in_progress`, bytes reserved, a `crawl_terminal_outcomes` row written
+`limit_discarded / not_covered` — where :442 requires refusal with zero effects. PROOF 164 and 165 call
+`Admission#claim_next` DIRECTLY with an explicit anchor and never exercise the driver, so the
+propagation that is the whole repair is untested. Inside range. Owner: the C-1 proof surface.
+
+**R8-2 — C-2 is not closed: `FetchContent#settle` is a third untranslated producer.** Contract.
+`fetch_content.rb:702` opens a bare `Platform::UnitOfWork.run` with no `ClosedFactSet.translate` and
+reaches `INSERT INTO crawl_limit_decisions` through `observe_fetch_limits` at `:744`. This is on the one
+path in the workflow that spends unbounded real time outside every lock — the content request. Round 7
+enumerated two producers and the repair fixed those two; this third was named by neither. Reproduced end
+to end, directly and through the driver: `PG::RaiseException: crawl_child_fact_after_terminal` escapes
+`CrawlDriver#advance`'s rescue and reaches `ScheduledActions::Worker`, which classifies it
+`scheduled_action_execution_failed` — the token meaning DEFECT. The contract lens enumerated every
+governed writer and confirmed the remainder are covered. Inside range: the closure trigger and the
+completeness claim are both in-range, so the failure mode exists only because of in-range changes.
+Violates owner ruling 2 and `closed_fact_set.rb:18`'s own assertion that "every producer wraps its unit
+of work in it". Owner: `Wf005::FetchContent`.
+
+**R8-3 — PROOF 168 is vacuous: it never reaches the code it names.** Contract and concurrency
+independently. `wf005_host_gate_robots_spec.rb:715` terminalizes the Crawl BEFORE calling `advance`, so
+`Admission#authorize_run` denies on `crawl["state"] != "running"` at `crawl_driver.rb:152` and returns
+HALTED before `ensure_gate` at `:566` is reached. Both of the proof's assertions are satisfied by the
+authorization denial. Removing `ClosedFactSet.translate` from `ensure_gate` survives 44 examples in that
+file and 2158 examples across the suite. The real window — RUNNING at authorization, terminal before the
+first effect — is untested, and the concurrency lens's own gated interleaving kills the mutation
+immediately. Inside range: both the code and the proof are in `e1f5bab`. Owner: the C-2 proof surface.
+
+**R8-4 — `ActivateCrawlPolicy`'s SEC-B1 recheck has no proof of any kind.** Security and contract
+independently. Deleting the entire guard at `activate_crawl_policy.rb:103-107` leaves **388 examples, 0
+failures** across every spec in the tree that names the handler, and 15/17/26 across its own,
+`queue_crawl` and `start_crawl` specs. The mutation is not vacuous: it kills three of the security lens's
+own independent proofs, so the control is real and only the evidence is absent. The mechanical signature
+is exact — the handler gained twenty lines in `e1f5bab` and
+`git diff 7f043a2..e1f5bab -- spec/acceptance/wf005_activate_crawl_policy_spec.rb` is EMPTY, and
+`advance_authorization_epoch` has exactly one caller in the whole tree. PROOF 169 and 170 are both about
+`QueueCrawl`. ADR-122 nevertheless states both handlers are covered "PROOF 169/170". :331/:333/:335,
+SEC-REQ-004/005. Inside range. Owner: the SEC-B1 proof surface.
+
+**R8-5 — both SEC-B1 proofs are branch-depth-one and a single-branch bypass survives.** Security. Two
+one-line bypasses — `unless sources.size > 1 || ...` in `queue_crawl.rb:110` and
+`unless command.scope == "project" || ...` in `activate_crawl_policy.rb:103` — survive 174 examples.
+Demonstrated exploitable under an observed ungranted waiter with the epoch advanced underneath: a
+two-Source root Crawl commits AND mints its `crawl_dispatch` action on revoked authority, and a
+project-scope policy activates. PROOF 169 uses a single-Source project and organization scope only, so
+neither branch is covered. At restored HEAD the identical probes refuse. Inside range. Owner: the SEC-B1
+proof surface.
+
+**R8-6 — A-1 is not closed: rule 3's receiver predicate is a new enumeration, and round 6's
+`command_call` escape recurs inside it.** Architecture. Thirty of forty-one bypass forms enter the REAL
+tracked corpus with the frozen check green. The sharpest is `row["x"].strftime "%s"` — a parenless call
+with arguments is Ripper `:command_call`, and rule 3 fires only on `next unless node.first == :call`.
+That is round-6 escape #3, which the file's own header documents at `:20`, recurring one rule later; the
+same shape also lets through `row["x"].acts_like? :time` and `row["x"].send :strftime, "%s"`. Also
+escaping: one intermediate binding (`d = row["x"]; d.to_time`) severs `row_rooted?` entirely, and every
+hop form with it; `row.dig("x")` because the receiver allowlist names only `fetch`; `(row["x"]).to_time`
+because a `:paren` node terminates the recursion; and `Date.parse(row["x"])` because `Date` supplies the
+derived vocabulary but is absent from `banned_constants` — the file treats `Date` as a timestamp class
+for one purpose and not the other. The VOCABULARY half is genuinely runtime-derived and closes the
+method-name axis, confirmed by catching `strptime`, `xmlschema` and `httpdate`, none of which appears in
+the detector source. The RECEIVER half hand-enumerates three receiver shapes and four AST node kinds, so
+the header's own argument — "adding four more shapes would have reproduced the defect one round later" —
+applies verbatim to it. R6-7's original wording remains literally true. The check is confirmed
+NON-VACUOUS and produced no false positives on twelve legitimate forms. Inside range. Owner:
+`spec/architecture/wf005_time_single_surface_spec.rb`, a frozen path.
+
+**R8-7 — A-2 is not closed: the record states mechanically checkable falsehoods about itself.**
+Architecture and contract independently. The candidate endpoint `e1f5bab` appears in NO record in the
+repository. `S-07-009_COMPLETION_REPORT.md:34` still pins the repair candidate at `7f043a2..4e2d8cf` and
+`:36` still names ADR-120 as the authority — both round-6 values — while `:3` and `:14` describe round 7,
+so a reviewer following the Identity table reviews the wrong range. `:204` says "six rounds, six FAILs"
+against `:5`'s "Seven full ADR-026 five-lens rounds … all seven returned FAIL". `:235` states
+`bundle exec rspec` = 2134/0 where the measured figure at HEAD is 2142/0 and `BUILD_STATE.next_action`
+says 2141/0 — three records, three numbers, one correct; 2134 is traceably the round-6 figure carried
+forward under a round-7 heading. `:162` claims the detector spec is "the only frozen-path change in the
+tranche" where `FrozenContracts.frozen_changes` on the candidate diff returns TWO, the second being
+`lib/f1/runtime_grants.rb`. `BUILD_STATE.reconciliation_note` still says SIX rounds and still pins
+`7f043a2..4e2d8cf`, contradicting `next_action` in the same file. The truth check sees none of it: its
+suite-size limb binds the ACCEPTED block and compares two records to each other rather than to a
+measurement, which is the "restating a maintained number" failure R6-9 named. Inside range. Owner: the
+completion report and BUILD_STATE.
+
+**R8-8 — FU-44's stated failure model is refuted by the repository.** Architecture and contract
+independently, the contract lens deterministically three times out of three. `BUILD_STATE` FU-44 states
+the round-7 boundary example "DOES NOT kill the `>=`->`>` mutation and is therefore not yet a valid
+proof … The reason it does not is undiagnosed." Applying exactly that mutation to
+`app/platform/entitlement/service.rb:150` fails `spec/platform/entitlement/service_spec.rb:155` with
+`expected :released, got :committed` — 18 examples, 1 failure; isolated file 10/1 three times running;
+restored 10/0. The example IS a valid proof and DOES kill its mutation. FU-44's other assertions are
+verified TRUE: the file is genuinely outside `7f043a2..e1f5bab`, F-05 ownership is correct, and all four
+`effective_deadline` comparisons use the contract's direction. The gap is CLOSED, not open, and the open
+decision is built on a false premise. It does not block on its own merits — the error runs in the
+conservative direction — but it is the same false-record class as R8-7. Inside range. Owner: FU-44's
+record.
+
+**R8-9 — :442's exact 60-minute equality is unpinned, and undisclosed.** Concurrency.
+`Admission#wall_clock_expired?` at `admission.rb:315` is `deadline <= now`. Weakening it to `<` survives
+the ENTIRE repository suite. :442 says "AT 60 elapsed minutes", so equality is refusal, and round 4's
+R4-1 found this exact boundary broken once already. This is the same defect class the repository records
+as FU-44 for `Entitlement::Service#commit`, except that this survivor is in S-07-009's OWN file, was
+introduced by `5860bb4` inside the candidate range, and is recorded nowhere. Inside range. Owner:
+`Wf005::Admission`.
+
+## What the round confirmed genuinely repaired
+
+C-1's behaviour is correct and independently reproduced: before, after and split placements of 1.6s
+against a 1s margin all refuse identically, and all three admit identically inside a 600s margin, with
+the boundary correct at minus one microsecond, exact, and plus one microsecond. C-2's behaviour is
+correct at all three enumerated producers, with controlled outcomes, no rollback of the terminal parent
+transition and nothing governed written. SEC-B1's behaviour is correct at both handlers, and the
+security lens proved the recheck and the protected write share one transaction id, one backend and one
+held advisory lock — instrumented on the handler's own connection, not asserted. There is no fourth
+WF-005 handler that authorizes a human capability and then waits; `ActivateProject` does NOT share the
+`crawl-queue:` key, correcting a claim carried from round 7. The schema is clean: 76 insertions and zero
+deletions in the structure delta, five down/up cycles byte-identical across a 9,739-line catalogue
+snapshot, a from-empty rebuild dumping identically, all seven outcome columns pinned and every narrowing
+killing PROOF 157, RLS FORCE intact on all 43 tenant tables, `f1_web` gaining no privilege, brakeman
+clean. All thirteen proof-table counts recount exactly and the nine `.getutc` sites are correct and
+correctly located. Every C-1, C-2 and SEC-B1 mutation the record claims kills its named proof does so.
+
+## Carried non-blocking observations
+
+`spec/platform/pg_instant_spec.rb` never passes `anchored_at`, so the C-1 parameter has no unit-level
+owner. PROOF 157 pins its seven columns structurally rather than behaviourally, and a neutered predicate
+that still names a column survives it. The migration header's "lock graph unchanged" reason is wrong for
+the UPDATE limb, which does add an edge, though the graph stays acyclic and no 40P01 is reachable. The
+durable authorization decision records `allow` for a command refused on authority grounds, a
+platform-wide pre-existing shape now propagated to three more handlers. The WF-005 rechecks discard
+WF-013's `stale_authorization_epoch` internal token, so an operator cannot distinguish a never-authorized
+request from a mid-flight revocation. `ActivateProject` has the same structural shape and is out of scope
+but should be a decision rather than an oversight. The "16 forms injected into the real corpus" claim is
+inaccurate twice: the spec evaluates 26 synthetic programs as strings and injects nothing. The
+`CrawlStartStore#fail` `FOR NO KEY UPDATE` gap is reproduced again and remains latent. `attempt_number`
+is 6 during round 7.
+
+## Stop
+
+This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
+start a repair cycle from any reviewer context or from the round-7 repair-author context. FU-32, FU-33,
+FU-43, FU-44 and R3-P1..R3-P3 are unchanged.
