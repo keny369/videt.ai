@@ -3539,3 +3539,59 @@ Grants repair authority for S-07-009 round 9 and extends the isolation invariant
 mutable external resource. It makes no acceptance transition, does not accept S-07-009, does not authorize
 S-07-010, and does not resolve FU-32, FU-33, FU-43 or R3-P1..R3-P3. It SUPERSEDES FU-44. Allocated the
 next unused number after ADR-123.
+
+## ADR-125: The Independent Acceptance Review Of The Round-9 Repair — Four Of Five Lenses Fail
+
+Status: Recorded (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: the round-9 five-lens independent acceptance review, run under ADR-124
+Reversibility: Record only. It authorizes no repair, makes no acceptance transition and changes no contract.
+
+**THE ROUND.** Candidate `7f043a2..6fda00d`, governance `ca655b0`, review HEAD `ca655b0`, full ADR-026
+five-lens form. **FAIL — four of five lenses, SEVEN confirmed-blocking findings.** The complete record,
+with reproductions, is `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 9.
+
+**THE ISOLATION INVARIANT WAS MET IN FULL FOR THE FIRST TIME.** Six worktrees, six databases
+provisioned from empty, and six separate Redis servers on six ports with six directories — the gap
+round 8 recorded against its own setup, closed. No worktree, database, Redis instance, port or
+temporary directory was shared, and every lens ended with no modified tracked file.
+
+**WHAT THE ROUND ESTABLISHED, AND IT IS THE FINDING THAT MATTERS.** The round-9 repair closed six of
+the nine round-8 blockers by execution — R8-1, R8-3, R8-4, R8-8, R8-9, and the schema surface entirely
+— and both production changes are sound under adversarial probing. **But it reproduced its own failure
+mode one step later in the three places it mattered most.** R8-2 was an enumeration of producers, and
+round 9 replaced it with an enumeration of EXCEPTIONS, missing a third producer
+(`Frontier#seed_roots` under `StartCrawl`). R8-5 was an enumeration of branches, and round 9 replaced
+it with an enumeration of AXES, missing a third axis that is EXPLOITABLE and survives the entire suite.
+R8-6 was an enumeration of receiver shapes, and round 9 replaced it with an enumeration of BINDING
+FORMS, missing four classes. A rule that fails closed on the axis someone thought of still fails open
+on the axis nobody did, and that is now this tranche's defining pattern across three consecutive
+rounds.
+
+**THE SECOND LESSON IS ABOUT INSTRUMENTS.** The two the repair introduced are the strongest thing in
+the tranche, and the reason this round could be precise: `GovernedWriteSentinel`'s suite-wide rule
+FIRED on the unclassified producer the moment a lens drove the path the corpus does not. Both were
+proved non-vacuous by blinding them. **And one of them does not observe what three ratified records
+say it observes**: `ExecutionProbe`'s `expect_reached_recheck` resolves the control to the `unless`
+line, and a leading-dot continuation line never fires a `:line` event, so the assertion passes in a run
+where the guard is provably short-circuited past. An instrument is a claim like any other and needs its
+own proof; the record's phrase "asserts it REACHED its control" was not true.
+
+**THREE RECORDS STATE SOMETHING THE REPOSITORY REFUTES**, all introduced by the repair and all of the
+R8-7 class it was closing: "forty-one bypass forms" where the file declares 40; "EIGHT WF-005 source
+lines" where a census measures 17; and the `ExecutionProbe` claim above. The truth gate could not catch
+any of them — and its own frozen-path limb, written to catch exactly this, never executes because a
+regex expects a literal space where the record wraps the phrase across a line.
+
+**ONE REAL :442 VIOLATION WAS REPRODUCED AND IS OUTSIDE THE CANDIDATE RANGE.** The C-1 anchor has one
+consumer; every other :442-sensitive decision in the pass uses the un-anchored instant, so a pass
+entering inside its deadline and crossing it during the robots fetch starts a sitemap request 0.659s
+after the run is over. The repository asserts the opposite by name at
+`spec/acceptance/wf005_record_fetch_attempt_spec.rb:729`. Pre-existing, untouched by the range, and
+recorded here because no round has recorded it. It needs its own follow-up and an owner decision.
+
+Authority And Precedence:
+Records the outcome of the round-9 independent acceptance review. It makes no acceptance transition,
+authorizes no repair, resolves no blocker and alters no owner decision. FU-32, FU-33, FU-43 and
+R3-P1..R3-P3 are unchanged; FU-44 remains correctly SUPERSEDED by ADR-124. S-07-010 and S-07-011 remain
+blocked on S-07-009. Allocated the next unused number after ADR-124.

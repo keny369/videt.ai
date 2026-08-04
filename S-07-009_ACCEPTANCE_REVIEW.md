@@ -1784,3 +1784,267 @@ is 6 during round 7.
 This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010, or
 start a repair cycle from any reviewer context or from the round-7 repair-author context. FU-32, FU-33,
 FU-43, FU-44 and R3-P1..R3-P3 are unchanged.
+
+# ROUND 9 — the round-8 repair candidate `7f043a2..6fda00d`
+
+Implementation candidate: `7f043a2..6fda00d`, pinned. Governance commit: `ca655b0`. Review HEAD:
+`ca655b0`. Round run: 2026-08-04, full ADR-026 five-lens form, under ADR-124.
+
+**EXCLUDED FROM THE ACCEPTANCE DIFF:** `9720d25` (owner branding/investor/operations/research
+markdown), `5261cee`, `d52e66a`, `555c4e9` and `fcd161b` (the round-7 and round-8 findings and
+reconciliation records).
+
+**ISOLATION, WITH THE ROUND-8 GAP CLOSED.** Six worktrees at review HEAD, six databases provisioned
+FROM EMPTY by the candidate's own migration chain, and — for the first time — **six separate Redis
+servers**, one per lens on its own port (6401-6406) with its own directory, run ids recorded at
+provision time. Round 8 recorded that it had isolated worktrees and databases but not Redis, and that
+the sharing produced one spurious F-04 failure. That gap is closed. No worktree, database, Redis
+instance, port or temporary directory was shared. Every lens ended with no modified tracked file.
+One lens recorded a >20-minute hang under concurrent load from the other lenses on the same machine,
+could not reproduce it in isolation, and correctly declined to assert it as a defect.
+
+**VERDICT: FAIL. Four of five lenses. SEVEN confirmed-blocking findings. S-07-009 IS NOT ACCEPTED.**
+
+**A NOTE ON THE CONCURRENCY VERDICT, RECONCILED RATHER THAN GLOSSED.** That lens wrote
+`VERDICT: PASS_WITH_OBSERVATIONS` on its verdict line and then raised one finding under CONFIRMED
+BLOCKING, stating it is inside the candidate range, naming its owner, and closing with "I raise one
+blocking finding". The two are inconsistent. Reconciliation takes the FINDING at its word rather than
+the label: a confirmed-blocking finding inside the range is a FAIL, and a lens's summary line cannot
+outrank its own reproduction. R9-7 is counted.
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R9-1, R9-2 |
+| Concurrency / atomicity / idempotency | FAIL (see note) | R9-7 |
+| Security / tenant-isolation | FAIL | R9-3, R9-4 |
+| Schema / migration-safety | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | FAIL | R9-1(A), R9-2, R9-5, R9-6 |
+
+## The shape of this round
+
+**THE REPAIR CLOSED SIX OF THE NINE BLOCKERS AND REPRODUCED THE FAILURE MODE OF THE OTHER THREE ONE
+STEP LATER.** R8-1, R8-3, R8-4, R8-8 and R8-9 are independently confirmed closed by execution, and
+the two production repairs are sound: three lenses drove the pass translation, the boundary owner and
+the entitlement boundary and could not refute any of them. What round 9 got wrong is what round 8 got
+wrong, in the same three places:
+
+* **R8-2 was an enumeration of producers. Round 9 replaced it with an enumeration of EXCEPTIONS**, and
+  the contract lens found a third producer outside it (R9-1).
+* **R8-5 was an enumeration of branches. Round 9 replaced it with an enumeration of AXES**, and the
+  security lens found a third axis outside it, exploitable (R9-3).
+* **R8-6 was an enumeration of receiver shapes. Round 9 replaced it with an enumeration of BINDING
+  FORMS**, and the architecture lens found four classes outside it (R9-1(A) is separate; this is R9-5).
+
+The repair's own instruments are the strongest thing in the tranche and the reason this round could
+be this precise: `GovernedWriteSentinel`'s `after(:suite)` rule FIRED on the producer the corpus does
+not drive, the moment a lens drove it. Both instruments were proved non-vacuous by blinding them.
+But one of them does not observe what three ratified records say it observes (R9-4), and the gate
+written to catch a false frozen-path claim never executes at all (R9-2).
+
+## Confirmed blockers
+
+**R9-1 — R8-2 IS NOT CLOSED: a third governed producer is neither translated nor classified, and the
+corpus cannot see it.** Contract. `Frontier#seed_roots` at `frontier.rb:93` calls
+`observer&.hard(QUEUE_DIMENSION, ...)`, reaching `limit_decisions.rb:123`, which INSERTs
+`crawl_limit_decisions` — a table `f1_crawl_child_fact_closed` governs. `Handlers::StartCrawl` passes
+a REAL observer at `start_crawl.rb:338-345` and has no translation anywhere. The triple
+`["workflows/wf005/limit_decisions.rb", "workflows/wf005/handlers/start_crawl.rb",
+"crawl_limit_decisions"]` is absent from `CLASSIFIED_UNTRANSLATED`, which lists the frontier-entry
+write from THE SAME METHOD, THE SAME HANDLER and THE SAME TRANSACTION but not this one. Reproduced end
+to end through the real handlers, whereupon the sentinel's own `after(:suite)` rule fires:
+`OWNER RULING 2: 1 governed write(s) reachable from a WF-005 entry point executed with no
+Wf005::ClosedFactSet.translate frame and no recorded reason`. No example in the repository drives a
+run whose pinned Source count reaches the queue ceiling, so the census never observes it and PROOF 173
+passes. THE BEHAVIOUR IS SAFE — the write sits in the same transaction as `store.start`'s
+compare-and-set under the `crawls` row lock, exactly like its classified sibling — so this is a proof
+and record defect, not a behaviour defect. But three records assert the opposite of what was
+reproduced: `governed_write_sentinel.rb:56-58` ("A producer that appears in neither this list nor a
+translation FAILS"), `S-07-009_COMPLETION_REPORT.md:45-48` ("what makes the producer set an
+OBSERVATION rather than a list"), and ADR-124 ("existing, added later, or never enumerated — is
+covered"). Inside range: the rule, the classification, PROOF 173/175 and the completeness claim are
+all added by `6fda00d`. Owner: `CLASSIFIED_UNTRANSLATED` or `Handlers::StartCrawl`. One line either
+way.
+
+**R9-2 — R8-7 IS NOT CLOSED: the frozen-path limb of the truth gate never executes.** Contract and
+architecture independently. `repository_truth_spec.rb:404` extracts claims with
+`/(\w+) frozen-path changes?/i`, a literal space. The report's only numeric claim wraps across a line
+(`CONTAINS TWO FROZEN-PATH\nCHANGES`), so the regex matches only the QUOTED round-8 finding ("the
+only frozen-path change"), `"only"` is not numeric, the claim list empties and the example SKIPS —
+in every run, at HEAD. The check's own comment says it reads "EVERY numeric claim, not the first
+phrase that happens to match ... a rule that read the first match would judge the quotation rather
+than the claim." It does precisely that, then skips. Both lenses changed `TWO` to `NINE`, confirmed
+the edit landed, and the suite stayed green. The true count is 2. The suite's single reported
+`pending` IS this example. Inside range (`6fda00d`). Owner: the R8-7 truth-gate surface — and an
+empty claim set must FAIL rather than skip, because "no claim" is indistinguishable from "the claim
+moved", which is the R8-7 failure mode itself.
+
+**R9-3 — R8-5 IS NOT CLOSED: a one-line bypass keyed to a third axis survives the entire suite and is
+exploitable.** Security. The branch matrix at `wf005_post_wait_authority_spec.rb:27-30` claims "Every
+branch that can reach a protected write is driven ... A bypass keyed to any single one of them fails
+a named example rather than hiding in the case nobody drove." `ActivateCrawlPolicy` has a SUPERSEDE
+axis the matrix never drives: PROOF 189/190 both bootstrap a fresh Organization and pass
+`expected_current_policy_version: nil`, so `current` is always nil. `unless current || ...` at
+`activate_crawl_policy.rb:103` survives **2232 examples, 0 failures** — byte-identical to the
+baseline — and was exploited on real PostgreSQL with the epoch advanced under an observed ungranted
+waiter: the command committed, superseded v1, activated v2 and emitted two `CrawlPolicyActivated`
+events on revoked authority. The same shape survives at `queue_crawl.rb:110` (a crawl-policy axis the
+`queueable` fixture never activates; 87 examples, 0 failures) and at `cancel_crawl.rb:219` (a
+queued-state axis PROOF 151 never drives, since it only cancels a RUNNING Crawl; 39 examples, 0
+failures). Inside range. Owner: the SEC-B1 proof surface and the completion report's coverage claim.
+**A non-enumerative repair was demonstrated by the lens**: assert suite-wide that a protected write
+implies the recheck OWNER's body executed — the model `GovernedWriteSentinel` already establishes —
+which the bypass violates on an ordinary path with no revocation at all, on a branch the existing
+`wf005_activate_crawl_policy_spec.rb:93` already drives.
+
+**R9-4 — `ExecutionProbe` does not observe the control, and three records say it does.** Security.
+`expect_reached_recheck` resolves the control by `/Wf005::PostWaitDecision\.new/`, which matches the
+`unless` line itself, and then asserts only that that line ran. A leading-dot continuation line never
+fires its own `:line` event, proved in isolation: `line 4 (unless): true, line 5
+(.authority_current?): false`, identically whether the guard ran or was short-circuited past. Under
+`unless true || Wf005::PostWaitDecision.new(...)` — where the recheck never runs anywhere — PROOF 189
+fails at its OUTCOME assertion and never at `expect_reached_recheck`. The probe is not worthless: it
+catches deletion, renaming and never-reaching-the-statement, which is why R8-4's deletion fails
+loudly. It does not catch a short-circuit INSIDE the statement, which is exactly R8-5's bypass form.
+`S-07-009_COMPLETION_REPORT.md:51`, `BUILD_STATE.next_action` and ADR-124 all say a proof "asserts it
+REACHED its control"; it asserts it reached the statement containing it. Inside range
+(`spec/support/execution_probe.rb` is new in `6fda00d`). Owner: `ExecutionProbe` and every proof
+calling `expect_reached_recheck`. The fix is available today: probe the OWNER file —
+`command_authorizer.rb:54` and `post_wait_decision.rb:76` are both reported at HEAD.
+
+**R9-5 — R8-6 IS NOT CLOSED: the receiver analysis is a new enumeration and four escape classes reach
+the real corpus with the frozen check green.** Architecture. Four forms injected into the real tracked
+`crawl_driver.rb` leave the check at **63 examples, 0 failures**: (a) MULTIPLE ASSIGNMENT severs the
+taint, because `row_locals` closes over exactly `%i[assign opassign]` and `massign`, `for` and
+pattern-match bindings are none of them — and `crawl, anchored_at = load_crawl_with_anchor(...)` is
+the corpus's own idiom three lines from the injection anchor; (b) BLOCK-PASS SYMBOL PROC
+(`crawl["x"].then(&:to_datetime)`) produces no explicit-receiver call carrying a vocabulary method, and
+rule 2 bans only the two-name hand list `%w[getutc to_time]`, so `&:iso8601`, `&:xmlschema`,
+`&:in_time_zone` and `&:getlocal` all pass — symbol-proc is live at 8 corpus sites; (c) CONTAINER
+LAUNDERING, because `:array` and `:hash` literals are "in memory" regardless of contents, so
+`[row["x"]].first.to_time` and `{ k: row["x"] }[:k].getutc` both pass, the latter defeating the rule's
+own stated premise; (d) receiver shapes with no case at all that fall through to safe. Calling
+`violations` directly on 20 constructed forms through the file's own `findings_for` gave 14 ESCAPED /
+6 caught. Inside range; frozen path. Owner: `spec/architecture/wf005_time_single_surface_spec.rb`.
+
+**R9-6 — the mutation-ledger gate validates a self-report, and the harness it names is not in the
+repository.** Architecture. `repository_truth_spec.rb:435` asserts `entry["landed"] == true` — a
+boolean the ledger's author writes. `BUILD_STATE.next_action` states the ledger was "written by the
+harness ... EVERY ONE CONFIRMED LANDED against git rather than intended", and the spec's own comment
+says "the harness aborts rather than record a verdict for an edit git cannot see". `git ls-files`
+contains no such harness; the ledger's `worktree` field points outside the repository; no entry
+records a file, a line or a diff, so no entry is independently reproducible from the repository
+alone. A fabricated entry that never ran (`zz-fabricated-never-ran`, `landed: true`, `result: "9999
+examples, 7 failures"`) passes the gate. MITIGATING AND RECORDED: every ledger entry re-run
+independently by a lens — nine across three lenses — landed where the ledger says and killed the
+example it names, so the ledger is not fabricated in fact. The defect is that nothing in the
+repository can establish that, while a gate written to say it does. Inside range. Owner: the ledger
+and `repository_truth_spec.rb`.
+
+**R9-7 — PROOF 185's single-owner rule is defeated by one method indirection, and an INVERTED :442
+boundary survives the suite at a line this candidate wrote.** Concurrency. `within_wall_clock?` at
+`crawl_driver.rb:492-494` was rewritten in range to ask `Platform::PgInstant.expired?`, with the
+in-range comment "which is why all three now ask it in one place rather than each spelling out a
+comparison whose direction a later edit can invert unnoticed". The lens made exactly that edit and it
+went unnoticed. PROOF 185 is a per-line text scan whose taint propagation is severed by an endpoint
+method: `def run_ceiling(crawl) = crawl["deadline_at"]` mentions `deadline` but carries no ordering
+operator, so it is not an offender and taints nothing; `ceiling = run_ceiling(crawl)` mentions nothing
+tainted; and the comparison line then mentions neither `deadline` nor a tainted name. With that
+indirection in place, an INVERTED boundary — `PgInstant.utc(now) <= PgInstant.utc(ceiling)` — passes
+**2223 examples, 0 failures** (the full suite less nine unrelated excluded examples). The same escape
+at `Admission#wall_clock_expired?` likewise survives. It is not cosmetic: at exact equality the mutant
+lets the pass proceed past the only gate that decides whether a request starts at all, and PROOF 187 —
+whose stated purpose is ":442's boundary, through the real handler ... AT 60 elapsed minutes, NO NEW
+REQUEST STARTS. At, not after" — passes under it, because its `ready_to_fetch` fixture pre-resolves
+robots and sitemaps so `expect(requests).to be_empty` cannot fail for a boundary defect. That is R8-3's
+shape exactly: an assertion satisfied by a mechanism other than the one it names. Inside range — the
+predicate body, `expired?` and PROOF 185 are all `+` lines in `7f043a2..6fda00d`. Owner: the R8-9
+repair surface, `spec/platform/pg_instant_spec.rb` and `Wf005::CrawlDriver`.
+
+## A REAL :442 VIOLATION, REPRODUCED, PRE-EXISTING AND OUTSIDE THE RANGE
+
+Recorded here because it is the most consequential thing this round found about the PRODUCT, and
+because no round has recorded it. The C-1 anchor has exactly ONE consumer, `Admission`. Every other
+:442-sensitive decision in the same pass still uses the un-anchored `now` — `within_wall_clock?` at
+`crawl_driver.rb:186` and `DiscoverSitemaps#run_expired?` at `discover_sitemaps.rb:256`. So a pass that
+enters INSIDE its deadline and crosses it during the pre-transaction window starts requests after the
+run's sixty minutes are up. Reproduced with no trigger and no harness time machine, the window being
+the robots fetch at 1.6s:
+
+    run entered at deadline - 1.0s
+    robots request  started +0.014s  (legal)
+    sitemap request started +1.659s  (0.659s AFTER the run's deadline)
+    pass outcome: deferred / host_gate_paced -> it mints a forward action
+
+The repository asserts the exact property this refutes, by name, at
+`spec/acceptance/wf005_record_fetch_attempt_spec.rb:729` — "starts NO request past the deadline, not
+even robots or a sitemap", whose own comment says "a pass that consulted the wall clock only at
+admission would still have fetched robots and a sitemap first". That example only ever enters ALREADY
+expired, never crossing during the pass. NOT introduced by this candidate: `7f043a2`'s driver has the
+same ordering, and the example is untouched by the range. It is a distinct half from `open_decisions`
+R3-4(a), which is about F-01 re-arming `timeout_s` per redirect hop. **It needs a follow-up of its own
+and an owner decision; this review opens neither.**
+
+## Records that state something the repository refutes
+
+Three, all in-range, all of the R8-7 class and all introduced by this repair:
+
+1. **"forty-one bypass forms"** (`S-07-009_COMPLETION_REPORT.md` twice, ADR-124 once). The file
+   declares **40**. `rspec --dry-run --format doc | grep -c "catches a decoder injected"` → 40, and
+   63 = 8 + 40 + 15 corroborates. No gate checks it.
+2. **"EIGHT WF-005 source lines"** (report R8-2 row, ADR-124, commit message). Not reproducible: a
+   census over 319 WF-005 acceptance examples records governed writes from **17** distinct WF-005
+   source lines, 15 of them production-reachable, across 7 files. The figure is historical, from an
+   earlier and narrower census, and no gate checks it.
+3. **"a proof asserts it REACHED its control"** (report, BUILD_STATE, ADR-124) — refuted by R9-4.
+
+## What the round confirmed genuinely repaired
+
+R8-1, R8-3, R8-4, R8-8 and R8-9 are closed, each verified by a lens applying the mutation itself and
+confirming by `git diff` that it landed. R8-3's replacement opens the real window: removing the pass
+translation makes a raw `PG::RaiseException` escape `ensure_gate` and reach the scheduled-action
+worker, killing PROOF 172 and 173. R8-4's deletion now fails 5 examples where round 8 measured 388/0.
+R8-8's disposition is correct in both directions: the mutation at `:150` is killed, and the real
+survivor at `:113` — the one an unscoped substitution actually lands on — is killed by the new
+boundary example. R8-9's owner has exactly four call sites and no SQL-level deadline comparison exists
+outside the workflow. Both `CLASSIFIED_UNTRANSLATED` entries were verified TRUE rather than
+convenient, by reading the lock order in both handlers. The handler set is complete by directory
+enumeration: three human-authorized waiting handlers, all three calling `authority_current?`, and no
+fourth. `ActivateProject` genuinely does not share the key. Both instruments were proved non-vacuous
+by blinding them — the sentinel's catalogue read and the probe's path roots — and the sentinel's
+`after(:suite)` really does fail a run. The schema is untouched by round 9 (four subtree hashes
+byte-identical), reversible over nine cycles, RLS FORCE intact on 43 tables, `f1_web` gaining no
+privilege and holding no DELETE/TRUNCATE/REFERENCES/TRIGGER anywhere. Gates reproduce exactly in
+every lens environment: rspec 2232/0/1 pending, architecture 137/0, brakeman clean, packwerk clean.
+
+## Carried non-blocking observations
+
+PROOF 156's INSERT limb is structural only: a closure trigger recreated with an unfireable `WHEN`
+clause survives 304 examples, though removal is genuinely defended. PROOF 157's three round-7 columns
+admit an equivalent mutant, bounded by the store's write shape. Round 8's own "76 insertions, zero
+deletions" structure delta is wrong — measured 234/2 — and round 10 must not inherit it. The report's
+13-row prose mutation table carries no ledger ids, so both ledger limbs skip it. The durable
+authorization decision still records `allow` for a command the recheck refused. `replay` returns
+before the recheck in both command handlers. `GovernedWriteSentinel` fails OPEN on two axes: an entry
+point outside `handlers/` and a stack deeper than 160 both drop a write from the failure set rather
+than flagging it. PROOF 193 enforces a SUBSTRING (`include?("PostWaitDecision")`), which
+`complete_crawl.rb` satisfies while calling only `#now`. PROOF 187 does not kill the `m9` mutation —
+PROOF 188's comment discloses this, but the report's "PROOF 180-188" row invites the opposite reading.
+Ledger `result` counts are RSpec-seed dependent; `failing_examples` is the load-bearing field.
+`CrawlDriver` holds a SECOND `admission.claim_entry` call at `:503` (`admission_reason`) that passes no
+anchor — benign, reached only when the raw instant is already expired and fenced by an explicit
+`Platform::InvariantViolation` at `:507`, but every recorded anchor mutation only ever hit the other
+site, and per the FU-44 lesson a ledger entry must say which. `Admission#claim_next` has an
+`anchored_at: nil` default and no production caller at all — the `m1c` shape as a permanent API
+affordance. **THE HEADLINE GATE CAN HANG RATHER THAN FAIL**: one full-suite run wedged indefinitely
+with a live thread from `wf013_organization_lifecycle_concurrency_spec.rb:84` blocked in `PQgetResult`
+while every connection sat idle and no lock was ungranted; that spec joins two bare `Thread.new` with
+no timeout, unlike `RaceHarness.wait_until` which is bounded at 15s. Five other full runs completed in
+159-227s and the file passes 6/6 in isolation, so it is intermittent and suite-context-dependent.
+Outside the range, and not a defect this round can assert — but a gate that can hang forever instead of
+failing is worth an owner's attention.
+
+## Stop
+
+This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010 or
+S-07-011, or start a repair cycle from any reviewer context or from the round-9 repair-author context.
+FU-32, FU-33, FU-43 and R3-P1..R3-P3 are unchanged. FU-44 remains correctly SUPERSEDED.
