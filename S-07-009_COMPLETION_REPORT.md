@@ -1,12 +1,30 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-6 repair candidate is complete under ADR-120.**
+**Acceptance status: NOT ACCEPTED. The round-7 repair is complete under ADR-122; no independent acceptance review has been run against it.**
 
-Six full ADR-026 five-lens rounds have reviewed this tranche and all six returned FAIL. Round 6 returned
-nine confirmed blockers (ADR-118). The owner then directed a classification of those nine BEFORE any
-repair, which found five root concepts rather than nine independent defects, and issued four rulings and
-an ordered implementation programme (ADR-120). This report records the completed repair candidate and the
-stop boundary. It is not an acceptance record.
+Seven full ADR-026 five-lens rounds have reviewed this tranche and all seven returned FAIL. Round 7
+(ADR-121) returned five confirmed blockers against the round-6 repair: C-1, C-2, SEC-B1, A-1 and A-2. The
+owner granted authority to repair them (ADR-122), including one minimum-extent frozen-path change, and
+that repair is what this report now describes.
+
+**NO INDEPENDENT ACCEPTANCE REVIEW HAS BEEN RUN AGAINST THE ROUND-7 REPAIR.** Implementation gates pass;
+that is verification, not acceptance, and this tranche's own history is the reason the distinction is
+enforced. This report is not an acceptance record.
+
+### The round-7 repair
+
+| Blocker | Closed by | Proof | Mutation |
+| --- | --- | --- | --- |
+| C-1 | `PgInstant.anchor` / `after_wait(anchored_at:)`, threaded through `CrawlDriver#advance` | PROOF 164, 165 | nulling the anchor kills PROOF 164 only |
+| C-2 | `Wf005::ClosedFactSet`, consumed by `DiscoverSitemaps`, `EnsureRobots` and the driver's gate creation | PROOF 166, 167, 168 | removing the translation kills PROOF 166 and 167 |
+| SEC-B1 | `authority_current?` after the advisory wait in `QueueCrawl` and `ActivateCrawlPolicy` | PROOF 169, 170 | removing the recheck kills PROOF 169 only |
+| A-1 | detector rule 3 (receiver-based) plus a runtime-derived timestamp vocabulary | 16 forms injected into the real corpus, all caught | each form fails the corpus scan |
+| A-2 | nine `.getutc` sites named; PROOF 145's margin stated once; proof table re-derived | `repository_truth_spec` | stale count fails the gate |
+
+The two mutation survivors round 7 reported are dispositioned rather than ignored: the closure's UPDATE
+`WHEN` predicate is now pinned on all seven outcome columns and the narrowing mutation kills PROOF 157;
+the `:551` equality survivor is **FU-44**, owned by F-05, with its failure model and required proof
+recorded. It is NOT closed and is not claimed closed.
 
 ## Identity
 
@@ -145,13 +163,18 @@ authority for this change; it is the only frozen-path change in the tranche, and
 rather than leaving it to be inferred from the diff. The check keeps ADR-117 R5-2's narrow scope and creates
 no new family of checks.
 
-Its detector is inverted from a denylist into a structural rule. The old form enumerated four AST shapes and
-self-tested against those same four, and round 6 walked four ordinary spellings through it. WF-005 names
-`Time` and `DateTime` NOWHERE in the tracked corpus, so the rule is now that it may not — which no
-respelling evades, because every parser, type test, `case/when`, `===` and `.class ==` has to name the
-constant to work — plus a ban on naming the UTC protocol as data, which closes the parenless
-`respond_to? :getutc` route. Both `.getutc` METHOD CALLS in the corpus are untouched and correct: formatting
-an instant the application already holds is a different act from deciding how to decode one.
+Its detector now carries three structural rules. Round 6 replaced an enumeration of four AST SPELLINGS with
+a ban on two NAMES, and round 7's A-1 showed that is still an enumeration: nine forms walked past it, of
+which `row["deadline_at"].to_time` is the plainest. Rule 1 bans naming `Time` or `DateTime`, which the
+corpus never does. Rule 2 bans the UTC protocol as a symbol or string, and a banned constant reached as a
+string, which closes `Object.const_get("Time")`. Rule 3 is the round-7 repair and is about the RECEIVER
+rather than the name: a decode acts on a value pulled from a string-keyed `PG::Result` row, a format acts
+on a local, so the whole timestamp vocabulary — DERIVED from the runtime classes, not listed, so a Rails
+upgrade extends it automatically — is banned on a row-rooted receiver. The NINE `.getutc` METHOD CALLS in
+the corpus (in `crawl_ledger.rb`, `crawl_driver.rb`, `handlers/complete_crawl.rb`,
+`handlers/start_crawl.rb` and `handlers/record_fetch_attempt.rb`) are untouched and correct: formatting an
+instant the application already holds is a different act from deciding how to decode one, and rule 3
+distinguishes them by receiver rather than by counting them.
 
 ### Terminal checkpoint and cancellation
 
@@ -226,7 +249,7 @@ Every gate passing remains verification, not acceptance.
 | --- | --- |
 | move the fall-through soft wall-clock decision before `lock_frontier` | PROOF 132 fails at the real insert with `soft Admission decision preceded crawl frontier lock`; the concurrency examples cannot observe the required frontier waits |
 | derive terminal reason from every hard decision again | PROOF 99 fails: a local per-URL decision incorrectly changes `partial_source_failure` to `limit_reached` |
-| decode the checkpoint deadline with `Time.parse(deadline.to_s)` again | PROOF 145 fails one microsecond before the real deadline by writing an early wall-clock decision |
+| decode the checkpoint deadline with `Time.parse(deadline.to_s)` again | PROOF 145 fails 400ms before the real deadline by writing an early wall-clock decision |
 | unmutated runtime structural probe | PROOF 132 derives the advisory key from `NEW.crawl_id` and observes the granted transaction lock in `pg_locks` at the actual insert |
 | real two-orientation terminal races | PROOFs 133-135 show Admission-first waiting, terminal-first re-read, no SQLSTATE 40P01 and no losing durable effect |
 
@@ -278,12 +301,14 @@ the five rounds that were reading it.
 | `spec/persistence/crawl_terminal_outcome_invariants_spec.rb` | 16 |
 | `spec/acceptance/wf005_checkpoint_pass_concurrency_spec.rb` | 10 |
 | `spec/workflows/wf005/terminal_selection_spec.rb` | 12 |
-| `spec/acceptance/wf005_admission_terminal_concurrency_spec.rb` | 9 |
+| `spec/acceptance/wf005_admission_terminal_concurrency_spec.rb` | 11 |
 | `spec/acceptance/wf005_sitemap_discovery_spec.rb` | 7 |
 | `spec/workflows/wf005/limit_semantics_spec.rb` | 6 |
 | `spec/persistence/crawl_terminal_fact_closure_spec.rb` | 6 |
 | `spec/acceptance/wf005_start_cancel_concurrency_spec.rb` | 3 |
 | `spec/platform/pg_instant_spec.rb` | 3 |
+| `spec/acceptance/wf005_host_gate_robots_spec.rb` | 3 |
+| `spec/acceptance/wf005_queue_crawl_spec.rb` | 3 |
 
 `spec/architecture/wf005_time_single_surface_spec.rb` is deliberately absent from the table: its seven
 examples consume no workflow proof numbers, so a count for it would be a different measure sharing a

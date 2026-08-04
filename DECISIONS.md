@@ -3336,3 +3336,62 @@ Records the outcome of the owner-commissioned final acceptance review. It makes 
 transition, authorizes no repair, resolves no blocker, and alters no outstanding owner decision. FU-32,
 FU-33, FU-43 and R3-P1..R3-P3 remain unchanged. S-07-010 and S-07-011 remain blocked on S-07-009.
 Allocated the next unused number after ADR-120.
+
+## ADR-122: Owner Authority For The Round-7 Repair — Conform S-07-009 To Its Approved Specification
+
+Status: Authorized and implemented (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: explicit owner instruction granting authority to repair S-07-009 into conformance with its already approved specification
+Reversibility: Integration branch only. The authorization permits the repairs below and one minimum-extent change to a frozen path; it makes no acceptance transition.
+
+**THIS ADR DOES NOT CLAIM TO PRECEDE THE IMPLEMENTATION.** ADR-117 made that claim, git refuted it, and
+round 6 recorded it as blocker R6-8. The owner's authority was given before the work; this written record
+was committed with it, and `spec/architecture/repository_truth_spec.rb` now fails on the withdrawn phrasing.
+
+**THE GRANT.** Authority to repair S-07-009 so the implementation conforms to the already approved
+specification, closing the five confirmed blockers recorded by the round-7 independent review (ADR-121,
+`S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 7): C-1, C-2, SEC-B1, A-1 and A-2.
+
+**THE FROZEN-PATH LIMB, AND ITS EXACT BOUNDS.** Explicit authority to modify
+`spec/architecture/wf005_time_single_surface_spec.rb` — a frozen path under
+`AutonomousBuild::FrozenContracts` — but **only to the minimum extent necessary to implement the already
+approved contract**, and expressly NOT to redesign, expand, weaken, reinterpret or replace the frozen
+contract. The change made under it keeps ADR-117 R5-2's scope exactly: WF-005 PostgreSQL timestamp
+decoding through `Platform::PgInstant`, with no expansion into limits, locks, event envelopes, deadlines
+or acceptance-history derivation, and no new family of checks. It adds one rule, about the RECEIVER
+rather than the name, because A-1 established that a rule about names can be renamed around.
+
+**MANDATORY EXECUTION ISOLATION, NOW A HARD INVARIANT.** One worktree per active implementation, review,
+mutation or acceptance session. Round 7's own review broke this — five lenses shared one worktree while
+holding separate databases, and three observed foreign live mutations mid-run — and the owner has made
+the invariant explicit: each session gets a clean dedicated worktree and its own database resources, no
+parallel session may mutate tracked files in the same worktree, each review lens gets its own worktree,
+and violation is a process failure requiring the affected evidence to be discarded and re-run cleanly.
+This repair session selected the primary worktree, verified exclusive (one worktree, clean tree, zero
+other sessions on the database) before any change.
+
+**WHAT WAS BUILT.**
+
+* C-1 — `Platform::PgInstant.after_wait` takes an explicit `anchored_at`, and `Platform::PgInstant.anchor`
+  captures it. The advance is measured from where the caller's instant was TRUE rather than from `BEGIN`,
+  because `CrawlDriver#advance` captures `now` and then fetches robots and discovers sitemaps outside every
+  transaction. The anchor is read in the same unit of work that loads the Crawl, so it costs no round trip.
+* C-2 — `Workflows::Wf005::ClosedFactSet` is the single owner of the controlled-outcome translation, and
+  `DiscoverSitemaps`, `EnsureRobots` and the driver's gate creation all route through it.
+* SEC-B1 — `Handlers::QueueCrawl` and `Handlers::ActivateCrawlPolicy` re-check `authority_current?` through
+  `Wf005::PostWaitDecision` after their blocking advisory wait and immediately before their irreversible act.
+* A-1 — the detector gains a third, structural rule and a runtime-DERIVED timestamp vocabulary, and rule 2
+  extends to a banned constant reached as a string.
+* A-2 — the false "two `.getutc` method calls" claim is corrected to nine and located; PROOF 145's margin is
+  stated once, as 400ms; the proof table is re-derived.
+
+**THE TWO MUTATION SURVIVORS THE REVIEW FOUND.** The closure's UPDATE `WHEN` predicate is now pinned on all
+seven outcome columns and the narrowing mutation kills PROOF 157. The `:551` equality survivor is NOT
+closed: it belongs to F-05, `app/platform/entitlement/service.rb` is outside the S-07-009 range, and it is
+recorded as **FU-44** with owner, failure model and the exact proof required. It is not silently ignored
+and it is not claimed closed.
+
+Authority And Precedence:
+Grants repair authority for S-07-009 and records the one-worktree-per-session invariant. It makes no
+acceptance transition, does not accept S-07-009, does not authorize S-07-010, and does not resolve FU-32,
+FU-33, FU-43, FU-44 or R3-P1..R3-P3. Allocated the next unused number after ADR-121.
