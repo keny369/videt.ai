@@ -22,8 +22,11 @@ RSpec.describe "WF-005 limit decisions", type: :acceptance,
   WALL_CLOCK = "wall_clock_run_duration"
 
   def admission = Workflows::Wf005::Admission.new
-  def claim(ctx, now: start_now) = admission.claim_next(organization_id: ctx[:g][:organization_id],
-                                                        crawl_id: ctx[:crawl_id], now:)
+  # `anchored_at` IS REQUIRED, so every caller states where its instant was true — the whole of C-1.
+  def claim(ctx, now: start_now, anchored_at: db_anchor)
+    admission.claim_next(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now:,
+                         anchored_at:)
+  end
 
   def decisions(cid) = DbInspector.all(
     "SELECT * FROM crawl_limit_decisions WHERE crawl_id=$1::uuid ORDER BY limit_dimension, threshold_kind", [cid]

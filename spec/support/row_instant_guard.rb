@@ -142,8 +142,12 @@ module RowInstantGuard
   module ResultWrapping
     def to_a
       rows = super
-      return rows unless RowInstantGuard.armed? && RowInstantGuard.wf005_reading?
+      return rows unless RowInstantGuard.armed?
 
+      # THE CHEAP QUESTION FIRST. Field metadata is already in hand; walking the call stack is not,
+      # and this runs for every result the suite produces. Asking "does this result even contain a
+      # guarded instant?" before "who is reading it?" keeps the guard off the hot path entirely for
+      # the large majority of statements, which carry no `timestamptz` from a crawl table at all.
       wrapped = (0...nfields).filter_map do |i|
         next unless ftype(i) == RowInstantGuard::TIMESTAMPTZ_OID
         next unless RowInstantGuard.crawl_table_oids.include?(ftable(i))
@@ -151,6 +155,7 @@ module RowInstantGuard
         fname(i)
       end
       return rows if wrapped.empty?
+      return rows unless RowInstantGuard.wf005_reading?
 
       rows.map do |row|
         next row unless row.is_a?(::Hash)

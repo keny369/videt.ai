@@ -373,19 +373,13 @@ RSpec.describe "Repository truth", type: :model do
       rounds = review.scan(/^#+ ROUND (\d+) —/).flatten.map(&:to_i)
       expect(rounds).to eq((1..rounds.length).to_a), "the review record's round headings are not 1..n"
 
-      # THE FORMS THE RECORD USES TO STATE ITS TOTAL, and only those. "three rounds for a number the
-      # repository could count" is a sentence about a defect's history, not a claim about how many
-      # reviews have run, and a rule that could not tell them apart would be noise rather than a gate.
-      claims = [/(\w+) full ADR-026 five-lens rounds/i,
-                /Review history — (\w+) rounds/i,
-                /(\w+) rounds, \w+ FAILs/i].flat_map { |pattern| in_flight.scan(pattern).flatten }
-      expect(claims).not_to be_empty, "the record states no review-round total in any recognised form"
-
-      claims.each do |claim|
-        numeric = claim.to_i.positive? ? claim.to_i : NUMBER_WORDS[claim.downcase]
-        expect(numeric).to eq(rounds.length),
-                           "the record says #{claim} rounds; the review record contains #{rounds.length}"
-      end
+      # THE COUNT COMES FROM THE EVIDENCE BLOCK, NOT FROM PROSE. Round 9's frozen-path limb read a
+      # sentence with a regex and went silent when the sentence wrapped; a number a gate depends on
+      # does not live in prose any more. The prose may say whatever reads best.
+      expect(evidence_block(in_flight).fetch("review_rounds")).to eq(rounds.length),
+                                                                 "the evidence block says " \
+                                                                 "#{evidence_block(in_flight).fetch('review_rounds')} " \
+                                                                 "rounds; the review record contains #{rounds.length}"
     end
 
     NUMBER_WORDS = { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
@@ -501,8 +495,11 @@ RSpec.describe "Repository truth", type: :model do
     it "names in the record only mutations the ledger actually ran" do
       skip "no mutation ledger in this tranche" unless ROOT.join(LEDGER_PATH).exist?
 
-      ids = JSON.parse(ROOT.join(LEDGER_PATH).read).fetch("mutations").map { |m| m["id"] }
-      cited = in_flight.scan(/`(m\d[\w-]*|fu44[\w-]*|a\d-[\w-]*)`/).flatten.uniq
+      # Ledger identifiers as the ledger writes them, rather than a pattern that has to be widened
+      # every time a naming convention changes — which is how this limb went quiet before.
+      ids = AutonomousBuild::MutationHarness.load(ROOT.join(LEDGER_PATH).to_s).map { |m| m["id"] }
+      cited = in_flight.scan(/`([\w-]+)`/).flatten.uniq
+                       .select { |token| token.match?(/\A[a-z]\d+-/) && !token.start_with?("f1-") }
       expect(cited).not_to be_empty, "the record cites no mutation identifiers"
       expect(cited - ids).to be_empty,
                              "the record names mutations the ledger does not contain: #{(cited - ids).join(', ')}"

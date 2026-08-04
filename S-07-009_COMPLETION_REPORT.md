@@ -1,80 +1,99 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-9 repair is complete under ADR-124; this report is not an acceptance record.**
+**Acceptance status: NOT ACCEPTED. The round-10 repair is complete under ADR-126; this report is not an acceptance record.**
 
-Eight full ADR-026 five-lens rounds have reviewed this tranche and all eight returned FAIL. Round 8
-(ADR-123) returned NINE confirmed blockers against the round-7 repair, and its central finding was not
-about the code: **eight of the nine were PROOF defects rather than behaviour defects.** Three lenses
-independently verified the shipped code correct on every path they exercised. What failed was what
-defends it — proofs that never executed the code they named, controls with no proof at all, and a record
-that stated mechanically checkable falsehoods about itself.
+Nine full ADR-026 five-lens rounds have reviewed this tranche and all nine returned FAIL. Round 9
+(ADR-125) closed six of round 8's nine blockers and then reproduced its own failure mode one step
+later in the other three: **it replaced three enumerations with three narrower enumerations.**
 
-The owner granted authority to repair all nine and to strengthen the proof system until it detects the
-false implementations round 8 identified (ADR-124). That repair is what this report describes.
+```f1-evidence
+candidate_range: 7f043a2..6d00aa1
+frozen_path_changes: 2
+frozen_paths:
+  - lib/f1/runtime_grants.rb
+  - spec/architecture/wf005_time_single_surface_spec.rb
+suite_examples: 2248
+review_rounds: 9
+```
 
-**IMPLEMENTATION GATES PASS; THAT IS VERIFICATION, NOT ACCEPTANCE.** This tranche's own history is the
-reason the distinction is enforced.
+The block above exists because round 9's frozen-path gate NEVER EXECUTED: it read prose with a regex
+expecting a literal space, the record's only claim wrapped across a line, and the example skipped in
+every run. A fact a gate depends on does not live in a sentence any more.
 
-### The round-9 repair, blocker by blocker
+### The pattern this round was authorised to remove, and how
 
-Every row's mutation is recorded in `specification/automation/S-07-009_MUTATION_LEDGER.json` with
-confirmation that it LANDED, the command, the counts and the failing example. Nothing below is inferred
-from a passing baseline or from an intended edit.
+| Round 9 blocker | What it enumerated | What replaced it |
+| --- | --- | --- |
+| R9-1 | a list of two classified translation EXCEPTIONS, missing a third producer | **no exceptions at all.** Both command handlers now translate, so `CLASSIFIED_UNTRANSLATED` is empty; completeness is a runtime census over every execution API `PG::Connection` exposes |
+| R9-3 | a matrix of two authority AXES, missing a third that was exploitable | **the write refuses.** `Wf005::AuthorityAttestation` is minted only by a passing recheck and demanded by every protected commit, so no Boolean arrangement reaches a commit without one |
+| R9-4 | a source LINE standing in for a control | **method invocation.** `ExecutionProbe.watch` observes `:call`, which no short-circuit can fake; `line_of` now refuses to resolve a control to a continuation line Ruby never reports |
+| R9-5 | a list of receiver and BINDING FORMS, missing four classes | **the taint is the value.** A `timestamptz` read by WF-005 arrives wrapped; assignment, `&:symbol`, containers, aliases and helpers all carry it, because it is the object rather than the spelling |
+| R9-7 | a per-line text scan defeated by one method indirection | **there is nothing to reimplement.** `Platform::RunDeadline` answers :442's questions and exposes no comparison and no raw instant |
+| R9-2 | a regex over prose | the `f1-evidence` block above, and an absent block is a FAILURE rather than a skip |
+| R9-6 | a ledger that reported on itself | `AutonomousBuild::MutationHarness`, IN the repository, with each entry carrying its exact substitution so the gate can prove it is replayable |
 
-| Blocker | What was wrong | Closed by | Proof | Mutations killed |
-| --- | --- | --- | --- | --- |
-| R8-1 | the C-1 anchor was unproved at the only production call site that motivates it; PROOF 164/165 called `Admission` directly | proofs that drive the REAL `crawl_fetch_due` handler with real elapsed time burned in the pass's pre-transaction window | PROOF 177, 178, 179 | `m1-anchor-nil`, `m1b-anchor-late`, `m1c-anchor-omitted`, `m1d-anchor-captured-late` |
-| R8-2 | `FetchContent#settle` was a third untranslated producer, and an execution census then found governed writes from EIGHT WF-005 lines | the PASS is the translation boundary (`CrawlDriver#advance`); `FetchContent` translates at its own entry; `DiscoverSitemaps` stops re-implementing the translation | PROOF 171, 173, 174, 175, 176 | `m2-settle-translate`, `m2b-robots-translate`, `m2c-sitemaps-translate` |
-| R8-3 | PROOF 168 terminalized BEFORE `advance`, so `authorize_run` refused at step zero and `ensure_gate` never ran | PROOF 168 withdrawn; its replacement opens the real window and proves the gate INSERT was attempted and refused | PROOF 172, 172b | `m3-pass-translate` |
-| R8-4 | `ActivateCrawlPolicy`'s recheck had no proof of any kind; deleting it left 388 examples green | a proof per scope that observes the wait, revokes under it, and proves the recheck line executed | PROOF 189, 190 | `m4-activate-recheck-deleted`, `m4b-queue-recheck-deleted` |
-| R8-5 | both SEC-B1 proofs were branch-depth-one; a one-line bypass survived 174 examples and was exploitable | a branch matrix: both handlers, both scopes, one and two Sources, each with its adversarial half | PROOF 189-192 | `m5a-activate-branch-bypass`, `m5b-queue-branch-bypass`, `m5c-queue-recheck-before-wait`, `m5d-activate-denial-swallowed`, `m5e-activate-write-before-recheck`, `m5f-queue-stale-authority` |
-| R8-6 | rule 3's receiver predicate was a new enumeration; 30 of 41 bypass forms escaped | both axes inverted: calls recognised by Ruby's three call OPERATORS, receivers PROVED in memory or treated as foreign | 41 bypass forms and 15 legitimate forms injected into a real tracked file | `m6a-call-kind-enumeration`, `m6b-receiver-fails-open`, `m6c-no-block-taint`, `m6d-no-binding-taint`, `m6e-paren-terminates`, `m6f-decoder-class-limb` |
-| R8-7 | the record stated falsehoods about itself and every truth limb passed | the gate MEASURES: suite size from `rspec --dry-run`, candidate range agreement and reachability, round count from the review record's headings, frozen-path count from `FrozenContracts` | `repository_truth_spec.rb` | the record's own claims fail the gate when stale |
-| R8-8 | FU-44's stated failure model was refuted three times out of three | FU-44 SUPERSEDED as an erroneous record; the real survivor it should have named is closed | the new prestart-boundary example in `spec/platform/entitlement/service_spec.rb` | `fu44-commit-ge-to-gt` (killed 4/4), `fu44b-start-execution-ge-to-gt` (the real survivor, now killed 3/3) |
-| R8-9 | `:442`'s exact 60-minute equality was unpinned and undisclosed | `Platform::PgInstant.expired?` is the one owner of the boundary; four call sites now ask it | PROOF 180-188 | `m9-wall-clock-lte-to-lt`, `m9b-wall-clock-truncated`, `m9c-wall-clock-local-clock`, `m9d-admission-bypasses-owner` |
+### The :442 cross-deadline defect, repaired
 
-### The two instruments, which are the actual repair
+Round 9 reproduced a real product defect and correctly left it for an owner decision: a pass consults
+the wall clock once, at entry, then makes network requests. A pass entering one second inside its
+deadline and spending 1.6 seconds on robots STARTED A SITEMAP REQUEST 0.659 SECONDS AFTER THE RUN WAS
+OVER, and could mint a forward action from work performed after expiry.
 
-R8-3 and R8-4 are the same failure: a proof that cannot tell "the guard refused" from "the guard was
-never reached". Assertions on outcomes cannot distinguish those, so two instruments were built that
-report what EXECUTED rather than what was returned.
+**The rule is now enforced where requests actually leave.** `Wf005::RunBoundedOutbound` wraps the
+façade the pass hands to every producer and checks the run's deadline AT THE MOMENT OF EACH REQUEST,
+against the pass's own anchored instant rather than a raw database clock. A check before each fetch
+would have been a list of request sites, and this tranche's history is lists being one entry short.
+`DeadlinePassed` descends from `Exception`, not `StandardError`, because every producer wraps its
+network call in a rescue that turns a fault into a RETRYABLE outcome — scheduling another attempt for
+a run whose clock has stopped is precisely what ":442 stop scheduling affected work" forbids. PROOF
+194-197 drive real request ordering and do not pre-resolve the window they test.
 
-* **`spec/support/governed_write_sentinel.rb`** observes every statement leaving the process for a table
-  `f1_crawl_child_fact_closed` governs — the tables read from the CATALOGUE, not listed — and records
-  which WF-005 line issued it, whether the translation was on the stack at that moment, and whether the
-  database refused it. It is armed for the whole suite, and an `after(:suite)` hook fails the run on any
-  governed write production can reach that is neither translated nor classified with a reason. That is
-  what makes the producer set an OBSERVATION rather than a list, which is what R8-2 needed and did not
-  have: round 7 enumerated two producers, and the third was in no list.
-* **`spec/support/execution_probe.rb`** reports the lines Ruby actually executed inside a block, and
-  resolves a control by PATTERN rather than by line number, so an assertion cannot rot into a line that
-  means something else. Every SEC-B1 proof asserts the recheck line ran before asserting anything about
-  the outcome.
 
-### What the systematic audit found
+### Mutation evidence
 
-The audit was not limited to round 8's five mutations. Eight further controls of this tranche were
-mutated under the same landed-or-abort harness: `:458`'s completion-reason precedence, its
-`partial_source_failure` limb, `CancelCrawl`'s post-wait recheck and its lock order, `Admission`'s
-execution-time authorization, the pass's entitlement-lease renewal, its step-zero authorization, and its
-lease-ownership check. **Seven were killed. One survived, and it is recorded rather than reported as a
-kill.**
+Every entry is verified replayable from the repository by `AutonomousBuild::MutationHarness`: it carries the exact substitution, its `from` text must occur EXACTLY ONCE in the named file, and `landed` is computed from the file's own bytes rather than accepted as input.
 
-`a5-admission-authorize-after-effect` removes `Admission`'s PREFLIGHT authorization while leaving the
-authoritative post-wait one, which still denies before the peek, the reservation, the claim and every
-observation — so the sentence the code states remains true of the mutant. What it loses is that an
-unauthorized run refuses without first taking the frontier advisory lock, which is liveness rather than
-security. The ledger carries that reasoning as a REQUIRED field: an entry may not expect survival
-without one, and `repository_truth_spec.rb` fails if it does.
+| Mutation | Blocker | Result |
+| --- | --- | --- |
+| `r10-authority-supersede-axis` | R9-3 | killed, 15 examples, 15 failures |
+| `r10-authority-queue-policy-axis` | R9-3 | killed, 43 examples, 43 failures |
+| `r10-authority-cancel-state-axis` | R9-3 | killed, 17 examples, 16 failures |
+| `r10-attestation-not-required` | R9-3 | killed, 9 examples, 8 failures |
+| `r10-handler-translate-removed` | R9-1 | killed, 7 examples, 7 failures |
+| `r10-checkpoint-translate-removed` | R9-1 | killed, 33 examples, 32 failures |
+| `r10-pass-translate-removed` | R9-1 | killed, 7 examples, 7 failures |
+| `r10-deadline-boundary-weakened` | R9-7 | killed, 10 examples, 3 failures |
+| `r10-deadline-indirection` | R9-7 | killed, 9 examples, 8 failures |
+| `r10-outbound-unbounded` | :442 | killed, 9 examples, 6 failures |
+| `r10-request-bound-not-equality` | :442 | killed, 9 examples, 1 failure |
+| `r10-refusal-swallowable` | :442 | killed, 9 examples, 2 failures |
+| `r10-entitlement-commit-boundary` | FU-44 | killed, 11 examples, 1 failure |
+| `r10-entitlement-prestart-boundary` | FU-44 | killed, 19 examples, 1 failure |
 
-**AND THE AUDIT FOUND ONE FACT ABOUT THE PROOF LAYOUT WORTH RECORDING.** `a3-cancel-recheck-deleted`
-survives `spec/acceptance/wf005_cancel_crawl_spec.rb` and is killed by PROOF 151 in
-`spec/acceptance/wf005_admission_terminal_concurrency_spec.rb`. The control is genuinely pinned, but not
-by the spec that carries the handler's name — which is the same shape as R8-4, one degree weaker: a
-reader checking whether `CancelCrawl`'s recheck is defended would look in `CancelCrawl`'s spec and find
-nothing. The ledger therefore names the file that actually rejects each mutation rather than the file
-whose name matches the handler, and PROOF 193 asserts mechanically that every waiting handler consults
-the one post-wait owner, so the question does not depend on where a proof happens to live.
+
+### The proof-system audit
+
+Every defect class the owner named was checked against this repair's own work, and four were found in
+it. They are listed because finding them is the point of running the audit on yourself.
+
+| Class | Found in this repair? | Disposition |
+| --- | --- | --- |
+| claims based on source lines rather than evaluated controls | yes — the old probe | replaced by invocation observation; `line_of` now REFUSES a continuation line, so the vacuous negative assertion is impossible |
+| completeness claims based on manually maintained counts | yes — the record's counts | derived by the gate from the files, and the suite size compared to `rspec --dry-run` |
+| regexes over prose or formatting | yes — the frozen-path and round-count limbs | both moved into the `f1-evidence` block; an absent block FAILS |
+| syntactic scans presented as semantic guarantees | yes — the time-surface rule | it remains as a SECONDARY net and is no longer the completeness mechanism; the value guard is |
+| tests satisfiable by a different mechanism | checked | PROOF 195 asserts the request COUNT and the halt reason; PROOF 172 asserts the write was attempted AND refused |
+| fixtures that pre-remove the behaviour under test | checked | PROOF 194-197 deliberately do not pre-resolve robots or sitemaps, which is what made round 9's :442 proofs unable to fail |
+| mutations landing at the wrong identical site | closed | the harness requires the `from` text to occur EXACTLY ONCE — the FU-44 class |
+| negative assertions that can pass vacuously | closed | `expect_did_not_write` asserts on `require!` invocation, which is observable in both directions |
+| sentinels observing one database execution API | yes — the governed-write sentinel | routed through `WireTap`, which covers every door `PG::Connection` defines and proves the set against the live class |
+| defaults preserving a known unsafe affordance | yes — `Admission#claim_next(anchored_at: nil)` | the keyword is now REQUIRED; it had no production caller, so the default was the `m1c` mutation left in place for the next caller to inherit |
+| gates that can hang rather than fail | closed | `wf013`'s join is bounded and reports thread states and backtraces |
+
+**One process fault is recorded rather than glossed.** A full-suite run and a mutation-ledger replay
+were allowed to run concurrently against the same database. The resulting failures were DISCARDED, the
+database was re-provisioned from empty, and everything was re-run serially. No result in this report
+comes from that window.
 
 ## Identity
 
@@ -281,7 +300,7 @@ arity of foreign keys it found but could not discover a missing link; migration 
 proof repair that exact gap. The separate `IS NOT DISTINCT FROM` refutation remains unchanged and is
 covered by `spec/architecture/repository_truth_spec.rb`'s tracked-record corpus.
 
-## Review history — eight rounds, eight FAILs
+## Review history — nine rounds, nine FAILs
 
 | Round | Candidate | Outcome |
 | --- | --- | --- |
@@ -293,6 +312,7 @@ covered by `spec/architecture/repository_truth_spec.rb`'s tracked-record corpus.
 | 6 | `7f043a2..5860bb4`, reviewed through `cf2059e` | FAIL — all five lenses, 9 blockers; three reproduced as deterministic real-PostgreSQL interleavings |
 | 7 | `7f043a2..4e2d8cf` | FAIL — three of five lenses, 5 blockers: C-1, C-2, SEC-B1, A-1, A-2 |
 | 8 | `7f043a2..e1f5bab` | FAIL — four of five lenses, 9 blockers, EIGHT of them proof defects rather than behaviour defects |
+| 9 | `7f043a2..6fda00d` | FAIL — four of five lenses, 7 blockers; six of round 8's nine closed, and three enumerations replaced by narrower ones |
 
 Round 6 returned contract FAIL (R6-2, R6-3, R6-4), concurrency FAIL (R6-1, R6-2, R6-3), security FAIL
 (R6-1, R6-5, R6-6), schema FAIL (R6-2) and architecture FAIL (R6-7, R6-8, R6-9). The complete findings and
@@ -314,7 +334,7 @@ Run from the repair tip on PostgreSQL 17 at `127.0.0.1:5433`:
 
 | Gate | Result |
 | --- | --- |
-| `bundle exec rspec` | `2232 examples, 0 failures` |
+| `bundle exec rspec` | `2248 examples, 0 failures` |
 | `bundle exec rspec spec/architecture` | `137 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
@@ -387,8 +407,8 @@ the five rounds that were reading it.
 | `spec/acceptance/wf005_checkpoint_pass_concurrency_spec.rb` | 10 |
 | `spec/platform/pg_instant_spec.rb` | 10 |
 | `spec/acceptance/wf005_closed_fact_set_spec.rb` | 8 |
-| `spec/acceptance/wf005_pass_anchor_spec.rb` | 7 |
-| `spec/acceptance/wf005_post_wait_authority_spec.rb` | 7 |
+| `spec/acceptance/wf005_pass_anchor_spec.rb` | 11 |
+| `spec/acceptance/wf005_post_wait_authority_spec.rb` | 6 |
 | `spec/acceptance/wf005_sitemap_discovery_spec.rb` | 7 |
 | `spec/workflows/wf005/limit_semantics_spec.rb` | 6 |
 | `spec/persistence/crawl_terminal_fact_closure_spec.rb` | 6 |

@@ -99,7 +99,7 @@ RSpec.describe "WF-005 content fetch", type: :acceptance,
 
   def admit_next(ctx)
     Workflows::Wf005::Admission.new.claim_next(
-      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: start_now
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: start_now, anchored_at: db_anchor
     )
   end
 

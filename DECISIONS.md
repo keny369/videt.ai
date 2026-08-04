@@ -3595,3 +3595,78 @@ Records the outcome of the round-9 independent acceptance review. It makes no ac
 authorizes no repair, resolves no blocker and alters no owner decision. FU-32, FU-33, FU-43 and
 R3-P1..R3-P3 are unchanged; FU-44 remains correctly SUPERSEDED by ADR-124. S-07-010 and S-07-011 remain
 blocked on S-07-009. Allocated the next unused number after ADR-124.
+
+## ADR-126: Owner Authority For The Round-10 Repair — Remove The Enumeration Pattern, Not Only Its Latest Instance
+
+Status: Authorized and implemented (2026-08-04); S-07-009 is NOT accepted
+Date: 2026-08-04
+Owner: explicit owner instruction granting authority to begin the next repair cycle, with the objective stated as removing the recurring failure pattern rather than patching R9-1..R9-7
+Reversibility: Integration branch only. It permits production refactoring within the repair surface, replacement of defective proof mechanisms, and the separate :442 follow-up; it makes no acceptance transition.
+
+**THE PATTERN, NAMED BY THE OWNER AND CONFIRMED BY THE RECORD.** Nine rounds have failed, and three of
+them failed the same way: an incomplete enumeration replaced by a narrower enumeration. Round 6 banned
+four AST spellings; round 7 walked nine forms past it. Round 7 banned two names; round 8 walked thirty
+of forty-one past it. Round 8 banned a receiver shape; round 9 walked four binding classes past it.
+Round 8 named two authority axes; round 9 drove both and its review found a third, exploitable. Round 9
+classified two translation exceptions; its review found a third producer under one of those very
+handlers. **The lists were not too short. Syntax and lists were being asked to decide questions about
+values, callers and reachability.**
+
+**THE GOVERNING REPAIR PRINCIPLE THE OWNER IMPOSED**, in order: a production invariant that makes the
+invalid state impossible; a runtime or database invariant covering all callers; a semantic check over
+parsed structure or execution; a mechanically derived census; and a narrow syntactic rule only where
+the repository proves syntax IS the complete contract surface. Every repair below is placed against
+that order, and where a lower tier was chosen the reason is recorded.
+
+**WHAT WAS BUILT.**
+
+* **R9-3 — the write refuses (tier 1).** `Wf005::AuthorityAttestation` is minted only by a passing
+  post-wait recheck and demanded by every protected commit in all three human-authorized handlers. No
+  Boolean arrangement, operand order, helper extraction or short-circuit reaches a commit with proof
+  it did not perform. `AuthoritySentinel` adds the suite-wide half: a human-authorized WF-005 command
+  that SUCCEEDS and WRITES must have evaluated `CommandAuthorizer.authority_current?`, judged across
+  every example the repository runs, so the axis never has to be anticipated.
+* **R9-5 and R9-7 — the taint is the value (tier 2).** A `timestamptz` read by WF-005 arrives wrapped;
+  assignment, multiple assignment, `&:symbol`, containers, aliases and helper methods all carry it
+  because it is the object rather than the spelling. `Platform::RunDeadline` answers :442's questions
+  and exposes no comparison and no raw instant, so there is nothing left to reimplement behind an
+  indirection. The five decode escapes round 9 could not catch, and the method-indirection escape that
+  defeated its boundary rule, all raise.
+* **R9-1 — no exceptions (tier 1 and 2).** Both command handlers now translate, so
+  `CLASSIFIED_UNTRANSLATED` is EMPTY; completeness is a runtime census over every execution API
+  `PG::Connection` exposes rather than a list of producers or of exceptions.
+* **R9-4 — invocation, not location (tier 3).** `ExecutionProbe.watch` observes `:call`; `line_of`
+  refuses to resolve a control to a continuation line Ruby never reports, so the vacuous negative
+  assertion is now impossible rather than discouraged. Six self-tests hold the instrument to its claims.
+* **R9-2 — the fact leaves the prose.** The completion report carries an `f1-evidence` block, and an
+  absent or unparseable block FAILS rather than skips.
+* **R9-6 — the harness is in the repository.** `AutonomousBuild::MutationHarness` applies, verifies and
+  restores; every ledger entry carries its exact substitution; the gate proves each entry names a real
+  file and a `from` text occurring EXACTLY ONCE, which rejects fabricated, stale and wrong-identical-site
+  entries — the class that invalidated FU-44.
+
+**THE :442 CROSS-DEADLINE DEFECT IS REPAIRED, NOT DEFERRED.** A pass consulted the wall clock once, at
+entry, and then made network requests; one entering a second inside its deadline and spending 1.6
+seconds on robots started a sitemap request 0.659s after the run was over. `Wf005::RunBoundedOutbound`
+binds the façade every producer is handed to the run's deadline and checks it AT THE MOMENT OF EACH
+REQUEST, against the pass's anchored instant rather than a raw database clock. `DeadlinePassed`
+descends from `Exception` because every producer's `rescue StandardError` would otherwise turn a
+stopped run into a RETRYABLE fault. PROOF 194-197 drive real request ordering and deliberately do not
+pre-resolve the window they test.
+
+**WHAT THE MUTATION LEDGER FOUND ABOUT THIS REPAIR.** Three of fourteen mutations survived their first
+replay, and all three were defects in the proof system rather than in the code: one boundary proof was
+still testing `PgInstant.expired?` after the boundary moved into the value object — a proof defending
+DEAD CODE — and two entries named proofs that did not drive the path they claimed. The dead method is
+deleted, the proofs re-aimed, and the ledger now stands at 14 of 14 killed with every entry verified
+replayable from the repository.
+
+**GATE RELIABILITY.** `wf013_organization_lifecycle_concurrency_spec.rb` joined two threads with no
+bound, so a wedged pair hung the headline gate forever instead of failing it. The join is now bounded
+by the repository's existing `RaceHarness::TIMEOUT_SECONDS` and reports thread states and backtraces on
+expiry. The race is preserved, not serialised.
+
+Authority And Precedence:
+Grants repair authority for S-07-009 round 10 and for the :442 follow-up. It makes no acceptance
+transition, does not accept S-07-009, does not authorize S-07-010, and does not resolve FU-32, FU-33,
+FU-43 or R3-P1..R3-P3. Allocated the next unused number after ADR-125.

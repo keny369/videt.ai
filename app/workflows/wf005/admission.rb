@@ -69,7 +69,14 @@ module Workflows
       end
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
-      def claim_next(organization_id:, crawl_id:, now:, anchored_at: nil)
+      # THE ANCHOR IS REQUIRED, NOT DEFAULTED (round 9's carried observation, closed).
+      #
+      # This had `anchored_at: nil` and NO PRODUCTION CALLER — every caller in the tree is a spec. A
+      # default that silently reproduces the C-1 defect, on a public method nothing calls, is the
+      # `m1c` mutation preserved as a permanent affordance: the next caller to appear gets the wrong
+      # behaviour by writing nothing. Requiring it means a caller must state where its instant was
+      # true, which is the whole of C-1.
+      def claim_next(organization_id:, crawl_id:, now:, anchored_at:)
         claim(organization_id:, crawl_id:, now:, only: nil, anchored_at:)
       end
 

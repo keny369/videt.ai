@@ -20,7 +20,7 @@ module WireTap
     exec exec_params exec_prepared
     async_exec async_exec_params async_exec_prepared
     sync_exec sync_exec_params sync_exec_prepared
-    query send_query send_query_params send_query_prepared
+    query async_query send_query send_query_params send_query_prepared
   ].freeze
 
   class << self

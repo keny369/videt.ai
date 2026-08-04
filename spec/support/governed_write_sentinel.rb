@@ -50,6 +50,7 @@ module GovernedWriteSentinel
   # `crawl_host_gates` pacing columns to fake elapsed time — and is not a producer. Nearest wins: the
   # frame closest to the statement is the one that issued it.
   SPEC_SOURCE = %r{/spec/}
+  INSTRUMENT_PATHS = [__FILE__, File.expand_path("wire_tap.rb", __dir__)].freeze
   STACK_DEPTH = 160
 
   # THERE ARE NO CLASSIFIED EXCEPTIONS (round 9, R9-1).
@@ -143,7 +144,11 @@ module GovernedWriteSentinel
       return if armed?
 
       write_pattern
-      PG::Connection.prepend(Instrumentation)
+      # EVERY DOOR, NOT ONE. This hooked `exec_params` alone, which was complete only because nothing
+      # in `app/` happened to use `exec`, `exec_prepared` or the async forms — "complete because
+      # nobody has used the other doors yet" is the shape of every finding this tranche has produced.
+      # `WireTap` covers all of them and proves the set is the whole surface `PG::Connection` exposes.
+      WireTap.subscribe { |sql, error| observe(sql, error) }
       @armed = true
     end
 
@@ -168,10 +173,12 @@ module GovernedWriteSentinel
       stack = caller_locations(1, STACK_DEPTH) || []
       # NEAREST OWNER WINS. Whichever comes first — WF-005 code or an example — is the frame that
       # issued this statement, and a statement issued by an example is the harness, not a producer.
-      own_path = __FILE__
+      # THE INSTRUMENT CHAIN IS NOT AN ISSUER. Both this file and `WireTap` live under `spec/`, so
+      # without this the tap itself becomes the "nearest owning frame" and every write is classified
+      # as harness-issued — which would blind the census while every assertion below still passed.
       issuer = stack.find do |l|
         path = l.absolute_path.to_s
-        next false if path == own_path
+        next false if INSTRUMENT_PATHS.any? { |instrument| path == instrument }
 
         path.match?(WF005_SOURCE) || path.match?(SPEC_SOURCE)
       end
@@ -193,18 +200,6 @@ module GovernedWriteSentinel
     end
   end
 
-  # Both the success and the failure path are observed, because a REFUSED governed write is exactly
-  # the event this instrument exists to see.
-  module Instrumentation
-    def exec_params(statement, *rest, &block)
-      result = super
-      GovernedWriteSentinel.observe(statement, nil)
-      result
-    rescue StandardError => e
-      GovernedWriteSentinel.observe(statement, e)
-      raise
-    end
-  end
 end
 
 RSpec.configure do |config|

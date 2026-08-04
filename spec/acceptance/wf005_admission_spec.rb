@@ -20,8 +20,11 @@ RSpec.describe "WF-005 admission", type: :acceptance,
 
   def admission = Workflows::Wf005::Admission.new
 
-  def claim(ctx, now: start_now) = admission.claim_next(organization_id: ctx[:g][:organization_id],
-                                                        crawl_id: ctx[:crawl_id], now:)
+  # `anchored_at` IS REQUIRED, so every caller states where its instant was true — the whole of C-1.
+  def claim(ctx, now: start_now, anchored_at: db_anchor)
+    admission.claim_next(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now:,
+                         anchored_at:)
+  end
 
   def counters(cid) = DbInspector.one("SELECT * FROM crawl_budget_counters WHERE crawl_id=$1::uuid", [cid])
   def attempts(cid) = DbInspector.all("SELECT * FROM fetch_attempts WHERE crawl_id=$1::uuid ORDER BY attempt_number", [cid])
