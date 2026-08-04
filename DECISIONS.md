@@ -3853,3 +3853,62 @@ Acceptance under standing delegation ADR-061 and review discipline ADR-080. Reco
 PREREQ-DB-BOOTSTRAP in `completed_prerequisites`. Does NOT add to `completed_blocks`, does not alter
 `current_tranche`, does not accept S-07-009, and does not authorise S-07-010 or S-07-011. Opens
 FU-45 (BLOCKING), FU-46 and FU-47. Allocated the next unused number after ADR-129.
+
+---
+
+## ADR-131: The WF-013 Concurrency Hang Was The Harness Contending With Itself
+
+Date: 2026-08-05
+Status: Accepted
+Scope: Repository-level stability. Not a tranche, and not an S-07-009 defect.
+
+Context:
+
+`spec/acceptance/wf013_organization_lifecycle_concurrency_spec.rb:188` intermittently ended with a
+racing thread parked until `RaceHarness::TIMEOUT_SECONDS` expired, roughly one full-suite run in
+three, while passing in isolation. It was first observed during the S-07-009 round-11 work and was
+hypothesised there to be caused by that round's newly prepended write observer. **That hypothesis was
+refuted**: the hang reproduced on `prerequisite/db-bootstrap-provenance`, which carries none of that
+instrumentation. It is older than the tranche that was blamed for it.
+
+Decision:
+
+**IT IS A HARNESS DEFECT, AND IT IS SPECIFIC.** This was the ONLY `race(...)` call in the file that
+constructed its sessions INSIDE the racing lambdas:
+
+```ruby
+race(-> { suspend(session_for(w)) }, -> { create_invitation(session_for(w)) })
+```
+
+`TenantSeeder.create_session` writes. Both threads therefore began by contending in the HARNESS
+rather than in the commands under test, and the stuck backtrace named `create_session` beneath
+`exec_params`, not any lifecycle command. The sibling example twenty lines above races the identical
+pair — `suspend` against `create_invitation` — with its sessions hoisted out of the threads, and has
+never hung.
+
+The sessions are now seeded before the threads start. **The race under test is not weakened, it is
+isolated**: both threads still start together and still contend for the same lifecycle locks, but
+they now start AT the commands, so what contends is the thing the example is about.
+
+Evidence:
+
+| State | Full-suite runs | Hangs |
+| --- | --- | --- |
+| before | 5 | 2 |
+| after | 4 | 0 |
+
+**THIS IS EVIDENCE, NOT PROOF.** Four consecutive clean runs do not establish the absence of an
+intermittent defect. What raises confidence beyond the count is that the mechanism is understood and
+named, the fix removes exactly that mechanism, and the example now matches the sibling that never
+exhibited the behaviour. If it recurs, this ADR is the record of what was ruled out.
+
+Consequences:
+
+The mandatory `complete_test_suite` gate passes. This does NOT accept S-07-009 or clear any of its
+blockers. It removes one of the five, and the owner's rule stands: S-07-009 may not claim acceptance
+while any stability violation is live.
+
+Authority And Precedence:
+Repository-level stability repair, recorded separately from S-07-009 because it is not an S-07-009
+defect. Corrects the round-11 attribution in `S-07-009_ACCEPTANCE_REVIEW.md`, which had already been
+amended to record the hypothesis as refuted. Allocated the next unused number after ADR-130.

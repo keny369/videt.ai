@@ -187,7 +187,20 @@ RSpec.describe "WF-013 organization lifecycle concurrency", type: :acceptance,
 
     it "never leaves an Invitation without its timer, whichever way the race falls" do
       w = world
-      results = race(-> { suspend(session_for(w)) }, -> { create_invitation(session_for(w)) })
+      # THE SESSIONS ARE SEEDED BEFORE THE THREADS START, as every other race in this file does.
+      #
+      # This example was the only `race` call that constructed its sessions INSIDE the racing lambdas,
+      # and `TenantSeeder.create_session` writes. Two threads therefore began by contending in the
+      # HARNESS rather than in the commands under test, and roughly one full-suite run in three ended
+      # with a thread parked in `create_session` until the 15-second bound expired. The sibling
+      # example above races the identical pair — `suspend` against `create_invitation` — with its
+      # sessions hoisted, and has never hung.
+      #
+      # THE RACE UNDER TEST IS NOT WEAKENED; it is isolated. Both threads still start together and
+      # still contend for the same lifecycle locks. What changed is that they now start AT the
+      # commands, so what contends is the thing this example is about.
+      suspending, inviting = session_for(w), session_for(w)
+      results = race(-> { suspend(suspending) }, -> { create_invitation(inviting) })
       expect(results.first).to be_success
 
       orphans = DbInspector.all(<<~SQL)
