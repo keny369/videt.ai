@@ -133,7 +133,15 @@ module Workflows
         # measure was still invisible. Captured here and carried down.
         entered_monotonic = monotonic
         crawl_id = entry["crawl_id"]
-        crawl = load_crawl(organization_id, crawl_id)
+        # THE DATABASE INSTANT `now` IS TRUE AT (round 7, C-1). `Admission` measures its post-wait
+        # decision instant as an ADVANCE over the instant it is handed, and it must measure that advance
+        # from HERE — not from the transaction it eventually opens. Everything between this line and
+        # `admit_or_resume` (the robots fetch, sitemap discovery, host pacing) is real elapsed time
+        # spent OUTSIDE every transaction, and round 7 reproduced what happens when it is invisible:
+        # 1.5s spent after `BEGIN` correctly refused a run past its deadline, while the identical 1.5s
+        # spent before `BEGIN` admitted it and reserved 10,485,760 bytes. Captured in the same unit of
+        # work that loads the Crawl, so it costs no extra round trip.
+        crawl, anchored_at = load_crawl_with_anchor(organization_id, crawl_id)
         # The entry's composite foreign key REQUIRES its Crawl, so absence is corruption rather than a
         # domain outcome, and guessing at it would hand a worker unauthorized work.
         raise Platform::InvariantViolation, "crawl_fetch_due entry has no Crawl" if crawl.nil?
@@ -179,7 +187,14 @@ module Workflows
         return deferred(DiscoverSitemaps::CONTENDED, entry:, at: ready) if discovery.rescheduled?
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
-        admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic)
+        admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic, anchored_at)
+      rescue ClosedFactSet::CrawlWentTerminal
+        # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (round 7, C-2). The
+        # database refused the governed write, correctly, and this is that refusal expressed as the
+        # pass outcome the ledger already knows how to record — rather than an exception the transport
+        # would classify `scheduled_action_execution_failed`, which means DEFECT. Nothing was written,
+        # so there is nothing to undo and nothing to schedule: a terminal run has no next pass.
+        halted(ClosedFactSet::REASON, entry:)
       end
 
       private
@@ -192,9 +207,10 @@ module Workflows
       # attempt numbering and the depth seal are all continuous across :444's retries. `claim_entry`
       # cannot re-admit it (`peek_next` sees only `queued`), so the retry is recognised from COMMITTED
       # STATE instead: the entry's latest attempt is terminal, was retryable, and left the bound unspent.
-      def admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic = nil)
+      def admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic = nil,
+                          anchored_at = nil)
         decision = admission.claim_entry(organization_id:, crawl_id: crawl["id"],
-                                         entry_id: entry["id"], now:)
+                                         entry_id: entry["id"], now:, anchored_at:)
         # ":442 — a lost compare-and-update on the run's byte counter is NOT a limit." The entry was
         # peeked and not claimed, so it is exactly where it was; come back.
         return deferred(Admission::CONTENDED, entry:, at: nil) if decision.reason_code == Admission::CONTENDED
@@ -544,13 +560,18 @@ module Workflows
         milliseconds && now + (milliseconds.to_i / 1000.0)
       end
 
+      # THE GATE INSERT IS GOVERNED TOO (round 7, C-2). `crawl_host_gates` is closed on INSERT for a
+      # terminal Crawl, so a pass that reaches its first effect after the run ended must get a domain
+      # outcome rather than a raw `PG::RaiseException` a worker classifies as a defect.
       def ensure_gate(organization_id, entry, crawl, host, now)
-        Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
-          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          HostGate.new(store, ids: @ids, correlation_id: @correlation_id)
-                  .ensure_gate(organization_id:, project_id: entry["project_id"], crawl_id: crawl["id"],
-                               canonical_host: host, now:)
+        ClosedFactSet.translate do
+          Platform::UnitOfWork.run do |conn|
+            store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
+            store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+            HostGate.new(store, ids: @ids, correlation_id: @correlation_id)
+                    .ensure_gate(organization_id:, project_id: entry["project_id"], crawl_id: crawl["id"],
+                                 canonical_host: host, now:)
+          end
         end
       end
 
@@ -661,10 +682,17 @@ module Workflows
       end
 
       def load_crawl(organization_id, crawl_id)
+        load_crawl_with_anchor(organization_id, crawl_id).first
+      end
+
+      # The Crawl AND the database instant this pass's `now` is true at, read in one unit of work so
+      # the anchor costs nothing beyond the read that was already happening (round 7, C-1).
+      def load_crawl_with_anchor(organization_id, crawl_id)
         Platform::UnitOfWork.run do |conn|
-          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
+          raw = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
           store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          store.crawl(organization_id, crawl_id)
+          [store.crawl(organization_id, crawl_id), Platform::PgInstant.anchor(raw)]
         end
       end
 

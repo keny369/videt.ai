@@ -152,6 +152,39 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
       expect([only_window["reserved_units"], only_window["committed_units"]]).to eq(%w[0 0])
     end
 
+    it "AT EXACTLY the effective deadline, expiry wins and the reservation RELEASES (WORKFLOW :551)" do
+      # :551 — "commits exactly once ONLY IF the durable commit point committed STRICTLY BEFORE that
+      # instant", and expiry wins at equality. `commit` implements it as `now >= effective_deadline`.
+      #
+      # NOTHING PINNED THE EQUALITY UNTIL NOW (round 7, mutation-gap review). Weakening `>=` to `>`
+      # survived the whole entitlement suite and the terminal-checkpoint spec — 50 examples, 0
+      # failures — because every existing example sits a second or half an hour clear of the boundary.
+      # `CompleteCrawl` settles on this rule, so it is a live S-07-009 invariant rather than an
+      # abstract one.
+      rid = SecureRandom.uuid_v7
+      reserve(reservation_id: rid)
+      run { |s| s.start_execution(organization_id: org, reservation_id: rid, now: t0 + 60) }
+      # READ THE STORED DEADLINE, do not recompute it. A recomputed instant differs from the persisted
+      # one by whatever rounding the column applies, and an "equality" proof that is not exactly equal
+      # proves nothing — the first version of this example passed under its own target mutation for
+      # precisely that reason.
+      deadline = Platform::PgInstant.utc(reservation(rid)["lease_due"])
+
+      out = { type: "crawl", id: SecureRandom.uuid_v7, sha256: nil }
+      expect(run { |s| s.commit(organization_id: org, reservation_id: rid, durable_output: out, now: deadline,
+                                ids: { commit_intent: SecureRandom.uuid_v7 }) }).to eq(:released)
+      expect(reservation(rid)["state"]).to eq("released")
+      expect(reservation(rid)["terminal_reason"]).to eq("lease_expired_at_commit")
+      # And the microsecond BEFORE it still commits, so the rule is a boundary rather than a bar.
+      other = SecureRandom.uuid_v7
+      reserve(reservation_id: other)
+      run { |s| s.start_execution(organization_id: org, reservation_id: other, now: t0 + 60) }
+      other_deadline = Platform::PgInstant.utc(reservation(other)["lease_due"])
+      expect(run { |s| s.commit(organization_id: org, reservation_id: other, durable_output: out,
+                                now: other_deadline - Rational(1, 1_000_000),
+                                ids: { commit_intent: SecureRandom.uuid_v7 }) }).to eq(:committed)
+    end
+
     it "caps a faithfully-heartbeating lease at the maximum-execution instant (CB-1: 65-min ceiling)" do
       rid = SecureRandom.uuid_v7
       reserve(reservation_id: rid)

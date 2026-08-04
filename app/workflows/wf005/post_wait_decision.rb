@@ -38,9 +38,15 @@ module Workflows
       # delivery from a Crawl that never started.
       TERMINAL_STATES = %w[completed failed canceled].freeze
 
-      def initialize(connection, entered_with:)
+      # `anchored_at` is the database instant `entered_with` was true at. A handler that captures its
+      # instant inside its own unit of work may omit it; a caller that captured one earlier and did
+      # work in between — `CrawlDriver#advance`, whose robots fetch and sitemap discovery run outside
+      # every transaction — must supply it, or the elapsed time before its transaction opened is
+      # invisible to the decision (round 7, C-1).
+      def initialize(connection, entered_with:, anchored_at: nil)
         @connection = connection
         @entered_with = entered_with
+        @anchored_at = anchored_at
       end
 
       # THE DECISION INSTANT, measured by PostgreSQL after the wait (`Platform::PgInstant.after_wait`,
@@ -51,7 +57,8 @@ module Workflows
       # let the deadline test and the record it writes disagree by however long the writes took, which
       # is the same class of defect one step smaller.
       def now
-        @now ||= Platform::PgInstant.after_wait(@connection, entered_with: @entered_with)
+        @now ||= Platform::PgInstant.after_wait(@connection, entered_with: @entered_with,
+                                                             anchored_at: @anchored_at)
       end
 
       def terminal?(crawl) = TERMINAL_STATES.include?(crawl["state"])

@@ -369,6 +369,22 @@ module Wf005CrawlChain
   # time in a post-wait proof: the database reports it and the harness polls the report.
   def db_clock = Platform::PgInstant.utc(DbInspector.one("SELECT clock_timestamp() AS t")["t"])
 
+  # The database instant a caller's own `now` is true at, for a caller that will do work before it
+  # opens the transaction that decides (round 7, C-1).
+  def db_anchor
+    Platform::UnitOfWork.run { |conn| Platform::PgInstant.anchor(conn.raw_connection) }
+  end
+
+  # Wait for real elapsed time, measured by PostgreSQL rather than by an in-process sleep deciding
+  # anything. The elapsed span is the PRECONDITION UNDER TEST in a post-wait proof, not an ordering
+  # device: these examples are about a decision instant that must move.
+  def burn_database_time(seconds)
+    from = db_clock
+    RaceHarness.wait_until("PostgreSQL reported #{seconds}s elapsed outside any transaction") do
+      db_clock - from > seconds
+    end
+  end
+
   def lease_due(cid)
     Platform::PgInstant.utc(DbInspector.one(<<~SQL, [cid])["lease_due"])
       SELECT r.lease_due FROM entitlement_reservations r

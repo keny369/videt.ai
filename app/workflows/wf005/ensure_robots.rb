@@ -87,6 +87,31 @@ module Workflows
       #
       # This is the shape the accepted `Wf003::ObserveAutomatedSlot` uses for the same reason.
       def call(organization_id:, crawl_id:, canonical_host:, now:)
+        # EVERY UNIT OF WORK THIS SERVICE OPENS IS INSIDE THIS BLOCK (round 7, C-2): the phase-1 claim,
+        # the phase-3 record and the relinquish. `robots_state`, `robots_terminal_reason` and
+        # `robots_terminal_at` are governed by `crawl_host_gates_terminal_outcome_closure`, so any of
+        # them can be refused if the run reached its terminal selection while phase 2 was on the
+        # network — which is exactly the window this service is shaped around and holds no lock across.
+        ClosedFactSet.translate do
+          resolve(organization_id:, crawl_id:, canonical_host:, now:)
+        end
+      rescue ClosedFactSet::CrawlWentTerminal
+        # THE RUN ENDED MID-ATTEMPT. Without this the refusal escaped as a raw `PG::RaiseException` and
+        # `ScheduledActions::Worker` classified an ordinary, expected, correctly-refused race as
+        # `scheduled_action_execution_failed` — the token meaning DEFECT.
+        #
+        # NOT `FAIL_CLOSED`, and that distinction is the point. :448 makes
+        # `robots_unavailable_fail_closed` a statement about the HOST which denies it for the rest of
+        # the run and makes its Source root failed. A run that simply ended proves nothing about the
+        # host, and inventing that observation is the harm owner ruling 3 withdrew one file over. The
+        # claim is left as it stands: the coverage record is already frozen, nothing reads the gate
+        # again, and sweeping it is FU-22's under S-07-011.
+        crawl_terminal
+      end
+
+      private
+
+      def resolve(organization_id:, crawl_id:, canonical_host:, now:)
         claim = claim_attempt(organization_id:, crawl_id:, canonical_host:, now:)
         return claim[:result] if claim[:result]
 
@@ -104,8 +129,6 @@ module Workflows
 
         record(organization_id:, gate_id: claim[:gate_id], attempt: claim[:attempt], outcome:, now:)
       end
-
-      private
 
       # PHASE 1. Returns either a terminal `:result` (already resolved, or contended) or the claimed
       # `:gate_id`/`:attempt` to fetch for.
@@ -293,6 +316,14 @@ module Workflows
       def contended
         Result.new(state: "in_progress", reason_code: nil, terminal: false, retryable: true,
                    retry_after_ms: nil)
+      end
+
+      # The controlled outcome for a run that reached its terminal selection mid-attempt. Not
+      # `fetchable?`, so the driver halts rather than fetching content for a finished run, and not
+      # retryable, because there is nothing left to retry against.
+      def crawl_terminal
+        Result.new(state: ClosedFactSet::REASON, reason_code: ClosedFactSet::REASON,
+                   terminal: true, retryable: false, retry_after_ms: nil)
       end
     end
   end

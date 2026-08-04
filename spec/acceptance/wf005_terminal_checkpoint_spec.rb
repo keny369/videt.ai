@@ -907,8 +907,8 @@ RSpec.describe "WF-005 terminal checkpoint", type: :acceptance,
       just_before = age_run_to(ctx, exact - Rational(400, 1_000))
       result = checkpoint(ctx, action: drained_action(ctx[:crawl_id]), at: just_before)
 
-      # `Time.parse(typed_time.to_s)` moves the boundary back to `.000000` and makes this one-
-      # microsecond-before delivery falsely record the immutable wall-clock crossing.
+      # `Time.parse(typed_time.to_s)` moves the boundary back to `.000000` and makes this 400ms-before
+      # delivery falsely record the immutable wall-clock crossing.
       expect(result.payload[:hard_limit_decisions]).to eq(0)
       expect(decisions(ctx[:crawl_id])).to be_empty
       expect(crawl_row(ctx[:crawl_id])["completion_reason"]).to eq("completed")

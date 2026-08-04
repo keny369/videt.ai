@@ -69,8 +69,8 @@ module Workflows
       end
 
       # Claim the next frontier entry AND its byte reservation, atomically and in dequeue order.
-      def claim_next(organization_id:, crawl_id:, now:)
-        claim(organization_id:, crawl_id:, now:, only: nil)
+      def claim_next(organization_id:, crawl_id:, now:, anchored_at: nil)
+        claim(organization_id:, crawl_id:, now:, only: nil, anchored_at:)
       end
 
       # THE RUN-SCOPED LIMBS OF THE EXECUTION-TIME GATE, WITHOUT CLAIMING ANYTHING (S-07-012 repair).
@@ -108,13 +108,13 @@ module Workflows
       #
       # DEQUEUE ORDER IS UNCHANGED, because the test is `peek_next == named`: the entry is claimed only
       # when it IS the frontier's next candidate under the same advisory lock, never out of turn.
-      def claim_entry(organization_id:, crawl_id:, entry_id:, now:)
-        claim(organization_id:, crawl_id:, now:, only: entry_id)
+      def claim_entry(organization_id:, crawl_id:, entry_id:, now:, anchored_at: nil)
+        claim(organization_id:, crawl_id:, now:, only: entry_id, anchored_at:)
       end
 
       private
 
-      def claim(organization_id:, crawl_id:, now:, only:)
+      def claim(organization_id:, crawl_id:, now:, only:, anchored_at: nil)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           gates = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
@@ -172,7 +172,7 @@ module Workflows
           # over. `reservation_executing?` took the same value, so an entitlement lease that expired
           # during the wait also passed. One re-read of the instant repairs both, because both are
           # the same question asked of the same number.
-          now = PostWaitDecision.new(raw, entered_with: now).now
+          now = PostWaitDecision.new(raw, entered_with: now, anchored_at:).now
           crawl = gates.crawl(organization_id, crawl_id)
           next idle if crawl.nil?
           denial = authorize(gates, organization_id, crawl, now)

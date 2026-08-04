@@ -88,12 +88,37 @@ module Platform
     # IT NEVER GOES BACKWARDS, because the difference is non-negative by construction. A handler that
     # did not wait gets its own instant back plus the microseconds it took to get here, so the
     # non-contended path is unchanged and no proof that depends on a fixed clock loses its anchor.
-    def after_wait(connection, entered_with:)
+    #
+    # THE ANCHOR IS AN ARGUMENT, NOT `transaction_timestamp()` (round 7, C-1). The first version
+    # measured from BEGIN, which silently assumed the caller captured its instant AT BEGIN. That is
+    # true of `CancelCrawl` and `CompleteCrawl` and false of the one caller that matters most:
+    # `CrawlDriver#advance` captures `now` at the top of the pass and then performs the robots fetch
+    # and sitemap discovery OUTSIDE every transaction — up to eleven bounded requests by
+    # `EnsureRobots`' own accounting — before handing that same instant to `Admission`. Round 7
+    # reproduced the consequence: 1.5 seconds spent AFTER `BEGIN` correctly refused a run past its
+    # deadline, while the identical 1.5 seconds spent BEFORE `BEGIN` admitted it and reserved
+    # 10,485,760 bytes. Equivalent elapsed time must produce an equivalent decision, and it cannot
+    # while the measurement starts at a boundary the caller may reach late.
+    #
+    # So `anchored_at` names WHERE `entered_with` WAS TRUE, and the elapsed span is measured from
+    # there. `transaction_timestamp()` remains the default because it is the correct anchor for a
+    # caller that captures its instant inside its own unit of work, which every command handler does;
+    # it is a default, not an assumption, and `Admission` is proved to supply its own.
+    def after_wait(connection, entered_with:, anchored_at: nil)
       value = connection.exec_params(
-        "SELECT $1::timestamptz + (clock_timestamp() - transaction_timestamp()) AS decided_at",
-        [entered_with.getutc.iso8601(6)]
+        "SELECT $1::timestamptz + (clock_timestamp() - COALESCE($2::timestamptz, transaction_timestamp())) " \
+        "AS decided_at",
+        [entered_with.getutc.iso8601(6), anchored_at&.getutc&.iso8601(6)]
       ).getvalue(0, 0)
       utc(value)
+    end
+
+    # THE DATABASE INSTANT A CALLER'S OWN `now` WAS TRUE AT, captured so a later `after_wait` can
+    # measure the whole window rather than only the part inside a transaction. It is read from the same
+    # clock `after_wait` later reads, so the two are on one axis and their difference is a real elapsed
+    # span rather than a comparison across clocks.
+    def anchor(connection)
+      utc(connection.exec("SELECT clock_timestamp() AS anchored_at").getvalue(0, 0))
     end
 
     # Whole elapsed minutes between two instants, floored — :442's "60 elapsed minutes" measure.

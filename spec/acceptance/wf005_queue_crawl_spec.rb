@@ -354,4 +354,75 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
         .to raise_error(PG::RaiseException, /crawl_source_immutable/)
     end
   end
+
+  # ROUND 7, SEC-B1. `QueueCrawl` authorizes `crawl.trigger`, then takes
+  # `pg_advisory_xact_lock('crawl-queue:<org>:<project>')` — a BLOCKING wait — and only then commits.
+  # ADR-120 Ruling 1 draws its line at "can wait", and round 6 repaired `CancelCrawl` on exactly that
+  # reasoning while leaving this handler alone. A queued Crawl is not a small effect: it mints the
+  # `crawl_dispatch` action, so a revoked authority goes on to start a metered run that makes outbound
+  # requests to the customer's host.
+  describe "authority revoked while the command waits on its advisory lock (SEC-B1)" do
+    it "PROOF 169 — a queue whose authority is revoked during the wait does not commit" do
+      g = org_with_active_project
+      key = RaceHarness.key_for("crawl-queue:#{g[:organization_id]}:#{g[:project_id]}")
+      controller = RaceHarness.open_connection
+      before = DbInspector.one("SELECT count(*) AS n FROM crawls WHERE organization_id=$1::uuid",
+                               [g[:organization_id]])["n"].to_i
+      result = nil
+
+      begin
+        controller.exec_params("SELECT pg_advisory_lock($1)", [key])
+        op = RaceHarness.spawn_operation(-> { queue_crawl(g) })
+        RaceHarness.wait_until("the queue blocked on its project lock") do
+          RaceHarness.blocked_on(key) >= 1
+        end
+        # COMMITTED UNDERNEATH THE WAITER, which is what makes this a revocation rather than a fixture.
+        DbInspector.connection.exec_params(
+          "UPDATE organizations SET authorization_epoch = authorization_epoch + 1 WHERE id = $1::uuid",
+          [g[:organization_id]]
+        )
+        expect(RaceHarness.blocked_on(key)).to be >= 1
+      ensure
+        controller.exec_params("SELECT pg_advisory_unlock_all()")
+        result = op&.value
+        controller.close
+      end
+
+      expect(result).to be_a(Platform::CommandResult), result.inspect
+      expect(result.success?).to be(false)
+      expect(result.failure.reason_code).to eq("crawl_trigger_unauthorized")
+      # No Crawl, and therefore no `crawl_dispatch` action to start a metered run.
+      expect(DbInspector.one("SELECT count(*) AS n FROM crawls WHERE organization_id=$1::uuid",
+                             [g[:organization_id]])["n"].to_i).to eq(before)
+      expect(DbInspector.one(<<~SQL, [g[:organization_id]])["n"].to_i).to eq(0)
+        SELECT count(*) AS n FROM scheduled_actions
+        WHERE organization_id = $1::uuid AND action_kind = 'crawl_dispatch'
+      SQL
+    end
+
+    it "PROOF 170 — the recheck is not a blanket refusal: an unrevoked wait still commits" do
+      # The adversarial half. A handler that refused after every wait would satisfy PROOF 169 and be
+      # useless. Same shape, same observed wait, no epoch advance.
+      g = org_with_active_project
+      key = RaceHarness.key_for("crawl-queue:#{g[:organization_id]}:#{g[:project_id]}")
+      controller = RaceHarness.open_connection
+      result = nil
+
+      begin
+        controller.exec_params("SELECT pg_advisory_lock($1)", [key])
+        op = RaceHarness.spawn_operation(-> { queue_crawl(g) })
+        RaceHarness.wait_until("the queue blocked on its project lock") do
+          RaceHarness.blocked_on(key) >= 1
+        end
+      ensure
+        controller.exec_params("SELECT pg_advisory_unlock_all()")
+        result = op&.value
+        controller.close
+      end
+
+      expect(result).to be_a(Platform::CommandResult), result.inspect
+      expect(result.success?).to be(true), result.inspect
+    end
+  end
+
 end

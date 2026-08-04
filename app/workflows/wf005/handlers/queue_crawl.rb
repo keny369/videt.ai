@@ -95,6 +95,24 @@ module Workflows
           # OD-018 queue-time guard, under the lock (re-checked at Queued->Running in S-07-003).
           return denied(d, "initial_evaluation_already_running") if store.running_initial_evaluation?(d[:org], command.project_id)
 
+
+          # AUTHORITY RE-READ AFTER THE WAIT, IMMEDIATELY BEFORE THE IRREVERSIBLE ACT (round 7,
+          # SEC-B1; :331/:333/:335, SEC-REQ-004/005). `pg_advisory_xact_lock` above is a BLOCKING wait:
+          # this transaction can sit behind another for as long as that one holds the key, and a
+          # revocation, suspension or policy change can commit inside that window.
+          #
+          # ADR-120 RULING 1 DRAWS ITS LINE AT "CAN WAIT", NOT AT "WAITS LONG". Round 6 repaired
+          # `CancelCrawl` on exactly that reasoning and left this handler alone; round 7 reproduced the
+          # consequence here on real PostgreSQL, advancing the Organization's authorization epoch under
+          # an observed ungranted waiter and watching this command commit anyway. The platform-wide
+          # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
+          # with NO wait between the two; this is not one of them.
+          unless Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
+                                        .authority_current?(auth_store: d[:auth_store], actor:)
+            return deny(**denial_args(d), resource_id: command.project_id,
+                        outward: "crawl_trigger_unauthorized", internal: "crawl_trigger_unauthorized")
+          end
+
           commit(d, entitlement, sources, store.active_crawl_policy(d[:org], command.project_id), key_digest)
         end
 

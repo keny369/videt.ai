@@ -645,4 +645,109 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       expect(verdict.reason_code).to eq("fetch_source_not_active")
     end
   end
+
+  # OWNER RULING 2's SECOND HALF, AT EVERY GOVERNED PRODUCER (round 7, C-2).
+  #
+  # The database closes a terminal Crawl's fact set and is the canonical enforcement. Ruling 2 also
+  # requires that "a stale or late worker must receive a CONTROLLED DOMAIN OUTCOME". Round 6
+  # implemented that at `DiscoverSitemaps` alone; round 7 reproduced `EnsureRobots` and the driver's
+  # gate creation surfacing a raw `PG::RaiseException`, which `ScheduledActions::Worker` classifies
+  # `scheduled_action_execution_failed` — the token meaning DEFECT — for an ordinary, expected,
+  # correctly-refused race.
+  describe "a run that ends while a producer is mid-flight" do
+    # Terminalize the Crawl AT THE MOMENT OF THE OUTBOUND REQUEST. `EnsureRobots` holds no lock across
+    # phase 2 by design (MTX-030 forbids a network call inside a transaction), so this is the real
+    # interleaving with the network standing where the network stands.
+    def terminalizing_robots_outbound(ctx, body)
+      Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |_url, **_k|
+          DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id]])
+            UPDATE crawls SET state='failed', terminal_at=now(), completion_reason='failed',
+                              state_version = state_version + 1, updated_at = now()
+            WHERE id = $1::uuid AND state = 'running'
+          SQL
+          Platform::Outbound::Outcome.response(
+            status: 200, headers: { "content-type" => "text/plain" }, body:, byte_count: body.bytesize,
+            truncated: false, canonical_host: ctx[:host], port: 443, pinned_address: "198.51.100.7",
+            final_url: "https://#{ctx[:host]}/robots.txt", redirect_count: 0, latency_ms: 5
+          )
+        end
+      end
+    end
+
+    it "PROOF 166 — EnsureRobots returns a controlled outcome and raises nothing" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+
+      result = nil
+      expect do
+        result = Workflows::Wf005::EnsureRobots.new(
+          outbound: terminalizing_robots_outbound(ctx, "User-agent: *\nAllow: /\n")
+        ).call(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+               canonical_host: ctx[:host], now: start_now)
+      end.not_to raise_error
+
+      expect(result).to be_a(Workflows::Wf005::EnsureRobots::Result)
+      expect(result.reason_code).to eq(Workflows::Wf005::ClosedFactSet::REASON)
+      # NOT a statement about the host. :448's `robots_unavailable_fail_closed` denies the host for the
+      # whole run and fails its Source root; a run that merely ended proves nothing about the host.
+      expect(result.reason_code).not_to eq(Workflows::Wf005::EnsureRobots::FAIL_CLOSED)
+      expect(result.fetchable?).to be(false)
+      # Nothing governed was written: the gate keeps the claim it held when the run ended.
+      gate = gate_row(ctx[:crawl_id])
+      expect(gate["robots_terminal_reason"]).to be_nil
+      expect(gate["robots_terminal_at"]).to be_nil
+    end
+
+    it "PROOF 167 — a second delivery gets the same controlled answer and still writes nothing" do
+      ctx = running_crawl
+      ensure_gate(ctx)
+      terminalize_crawl(ctx)
+
+      first = resolve_robots_terminal(ctx)
+      second = resolve_robots_terminal(ctx)
+
+      expect(first.reason_code).to eq(Workflows::Wf005::ClosedFactSet::REASON)
+      expect(second.reason_code).to eq(Workflows::Wf005::ClosedFactSet::REASON)
+      expect(gate_row(ctx[:crawl_id])["robots_terminal_reason"]).to be_nil
+    end
+
+    it "PROOF 168 — the driver's gate creation on a terminal run halts instead of raising" do
+      # The FIRST effect of a pass. `crawl_host_gates` is closed on INSERT, so a pass whose run ended
+      # before it reached its first effect must halt rather than surface a transport defect.
+      ctx = running_crawl
+      entry = DbInspector.one(
+        "SELECT * FROM crawl_frontier_entries WHERE crawl_id = $1::uuid ORDER BY dequeue_key LIMIT 1",
+        [ctx[:crawl_id]]
+      )
+      terminalize_crawl(ctx)
+
+      pass = nil
+      expect do
+        pass = Workflows::Wf005::CrawlDriver.new(outbound: outbound_returning(response(status: 200, body: "")))
+                                            .advance(organization_id: ctx[:g][:organization_id],
+                                                     entry:, now: start_now)
+      end.not_to raise_error
+
+      expect(pass.outcome).to eq(Workflows::Wf005::CrawlDriver::HALTED)
+      expect(DbInspector.one("SELECT count(*) AS n FROM crawl_host_gates WHERE crawl_id=$1::uuid",
+                             [ctx[:crawl_id]])["n"].to_i).to eq(0)
+    end
+
+    def terminalize_crawl(ctx)
+      DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id]])
+        UPDATE crawls SET state='failed', terminal_at=now(), completion_reason='failed',
+                          state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid AND state = 'running'
+      SQL
+    end
+
+    def resolve_robots_terminal(ctx)
+      Workflows::Wf005::EnsureRobots.new(
+        outbound: outbound_returning(response(status: 200, body: "User-agent: *\nAllow: /\n"))
+      ).call(organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id],
+             canonical_host: ctx[:host], now: start_now)
+    end
+  end
+
 end

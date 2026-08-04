@@ -202,8 +202,18 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
       # row a BEFORE trigger leaves behind, so a BEFORE trigger would run ahead of RLS and answer a
       # cross-tenant write with a state message instead of a tenant refusal.
       expect(definition).to include("AFTER UPDATE")
-      %w[sitemap_state sitemap_outcome_reason sitemap_terminal_at robots_state].each do |column|
-        expect(definition).to include(column)
+      # ALL SEVEN, NOT THE FOUR THAT WERE OBVIOUS (round 7, mutation-gap review). The round-6 form
+      # asserted four columns, and narrowing the WHEN clause to drop `sitemap_limit_reasons`,
+      # `robots_terminal_reason` and `robots_terminal_at` survived this proof AND the whole
+      # 241-example persistence suite. `sitemap_limit_reasons` is coverage-bearing —
+      # `CrawlStartStore#terminal_facts` sums it into `sitemap_limit_facts`, which
+      # `TerminalSelection` turns into `limit_reached` and `partial` — so a late write to it can
+      # contradict a frozen coverage record exactly as `sitemap_state` can.
+      %w[sitemap_state sitemap_outcome_reason sitemap_terminal_at sitemap_limit_reasons
+         robots_state robots_terminal_reason robots_terminal_at].each do |column|
+        expect(definition).to include(column),
+                              "the UPDATE closure does not govern #{column}, which the terminal " \
+                              "selection reads; a late write to it can contradict a frozen record"
       end
       # The pacing columns stay writable: a terminal run must not break the host's rate window.
       expect(definition).not_to include("next_allowed_start_at")

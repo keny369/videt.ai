@@ -75,15 +75,10 @@ module Workflows
       # same answer. It is deliberately NOT `sitemap_unavailable` — :450 conditions that on candidates
       # having failed after retries and validation, and a run that simply ended proves nothing about
       # the host.
-      TERMINAL = "crawl_terminal"
-      # The token `f1_crawl_child_fact_closed` raises. Matched on the message rather than on SQLSTATE
-      # because the guard family this joins all raise `raise_exception`, and the message is what
-      # distinguishes a closed fact set from an immutability violation.
-      CLOSED_AFTER_TERMINAL = "crawl_child_fact_after_terminal"
-
-      # Raised only by `in_unit`, caught only by `call`. Private to this service: the database's
-      # refusal is an implementation fact, and every caller sees the `Result` instead.
-      class CrawlWentTerminal < StandardError; end
+      # THE SHARED OWNER, not a local copy (round 7, C-2). `Wf005::ClosedFactSet` carries the token,
+      # the reason and the translation for every governed producer; round 6 implemented this here alone
+      # and round 7 found `EnsureRobots` and the driver's gate creation untranslated.
+      TERMINAL = ClosedFactSet::REASON
 
       # A gate refusal is a SCHEDULING condition, never a candidate failure: :442 says a start over
       # the rate is "DELAYED", and treating the delay as a failure would silently turn the rate
@@ -196,7 +191,7 @@ module Workflows
 
         terminalize(organization_id, crawl["project_id"], crawl_id, gate["id"], token, state, now)
         state
-      rescue CrawlWentTerminal
+      rescue ClosedFactSet::CrawlWentTerminal
         # THE CONTROLLED OUTCOME (owner ruling 2; R6-3). The run reached its terminal selection while
         # this traversal was out on the network, so the coverage record is already frozen and there is
         # nothing here that may join it. Round 6 reproduced both halves of what this replaces: a
@@ -714,7 +709,7 @@ module Workflows
           yield store, raw
         end
       rescue StandardError => e
-        raise CrawlWentTerminal, e.message if e.message.to_s.include?(CLOSED_AFTER_TERMINAL)
+        raise ClosedFactSet::CrawlWentTerminal, e.message if ClosedFactSet.refusal?(e)
 
         raise
       end

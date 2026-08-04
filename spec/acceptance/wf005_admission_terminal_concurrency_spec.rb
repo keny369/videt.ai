@@ -22,9 +22,9 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
     age_run_to(ctx, start_now + (46 * 60))
   end
 
-  def admit(ctx, at: soft_now(ctx))
+  def admit(ctx, at: soft_now(ctx), anchored_at: nil)
     Workflows::Wf005::Admission.new.claim_next(
-      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: at
+      organization_id: ctx[:g][:organization_id], crawl_id: ctx[:crawl_id], now: at, anchored_at:
     )
   end
 
@@ -315,6 +315,54 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
       SELECT id FROM crawl_limit_decisions
       WHERE crawl_id = $1::uuid AND limit_dimension = 'wall_clock_run_duration' AND threshold_kind = 'hard'
     SQL
+  end
+
+  it "PROOF 164 — equivalent elapsed time before and after BEGIN produces the SAME admission outcome" do
+    # ROUND 7's C-1, AS AN EQUIVALENCE RATHER THAN A SINGLE CASE. `after_wait` measured its advance
+    # from `transaction_timestamp()`, so the identical 1.5 seconds refused a run when spent INSIDE the
+    # transaction and admitted it — reserving 10,485,760 bytes — when spent BEFORE it. That asymmetry
+    # is the defect; the fix is that the anchor is where the caller's instant was true, not where its
+    # transaction happened to open.
+    #
+    # THE TWO CASES DIFFER IN ONE THING ONLY: which side of `BEGIN` the elapsed time falls on. Same
+    # run, same margin, same duration, same assertion.
+    # ONE RUN PER EXAMPLE: the chain memoizes its bootstrap identity per example, so the two halves are
+    # two examples over the same construction rather than one example over two runs. PROOF 149 is the
+    # AFTER-BEGIN half — same run shape, same 1.5s, same 1s margin, same expected constant — and this
+    # is the BEFORE-BEGIN half. They assert the identical outcome, which is the equivalence.
+    ctx = running_crawl
+    deadline = Platform::PgInstant.utc(crawl_row(ctx[:crawl_id])["deadline_at"])
+    at = age_run_to(ctx, deadline - 1)
+    anchor = db_anchor
+    # The driver's own window: robots, discovery and pacing, all outside every transaction.
+    burn_database_time(1.5)
+
+    decision = admit(ctx, at:, anchored_at: anchor)
+
+    expect(decision).to be_a(Workflows::Wf005::Admission::Decision), decision.inspect
+    expect(decision.reason_code).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+    expect(effects(ctx)).to include(reserved: 0, claimed: 0)
+    expect(DbInspector.one(<<~SQL, [ctx[:crawl_id]])).not_to be_nil
+      SELECT id FROM crawl_limit_decisions
+      WHERE crawl_id = $1::uuid AND limit_dimension = 'wall_clock_run_duration' AND threshold_kind = 'hard'
+    SQL
+  end
+
+  it "PROOF 165 — the equivalence is not a blanket refusal: inside the margin, both sides still admit" do
+    # THE ADVERSARIAL HALF. A rule that refused everything would satisfy PROOF 164 and be useless. The
+    # same two shapes, with the elapsed time comfortably INSIDE the run's remaining clock, must both
+    # still admit and claim.
+    ctx = running_crawl
+    at = age_run_to(ctx, start_now + (10 * 60))
+    anchor = db_anchor
+    burn_database_time(1.0)
+
+    decision = admit(ctx, at:, anchored_at: anchor)
+
+    expect(decision).to be_a(Workflows::Wf005::Admission::Decision), decision.inspect
+    expect(decision.reason_code).to be_nil
+    expect(decision.admitted?).to be(true)
+    expect(effects(ctx)).to include(claimed: 1)
   end
 
   it "PROOF 150 — a frontier wait that outlasts the entitlement lease refuses instead of admitting" do

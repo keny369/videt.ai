@@ -32,9 +32,18 @@ require "ripper"
 # to name it to do its work.
 #
 # THE SECOND RULE IS THE PROTOCOL'S. `respond_to?(:getutc)` needs no constant, so a symbol literal
-# naming the UTC protocol is banned alongside. The two `.getutc` method CALLS in the corpus are
-# untouched and correct: they format an instant the application already holds, which is a different
-# act from deciding how to decode one.
+# naming the UTC protocol is banned alongside, as is a string literal whose whole content is a banned
+# constant name — `Object.const_get("Time")` reaches rule 1 through a side door otherwise.
+#
+# THE THIRD RULE IS THE RECEIVER'S (round 7, A-1). Rules 1 and 2 are about NAMES, and a name can be
+# renamed around exactly as a spelling can be respelled: round 7 walked nine forms past them, of
+# which `row["deadline_at"].to_time` is the plainest — it names no constant, uses no symbol, and IS
+# the connection-dependent decode this module exists to own. What separates it from the NINE
+# legitimate `.getutc` calls in this corpus is not the method but the RECEIVER. A decode acts on a
+# value pulled out of a `PG::Result` row, which is string-keyed; a format acts on a local or a
+# parameter holding an instant the application already produced. So rule 3 bans the whole
+# timestamp vocabulary — derived from the runtime, not listed — on a string-keyed subscript, and says
+# nothing about the same method names on a local.
 RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
   # Methods, not example-group constants: constants assigned in an RSpec block land on Object and can
   # collide with another spec according to load order (FU-42).
@@ -44,6 +53,34 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
   def banned_constants = %w[Time DateTime]
   # The UTC protocol, AS A SYMBOL LITERAL — which is dispatch — never as a method call, which is use.
   def banned_symbols = %w[getutc to_time]
+
+  # RULE 3'S VOCABULARY, DERIVED FROM THE RUNTIME RATHER THAN LISTED (round 7, A-1).
+  #
+  # Every method name the timestamp classes define that `Object` does not. It is computed from the
+  # loaded classes, so it covers the whole conversion and dispatch API of Ruby AND ActiveSupport —
+  # `to_time`, `to_datetime`, `in_time_zone`, `parse`, `iso8601`, `rfc3339`, `strftime`, `strptime`,
+  # `utc`, `getutc` — and it GROWS BY ITSELF when a Rails upgrade adds one. That is the difference
+  # between this and the enumeration it replaces: round 7 walked nine forms past a hand-written list,
+  # and the answer to a list that can be out-enumerated is not a longer list.
+  #
+  # `Integer`'s methods are subtracted as well as `Object`'s, because the generic numeric conversions
+  # a row value legitimately receives — `to_i`, `to_f`, `to_r`, the arithmetic and comparison
+  # operators — are also defined on `Time`, and banning `row["state_version"].to_i` would say nothing
+  # about timestamps. What survives the subtraction is the timestamp-SPECIFIC surface: `to_time`,
+  # `to_datetime`, `to_date`, `in_time_zone`, `parse`, `iso8601`, `rfc3339`, `xmlschema`, `httpdate`,
+  # `strftime`, `strptime`, `utc`, `getutc`, `getlocal`, `localtime`, `acts_like_time?`.
+  #
+  # The four added by hand are dispatch verbs rather than timestamp methods, so they are not on the
+  # timestamp classes to be derived from: `acts_like?` is Rails' canonical duck-type test and is
+  # defined on `Object`, and the three reflective senders reach any of the above indirectly.
+  def timestamp_vocabulary
+    @timestamp_vocabulary ||= (
+      (Time.instance_methods + Time.methods + DateTime.instance_methods + DateTime.methods +
+       Date.instance_methods + ActiveSupport::TimeWithZone.instance_methods).uniq -
+        Object.instance_methods - Object.methods -
+        Integer.instance_methods - Integer.methods
+    ).map(&:to_s).to_set + %w[acts_like? respond_to? send public_send method]
+  end
 
   def tracked_ruby_files
     stdout, status = Open3.capture2("git", "ls-files", "--", "app/workflows/wf005")
@@ -105,7 +142,10 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
   # Symbol — and all three reach the same decision a type test would.
   #
   # A METHOD CALL IS NOT REACHED BY ANY OF THEM. `time.getutc` is an `@ident` in call position, which
-  # is use rather than dispatch, and the corpus contains two legitimate ones.
+  # is use rather than dispatch, and the corpus contains NINE legitimate ones — in `crawl_ledger.rb`,
+  # `crawl_driver.rb`, `handlers/complete_crawl.rb` (2), `handlers/start_crawl.rb` (3) and
+  # `handlers/record_fetch_attempt.rb` (2). Rule 3 is what distinguishes those from a decode, and it
+  # does so by receiver rather than by counting them.
   #
   # THE STRING LIMB MATCHES THE WHOLE CONTENT, WHICH IS WHY IT IS NOT A PROSE RULE. A comment is not in
   # the tree at all, and a sentence that mentions the protocol — `"value.respond_to?(:getutc)"` — is
@@ -144,13 +184,69 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
       # RULE 2. `respond_to? :getutc`, with or without parentheses, and every other symbol-shaped
       # dispatch on the UTC protocol.
       protocol_names(node).each do |name|
+        # A BANNED CONSTANT REACHED AS DATA is rule 1 through a side door: `Object.const_get("Time")`
+        # and `value.class.name == "Time"` name the constant without producing an `@const` token. A
+        # string literal whose entire content is `Time` or `DateTime` has no other use here.
+        if banned_constants.include?(name)
+          findings << "#{file}:#{line_of(node)} names #{name} as a string; " \
+                      "PostgreSQL instants are decoded only by Platform::PgInstant"
+        end
         next unless banned_symbols.include?(name)
 
         findings << "#{file}:#{line_of(node)} dispatches on the :#{name} protocol; " \
                     "PostgreSQL instants are decoded only by Platform::PgInstant"
       end
+
+      # RULE 3. A TIMESTAMP METHOD CALLED ON A VALUE READ OUT OF A RESULT ROW (round 7, A-1).
+      #
+      # THE RECEIVER IS WHAT DISTINGUISHES DECODING FROM FORMATTING, and rules 1 and 2 could not see
+      # it. `row["deadline_at"].to_time` names no constant and uses no symbol, so it walked past both —
+      # and it IS the decode this module exists to own: on text it parses, on a `Time` it converts.
+      # Meanwhile `now.getutc` and `time&.getutc` are formatting an instant the application already
+      # holds, which is a different act, and the corpus does nine of them legitimately.
+      #
+      # The structural difference is that a decode's receiver is rooted in a SUBSCRIPT or a `fetch` —
+      # a value pulled out of a `PG::Result` row — while a format's receiver is a local or a parameter.
+      # So this bans the whole `timestamp_vocabulary` on a row-rooted receiver and says nothing about
+      # the same names on a local. It covers `to_time`, `to_datetime`, `in_time_zone`,
+      # `respond_to?(:strftime)`, `acts_like?(:time)`, `send(:strftime)` and every sibling at once,
+      # because the rule is about WHERE the value came from rather than what it is called.
+      next unless node.first == :call
+
+      method = token(node[3], :@ident)
+      next unless method && timestamp_vocabulary.include?(method)
+      next unless row_rooted?(node[1])
+
+      findings << "#{file}:#{line_of(node[3])} calls ##{method} on a value read from a result row; " \
+                  "PostgreSQL instants are decoded only by Platform::PgInstant"
     end
     findings.uniq
+  end
+
+  # Is this receiver a database row value — a subscript, a `fetch`, or a chain rooted in one?
+  #
+  # A STRING KEY IS WHAT MAKES IT A ROW. `PG::Result` tuples are string-keyed, and every in-memory
+  # structure in this workflow is symbol-keyed: `context[:now]`, `link[:due_at]`, `handoff[:due_at]`
+  # hold instants the application already produced, and calling `.getutc` on one of those is
+  # formatting rather than decoding. Without this distinction the rule fires on all three and says
+  # something false about them.
+  def row_rooted?(node)
+    return false unless node.is_a?(Array)
+    return string_keyed?(node[2]) if node.first == :aref
+    return true if node.first == :call && token(node[3], :@ident) == "fetch"
+
+    case node.first
+    when :call, :method_add_arg, :method_add_block then row_rooted?(node[1])
+    else false
+    end
+  end
+
+  # A subscript index that is a symbol literal is an in-memory hash; anything else — a string literal,
+  # a variable, an expression — is treated as a row, so the rule fails CLOSED on what it cannot read.
+  def string_keyed?(index)
+    found = true
+    each_node(index) { |part| found = false if part.first == :symbol }
+    found
   end
 
   def canonical_usage?(source)
@@ -211,6 +307,25 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
       expect(violations(program, file: "#{label}.rb")).not_to be_empty,
                                                              "detector missed an unlisted form: #{label}"
     end
+
+    # THE ROUND-7 CLASS: a timestamp method on a value read out of a result row. None of these names a
+    # constant or uses a protocol symbol, so rules 1 and 2 are blind to every one of them.
+    row_rooted = {
+      "to_time" => 'row["deadline_at"].to_time',
+      "to_datetime" => 'row["deadline_at"].to_datetime',
+      "in_time_zone" => 'row["deadline_at"].in_time_zone',
+      "acts_like" => 'row["x"].acts_like?(:time)',
+      "reflective send" => 'row["x"].send(:strftime, "%s")',
+      "chained subscript" => 'gate["a"]["b"].to_time',
+      "fetch receiver" => 'row.fetch("deadline_at").to_time',
+      "const_get by string" => 'Object.const_get("Time").parse(row["deadline_at"])',
+      "class name compare" => 'row["x"].class.name == "Time"',
+      "zone parse" => 'ActiveSupport::TimeZone["UTC"].parse(row["x"])'
+    }
+    row_rooted.each do |label, program|
+      expect(violations(program, file: "#{label}.rb")).not_to be_empty,
+                                                             "round-7 decoder form undetected: #{label}"
+    end
   end
 
   it "rejects the banned constants under method names it has never been given" do
@@ -238,6 +353,10 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
       return nil unless due_at && stage_instant(latest) == due_at.getutc
       outcome.respond_to?(:response?) && outcome.response?
       value.is_a?(::Hash)
+      context[:now].utc + (monotonic - context[:entered_monotonic])
+      link[:due_at]&.getutc&.iso8601(6)
+      row["state_version"].to_i + 1
+      gate["sitemap_candidates"].to_s
     RUBY
     expect(violations(permitted)).to be_empty
   end
