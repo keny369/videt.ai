@@ -89,6 +89,50 @@ RSpec.describe "Repository truth", type: :model do
              "implementation_commit #{sha} contains none of the declared acceptance paths"
     end
 
+    # A PREREQUISITE IS ACCEPTED IN ITS OWN STRUCTURE, AND THAT STRUCTURE IS CHECKED (ADR-130).
+    #
+    # WHY IT IS SEPARATE FROM THE TRANCHE FIELDS. `current_tranche`, `implementation_commit`,
+    # `last_verified_commit` and `acceptance_evidence` are a matched set describing the last accepted
+    # TRANCHE, and six checks in this file derive their subject from them. Writing a prerequisite
+    # identifier into that set does not raise — it makes those six checks pass while examining
+    # nothing, which is what happened once during the PREREQ-DB-BOOTSTRAP work and is FU-47.
+    #
+    # WHY IT IS CHECKED AT ALL. A new acceptance field that nothing validates would let a prerequisite
+    # be accepted by asserting it, which is the exact defect the prerequisite it first recorded exists
+    # to remove. Every claim below is resolved against the repository rather than read as a promise.
+    it "accepts a prerequisite only against a record that resolves" do
+      Array(BUILD_STATE["completed_prerequisites"]).each do |prereq|
+        id = prereq["id"].to_s
+        expect(id).not_to be_empty, "a completed prerequisite has no id"
+
+        # THE CONFUSION FU-47 NAMES, MADE IMPOSSIBLE RATHER THAN DISCOURAGED.
+        expect(BUILD_STATE["current_tranche"]).not_to eq(id),
+               "#{id} is a prerequisite and must never occupy current_tranche"
+        expect(BUILD_STATE["completed_blocks"]).not_to include(id),
+               "#{id} is a prerequisite and must not be recorded as a completed block"
+
+        expect(ROOT.join(prereq.fetch("report"))).to exist,
+               "#{id} names report #{prereq['report']}, which does not exist"
+        expect(ROOT.join("DECISIONS.md").read).to include("## #{prereq.fetch('adr')}:"),
+               "#{id} cites #{prereq['adr']}, which DECISIONS.md does not contain"
+
+        base, head = prereq.fetch("commit_range").split("..")
+        [base, head, prereq.fetch("implementation_commit")].each do |sha|
+          sha!(sha, "#{id} commit")
+          expect(git!("cat-file", "-t", sha)).to eq("commit"), "#{id} names #{sha}, which is not a commit"
+          expect(git("merge-base", "--is-ancestor", sha, "HEAD").last).to be(true),
+                 "#{id} names #{sha}, which is not reachable from HEAD"
+        end
+        expect(git("merge-base", "--is-ancestor", base, head).last).to be(true),
+               "#{id} declares a range whose base is not an ancestor of its head"
+
+        # A PREREQUISITE MAY NOT BE ACCEPTED WITHOUT SAYING WHAT IT DID NOT ESTABLISH. Every acceptance
+        # in this repository that went wrong went wrong by claiming more than it had measured.
+        expect(prereq["verified"].to_s.length).to be > 200, "#{id} records no substantive verification"
+        expect(prereq["not_claimed"].to_s.length).to be > 100, "#{id} states nothing it does not claim"
+      end
+    end
+
     it "carries a parseable timestamp that is not in the future" do
       stamp = Time.parse(BUILD_STATE["updated_at"])
       expect(stamp).to be <= Time.now.utc + 60

@@ -3783,3 +3783,73 @@ Authority And Precedence:
 Repository-wide. It supersedes the standing interpretation of `migration_safety_no_drift` and every
 record that describes a structure load as a migration-chain build. Allocated the next unused number
 after ADR-128; ADR-127 and ADR-128 are recorded on `repair/s07-009-r10`, which is preserved unmerged.
+
+---
+
+## ADR-130: PREREQ-DB-BOOTSTRAP Accepted — And The Two Mandatory Gates That Have Never Executed
+
+Date: 2026-08-05
+Status: Accepted
+Owner: standing delegation ADR-061; acceptance under the review discipline of ADR-080
+Reversibility: Integration branch only; `main` untouched.
+Scope: Repository-wide prerequisite. NOT a tranche, and deliberately not recorded as one.
+
+**PREREQ-DB-BOOTSTRAP IS ACCEPTED.** It replaces a bootstrap route that loaded `db/structure.sql`
+while reporting "provisioned from empty", a gate that diffed a file against a dump of itself, and 24
+evidence claims across 17 files describing an operation no run in this repository had performed. The
+finding, the Model C disposition and the evidence are in ADR-129 and
+`PREREQ-DB-BOOTSTRAP_REPORT.md`.
+
+**IT IS NOT RECORDED AS A TRANCHE.** `current_tranche`, `implementation_commit`,
+`last_verified_commit` and `acceptance_evidence` continue to describe S-07-012 at `f2b576e`, because
+`spec/architecture/repository_truth_spec.rb` derives six checks from that pairing and putting a
+prerequisite identifier into it silently disables all six — which happened once during this work and
+is the reason FU-47 exists. The acceptance is recorded in `completed_prerequisites`, a separate
+structure with its own validating check, so a prerequisite cannot be accepted by asserting it.
+
+**THE SCOPE CHECK CAUGHT A REAL DEFECT AND THE BRANCH WAS REBUILT.** The reviewed branch
+`prerequisite/db-bootstrap-provenance@77ba137` carried the correct substantive change and also 2,531
+files of bootsnap cache, logs, and `config/master.key` — a Rails master key — because `git add -A`
+ran in a worktree with no ignore rules. The root cause is that the repository's root `.gitignore`
+exists on disk but is UNTRACKED, since this machine's global ignore file ignores every `.gitignore`,
+and `git worktree add` materialises only tracked files. **Neither contaminated branch was ever
+pushed; `origin` has never held the key.** The accepted branch is a scope-clean rebuild at
+`75627f7`: 29 files, 7,269 insertions, every file bootstrap provenance or a corrected claim. The
+hazard is closed for every existing and future worktree through the repository's shared
+`info/exclude`, verified by creating a fresh worktree and confirming that a planted
+`config/master.key` and `tmp/` are no longer offered to `git add -A`. The durable fix is FU-46.
+
+**WHAT THIS ACCEPTANCE EXPLICITLY DOES NOT CLAIM.**
+
+1. **TWO MANDATORY GATES HAVE NEVER EXECUTED, AND THIS ITEM DID NOT FIX THEM.**
+   `controller_crash_recovery` and `controller_locking` name `spec/automation/crash_recovery` and
+   `spec/automation/locking`. **Neither path has ever existed** — not at `52818fc`, not at the commit
+   that introduced the manifest entries. `controller_locking`'s subject matter is covered elsewhere
+   (`spec/automation/integration/git_lock_record_spec.rb` among others); `controller_crash_recovery`
+   has NO coverage anywhere in `spec/automation/`. So "every mandatory gate passes" has been
+   unsatisfiable for every acceptance this repository has made, including the prior ones. It is
+   pre-existing, unrelated to database bootstrap, and outside a diff the owner required be limited to
+   bootstrap provenance. It is FU-45 and it is BLOCKING. Accepting this item on the gates that CAN
+   execute is a deliberate, recorded exception rather than a silent one.
+2. **THE DIFF EXCEEDS `max_diff_lines_before_forced_split: 3000`** at 7,269 lines. 6,563 of those are
+   `db/baseline/BASELINE.sql`, a single generated snapshot of the canonical schema. Excluding it the
+   diff is 706 lines. Splitting an immutable one-file artifact would satisfy the counter and inform
+   nobody, so the threshold is recorded as knowingly exceeded rather than worked around.
+3. **IT DOES NOT PROVE ANY UPGRADE PATH.** The supported-upgrade-origin set declared in
+   `db/baseline/BASELINE.json` contains exactly one member, the baseline itself. Upgrade-path proof
+   begins when the second origin exists.
+4. **IT DOES NOT TOUCH S-07-009's BLOCKERS.** S-07-009's schema evidence is invalidated by the
+   finding; none of its blockers was caused by it and none is cleared by fixing it.
+
+Proof standard. Every mandatory gate that can execute, run from the final branch state against a
+database built by `bin/f1-db-bootstrap`: rspec 2248/0; brakeman 0; packwerk clean; bundler-audit
+clean; zeitwerk ok; `verify_runtime` 15 checks with RLS intact; no structure drift; architecture
+fitness 149/0; concurrency 116/0; redis/sidekiq acceptance 8/0; stale-lease recovery 14/0; controller
+unit 33/0, integration 20/0, policy 21/0, end-to-end 10/0; and `bin/f1-db-bootstrap-gate` 9/9 with
+its own three controls mutation-tested and killed.
+
+Authority And Precedence:
+Acceptance under standing delegation ADR-061 and review discipline ADR-080. Records
+PREREQ-DB-BOOTSTRAP in `completed_prerequisites`. Does NOT add to `completed_blocks`, does not alter
+`current_tranche`, does not accept S-07-009, and does not authorise S-07-010 or S-07-011. Opens
+FU-45 (BLOCKING), FU-46 and FU-47. Allocated the next unused number after ADR-129.
