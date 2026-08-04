@@ -5,6 +5,7 @@ require "json"
 require "yaml"
 require "open3"
 require_relative "../../automation/lib/autonomous_build/frozen_contracts"
+require_relative "../../automation/lib/autonomous_build/mutation_harness"
 
 # REPOSITORY TRUTH — facts that must never again depend on a reviewer noticing them.
 #
@@ -332,7 +333,7 @@ RSpec.describe "Repository truth", type: :model do
     end
 
     it "agrees with a MEASUREMENT of the suite, not merely with the other record" do
-      claimed = in_flight[/\|\s*`bundle exec rspec`\s*\|\s*`(\d+) examples/, 1]
+      claimed = evidence_block(in_flight).fetch("suite_examples").to_s
       state = BUILD_STATE["next_action"][/rspec (\d+)\/0/, 1]
 
       expect(claimed).not_to be_nil, "the record's rspec verification row did not parse"
@@ -346,7 +347,7 @@ RSpec.describe "Repository truth", type: :model do
     it "pins the same candidate range in the record and the state file" do
       # R8-7: `:34` pinned `7f043a2..4e2d8cf` — the round-6 value — while `:3` and `:14` described
       # round 7, so a reviewer following the Identity table reviews the wrong range.
-      record_range = in_flight[/\*\*Repair candidate\*\*\s*\|\s*\*\*`([0-9a-f]+\.\.[0-9a-f]+)`/, 1]
+      record_range = evidence_block(in_flight).fetch("candidate_range")
       state_range = BUILD_STATE["next_action"][/([0-9a-f]{7,40}\.\.[0-9a-f]{7,40})/, 1]
 
       expect(record_range).not_to be_nil, "the record's Identity table names no pinned candidate range"
@@ -390,26 +391,45 @@ RSpec.describe "Repository truth", type: :model do
     NUMBER_WORDS = { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
                      "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10 }.freeze
 
-    it "counts frozen-path changes the way FrozenContracts counts them" do
-      # R8-7: ":162 claims the detector spec is 'the only frozen-path change in the tranche' where
-      # `FrozenContracts.frozen_changes` on the candidate diff returns TWO."
-      range = in_flight[/\*\*Repair candidate\*\*\s*\|\s*\*\*`([0-9a-f]+\.\.[0-9a-f]+)`/, 1]
-      skip "no pinned candidate range" if range.nil?
+    # THE RECORD'S EVIDENCE BLOCK: a fenced, machine-readable fact rather than a sentence.
+    #
+    # ROUND 9's LIMB NEVER EXECUTED. It extracted claims with `/(\w+) frozen-path changes?/i` — a
+    # literal space — and the record's only numeric claim wrapped across a line, so the regex matched
+    # a QUOTED phrase from an earlier finding, `"only"` was not a number, the claim list emptied, and
+    # the example SKIPPED in every run. A gate written to catch a false claim that cannot fire is the
+    # defect it was written to catch, and the suite's single `pending` example WAS it.
+    #
+    # SO THE FACT LEAVES THE PROSE. The record carries a `f1-evidence` block whose values are compared
+    # to measurements, and prose may say whatever reads best without any check depending on how it
+    # wraps. AN ABSENT OR UNPARSEABLE BLOCK IS A FAILURE, NOT A SKIP: "no claim" and "the claim moved"
+    # are indistinguishable from outside, and treating them as innocent is exactly how round 9's limb
+    # went quiet.
+    def evidence_block(text)
+      fenced = text[/```f1-evidence\n(.*?)```/m, 1]
+      raise "the record carries no ```f1-evidence``` block" if fenced.nil?
 
+      YAML.safe_load(fenced)
+    end
+
+    it "carries a machine-readable evidence block, and it is not optional" do
+      evidence = evidence_block(in_flight)
+
+      expect(evidence).to be_a(Hash)
+      expect(evidence.keys).to include("candidate_range", "frozen_path_changes", "suite_examples")
+    end
+
+    it "counts frozen-path changes the way FrozenContracts counts them" do
+      evidence = evidence_block(in_flight)
+      range = evidence.fetch("candidate_range")
       changed = git!("diff", "--name-only", range).lines.map(&:strip).reject(&:empty?)
       frozen = AutonomousBuild::FrozenContracts.frozen_changes(changed)
-      # EVERY numeric claim, not the first phrase that happens to match: the record also QUOTES round
-      # 8's finding ("the record claiming 'the only frozen-path change'"), and a rule that read the
-      # first match would judge the quotation rather than the claim.
-      claims = in_flight.scan(/(\w+) frozen-path changes?/i).flatten
-             .filter_map { |word| word.to_i.positive? ? word.to_i : NUMBER_WORDS[word.downcase] }
-      skip "the record makes no numeric frozen-path claim" if claims.empty?
 
-      claims.uniq.each do |claimed|
-        expect(claimed).to eq(frozen.length),
-                           "the record claims #{claimed} frozen-path change(s); the candidate diff has " \
-                           "#{frozen.length}: #{frozen.join(', ')}"
-      end
+      expect(evidence.fetch("frozen_path_changes")).to eq(frozen.length),
+                                                       "the record's evidence block claims " \
+                                                       "#{evidence.fetch('frozen_path_changes')} frozen-path " \
+                                                       "change(s); the candidate diff has #{frozen.length}: " \
+                                                       "#{frozen.join(', ')}"
+      expect(evidence.fetch("frozen_paths")).to match_array(frozen)
     end
 
     # ---- mutation evidence, which may not be inferred (R8-7, and FU-44's re-derivation) ------------
@@ -425,36 +445,57 @@ RSpec.describe "Repository truth", type: :model do
     # a verdict for an edit git cannot see.
     LEDGER_PATH = "specification/automation/S-07-009_MUTATION_LEDGER.json"
 
-    it "backs every mutation claim with a ledger entry that confirms the mutation LANDED" do
+    it "carries a mutation ledger the REPOSITORY can replay, not one that reports on itself" do
+      # ROUND 9's GATE ASSERTED A BOOLEAN THE LEDGER'S AUTHOR WROTE. `entry["landed"] == true` is a
+      # self-report, the harness that would have established it lived outside the repository, and a
+      # fabricated entry that never ran passed. Every entry a reviewer re-ran did reproduce — the
+      # defect was that nothing here could show it.
+      #
+      # SO THE LEDGER IS NOW REPLAYABLE FROM THE REPOSITORY. Each entry carries the exact
+      # substitution, and `MutationHarness.verify_applicable!` proves — deterministically, without
+      # running a suite — that every entry still names a real file, a `from` text occurring EXACTLY
+      # ONCE, and a proof that exists. That rejects a fabricated entry, a stale one, and the
+      # wrong-identical-site class that invalidated FU-44.
       skip "no mutation ledger in this tranche" unless ROOT.join(LEDGER_PATH).exist?
 
-      ledger = JSON.parse(ROOT.join(LEDGER_PATH).read).fetch("mutations")
-      expect(ledger).not_to be_empty
+      entries = AutonomousBuild::MutationHarness.load(ROOT.join(LEDGER_PATH).to_s)
+      expect(entries).not_to be_empty
 
-      ledger.each do |entry|
-        expect(entry["landed"]).to be(true),
-                                   "#{entry['id']} is recorded with no confirmation that it landed"
-        expect(entry["restored"]).to eq("true true"),
-                                     "#{entry['id']} did not restore the worktree exactly"
+      expect { AutonomousBuild::MutationHarness.verify_applicable!(entries, root: ROOT.to_s) }
+        .not_to raise_error
+
+      entries.each do |entry|
+        expect(entry["expectation"]).to be_in(%w[kill equivalent])
         expect(entry["verdict"]).to eq(entry["expectation"] == "kill" ? "killed" : "survived"),
-                                    "#{entry['id']} is expected to be #{entry['expectation']} and was " \
-                                    "#{entry['verdict']}"
-        # A SURVIVOR MAY NOT BE EXCUSED SILENTLY. An entry that expects survival carries the reason the
-        # mutant is equivalent, or the ledger becomes a way of recording any survivor as intended.
-        unless entry["expectation"] == "kill"
-          expect(entry["equivalence_reason"].to_s.length).to be > 200,
-                                                             "#{entry['id']} expects survival and records " \
-                                                             "no reason the mutant is equivalent"
-        end
-        expect(entry["result"]).to match(/\d+ examples?, \d+ failures?/),
-                                   "#{entry['id']} records no example/failure counts"
-        spec = entry["command"][/rspec (\S+)/, 1]
-        expect(ROOT.join(spec)).to exist, "#{entry['id']} names #{spec}, which does not exist"
-        next unless entry["verdict"] == "killed"
+                                    "#{entry['id']} expects #{entry['expectation']} and records #{entry['verdict']}"
+        next if entry["expectation"] == "kill"
 
-        expect(entry["failing_examples"]).not_to be_empty,
-                                                 "#{entry['id']} is recorded killed but names no failing example"
+        # A SURVIVOR MAY NOT BE EXCUSED SILENTLY.
+        expect(entry["equivalence_reason"].to_s.length).to be > 200
       end
+    end
+
+    it "rejects a fabricated ledger entry, which is the property round 9's gate lacked" do
+      # NON-VACUITY, EXECUTABLE. The previous gate passed an entry naming nothing; this one is handed
+      # exactly that and must refuse it.
+      fabricated = [{ "id" => "zz-fabricated", "file" => "app/no/such/file.rb",
+                      "from" => "anything", "to" => "anything else", "proof" => "spec/no_such_spec.rb",
+                      "expectation" => "kill", "verdict" => "killed", "landed" => true }]
+
+      expect { AutonomousBuild::MutationHarness.verify_applicable!(fabricated, root: ROOT.to_s) }
+        .to raise_error(/not replayable/)
+    end
+
+    it "rejects an entry whose site is ambiguous, which is how FU-44 was invalidated" do
+      # THE EXACT SHAPE THAT INVALIDATED FU-44: three identical comparisons in one file, so an
+      # unscoped substitution lands somewhere the record does not name.
+      ambiguous = [{ "id" => "zz-ambiguous", "file" => "app/platform/entitlement/service.rb",
+                     "from" => "now >= effective_deadline(r)", "to" => "now > effective_deadline(r)",
+                     "proof" => "spec/platform/entitlement/service_spec.rb",
+                     "expectation" => "kill", "verdict" => "killed" }]
+
+      expect { AutonomousBuild::MutationHarness.verify_applicable!(ambiguous, root: ROOT.to_s) }
+        .to raise_error(/occurrences of its `from` text/)
     end
 
     it "names in the record only mutations the ledger actually ran" do

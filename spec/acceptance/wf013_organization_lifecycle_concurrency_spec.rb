@@ -80,9 +80,32 @@ RSpec.describe "WF-013 organization lifecycle concurrency", type: :acceptance,
     SQL
   end
 
+  # BOUNDED, BECAUSE A GATE THAT HANGS IS WORSE THAN A GATE THAT FAILS (round 9's gate-reliability
+  # finding). `Thread#value` waits forever, so a pair of racing commands that deadlock, or that block
+  # on a lock nobody releases, wedged the FULL SUITE indefinitely rather than failing it — observed
+  # once under concurrent load, with the main thread in `thread_join` and a worker blocked in
+  # `PQgetResult` while every connection sat idle. Five other runs completed normally, so it is
+  # intermittent and suite-context-dependent, which is exactly the shape a bound exists for.
+  #
+  # THE RACE IS PRESERVED, NOT SERIALISED. Both threads still start together and still contend for the
+  # same locks; the only change is that waiting has an end, and reaching that end reports WHAT WAS
+  # STILL RUNNING rather than a bare timeout. `RaceHarness::TIMEOUT_SECONDS` is the repository's
+  # existing bound for exactly this, so there is one number rather than a second one invented here.
   def race(first, second)
-    [Thread.new { ActiveRecord::Base.connection_pool.with_connection { first.call } },
-     Thread.new { ActiveRecord::Base.connection_pool.with_connection { second.call } }].map(&:value)
+    threads = [Thread.new { ActiveRecord::Base.connection_pool.with_connection { first.call } },
+               Thread.new { ActiveRecord::Base.connection_pool.with_connection { second.call } }]
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + RaceHarness::TIMEOUT_SECONDS
+    threads.each do |thread|
+      remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      next if remaining.positive? && thread.join(remaining)
+
+      states = threads.map { |t| "#{t.name || 'thread'}=#{t.status.inspect}" }.join(", ")
+      backtraces = threads.filter_map { |t| t.backtrace&.first(4)&.join("\n      ") }
+      threads.each(&:kill)
+      raise "a racing command did not finish within #{RaceHarness::TIMEOUT_SECONDS}s. " \
+            "Thread states: #{states}.\n  Backtraces:\n      #{backtraces.join("\n      --\n      ")}"
+    end
+    threads.map(&:value)
   end
 
   describe "exactly one lifecycle transition wins" do

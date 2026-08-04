@@ -52,28 +52,19 @@ module GovernedWriteSentinel
   SPEC_SOURCE = %r{/spec/}
   STACK_DEPTH = 160
 
-  # THE WRITES PRODUCTION CAN REACH THAT ARE DELIBERATELY NOT TRANSLATED, each with the reason it is
-  # not, in the shape `crawl_terminal_fact_closure_spec.rb` already uses for its ungoverned tables. A
-  # producer that appears in neither this list nor a translation FAILS, which is the property round 8
-  # needed: `FetchContent#settle` was a third producer that no list contained and no check missed it.
+  # THERE ARE NO CLASSIFIED EXCEPTIONS (round 9, R9-1).
   #
-  # Both members are the COMMAND that changes the run's state, holding the Crawl's row lock across its
-  # own re-read, not a worker arriving late against a decision someone else made. Owner ruling 2 is
-  # about the latter: "a stale or late worker must receive a controlled domain outcome". A translation
-  # here would convert an unreachable refusal into a typed error with no rescuer, which is worse than
-  # the raw one.
-  CLASSIFIED_UNTRANSLATED = {
-    ["workflows/wf005/frontier.rb", "workflows/wf005/handlers/start_crawl.rb", "crawl_frontier_entries"] =>
-      "StartCrawl builds the root frontier in the SAME transaction that moves the Crawl queued -> " \
-      "running, holding the Crawl's row lock and re-reading its state under that lock. A concurrent " \
-      "cancellation must take the same lock, so it commits either entirely before the re-read (which " \
-      "refuses) or entirely after this transaction ends. The closure cannot fire; " \
-      "spec/acceptance/wf005_start_cancel_concurrency_spec.rb holds that ordering.",
-    ["workflows/wf005/limit_decisions.rb", "workflows/wf005/handlers/complete_crawl.rb", "crawl_limit_decisions"] =>
-      "CompleteCrawl IS the terminal selection. Its limit decisions are written in the same " \
-      "transaction, before the state change that would close the fact set, under the Crawl's row " \
-      "lock. There is no window in which a terminal parent could refuse this handler's own write."
-  }.freeze
+  # Round 9 carried two, each with careful reasoning about why the closure could not fire under the
+  # handler's row lock. The reasoning was correct and it did not matter: the mechanism was a
+  # hand-written list, and the review found a THIRD producer — `Frontier#seed_roots` under the same
+  # handler, in the same transaction — that the list did not contain. That is the fourth time in this
+  # tranche that a list has been one entry short of reality.
+  #
+  # So the list is EMPTY, and stays empty by construction rather than by discipline: every WF-005 unit
+  # of work now runs inside `ClosedFactSet.translate`, including both command handlers that used to be
+  # the exceptions. A producer added by a later tranche is covered by WHERE IT RUNS. If this constant
+  # ever needs an entry again, that is the signal that the structural property has been lost.
+  CLASSIFIED_UNTRANSLATED = {}.freeze
 
   class << self
     # Tables closed by the ratified trigger, read from the catalogue exactly as

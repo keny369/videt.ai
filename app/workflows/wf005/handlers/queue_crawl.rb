@@ -107,16 +107,20 @@ module Workflows
           # an observed ungranted waiter and watching this command commit anyway. The platform-wide
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
-          unless Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                        .authority_current?(auth_store: d[:auth_store], actor:)
+          attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
+                                               .authority_attestation(auth_store: d[:auth_store], actor:)
+          if attestation.nil?
             return deny(**denial_args(d), resource_id: command.project_id,
                         outward: "crawl_trigger_unauthorized", internal: "crawl_trigger_unauthorized")
           end
 
-          commit(d, entitlement, sources, store.active_crawl_policy(d[:org], command.project_id), key_digest)
+          commit(d, entitlement, sources, store.active_crawl_policy(d[:org], command.project_id),
+                 key_digest, attestation:)
         end
 
-        def commit(d, entitlement, sources, crawl_policy, key_digest)
+        def commit(d, entitlement, sources, crawl_policy, key_digest, attestation:)
+          # THE WRITE IS WHAT REFUSES (round 9, R9-3).
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]

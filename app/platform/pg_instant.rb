@@ -121,31 +121,11 @@ module Platform
       utc(connection.exec("SELECT clock_timestamp() AS anchored_at").getvalue(0, 0))
     end
 
-    # HAS THIS DEADLINE PASSED? :442 SAYS "AT 60 ELAPSED MINUTES", SO EQUALITY IS EXPIRY (round 8, R8-9).
-    #
-    # THE COMPARISON HAD THREE COPIES AND NO PROOF. `Admission#wall_clock_expired?`,
-    # `CrawlDriver#within_wall_clock?` and `DiscoverSitemaps`' deadline check each spelled out their
-    # own `<=` or `>` against `deadline_at`, and weakening `Admission`'s from `<=` to `<` — which moves
-    # :442's boundary in the direction of admitting a run that is over — survived the ENTIRE repository
-    # suite. It survived because no proof could construct the case: the instant those three compare is
-    # produced by `after_wait`, whose advance is a number of microseconds nobody can predict, so exact
-    # equality is unreachable from outside. A boundary that cannot be constructed cannot be defended,
-    # and three copies of it are three chances to get it wrong.
-    #
-    # So the boundary is ONE function, at the module that already owns what a PostgreSQL instant
-    # means, and it is exactly testable: `spec/platform/pg_instant_spec.rb` drives microsecond-precise
-    # operands straight at it, and `spec/acceptance/wf005_pass_anchor_spec.rb` drives a real pass
-    # entering exactly AT its deadline through the real handler. Round 4's R4-1 found this same
-    # boundary broken once already, by TRUNCATION rather than by comparison — hence `utc` on both
-    # sides, which is the reason this module exists at all.
-    #
-    # NIL IS NOT EXPIRED. A run with no deadline has no boundary to cross; all three callers already
-    # treated NULL that way, and the rule is now stated once instead of three times.
-    def expired?(deadline, at:)
-      return false if deadline.nil?
-
-      utc(deadline) <= utc(at)
-    end
+    # `expired?` LIVED HERE AND HAS MOVED (round 9, R9-7). :442's boundary is now
+    # `Platform::RunDeadline`, a value that answers the contract's questions and exposes no
+    # comparison — because a rule saying "everyone must call the owner" was defeated by one method
+    # indirection, while a value nobody can compare has nothing to reimplement. This module still
+    # owns DECODING an instant; it no longer owns deciding whether a run is over.
 
     # Whole elapsed minutes between two instants, floored — :442's "60 elapsed minutes" measure.
     #

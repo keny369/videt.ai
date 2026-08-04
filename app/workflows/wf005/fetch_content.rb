@@ -164,7 +164,7 @@ module Workflows
           entry_id: entry["id"], canonical_url: entry["canonical_url"],
           canonical_host: host_of(entry["canonical_url"]), depth: entry["depth"].to_i,
           # :442's wall clock, carried to the request itself. See `request_budget`.
-          deadline_at: Platform::PgInstant.utc(crawl["deadline_at"]),
+          deadline_at: Platform::RunDeadline.of(crawl),
           # THE INSTANT `now` WAS TRUE, so the request's budget can be computed from the instant the
           # REQUEST starts rather than from the instant the pass was delivered (R3-4). Taken from the
           # CALLER when the caller observed `now` earlier than this method did (R4-5).
@@ -391,10 +391,12 @@ module Workflows
       end
 
       def request_budget(context, bounds)
-        deadline = context[:deadline_at]
-        return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if deadline.nil?
-
-        remaining = deadline - request_start(context)
+        # ASKED OF THE DEADLINE RATHER THAN COMPUTED FROM IT (round 9, R9-7). The remainder is the
+        # run's own answer; this decides only which of the two bounds is the tighter one. Equality
+        # picks the unbounded branch, which is correct: a remainder exactly equal to the ceiling is
+        # not a shorter budget.
+        remaining = context[:deadline_at].remaining_seconds(from: request_start(context))
+        return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if remaining.nil?
         return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if remaining > bounds.timeout_s
 
         WallClockBudget.new(seconds: remaining, bounded: true)

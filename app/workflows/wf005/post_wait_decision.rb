@@ -75,6 +75,18 @@ module Workflows
       def authority_current?(auth_store:, actor:)
         IdentityAccess::Authorization::CommandAuthorizer.authority_current?(store: auth_store, actor:)
       end
+
+      # THE SAME RECHECK, RETURNING PROOF INSTEAD OF A BOOLEAN (round 9, R9-3).
+      #
+      # A boolean can be short-circuited past by adding one operand to the guard that reads it, and
+      # round 9's review did exactly that on an axis two rounds of branch matrices had not driven —
+      # committing a policy activation on revoked authority. An ATTESTATION cannot be short-circuited
+      # past, because the protected write demands one and only a passing recheck mints one. The
+      # handler still branches on nil exactly as it branched on false; what changed is that skipping
+      # the branch no longer reaches a commit.
+      def authority_attestation(auth_store:, actor:)
+        AuthorityAttestation.attest(@connection, auth_store:, actor:)
+      end
     end
   end
 end

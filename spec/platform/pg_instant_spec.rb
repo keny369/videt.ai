@@ -66,7 +66,12 @@ RSpec.describe Platform::PgInstant, type: :model do
 
   # ---- :442's boundary, exactly (round 8, R8-9) --------------------------------
   #
-  # WHY THESE LIVE HERE AND NOT AT `Admission`. The comparison used to be spelled out at three call
+  # THEY TEST THE LIVE BOUNDARY, WHICH IS `Platform::RunDeadline#expired?` (round 9, R9-7). They used
+  # to test `PgInstant.expired?`, and when the boundary moved into the value object the ledger caught
+  # these examples still passing against a method nothing called — a proof defending dead code, which
+  # is the same class of defect as a proof that never reaches the code it names.
+  #
+  # WHY THEY LIVE HERE AND NOT AT `Admission`. The comparison used to be spelled out at three call
   # sites, each judging an instant produced by `after_wait` — whose advance is a number of microseconds
   # nobody can predict. Exact equality was therefore unconstructible from outside, which is why
   # weakening `Admission`'s `<=` to `<` survived the entire repository suite. Moving the boundary to
@@ -78,17 +83,17 @@ RSpec.describe Platform::PgInstant, type: :model do
     def usec(n) = Rational(n, 1_000_000)
 
     it "PROOF 180 — one microsecond BEFORE the deadline is not expired" do
-      expect(described_class.expired?(deadline, at: deadline - usec(1))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => deadline).expired?(at: deadline - usec(1))).to be(false)
     end
 
     it "PROOF 181 — EXACTLY at the deadline IS expired, which is the whole of :442's \"AT\"" do
       # THE MUTATION THIS KILLS: `<=` to `<`. Nothing else in the repository can fail for it — the
       # difference between the two is exactly this instant and no other.
-      expect(described_class.expired?(deadline, at: deadline)).to be(true)
+      expect(Platform::RunDeadline.of("deadline_at" => deadline).expired?(at: deadline)).to be(true)
     end
 
     it "PROOF 182 — one microsecond AFTER the deadline is expired" do
-      expect(described_class.expired?(deadline, at: deadline + usec(1))).to be(true)
+      expect(Platform::RunDeadline.of("deadline_at" => deadline).expired?(at: deadline + usec(1))).to be(true)
     end
 
     it "PROOF 183 — the boundary survives the encodings a connection may deliver" do
@@ -98,99 +103,84 @@ RSpec.describe Platform::PgInstant, type: :model do
       # `utc`, so the text encoding a bare libpq connection returns decides identically to the `Time`
       # a pooled connection returns.
       text = deadline.iso8601(6)
-      expect(described_class.expired?(text, at: deadline)).to be(true)
-      expect(described_class.expired?(text, at: deadline - usec(1))).to be(false)
-      expect(described_class.expired?(deadline, at: (deadline - usec(1)).iso8601(6))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => text).expired?(at: deadline)).to be(true)
+      expect(Platform::RunDeadline.of("deadline_at" => text).expired?(at: deadline - usec(1))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => deadline).expired?(at: (deadline - usec(1)).iso8601(6))).to be(false)
       # A whole-second TRUNCATION of either side would answer `true` here, because it would compare
       # 11:00:00 against 11:00:00 rather than 11:00:00.123456 against 11:00:00.000001.
-      expect(described_class.expired?(deadline, at: deadline.change(usec: 1))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => deadline).expired?(at: deadline.change(usec: 1))).to be(false)
     end
 
     it "PROOF 184 — it reads no clock of its own, and a NULL deadline never expires" do
       # A RECOMPUTATION FROM `Time.now` would make the answer depend on when the example ran rather
       # than on the operands. Both of these instants are decades from now in opposite directions.
-      expect(described_class.expired?(Time.utc(1990, 1, 1), at: Time.utc(1990, 1, 1) - usec(1))).to be(false)
-      expect(described_class.expired?(Time.utc(2200, 1, 1), at: Time.utc(2200, 1, 1))).to be(true)
-      expect(described_class.expired?(nil, at: Time.utc(2200, 1, 1))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => Time.utc(1990, 1, 1))
+               .expired?(at: Time.utc(1990, 1, 1) - usec(1))).to be(false)
+      expect(Platform::RunDeadline.of("deadline_at" => Time.utc(2200, 1, 1))
+               .expired?(at: Time.utc(2200, 1, 1))).to be(true)
+      expect(Platform::RunDeadline.of("deadline_at" => nil).expired?(at: Time.utc(2200, 1, 1))).to be(false)
     end
 
-    # DEADLINE COMPARISONS THAT ARE A DIFFERENT QUESTION, each with the reason it is. "Is this run
-    # over?" and "may this action be SCHEDULED at this instant?" are not the same sentence, and :442
-    # answers them differently at the boundary: a run AT its deadline is over, while an action due
-    # exactly AT the deadline is "the last honest opportunity" whose pass will then find the clock
-    # expired and halt. Both of these carry that reasoning in their own headers already.
+    # THERE ARE NO CLASSIFIED DEADLINE COMPARISONS LEFT (round 9, R9-7).
     #
-    # A COMPARISON IN NEITHER THIS LIST NOR `expired?` FAILS PROOF 185, which is the property that
-    # matters: the next one has to be classified rather than defaulted.
-    CLASSIFIED_DEADLINE_COMPARISONS = {
-      "app/workflows/wf005/crawl_fetch_due_schedule.rb" =>
-        ["return { entry_id:, beyond_deadline: true } if deadline && now > deadline",
-         "due_at = deadline if deadline && due_at > deadline"],
-      "app/workflows/wf005/crawl_driver.rb" =>
-        ["return nil if deadline && at > deadline"],
-      # A DURATION AGAINST A CEILING, not an instant against a boundary. `remaining` is how much of
-      # the run's clock is left; the comparison decides whether the per-request timeout or the run's
-      # remainder is the tighter bound (:442's "incomplete requests are canceled", FU-34). Equality
-      # picks the unbounded branch, which is correct: a remainder exactly equal to the ceiling is not
-      # a shorter budget.
-      "app/workflows/wf005/fetch_content.rb" =>
-        ["return WallClockBudget.new(seconds: bounds.timeout_s, bounded: false) if remaining > bounds.timeout_s"]
-    }.freeze
+    # Round 9 gave the boundary one owner and defended the ownership with a per-line text scan plus a
+    # list of three "different question" comparisons. The review defeated the scan with ONE METHOD
+    # INDIRECTION and then inverted the boundary at a line the same candidate had written.
+    #
+    # A DEADLINE IS NO LONGER AN INSTANT ANYONE CAN COMPARE. `Platform::RunDeadline` answers :442's
+    # questions — `expired?`, `remaining_seconds`, `not_after`, `beyond?`, `at?` — and exposes no
+    # comparison operator and no way to obtain the raw value except one named
+    # `instant_for_transport`, which exists solely to hand a plain instant to FROZEN F-04. So the
+    # classification list is empty, and the rule below is no longer a text scan hoping to notice a
+    # second implementation: there is nothing to implement one FROM.
+    #
+    # `RowInstantGuard` enforces the same rule on the value the connection returns, so a caller that
+    # reaches for `crawl["deadline_at"]` to rebuild a comparison — behind any number of helpers —
+    # raises at runtime rather than passing a scan.
+    CLASSIFIED_DEADLINE_COMPARISONS = {}.freeze
 
-    it "PROOF 185 — every WF-005 RUN-EXPIRY test is this one function" do
-      # THE PROPERTY THAT KEEPS IT ONE RULE. Three copies of "is this run over" is three chances to
-      # invert a direction, and round 8 found the copy nobody could construct a test for. Any WF-005
-      # line that compares a deadline must be `Platform::PgInstant.expired?` or must be classified
-      # above as a different question.
-      # A LOCAL BOUND FROM A DEADLINE IS STILL A DEADLINE. `d = crawl["deadline_at"]` followed by
-      # `utc(d) < now` names the column on one line and compares on another, and a rule that matched
-      # text alone would see neither — which is the escape round 6 and round 8 both found, one rule
-      # at a time. Names bound from a deadline expression are carried, per file.
-      offenders = Dir[Rails.root.join("app/workflows/wf005/**/*.rb")].sort.flat_map do |file|
+    it "PROOF 185 — the corpus obtains no raw deadline to compare" do
+      # WHAT MAKES THIS DIFFERENT FROM THE SCAN IT REPLACES: it is not looking for comparisons, which
+      # is a question about spellings. It asserts that the only decode of the column in the whole
+      # repository lives in the owner, so no caller HAS an instant to compare however it is written.
+      decoders = Dir[Rails.root.join("app/**/*.rb")].sort.filter_map do |file|
         relative = Pathname(file).relative_path_from(Rails.root).to_s
-        classified = CLASSIFIED_DEADLINE_COMPARISONS.fetch(relative, [])
-        # The seed is a SUBSTRING because the column is `deadline_at` and a word boundary would not
-        # match it; carried names are whole words because `d` must not match `deadline`.
-        tainted = Set.new
-        File.read(file).lines.each_with_index.filter_map do |line, index|
-          text = line.strip
-          next if text.start_with?("#")
+        next if relative == "app/platform/run_deadline.rb"
 
-          mentions = lambda do |source|
-            source.include?("deadline") ||
-              tainted.any? { |name| source.match?(/\b#{Regexp.escape(name)}\b/) }
-          end
-          # `x = <expression naming a deadline>` taints `x` for the rest of the file.
-          if (binding_match = text.match(/\A([a-z_][a-zA-Z_0-9]*)\s*=[^=~>]\s*(.+)\z/)) &&
-             mentions.call(binding_match[2])
-            tainted << binding_match[1]
-          end
-          next unless mentions.call(text)
-          # An ORDERING operator, not a hash rocket, not an assignment, not a comment.
-          next unless text.gsub("=>", "").match?(/[<>]/)
-          next if classified.include?(text)
+        lines = File.read(file).lines.each_with_index.filter_map do |line, index|
+          next if line.strip.start_with?("#")
+          # A READ OF THE COLUMN OUT OF A ROW, which is the only shape that yields an instant a
+          # caller could compare. A parameter named `deadline_at`, a bound SQL value and a write of
+          # the column are none of them.
+          next unless line.match?(/\["deadline_at"\]/)
+          next if line.include?("RunDeadline")
 
-          "#{relative}:#{index + 1}: #{text}"
+          "#{relative}:#{index + 1}: #{line.strip}"
         end
-      end
+        lines.empty? ? nil : lines
+      end.flatten
+
+      offenders = decoders
 
       expect(offenders).to be_empty, <<~MESSAGE
-        A WF-005 file compares a deadline itself instead of asking Platform::PgInstant.expired?, and
-        is not classified as a different question. :442's run-expiry boundary is one rule with one
-        owner, because a second copy is a second direction to invert:
+        A file outside Platform::RunDeadline reads `deadline_at` directly. :442's boundary has one
+        owner, and the way that stays true is that nobody else obtains the instant to compare:
         #{offenders.join("\n")}
       MESSAGE
+      expect(CLASSIFIED_DEADLINE_COMPARISONS).to be_empty
     end
 
-    it "PROOF 186 — the classification list names only comparisons that still exist" do
-      # The exclusions may not rot into a way of silencing PROOF 185: a classified line that has been
-      # edited or deleted is removed rather than left to excuse whatever later takes its place.
-      CLASSIFIED_DEADLINE_COMPARISONS.each do |relative, lines|
-        source = Rails.root.join(relative).read
-        lines.each do |line|
-          expect(source).to include(line), "#{relative} no longer contains the classified comparison"
-        end
+    it "PROOF 186 — the owner exposes no comparison operator to reimplement the boundary with" do
+      # THE STRUCTURAL PROPERTY, ASSERTED ON THE OBJECT ITSELF rather than on the source of its
+      # callers. A caller cannot invert what it cannot compare.
+      deadline = Platform::RunDeadline.of("deadline_at" => Time.utc(2026, 8, 4, 12, 0, 0))
+
+      %i[< <= > >= to_time to_i getutc iso8601_raw].each do |operator|
+        expect(deadline).not_to respond_to(operator),
+                                "RunDeadline answers ##{operator}, which is a way to rebuild :442's " \
+                                "boundary outside its owner"
       end
+      expect(deadline).to respond_to(:expired?, :remaining_seconds, :not_after, :beyond?, :at?)
     end
   end
 end

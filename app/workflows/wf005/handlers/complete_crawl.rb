@@ -66,18 +66,23 @@ module Workflows
 
           key_digest = Digest::SHA256.digest(command.action_identity_sha256)
 
-          Platform::UnitOfWork.run do |conn|
-            pg = conn.raw_connection
-            now = ctx.now_utc.floor(6)
-            store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
-            org = command.organization_id
-            store.enter_org_context(org:, correlation_id: ctx.correlation_id)
-            # An action naming an Organization that does not exist is a transport-integrity deviation,
-            # not a domain outcome: fail closed BEFORE any ledger row is written.
-            next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if store.organization(org).nil?
+          # THE HANDLER TRANSLATES TOO (round 9, R9-1). See `StartCrawl#attempt` for why there are
+          # no longer any classified exceptions: a list of two exceptions is still a list, and the
+          # review found a producer outside it.
+          Wf005::ClosedFactSet.translate do
+            Platform::UnitOfWork.run do |conn|
+              pg = conn.raw_connection
+              now = ctx.now_utc.floor(6)
+              store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+              org = command.organization_id
+              store.enter_org_context(org:, correlation_id: ctx.correlation_id)
+              # An action naming an Organization that does not exist is a transport-integrity deviation,
+              # not a domain outcome: fail closed BEFORE any ledger row is written.
+              next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if store.organization(org).nil?
 
-            process(store:, entitlement: Platform::Entitlement::Service.new(pg), pg:, command:, ctx:,
-                    org:, now:, key_digest:)
+              process(store:, entitlement: Platform::Entitlement::Service.new(pg), pg:, command:, ctx:,
+                      org:, now:, key_digest:)
+            end
           end
         end
 
@@ -336,7 +341,7 @@ module Workflows
           # :442's boundary, asked of the one owner (round 8, R8-9). The checkpoint fires AT
           # `deadline_at`, so the equality belongs on the expired side — the same sentence
           # `Admission`, `CrawlDriver` and `DiscoverSitemaps` are all judged by.
-          return false unless Platform::PgInstant.expired?(crawl["deadline_at"], at: d[:now])
+          return false unless Platform::RunDeadline.of(crawl).expired?(at: d[:now])
 
           # Read FIRST, because it is the predicate and not merely a field of the record.
           affected = affected_by_wall_clock(d, crawl)

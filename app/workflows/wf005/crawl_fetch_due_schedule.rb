@@ -84,10 +84,10 @@ module Workflows
       # the wall clock expired and halt.
       def link(pg:, organization_id:, project_id:, entry_id:, due_at:, now:, correlation_id:,
                causation_id: nil, command_id: nil, crawl_id: nil)
-        deadline = crawl_id && run_deadline(pg, organization_id, crawl_id)
-        return { entry_id:, beyond_deadline: true } if deadline && now > deadline
+        deadline = crawl_id ? run_deadline(pg, organization_id, crawl_id) : Platform::RunDeadline::NONE
+        return { entry_id:, beyond_deadline: true } if deadline.beyond?(now)
 
-        due_at = deadline if deadline && due_at > deadline
+        due_at = deadline.not_after(due_at)
         created = Platform::ScheduledActions::Store.new(pg).create(
           id: Platform::Ids.system.generate, action_kind: ACTION_KIND,
           action_schema_version: ACTION_SCHEMA_VERSION, organization_id:, project_id:,
@@ -105,15 +105,18 @@ module Workflows
           # Without it the lease was a flat 30 seconds while ONE ratified redirect hop is up to 30 (F-01
           # takes the 15-second resolver timeout outside the 15-second per-hop deadline), so a single slow
           # hop lapsed the lease under a live worker and the pass could never complete. Demonstrated.
-          product_attempt_deadline: deadline
+          product_attempt_deadline: deadline.present? ? deadline.instant_for_transport : nil
         )
         { entry_id:, due_at:, action_id: created[:id], replayed: created[:replayed] }
       end
 
+      # THE RUN'S DEADLINE AS A VALUE (round 9, R9-7). It used to be decoded here into a bare instant
+      # and compared twice in `link` above, which is a second implementation of :442's boundary living
+      # in a scheduler — the exact shape the review defeated the previous single-owner rule with.
+      # `Platform::RunDeadline` answers the two questions this method needs and exposes no comparison.
       def run_deadline(pg, organization_id, crawl_id)
         crawl = IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg).crawl(organization_id, crawl_id)
-        instant = crawl && crawl["deadline_at"]
-        Platform::PgInstant.utc(instant)
+        crawl.nil? ? Platform::RunDeadline::NONE : Platform::RunDeadline.of(crawl)
       end
 
       # The candidate's own host gate, which may be a DIFFERENT host from the one just fetched: a

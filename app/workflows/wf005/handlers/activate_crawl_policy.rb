@@ -100,18 +100,22 @@ module Workflows
           # an observed ungranted waiter and watching this command commit anyway. The platform-wide
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
-          unless Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                        .authority_current?(auth_store: d[:auth_store], actor:)
+          attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
+                                               .authority_attestation(auth_store: d[:auth_store], actor:)
+          if attestation.nil?
             return deny(**denial_args(d), resource_id: scope_resource(command),
                         outward: "crawl_policy_unauthorized", internal: "crawl_policy_unauthorized")
           end
 
-          commit(d, current, key_digest)
+          commit(d, current, key_digest, attestation:)
         rescue LostRace
           raise Platform::InvariantViolation, "crawl policy superseded concurrently"
         end
 
-        def commit(d, current, key_digest)
+        def commit(d, current, key_digest, attestation:)
+          # THE WRITE IS WHAT REFUSES (round 9, R9-3). No Boolean arrangement of the guard above can
+          # reach this line with proof of a post-wait recheck it did not perform.
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]

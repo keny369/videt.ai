@@ -250,10 +250,7 @@ module Workflows
       end
 
       def run_expired?(crawl, now)
-        deadline = crawl["deadline_at"]
-        return false if deadline.nil?
-
-        Platform::PgInstant.expired?(deadline, at: now)
+        Platform::RunDeadline.of(crawl).expired?(at: now)
       end
 
       # Hand the claim back and tell the caller when the host is next startable, so a scheduler can

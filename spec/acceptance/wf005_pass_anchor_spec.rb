@@ -233,4 +233,115 @@ RSpec.describe "WF-005 the pass anchor", type: :acceptance,
     expect(result.payload[:pass_outcome]).to eq(Workflows::Wf005::CrawlDriver::FETCHED)
     expect(requests.length).to eq(1)
   end
+
+  # ---- :442 ACROSS THE PASS, NOT ONLY AT ITS ENTRY (round 9's reproduced product defect) ----------
+  #
+  # THE DEFECT. A pass consults the wall clock ONCE, at entry. Everything after that makes network
+  # requests. A pass entering one second inside its deadline and spending 1.6 seconds resolving robots
+  # therefore started a sitemap request 0.659s AFTER the run was over, and could still mint a forward
+  # action from work performed after expiry. `wf005_record_fetch_attempt_spec.rb` asserts the opposite
+  # property by name — "starts NO request past the deadline, not even robots or a sitemap" — but only
+  # ever enters an ALREADY-expired run, so it never crosses the boundary DURING the pass, which is the
+  # only way the defect occurs.
+  #
+  # THESE PROOFS DO NOT PRE-RESOLVE THE WINDOW THEY TEST. `ready_to_fetch` exists for the admission
+  # proofs and would remove the robots and sitemap requests that ARE the window; every example here
+  # uses a fresh run whose first pass makes them in order, and asserts on the ORDER AND TIMING of what
+  # the outbound façade actually saw.
+  describe ":442 across the whole pass" do
+    # Each request records the instant it was attempted, so the assertions are about real ordering
+    # rather than about a count.
+    def timing_outbound(delay_on_first: 0)
+      seen = requests
+      first = true
+      Object.new.tap do |o|
+        o.define_singleton_method(:fetch) do |url, **kwargs|
+          seen << { url:, at: Time.now.utc }
+          if first && delay_on_first.positive?
+            first = false
+            # REAL ELAPSED TIME, measured by PostgreSQL, exactly as the robots fetch would spend it.
+            DbInspector.connection.exec_params("SELECT pg_sleep($1)", [delay_on_first])
+          end
+          Platform::Outbound::Outcome.response(
+            status: 200, headers: { "content-type" => "text/plain" }, body: "User-agent: *\nAllow: /\n",
+            byte_count: 26, truncated: false, canonical_host: "shop.acme.example", port: 443,
+            pinned_address: "198.51.100.7", final_url: url, redirect_count: 0, latency_ms: 5
+          )
+        end
+      end
+    end
+
+    it "PROOF 194 — a pass entering well inside the deadline starts its requests" do
+      # THE ADVERSARIAL HALF FIRST: a rule that refused every request would satisfy everything below.
+      ctx = running_crawl
+      at = age_run_to(ctx, start_now + (10 * 60))
+
+      result = pass(ctx, timing_outbound, at:)
+
+      expect(result).to be_success
+      expect(requests).not_to be_empty
+      expect(result.payload[:reason_code]).not_to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+    end
+
+    it "PROOF 195 — a pass that crosses its deadline DURING robots starts nothing afterwards" do
+      # THE DEFECT ITSELF. The run has one second left; the robots request consumes 1.6 of them. The
+      # pass entered legally, so nothing about its entry refuses it — and the sitemap request that
+      # used to follow is a request started after the run was over.
+      ctx = running_crawl
+      deadline = Platform::PgInstant.utc(crawl_row(ctx[:crawl_id])["deadline_at"])
+      at = age_run_to(ctx, deadline - 1)
+
+      result = pass(ctx, timing_outbound(delay_on_first: 1.6), at:)
+
+      expect(requests.length).to eq(1), "the pass started #{requests.length} requests; every one after " \
+                                        "the first began after the run's deadline"
+      expect(result).to be_success
+      expect(result.payload[:pass_outcome]).to eq(Workflows::Wf005::CrawlDriver::HALTED)
+      expect(result.payload[:reason_code]).to eq(Workflows::Wf005::Admission::WALL_CLOCK)
+    end
+
+    it "PROOF 196 — no forward action is minted from work performed after expiry" do
+      # ":442 — stop scheduling affected work." A halted pass links nothing, so the chain ends with
+      # the run rather than carrying its own expiry forward.
+      ctx = running_crawl
+      deadline = Platform::PgInstant.utc(crawl_row(ctx[:crawl_id])["deadline_at"])
+      before = DbInspector.one(<<~SQL, [ctx[:crawl_id]])["n"].to_i
+        SELECT count(*) AS n FROM scheduled_actions sa
+        JOIN crawl_frontier_entries e ON e.id = sa.target_id
+        WHERE sa.action_kind = 'crawl_fetch_due' AND e.crawl_id = $1::uuid
+      SQL
+
+      pass(ctx, timing_outbound(delay_on_first: 1.6), at: age_run_to(ctx, deadline - 1))
+
+      after = DbInspector.one(<<~SQL, [ctx[:crawl_id]])["n"].to_i
+        SELECT count(*) AS n FROM scheduled_actions sa
+        JOIN crawl_frontier_entries e ON e.id = sa.target_id
+        WHERE sa.action_kind = 'crawl_fetch_due' AND e.crawl_id = $1::uuid
+      SQL
+      expect(after).to eq(before)
+    end
+
+    it "PROOF 197 — the bound is the run's own deadline, checked at the moment of each request" do
+      # THE MECHANISM, ASSERTED DIRECTLY, so this cannot pass because something else refused. The
+      # decorator is what every producer in the pass is handed, and it raises rather than returning an
+      # outcome a caller could classify as a retryable network fault.
+      deadline = Platform::RunDeadline.of("deadline_at" => Time.utc(2026, 1, 1, 12, 0, 0))
+      bounded = Workflows::Wf005::RunBoundedOutbound.new(
+        Object.new.tap { |o| o.define_singleton_method(:fetch) { |*, **| :started } },
+        deadline:, clock: -> { @at }
+      )
+
+      @at = Time.utc(2026, 1, 1, 11, 59, 59.999999)
+      expect(bounded.fetch("https://x/")).to eq(:started)
+
+      # EQUALITY IS EXPIRY, at the request-start boundary as everywhere else :442 is decided.
+      @at = Time.utc(2026, 1, 1, 12, 0, 0)
+      expect { bounded.fetch("https://x/") }
+        .to raise_error(Workflows::Wf005::RunBoundedOutbound::DeadlinePassed)
+
+      @at = Time.utc(2026, 1, 1, 12, 0, 0.000001)
+      expect { bounded.fetch("https://x/") }
+        .to raise_error(Workflows::Wf005::RunBoundedOutbound::DeadlinePassed)
+    end
+  end
 end

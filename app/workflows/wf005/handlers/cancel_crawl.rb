@@ -197,8 +197,8 @@ module Workflows
           # NOTHING STALE SURVIVES IT. A `true` refuses and writes only a denial record stamped with
           # the post-wait instant; a `false` falls through to the authority recheck and the
           # post-wait-stamped transition below. The pre-wait value decides no durable effect.
-          deadline = Platform::PgInstant.utc(crawl["deadline_at"])
-          return denied(d, "crawl_already_terminal") if deadline && d[:requested_at] == deadline
+          deadline = Platform::RunDeadline.of(crawl)
+          return denied(d, "crawl_already_terminal") if deadline.present? && deadline.at?(d[:requested_at])
           # MTX-030's request schema carries the expected state version; a cancellation holding a
           # version the run has moved past is refused rather than applied to a Crawl its sender was not
           # looking at.
@@ -216,14 +216,15 @@ module Workflows
           # one can block on `crawl-frontier:<crawl>` for as long as an in-flight pass or checkpoint
           # holds it, and a revocation, suspension or policy change committed inside that window
           # would otherwise be spent by an allowed decision that no longer exists.
-          unless post_wait.authority_current?(auth_store: d[:auth_store], actor:)
-            return denied(d, "crawl_cancel_unauthorized")
-          end
+          attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:)
+          return denied(d, "crawl_cancel_unauthorized") if attestation.nil?
 
-          commit(d, crawl, key_digest)
+          commit(d, crawl, key_digest, attestation:)
         end
 
-        def commit(d, crawl, key_digest)
+        def commit(d, crawl, key_digest, attestation:)
+          # THE WRITE IS WHAT REFUSES (round 9, R9-3).
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]

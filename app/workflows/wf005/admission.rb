@@ -316,7 +316,7 @@ module Workflows
       # land exactly on a deadline. `Platform::PgInstant.expired?` is exactly testable and is what
       # `CrawlDriver` and `DiscoverSitemaps` now ask as well.
       def wall_clock_expired?(crawl, now)
-        Platform::PgInstant.expired?(crawl["deadline_at"], at: now)
+        Platform::RunDeadline.of(crawl).expired?(at: now)
       end
 
       def elapsed_minutes(crawl, now)

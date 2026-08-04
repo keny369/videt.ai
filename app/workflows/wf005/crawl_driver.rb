@@ -141,6 +141,11 @@ module Workflows
       # holds both halves against an execution census rather than against a list.
       def advance(organization_id:, entry:, now:, due_at: nil)
         ClosedFactSet.translate { advance_pass(organization_id:, entry:, now:, due_at:) }
+      rescue RunBoundedOutbound::DeadlinePassed
+        # ":442 — stop scheduling affected work." The run's clock ran out between this pass entering
+        # and its next request. Nothing was requested, so nothing is owed: the pass halts on the same
+        # wall-clock reason an expired admission gives, and mints no forward action.
+        halted(Admission::WALL_CLOCK, entry:)
       rescue ClosedFactSet::CrawlWentTerminal
         # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (round 7, C-2). The
         # database refused the governed write, correctly, and this is that refusal expressed as the
@@ -192,6 +197,16 @@ module Workflows
         # to the gate and to `https:///robots.txt`.
         raise Platform::InvariantViolation, "crawl_fetch_due entry has no parseable host" if host.to_s.empty?
 
+        # ":442 — AT 60 ELAPSED MINUTES, NO NEW REQUEST STARTS" (round 9, the cross-deadline defect).
+        # The wall clock was consulted once, above, against the instant this pass ENTERED with — and
+        # everything below makes network requests, so a pass that entered inside its deadline and
+        # spent its remaining seconds resolving robots was still starting a sitemap request after the
+        # run was over. Binding the deadline to the OUTBOUND FAÇADE checks it at the moment of each
+        # request, for every request the pass makes, including ones a later tranche adds.
+        @bounded_outbound = RunBoundedOutbound.new(
+          @outbound, deadline: Platform::RunDeadline.of(crawl),
+                     clock: -> { instant_now(now, anchored_at) }
+        )
         gate = ensure_gate(organization_id, entry, crawl, host, now)
         robots = resolve_robots(organization_id, crawl_id, host, now)
         return relinquished(entry) unless Platform::ScheduledActions::Lease.owned?
@@ -362,8 +377,8 @@ module Workflows
         return nil unless execution.retry_owed? && execution.completed_at
 
         at = Platform::PgInstant.utc(execution.completed_at) + (execution.retry_after_ms.to_i / 1000.0)
-        deadline = Platform::PgInstant.utc(crawl["deadline_at"])
-        return nil if deadline && at > deadline
+        deadline = Platform::RunDeadline.of(crawl)
+        return nil if deadline.present? && deadline.beyond?(at)
 
         at
       end
@@ -490,7 +505,7 @@ module Workflows
       # `Admission` and `DiscoverSitemaps` ask — which is why all three now ask it in one place rather
       # than each spelling out a comparison whose direction a later edit can invert unnoticed.
       def within_wall_clock?(crawl, now)
-        !Platform::PgInstant.expired?(crawl["deadline_at"], at: now)
+        !Platform::RunDeadline.of(crawl).expired?(at: now)
       end
 
       # An unstartable run still goes through `Admission`, which is the ratified observation point for
@@ -594,8 +609,26 @@ module Workflows
         end
       end
 
+      # The pass's own outbound, bounded by the run's deadline. Before the pass has loaded its Crawl
+      # there is nothing to bound against and nothing has been requested yet.
+      def outbound_for_pass = @bounded_outbound || @outbound
+
+      # THE INSTANT A REQUEST WOULD START, ON THE CALLER'S OWN AXIS.
+      #
+      # NOT a raw `clock_timestamp()` reading. Every instant this is compared against — `deadline_at`,
+      # `started_at` — was written by an application clock, and `Platform::PgInstant.after_wait`
+      # already carries the reasoning for why a raw database reading would be a SECOND clock rather
+      # than a corrected one. This is the pass's own instant ADVANCED by the elapsed time since its
+      # anchor, which is exactly the time this defect is about: the seconds between entering the pass
+      # and reaching the request.
+      def instant_now(entered_with, anchored_at)
+        Platform::UnitOfWork.run do |conn|
+          Platform::PgInstant.after_wait(conn.raw_connection, entered_with:, anchored_at:)
+        end
+      end
+
       def resolve_robots(organization_id, crawl_id, host, now)
-        EnsureRobots.new(outbound: @outbound, correlation_id: @correlation_id)
+        EnsureRobots.new(outbound: outbound_for_pass, correlation_id: @correlation_id)
                     .call(organization_id:, crawl_id:, canonical_host: host, now:)
       end
 
@@ -725,7 +758,7 @@ module Workflows
       # readings from two different clocks is not a duration, it is noise. Handing the seam down is what
       # makes the pass's elapsed time meaningful end to end.
       def fetch_content
-        @fetch_content ||= FetchContent.new(outbound: @outbound, ids: @ids, correlation_id: @correlation_id,
+        @fetch_content ||= FetchContent.new(outbound: outbound_for_pass, ids: @ids, correlation_id: @correlation_id,
                                             monotonic: @monotonic)
       end
 
@@ -738,7 +771,7 @@ module Workflows
       # divided at heartbeat deadlines, holding no database connection while it waits. Without a lease
       # (a spec, a direct call) it is an ordinary sleep, so nothing outside a worker changes.
       def service(klass)
-        args = { outbound: @outbound, ids: @ids, correlation_id: @correlation_id }
+        args = { outbound: outbound_for_pass, ids: @ids, correlation_id: @correlation_id }
         args[:pacer] = @pacer || Platform::ScheduledActions::Lease.pacer
         klass.new(**args)
       end

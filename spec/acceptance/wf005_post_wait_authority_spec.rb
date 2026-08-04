@@ -22,15 +22,27 @@ require_relative "support/wf005_crawl_chain"
 #         demonstrably exploitable: a two-Source root Crawl committed and minted its `crawl_dispatch`
 #         action on revoked authority.
 #
-# SO THESE PROOFS ARE STRUCTURED AGAINST BOTH FAILURES.
+# AND WHAT ROUND 9 FOUND, WHICH IS WHY THIS FILE NO LONGER CONTAINS A MATRIX. The round-9 repair
+# drove both axes round 8 named — scope, and Source count — and its review then found a THIRD:
+# `unless current || ...` on `ActivateCrawlPolicy`'s supersede path, which survived 2232 examples
+# with zero failures and committed a policy activation on revoked authority. A matrix of axes is a
+# list, and a Boolean guard can always grow one more operand. A third round of adding the axis
+# someone just thought of would fail the same way.
 #
-#   * THE MATRIX IS THE COVERAGE ARGUMENT. Every branch that can reach a protected write is driven:
-#     both handlers, both of `ActivateCrawlPolicy`'s scopes, and one and two Sources for `QueueCrawl`.
-#     A bypass keyed to any single one of them fails a named example rather than hiding in the case
-#     nobody drove.
-#   * EVERY EXAMPLE PROVES IT REACHED THE RECHECK. `ExecutionProbe` reports the lines Ruby actually
-#     executed, so "refused" is distinguished from "refused by the control under test", which is the
-#     distinction PROOF 168 could not make and R8-4 turned on.
+# SO THE AXES ARE GONE AND THREE MECHANISMS REPLACE THEM, none of which needs to know an axis:
+#
+#   1. THE WRITE REFUSES, IN PRODUCTION. `Wf005::AuthorityAttestation` is minted only by a passing
+#      recheck and demanded by every protected commit, so a guard that short-circuits past the
+#      recheck reaches its commit with nothing to present and raises. Boolean arrangement, operand
+#      order, helper extraction and line wrapping are all irrelevant to it.
+#   2. THE SUITE JUDGES ITSELF. `AuthoritySentinel` asserts, across every example the repository
+#      runs, that a human-authorized WF-005 command which SUCCEEDS and WRITES evaluated
+#      `CommandAuthorizer.authority_current?`. A bypass on any axis makes some ordinary path violate
+#      that, and 2000+ examples are watching at once — the axis does not need to be anticipated.
+#   3. THE PROOFS BELOW OBSERVE THE PREDICATE, not a source line. `ExecutionProbe.watch` reports
+#      METHOD INVOCATION, which no short-circuit can fake — round 9's R9-4 found the previous
+#      instrument asserting on the `unless` line, which fires identically whether the control runs
+#      or is skipped.
 RSpec.describe "WF-005 post-wait authority", type: :acceptance,
                                               acceptance_ids: ["AC-CAP-007", "AC-WF-005"],
                                               test_types: %w[TYP-SEC TYP-INT] do
@@ -46,9 +58,12 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
   # THE CONTROL, NAMED BY WHAT IT IS RATHER THAN BY WHERE IT SITS. `ExecutionProbe.line_of` resolves
   # it against the file at run time and fails loudly if it is deleted, renamed or duplicated — so an
   # assertion here cannot rot into a line number that means something else.
-  RECHECK = /Wf005::PostWaitDecision\.new/
-  PROTECTED_WRITE = { ACTIVATE => /^\s+commit\(d, current, key_digest\)$/,
-                      QUEUE => /^\s+commit\(d, entitlement, sources,/ }.freeze
+  # THE CONTROL ITSELF, observed by invocation. `authority_current?` is the ratified durable
+  # checkpoint and the only implementation; `require!` is what every protected write demands.
+  RECHECK = ExecutionProbe.calls(
+    "IdentityAccess::Authorization::CommandAuthorizer.authority_current?"
+  ).first
+  ATTESTATION = ExecutionProbe.calls("Workflows::Wf005::AuthorityAttestation.require!").first
 
   # THE SHARED PRODUCTION-REAL CHAIN. `Wf005CrawlChain` bootstraps a real Organization, registers,
   # verifies and activates real Sources and activates the Project through the real handlers. A second
@@ -118,7 +133,7 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
     begin
       controller.exec_params("SELECT pg_advisory_lock($1)", [key])
       op = nil
-      executed = ExecutionProbe.lines(file) do
+      executed = ExecutionProbe.watch([RECHECK, ATTESTATION]) do
         op = RaceHarness.spawn_operation(operation)
         RaceHarness.wait_until("the command blocked on #{key_name}") { RaceHarness.blocked_on(key) >= 1 }
         # COMMITTED UNDERNEATH AN OBSERVED WAITER. This is the revocation, not a fixture: the epoch is
@@ -148,17 +163,15 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
     [result, executed]
   end
 
-  def expect_reached_recheck(executed, file)
-    recheck = ExecutionProbe.line_of(file, RECHECK)
-    expect(executed).to include(recheck),
-                        "the post-wait recheck at #{file}:#{recheck} did not execute, so whatever this " \
-                        "example observed was decided somewhere else. Executed: #{executed.to_a.sort.inspect}"
+  def expect_reached_recheck(seen, _file = nil)
+    expect(seen).to have_evaluated(RECHECK)
   end
 
-  def expect_did_not_write(executed, file)
-    write = ExecutionProbe.line_of(file, PROTECTED_WRITE.fetch(file))
-    expect(executed).not_to include(write),
-                            "the protected write at #{file}:#{write} executed on revoked authority"
+  # THE PROTECTED WRITE DID NOT HAPPEN, asserted by the thing that gates it rather than by a line.
+  # `require!` runs as the first statement of every protected commit, so its absence IS the absence
+  # of the commit — and unlike a line, it cannot be reported for a statement that short-circuited.
+  def expect_did_not_write(seen, _file = nil)
+    expect(seen).not_to have_evaluated(ATTESTATION)
   end
 
   describe "ActivateCrawlPolicy — the handler round 8 found unproved (R8-4)" do
@@ -203,7 +216,7 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
 
         expect_reached_recheck(executed, ACTIVATE)
         expect(result.success?).to be(true), result.inspect
-        expect(executed).to include(ExecutionProbe.line_of(ACTIVATE, PROTECTED_WRITE.fetch(ACTIVATE)))
+        expect(executed).to have_evaluated(ATTESTATION)
       end
     end
   end
@@ -246,7 +259,7 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
 
         expect_reached_recheck(executed, QUEUE)
         expect(result.success?).to be(true), result.inspect
-        expect(executed).to include(ExecutionProbe.line_of(QUEUE, PROTECTED_WRITE.fetch(QUEUE)))
+        expect(executed).to have_evaluated(ATTESTATION)
       end
     end
   end

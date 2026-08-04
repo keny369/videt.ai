@@ -88,24 +88,33 @@ module Workflows
         private
 
         def attempt(command, ctx, key_digest)
-          Platform::UnitOfWork.run do |conn|
-            pg = conn.raw_connection
-            now = ctx.now_utc.floor(6)
-            store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
-            org = command.organization_id
+          # THE HANDLER TRANSLATES TOO (round 9, R9-1). Round 9 wrapped the PASS and then classified
+          # the two command handlers as exceptions "because the closure cannot fire under their row
+          # lock". The reasoning was correct and the mechanism was still a hand-written list of two,
+          # and the review found a THIRD producer under this very handler that the list did not
+          # contain. A list of exceptions is a list. There are now no exceptions: every WF-005 unit
+          # of work translates, so a producer nobody enumerated is covered by WHERE IT RUNS rather
+          # than by whether someone remembered it.
+          Wf005::ClosedFactSet.translate do
+            Platform::UnitOfWork.run do |conn|
+              pg = conn.raw_connection
+              now = ctx.now_utc.floor(6)
+              store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+              org = command.organization_id
 
-            store.enter_org_context(org:, correlation_id: ctx.correlation_id)
-            # An action naming an Organization that does not exist is a transport-integrity
-            # deviation, not a domain outcome: fail closed BEFORE any ledger row is written, so a
-            # forged/ghost organization_id cannot mint audit, execution or result records under it.
-            organization = store.organization(org)
-            next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if organization.nil?
+              store.enter_org_context(org:, correlation_id: ctx.correlation_id)
+              # An action naming an Organization that does not exist is a transport-integrity
+              # deviation, not a domain outcome: fail closed BEFORE any ledger row is written, so a
+              # forged/ghost organization_id cannot mint audit, execution or result records under it.
+              organization = store.organization(org)
+              next in_memory_failure(command, ctx, "scheduled_action_target_mismatch") if organization.nil?
 
-            frontier_store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
-            process(store:, entitlement: Platform::Entitlement::Service.new(pg), organization:,
-                    frontier_store:, pg:,
-                    frontier: Wf005::Frontier.new(frontier_store, ids: ctx.ids, correlation_id: ctx.correlation_id),
-                    command:, ctx:, org:, now:, key_digest:)
+              frontier_store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(pg)
+              process(store:, entitlement: Platform::Entitlement::Service.new(pg), organization:,
+                      frontier_store:, pg:,
+                      frontier: Wf005::Frontier.new(frontier_store, ids: ctx.ids, correlation_id: ctx.correlation_id),
+                      command:, ctx:, org:, now:, key_digest:)
+            end
           end
         end
 

@@ -355,17 +355,35 @@ RSpec.describe "WF-005 closed fact set", type: :acceptance,
       expect(observed.select(&:reachable_in_production?)).to be_empty
     end
 
-    it "PROOF 175 — the classification list names only real producers, with reasons" do
-      # THE EXCLUSION LIST MAY NOT ROT INTO A WAY OF SILENCING THE RULE. Every classified entry must
-      # still name a file that exists and still contain a reason; an entry whose producer was deleted
-      # or renamed is removed rather than left to excuse whatever later takes its place.
-      expect(GovernedWriteSentinel::CLASSIFIED_UNTRANSLATED).not_to be_empty
-      GovernedWriteSentinel::CLASSIFIED_UNTRANSLATED.each do |(site, origin, table), reason|
-        expect(Rails.root.join("app", site)).to exist, "#{site} no longer exists"
-        expect(Rails.root.join("app", origin)).to exist, "#{origin} no longer exists"
-        expect(GovernedWriteSentinel.governed_tables).to include(table)
-        expect(reason.length).to be > 80
-      end
+    it "PROOF 175 — the completeness mechanism is RUNTIME, and it carries no exceptions" do
+      # WHAT REPLACED THE EXCEPTION LIST, AND WHY IT IS NOT ANOTHER STATIC RULE (round 9, R9-1).
+      #
+      # Round 9 classified two producers as exceptions with careful reasoning, and the review found a
+      # third — under one of those same handlers, in the same transaction — that the list did not
+      # contain. So the list is empty and stays empty by construction: every WF-005 unit of work runs
+      # beneath a `ClosedFactSet.translate` frame, including both command handlers that used to be the
+      # exceptions.
+      #
+      # A LEXICAL RULE WAS TRIED AND REJECTED AS DISHONEST. Translation is applied at an ENTRY POINT
+      # (`CrawlDriver#advance` wraps the whole pass; `StartCrawl#attempt` wraps its unit), and the
+      # units themselves open in methods further down the call chain — so "the unit is lexically
+      # inside a translate block" is false for most of them while the property they need is true.
+      # Asserting the lexical form would have meant either rewriting the architecture to suit the
+      # check or writing a check that reports what it can see rather than what matters.
+      #
+      # SO THE MECHANISM IS THE ONE THAT OBSERVES THE REAL THING: `GovernedWriteSentinel` watches every
+      # statement reaching PostgreSQL through EVERY execution API `PG::Connection` exposes, derives the
+      # governed tables from the catalogue, and fails the whole run — in an `after(:suite)` hook,
+      # outside any example — on a governed write that production can reach with no translation frame
+      # on its stack. It needs no list of producers, no list of exceptions and no list of forms.
+      expect(GovernedWriteSentinel::CLASSIFIED_UNTRANSLATED).to be_empty
+
+      # NON-VACUITY: the census this rests on observed real governed writes in this very example.
+      ctx = ready_to_fetch
+      attempts = GovernedWriteSentinel.record { pass_until_request(ctx, content_outbound(over_cap_response)) }
+      reachable = attempts.select(&:reachable_in_production?)
+      expect(reachable).not_to be_empty
+      expect(reachable.reject(&:translated?)).to be_empty
     end
   end
 end
