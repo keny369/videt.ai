@@ -712,27 +712,15 @@ RSpec.describe "WF-005 host gate and robots", type: :acceptance,
       expect(gate_row(ctx[:crawl_id])["robots_terminal_reason"]).to be_nil
     end
 
-    it "PROOF 168 — the driver's gate creation on a terminal run halts instead of raising" do
-      # The FIRST effect of a pass. `crawl_host_gates` is closed on INSERT, so a pass whose run ended
-      # before it reached its first effect must halt rather than surface a transport defect.
-      ctx = running_crawl
-      entry = DbInspector.one(
-        "SELECT * FROM crawl_frontier_entries WHERE crawl_id = $1::uuid ORDER BY dequeue_key LIMIT 1",
-        [ctx[:crawl_id]]
-      )
-      terminalize_crawl(ctx)
-
-      pass = nil
-      expect do
-        pass = Workflows::Wf005::CrawlDriver.new(outbound: outbound_returning(response(status: 200, body: "")))
-                                            .advance(organization_id: ctx[:g][:organization_id],
-                                                     entry:, now: start_now)
-      end.not_to raise_error
-
-      expect(pass.outcome).to eq(Workflows::Wf005::CrawlDriver::HALTED)
-      expect(DbInspector.one("SELECT count(*) AS n FROM crawl_host_gates WHERE crawl_id=$1::uuid",
-                             [ctx[:crawl_id]])["n"].to_i).to eq(0)
-    end
+    # PROOF 168 WAS VACUOUS AND IS WITHDRAWN, NOT REWRITTEN HERE (round 8, R8-3). It terminalized the
+    # Crawl BEFORE calling `advance`, so `Admission#authorize_run` denied on `crawl["state"] !=
+    # "running"` at `crawl_driver.rb`'s step zero and `ensure_gate` was never reached; both of its
+    # assertions were satisfied by the authorization denial, and removing the translation it named
+    # survived 2158 examples. Its replacement is PROOF 172 in
+    # `spec/acceptance/wf005_closed_fact_set_spec.rb`, which opens the window the contract is actually
+    # about — RUNNING at authorization, terminal before the first effect — and proves the gate INSERT
+    # was ATTEMPTED and REFUSED before asserting anything about the outcome. A second, weaker copy of
+    # that proof living here would be the liability the original was.
 
     def terminalize_crawl(ctx)
       DbInspector.connection.exec_params(<<~SQL, [ctx[:crawl_id]])

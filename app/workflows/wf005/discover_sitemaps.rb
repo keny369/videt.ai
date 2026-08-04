@@ -253,7 +253,7 @@ module Workflows
         deadline = crawl["deadline_at"]
         return false if deadline.nil?
 
-        Platform::PgInstant.utc(deadline) <= now.utc
+        Platform::PgInstant.expired?(deadline, at: now)
       end
 
       # Hand the claim back and tell the caller when the host is next startable, so a scheduler can
@@ -701,17 +701,21 @@ module Workflows
       # `release_sitemaps` can each be the statement that arrives after the run went terminal, and
       # each would otherwise surface a raw `PG::RaiseException` to a scheduled-action worker that has
       # no way to tell it from a defect.
+      #
+      # THE SHARED TRANSLATION, NOT A SECOND COPY OF IT (round 8, R8-2). This method used to
+      # re-implement `ClosedFactSet.translate` inline — rescue, ask `refusal?`, re-raise the typed
+      # error — which is the same rule written twice and therefore two things to keep in step. The
+      # module's own header says there is ONE translation and every producer wraps its unit of work in
+      # it; this is now one of its callers rather than a paraphrase of it.
       def in_unit(organization_id)
-        Platform::UnitOfWork.run do |conn|
-          raw = conn.raw_connection
-          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
-          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-          yield store, raw
+        ClosedFactSet.translate do
+          Platform::UnitOfWork.run do |conn|
+            raw = conn.raw_connection
+            store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(raw)
+            store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+            yield store, raw
+          end
         end
-      rescue StandardError => e
-        raise ClosedFactSet::CrawlWentTerminal, e.message if ClosedFactSet.refusal?(e)
-
-        raise
       end
 
       def candidate_json(candidate)

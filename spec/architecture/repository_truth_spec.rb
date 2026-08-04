@@ -4,6 +4,7 @@ require "rails_helper"
 require "json"
 require "yaml"
 require "open3"
+require_relative "../../automation/lib/autonomous_build/frozen_contracts"
 
 # REPOSITORY TRUTH — facts that must never again depend on a reviewer noticing them.
 #
@@ -305,6 +306,149 @@ RSpec.describe "Repository truth", type: :model do
                                  "#{path}: the report says #{claimed} distinct PROOF identifiers, " \
                                  "the file contains #{actual.length} (#{actual.sort_by(&:to_i).join(', ')})"
       end
+    end
+
+    # ---- what round 8 proved prose cannot be trusted to carry (R8-7) -----------------------------
+    #
+    # THE RECORD STATED FALSEHOODS ABOUT ITSELF AND EVERY LIMB ABOVE PASSED. The Identity table pinned
+    # a two-rounds-stale candidate and authority while the prose above it described a later round; the
+    # round count disagreed with itself between two paragraphs; the suite figure disagreed with the
+    # measured one and with `BUILD_STATE`, three records and three numbers; and "the only frozen-path
+    # change in the tranche" was written where `FrozenContracts.frozen_changes` returns two.
+    #
+    # THE SUITE-SIZE LIMB WAS THE SHAPE OF THE WHOLE PROBLEM. It compared the report to the state file
+    # — two records, to each other — which is exactly the "restating a maintained number" failure R6-9
+    # named, one level up: both could be, and were, wrong together. It now compares them to a
+    # MEASUREMENT.
+
+    # The suite's real size, counted by RSpec rather than remembered. `--dry-run` loads every spec file
+    # and reports what would run without running it, so this is a measurement and not a second record.
+    def measured_suite_size
+      @measured_suite_size ||= begin
+        out, = Open3.capture2e({ "RAILS_ENV" => "test" }, "bundle", "exec", "rspec", "--dry-run",
+                               chdir: ROOT.to_s)
+        out[/(\d+) examples?/, 1]&.to_i
+      end
+    end
+
+    it "agrees with a MEASUREMENT of the suite, not merely with the other record" do
+      claimed = in_flight[/\|\s*`bundle exec rspec`\s*\|\s*`(\d+) examples/, 1]
+      state = BUILD_STATE["next_action"][/rspec (\d+)\/0/, 1]
+
+      expect(claimed).not_to be_nil, "the record's rspec verification row did not parse"
+      expect(measured_suite_size).not_to be_nil, "rspec --dry-run reported no example count"
+      expect(claimed.to_i).to eq(measured_suite_size),
+                              "the record claims #{claimed} examples; rspec counts #{measured_suite_size}"
+      expect(state.to_i).to eq(measured_suite_size),
+                            "BUILD_STATE claims #{state} examples; rspec counts #{measured_suite_size}"
+    end
+
+    it "pins the same candidate range in the record and the state file" do
+      # R8-7: `:34` pinned `7f043a2..4e2d8cf` — the round-6 value — while `:3` and `:14` described
+      # round 7, so a reviewer following the Identity table reviews the wrong range.
+      record_range = in_flight[/\*\*Repair candidate\*\*\s*\|\s*\*\*`([0-9a-f]+\.\.[0-9a-f]+)`/, 1]
+      state_range = BUILD_STATE["next_action"][/([0-9a-f]{7,40}\.\.[0-9a-f]{7,40})/, 1]
+
+      expect(record_range).not_to be_nil, "the record's Identity table names no pinned candidate range"
+      expect(state_range).not_to be_nil, "BUILD_STATE.next_action names no candidate range"
+      expect(record_range).to eq(state_range),
+                             "record pins #{record_range}, state file pins #{state_range}"
+      base, head = record_range.split("..")
+      expect(git("merge-base", "--is-ancestor", base, head).last).to be(true),
+                                                                    "#{base} is not an ancestor of #{head}"
+      expect(git("merge-base", "--is-ancestor", head, "HEAD").last).to be(true),
+                                                                      "#{head} is not reachable from HEAD"
+    end
+
+    it "counts the review rounds the same way the review record does" do
+      # R8-7: ":204 says 'six rounds, six FAILs' against :5's 'Seven full ADR-026 five-lens rounds'."
+      # The number of rounds is not a matter of recollection: the review record has one heading each.
+      review = ROOT.join("S-07-009_ACCEPTANCE_REVIEW.md").read
+      rounds = review.scan(/^# ROUND (\d+)/).flatten.map(&:to_i)
+      expect(rounds).to eq((1..rounds.length).to_a), "the review record's round headings are not 1..n"
+
+      in_flight.scan(/(\w+|\d+) (?:full )?(?:ADR-026 )?(?:five-lens )?rounds/i).flatten.each do |claim|
+        numeric = claim.to_i.positive? ? claim.to_i : NUMBER_WORDS[claim.downcase]
+        next if numeric.nil?
+
+        expect(numeric).to eq(rounds.length),
+                           "the record says #{claim} rounds; the review record contains #{rounds.length}"
+      end
+    end
+
+    NUMBER_WORDS = { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
+                     "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10 }.freeze
+
+    it "counts frozen-path changes the way FrozenContracts counts them" do
+      # R8-7: ":162 claims the detector spec is 'the only frozen-path change in the tranche' where
+      # `FrozenContracts.frozen_changes` on the candidate diff returns TWO."
+      range = in_flight[/\*\*Repair candidate\*\*\s*\|\s*\*\*`([0-9a-f]+\.\.[0-9a-f]+)`/, 1]
+      skip "no pinned candidate range" if range.nil?
+
+      changed = git!("diff", "--name-only", range).lines.map(&:strip).reject(&:empty?)
+      frozen = AutonomousBuild::FrozenContracts.frozen_changes(changed)
+      claimed = in_flight[/(\w+) frozen-path changes?/i, 1]
+      skip "the record makes no numeric frozen-path claim" if claimed.nil?
+
+      numeric = claimed.to_i.positive? ? claimed.to_i : NUMBER_WORDS[claimed.downcase]
+      expect(numeric).to eq(frozen.length),
+                         "the record claims #{claimed} frozen-path change(s); the candidate diff has " \
+                         "#{frozen.length}: #{frozen.join(', ')}"
+    end
+
+    # ---- mutation evidence, which may not be inferred (R8-7, and FU-44's re-derivation) ------------
+    #
+    # ROUND 8's FU-44 RECORDED A SURVIVOR FROM A SUBSTITUTION THAT WAS NEVER VERIFIED APPLIED. The
+    # file holds THREE identical `if now >= effective_deadline(r)` comparisons and an unscoped
+    # replacement lands on the first, which is not the site the follow-up named. A record that says "X
+    # survives" while the mutation never reached X is worse than silence, because the next round
+    # spends itself on a defect that does not exist.
+    #
+    # So a mutation claim is now backed by a LEDGER the harness writes, entry by entry, and no entry
+    # can exist without confirmation that the mutation landed — the harness aborts rather than record
+    # a verdict for an edit git cannot see.
+    LEDGER_PATH = "specification/automation/S-07-009_MUTATION_LEDGER.json"
+
+    it "backs every mutation claim with a ledger entry that confirms the mutation LANDED" do
+      skip "no mutation ledger in this tranche" unless ROOT.join(LEDGER_PATH).exist?
+
+      ledger = JSON.parse(ROOT.join(LEDGER_PATH).read).fetch("mutations")
+      expect(ledger).not_to be_empty
+
+      ledger.each do |entry|
+        expect(entry["landed"]).to be(true),
+                                   "#{entry['id']} is recorded with no confirmation that it landed"
+        expect(entry["restored"]).to eq("true true"),
+                                     "#{entry['id']} did not restore the worktree exactly"
+        expect(entry["verdict"]).to eq(entry["expectation"] == "kill" ? "killed" : "survived"),
+                                    "#{entry['id']} is expected to be #{entry['expectation']} and was " \
+                                    "#{entry['verdict']}"
+        # A SURVIVOR MAY NOT BE EXCUSED SILENTLY. An entry that expects survival carries the reason the
+        # mutant is equivalent, or the ledger becomes a way of recording any survivor as intended.
+        unless entry["expectation"] == "kill"
+          expect(entry["equivalence_reason"].to_s.length).to be > 200,
+                                                             "#{entry['id']} expects survival and records " \
+                                                             "no reason the mutant is equivalent"
+        end
+        expect(entry["result"]).to match(/\d+ examples?, \d+ failures?/),
+                                   "#{entry['id']} records no example/failure counts"
+        spec = entry["command"][/rspec (\S+)/, 1]
+        expect(ROOT.join(spec)).to exist, "#{entry['id']} names #{spec}, which does not exist"
+        next unless entry["verdict"] == "killed"
+
+        expect(entry["failing_examples"]).not_to be_empty,
+                                                 "#{entry['id']} is recorded killed but names no failing example"
+      end
+    end
+
+    it "names in the record only mutations the ledger actually ran" do
+      skip "no mutation ledger in this tranche" unless ROOT.join(LEDGER_PATH).exist?
+
+      ids = JSON.parse(ROOT.join(LEDGER_PATH).read).fetch("mutations").map { |m| m["id"] }
+      cited = in_flight.scan(/`(m\d[\w-]*|fu44[\w-]*|a\d-[\w-]*)`/).flatten.uniq
+      expect(cited).not_to be_empty, "the record cites no mutation identifiers"
+      expect(cited - ids).to be_empty,
+                             "the record names mutations the ledger does not contain: #{(cited - ids).join(', ')}"
     end
 
     it "cites only file paths and migrations that resolve" do

@@ -185,6 +185,42 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
                                 ids: { commit_intent: SecureRandom.uuid_v7 }) }).to eq(:committed)
     end
 
+    it "AT EXACTLY the prestart deadline, start_execution loses to expiry (WORKFLOW :551)" do
+      # THE SURVIVOR FU-44 SHOULD HAVE NAMED (round 9, re-derived from clean evidence).
+      #
+      # FU-44 recorded that the boundary example above "DOES NOT kill the `>=` -> `>` mutation" at
+      # `Entitlement::Service#commit`. Round 8 refuted that three times out of three, and this round
+      # confirmed it a fourth: with the mutation VERIFIED APPLIED at :150 by diff, the example fails
+      # deterministically. The premise was false because the substitution was never confirmed to have
+      # landed — `if now >= effective_deadline(r)` appears THREE times in this file, and an unscoped
+      # replacement lands on the FIRST of them, which is `start_execution` at :113 and not the site
+      # FU-44 names.
+      #
+      # AND THAT FIRST SITE IS A REAL SURVIVOR. Weakening `start_execution`'s `>=` to `>` passes the
+      # entire entitlement suite, because every example starts execution a minute into a fifteen-minute
+      # prestart lease. It is the same sentence as the commit boundary — ":551, expiry wins at
+      # equality" — at the other end of the reservation's life: at exactly the prestart deadline a
+      # reservation must NOT begin executing, or a run starts against a lease that is already over.
+      rid = SecureRandom.uuid_v7
+      reserve(reservation_id: rid)
+      # READ THE STORED DEADLINE, do not recompute it — the lesson the commit boundary above records.
+      deadline = Platform::PgInstant.utc(reservation(rid)["lease_due"])
+
+      expect(run { |s| s.start_execution(organization_id: org, reservation_id: rid, now: deadline) })
+        .to eq(:expired)
+      expect(reservation(rid)["state"]).to eq("reserved")
+
+      # And the microsecond BEFORE it still starts, so this is a boundary rather than a bar.
+      other = SecureRandom.uuid_v7
+      reserve(reservation_id: other)
+      other_deadline = Platform::PgInstant.utc(reservation(other)["lease_due"])
+      expect(run do |s|
+        s.start_execution(organization_id: org, reservation_id: other,
+                          now: other_deadline - Rational(1, 1_000_000))
+      end).to eq(:executing)
+      expect(reservation(other)["state"]).to eq("executing")
+    end
+
     it "caps a faithfully-heartbeating lease at the maximum-execution instant (CB-1: 65-min ceiling)" do
       rid = SecureRandom.uuid_v7
       reserve(reservation_id: rid)

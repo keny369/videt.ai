@@ -310,9 +310,13 @@ module Workflows
         expired
       end
 
+      # :442's boundary, asked of the one owner rather than spelled out here (round 8, R8-9). The
+      # comparison used to live in this method, and weakening its `<=` to `<` survived the entire
+      # repository suite because the instant it compares is `after_wait`'s advance, which no proof can
+      # land exactly on a deadline. `Platform::PgInstant.expired?` is exactly testable and is what
+      # `CrawlDriver` and `DiscoverSitemaps` now ask as well.
       def wall_clock_expired?(crawl, now)
-        deadline = crawl["deadline_at"]
-        !deadline.nil? && Platform::PgInstant.utc(deadline) <= now.utc
+        Platform::PgInstant.expired?(crawl["deadline_at"], at: now)
       end
 
       def elapsed_minutes(crawl, now)

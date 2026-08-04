@@ -73,10 +73,15 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
   # The four added by hand are dispatch verbs rather than timestamp methods, so they are not on the
   # timestamp classes to be derived from: `acts_like?` is Rails' canonical duck-type test and is
   # defined on `Object`, and the three reflective senders reach any of the above indirectly.
+  # THE TIMESTAMP CLASSES THEMSELVES — the single runtime source both halves of rule 3 are derived
+  # from. Their methods become the vocabulary; their NAMES become the decoder-class limb. One list of
+  # classes, not two lists of spellings, so the two halves cannot drift apart.
+  def timestamp_classes = [Time, DateTime, Date, ActiveSupport::TimeWithZone, ActiveSupport::TimeZone]
+  def timestamp_class_names = timestamp_classes.map(&:name).to_set
+
   def timestamp_vocabulary
     @timestamp_vocabulary ||= (
-      (Time.instance_methods + Time.methods + DateTime.instance_methods + DateTime.methods +
-       Date.instance_methods + ActiveSupport::TimeWithZone.instance_methods).uniq -
+      timestamp_classes.flat_map { |k| k.instance_methods + k.methods }.uniq -
         Object.instance_methods - Object.methods -
         Integer.instance_methods - Integer.methods
     ).map(&:to_s).to_set + %w[acts_like? respond_to? send public_send method]
@@ -171,6 +176,7 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
     return ["#{file}:1 is not parseable Ruby"] if tree.nil?
 
     findings = []
+    rows = row_locals(tree)
     each_node(tree) do |node|
       # RULE 1. Any `@const` token, wherever it sits: `Time.parse`, `::Time`, `Time.zone.parse`,
       # `when Time`, `Time === x`, `x.class == Time`, `x.is_a?(Time)`, `Time::at` — all of them have
@@ -197,56 +203,195 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
                     "PostgreSQL instants are decoded only by Platform::PgInstant"
       end
 
-      # RULE 3. A TIMESTAMP METHOD CALLED ON A VALUE READ OUT OF A RESULT ROW (round 7, A-1).
+      # RULE 3. A TIMESTAMP METHOD CALLED ON A VALUE THAT IS NOT PROVABLY IN MEMORY (round 8, R8-6).
       #
-      # THE RECEIVER IS WHAT DISTINGUISHES DECODING FROM FORMATTING, and rules 1 and 2 could not see
-      # it. `row["deadline_at"].to_time` names no constant and uses no symbol, so it walked past both —
-      # and it IS the decode this module exists to own: on text it parses, on a `Time` it converts.
-      # Meanwhile `now.getutc` and `time&.getutc` are formatting an instant the application already
-      # holds, which is a different act, and the corpus does nine of them legitimately.
+      # THE RECEIVER IS WHAT DISTINGUISHES DECODING FROM FORMATTING, and rules 1 and 2 cannot see it.
+      # `row["deadline_at"].to_time` names no constant and uses no symbol, and IS the
+      # connection-dependent decode this module exists to own; `now.getutc` formats an instant the
+      # application already holds, and the corpus does nine of those legitimately.
       #
-      # The structural difference is that a decode's receiver is rooted in a SUBSCRIPT or a `fetch` —
-      # a value pulled out of a `PG::Result` row — while a format's receiver is a local or a parameter.
-      # So this bans the whole `timestamp_vocabulary` on a row-rooted receiver and says nothing about
-      # the same names on a local. It covers `to_time`, `to_datetime`, `in_time_zone`,
-      # `respond_to?(:strftime)`, `acts_like?(:time)`, `send(:strftime)` and every sibling at once,
-      # because the rule is about WHERE the value came from rather than what it is called.
-      next unless node.first == :call
+      # ROUND 7 WROTE THIS AS A DENYLIST OF RECEIVER SHAPES AND ROUND 8 WALKED THIRTY OF FORTY-ONE
+      # FORMS PAST IT. Both of its axes enumerated: the CALL axis fired only on Ripper's `:call`, so
+      # `row["x"].strftime "%s"` — a parenless call with arguments, which is `:command_call` — escaped,
+      # which is round 6's escape #3 recurring one rule later inside the rule written to close it. The
+      # RECEIVER axis listed three shapes and four node kinds, so `row.dig("x")`, `(row["x"])` and
+      # `d = row["x"]; d.to_time` all escaped. The answer to a list that can be out-enumerated is not a
+      # longer list, so BOTH AXES ARE INVERTED HERE:
+      #
+      #   * A CALL IS RECOGNISED BY ITS OPERATOR, not by its node kind. Every explicit-receiver call in
+      #     Ruby is `receiver <op> name` where `<op>` is one of `.`, `&.` or `::` — a closed set the
+      #     LANGUAGE defines, not one this file invents — so any node of that shape is a call whatever
+      #     Ripper labels it, including kinds that do not exist yet.
+      #   * A RECEIVER IS SAFE ONLY IF IT CAN BE PROVED IN MEMORY. Locals, instance variables,
+      #     symbol-keyed subscripts of those, literals, and chains of timestamp methods over them.
+      #     ANYTHING ELSE IS A FINDING, including shapes this file has never been shown. A new escape
+      #     is therefore caught by default and a new false positive is a visible, fixable failure —
+      #     which is the direction a fitness check must fail in.
+      next unless (call = explicit_call(node))
 
-      method = token(node[3], :@ident)
-      next unless method && timestamp_vocabulary.include?(method)
-      next unless row_rooted?(node[1])
+      receiver, method = call
+      next unless timestamp_vocabulary.include?(method)
 
-      findings << "#{file}:#{line_of(node[3])} calls ##{method} on a value read from a result row; " \
-                  "PostgreSQL instants are decoded only by Platform::PgInstant"
+      # A TIMESTAMP METHOD ON A CLASS IS A DECODER CALL. `Date.parse(row["x"])` reaches the same
+      # connection-dependent decode through a class the corpus legitimately uses for other purposes,
+      # which is why `Date` cannot simply join `banned_constants`: `Date.new(t.year, t.month, 1)` is
+      # four legitimate call sites. The distinction is the METHOD, and there is exactly one authorised
+      # decoder.
+      if (constant = constant_name(receiver))
+        # ONLY A TIMESTAMP CLASS DECODES AN INSTANT. `JSON.parse` and `Digest::SHA256.digest` share
+        # method names with the vocabulary and decode nothing about time; the classes that do are the
+        # ones the vocabulary itself is derived from, which is why there is no second list to keep.
+        next unless timestamp_class_names.include?(constant)
+
+        findings << "#{file}:#{line_of(node[3])} calls #{constant}.#{method}, which decodes an instant " \
+                    "outside Platform::PgInstant"
+        next
+      end
+      next if in_memory?(receiver, rows)
+
+      findings << "#{file}:#{line_of(node[3])} calls ##{method} on a value that is not provably an " \
+                  "in-memory instant; PostgreSQL instants are decoded only by Platform::PgInstant"
     end
     findings.uniq
   end
 
-  # Is this receiver a database row value — a subscript, a `fetch`, or a chain rooted in one?
+  # THE ONE AUTHORISED DECODER. Every other constant calling a timestamp method is building an
+  # instant from something this module has not decoded.
+  CANONICAL_DECODER = "Platform::PgInstant"
+
+  # Ruby's complete set of explicit-receiver call operators. A LANGUAGE FACT, not a list this file
+  # maintains: there is no fourth way to write `receiver <op> method`.
+  CALL_OPERATORS = [".", "&.", "::"].freeze
+
+  # `[kind, receiver, operator, name]` for any node that calls a method on an explicit receiver, or
+  # nil. Recognised by the OPERATOR, so `:call`, `:command_call` and any node kind a future Ripper
+  # introduces with the same shape are all covered without naming any of them.
+  def explicit_call(node)
+    return nil unless node.is_a?(Array) && node.length >= 4
+
+    operator = node[2]
+    text = operator.is_a?(Array) ? token(operator) : operator.to_s
+    return nil unless CALL_OPERATORS.include?(text.to_s)
+
+    name = %i[@ident @const @kw @op].filter_map { |kind| token(node[3], kind) }.first
+    return nil if name.nil?
+
+    [node[1], name]
+  end
+
+  # Can this expression be PROVED to hold a value the application already has in memory?
   #
-  # A STRING KEY IS WHAT MAKES IT A ROW. `PG::Result` tuples are string-keyed, and every in-memory
-  # structure in this workflow is symbol-keyed: `context[:now]`, `link[:due_at]`, `handoff[:due_at]`
-  # hold instants the application already produced, and calling `.getutc` on one of those is
-  # formatting rather than decoding. Without this distinction the rule fires on all three and says
-  # something false about them.
-  def row_rooted?(node)
+  # THE ONE STRUCTURAL FACT THIS RESTS ON: a `PG::Result` tuple is STRING-KEYED, and every in-memory
+  # structure in this workflow is symbol-keyed. So a name that is string-subscripted anywhere in a
+  # file is a database row in that file — `row["x"]`, `crawl["deadline_at"]`, `gate["sitemap_state"]`
+  # — and everything reached THROUGH it is row data, whether by subscript, by `fetch`, by `dig`, by a
+  # method this file has never heard of, or through a local it was bound to on the way. Everything
+  # else — locals, parameters, instance variables, literals, and what application objects return from
+  # their own accessors — is a value the application already holds, and formatting one is not decoding.
+  #
+  # FAIL CLOSED ON THE ROW AXIS. Round 7's predicate asked "is this receiver one of three row shapes?"
+  # and answered no for everything it had not been taught, so `row.dig("x")`, `(row["x"])` and
+  # `d = row["x"]; d.to_time` all walked past it. This asks the opposite question, so an unfamiliar
+  # way of reaching into a row is a finding by default and only a NEW SHAPE OF IN-MEMORY VALUE can
+  # produce a false positive — which is a visible failure someone fixes, not a silent hole.
+  def in_memory?(node, rows = Set.new)
     return false unless node.is_a?(Array)
-    return string_keyed?(node[2]) if node.first == :aref
-    return true if node.first == :call && token(node[3], :@ident) == "fetch"
 
     case node.first
-    when :call, :method_add_arg, :method_add_block then row_rooted?(node[1])
-    else false
+    when :var_ref, :var_field, :vcall
+      name = %i[@ident @ivar @gvar @cvar].filter_map { |kind| token(node[1], kind) }.first
+      return !rows.include?(name) unless name.nil?
+
+      !constant_name(node).nil?
+    when :const_ref, :top_const_ref, :const_path_ref then true
+    # A parenthesised expression is its content: `(row["x"]).to_time` walked past round 7's rule
+    # because a `:paren` node terminated the recursion.
+    when :paren then in_memory?(unwrap_paren(node), rows)
+    # A SYMBOL-KEYED SUBSCRIPT IS AN IN-MEMORY HASH — `context[:now]`, `link[:due_at]` — and a
+    # subscript by anything else is a row read.
+    when :aref then symbol_keyed?(node[2]) && in_memory?(node[1], rows)
+    when :string_literal, :symbol_literal, :dyna_symbol, :array, :hash, :regexp_literal,
+         :@int, :@float, :@regexp_end, :hashliteral then true
+    # A CALL ON SELF IS THE APPLICATION'S OWN. `fetch(context, ...)`, `measure(outcome)` and
+    # `link_next(...)` return values this object built; the receiver is `self`, which is in memory by
+    # definition, so treating them as foreign would flag every intermediate a method computes.
+    when :fcall, :command, :command_call_no_receiver then true
+    # A BINARY OPERATOR IS A METHOD CALL ON ITS LEFT OPERAND, and the result is that operand's kind:
+    # `now + policy[:bounds]["wall_clock_minutes"]["hard"]` is an instant the application computed,
+    # even though a number came out of a string-keyed hash on the way. Following the receiver here is
+    # the same rule as following it for `.getutc`, applied to the same thing spelled differently.
+    when :binary then in_memory?(node[1], rows)
+    when :unary then in_memory?(node[2], rows)
+    when :method_add_arg, :method_add_block
+      inner = node[1]
+      next_is_fcall = inner.is_a?(Array) && %i[fcall command].include?(inner.first)
+      next_is_fcall || in_memory?(inner, rows)
+    else
+      call = explicit_call(node)
+      return false if call.nil?
+
+      # A CALL IS AS PROVABLE AS ITS RECEIVER. `command.due_at.getutc` formats a value the command
+      # already holds; `row.dig("x").to_time` decodes one the connection just produced. The rule does
+      # not need to know what `due_at` or `dig` do — only where the value came from.
+      in_memory?(call.first, rows)
     end
   end
 
-  # A subscript index that is a symbol literal is an in-memory hash; anything else — a string literal,
-  # a variable, an expression — is treated as a row, so the rule fails CLOSED on what it cannot read.
-  def string_keyed?(index)
-    found = true
-    each_node(index) { |part| found = false if part.first == :symbol }
+  def unwrap_paren(node)
+    inner = node[1]
+    inner = inner.first if inner.is_a?(Array) && inner.first.is_a?(Array)
+    inner
+  end
+
+  # An index that IS a symbol literal — the only subscript form this rule treats as in memory.
+  def symbol_keyed?(index)
+    found = false
+    each_node(index) { |part| found = true if part.first == :symbol }
     found
+  end
+
+  # THE NAMES THAT HOLD DATABASE ROWS IN THIS PROGRAM, to a fixed point.
+  #
+  # Seeded by the structural fact: a name that is STRING-SUBSCRIPTED is a `PG::Result` tuple. Then
+  # closed over assignment, so a value carried out of a row through one or more bindings is still row
+  # data — `d = row["x"]` severed round 7's predicate entirely, and `a = row["x"]; b = a` severs any
+  # rule that follows only one hop.
+  def row_locals(tree)
+    rows = Set.new
+    each_node(tree) do |node|
+      next unless node.first == :aref
+      next if symbol_keyed?(node[2])
+
+      name = %i[@ident @ivar @gvar @cvar].filter_map { |kind| token(node[1].is_a?(Array) ? node[1][1] : nil, kind) }.first
+      rows << name unless name.nil?
+    end
+
+    # A BLOCK PARAMETER BOUND FROM A ROW VALUE IS A ROW VALUE: `crawl["x"].then { |v| v.to_time }`
+    # hands the row value straight to `v`, and a rule that followed only assignments would not see it.
+    each_node(tree) do |node|
+      next unless node.first == :method_add_block
+      next if in_memory?(node[1], rows)
+
+      each_node(node[2]) do |part|
+        next unless part.first == :params
+
+        each_node(part) { |leaf| (name = token(leaf, :@ident)) && rows << name }
+      end
+    end
+
+    loop do
+      before = rows.size
+      each_node(tree) do |node|
+        next unless %i[assign opassign].include?(node.first)
+
+        name = %i[@ident @ivar @gvar @cvar].filter_map { |kind| token(node[1].is_a?(Array) ? node[1][1] : nil, kind) }.first
+        next if name.nil? || rows.include?(name)
+
+        rows << name unless in_memory?(node[2], rows)
+      end
+      break if rows.size == before
+    end
+    rows
   end
 
   def canonical_usage?(source)
@@ -263,6 +408,143 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
     found
   end
 
+  # ---- the forms, INJECTED INTO A REAL TRACKED CORPUS FILE (round 8, R8-6 and R8-7) -------------
+  #
+  # ROUND 8 RECORDED TWO SEPARATE FAULTS HERE. The rule let thirty of forty-one bypass forms into the
+  # real tracked corpus with the check green; and the record claimed "16 forms injected into the real
+  # corpus" when the examples evaluated synthetic programs as strings and injected nothing.
+  #
+  # A ONE-LINE SYNTHETIC PROGRAM CANNOT TEST THIS RULE, and that is not a detail. Rule 3 decides by
+  # PROVENANCE: `crawl["deadline_at"]` is what makes `crawl` a database row, so `crawl.dig(...)` in a
+  # program that never subscripts `crawl` is genuinely undecidable and a detector that guessed would
+  # be guessing in production too. So each form is inserted into the REAL source of a REAL tracked
+  # file, inside a REAL method, where the surrounding code establishes what those names hold — and the
+  # scan that runs is the same `violations` the corpus proof runs, over the same file name.
+  ANCHOR_FILE = "app/workflows/wf005/crawl_driver.rb"
+  # A line inside `advance_pass`, after the pass has loaded its row. Chosen by CONTENT, so it moves
+  # with the file and fails loudly if the method is restructured rather than injecting into nowhere.
+  ANCHOR_LINE = "crawl_id = entry[\"crawl_id\"]"
+
+  # The tracked file's real source with `form` inserted after the anchor, and the injected line's
+  # 1-based number.
+  def inject(form)
+    source = Rails.root.join(ANCHOR_FILE).read
+    lines = source.lines
+    index = lines.index { |line| line.include?(ANCHOR_LINE) }
+    raise "anchor #{ANCHOR_LINE.inspect} is gone from #{ANCHOR_FILE}" if index.nil?
+
+    lines.insert(index + 1, "        #{form}\n")
+    [lines.join, index + 2]
+  end
+
+  def findings_for(form)
+    source, line = inject(form)
+    raise "injecting #{form.inspect} produced unparseable Ruby" if Ripper.sexp(source).nil?
+
+    [violations(source, file: ANCHOR_FILE), line]
+  end
+
+  it "proves the corpus injection reaches the rule at all" do
+    # NON-VACUITY OF THE HARNESS ITSELF, before anything is claimed about the forms. The unmodified
+    # file is clean, the anchor exists, and a form injected at it lands on the line this says it does.
+    source, line = inject('crawl["deadline_at"].to_time')
+    expect(violations(Rails.root.join(ANCHOR_FILE).read, file: ANCHOR_FILE)).to be_empty
+    expect(source.lines[line - 1]).to include("to_time")
+    expect(violations(source, file: ANCHOR_FILE).grep(/:#{line} /)).not_to be_empty
+  end
+
+  # EVERY BYPASS FORM ROUND 8 WALKED PAST THE RULE, AND THE CLASSES THEY CAME FROM.
+  #
+  # `crawl` and `entry` are the anchor file's own row locals — the file subscripts both — so these
+  # are the shapes as they would really appear, not a synthetic `row`.
+  {
+    # Round 6's escapes, which round 8 found recurring one rule later.
+    "parenless call with arguments (command_call)" => 'crawl["deadline_at"].strftime "%s"',
+    "parenless duck-type test" => 'crawl["deadline_at"].acts_like? :time',
+    "parenless reflective send" => 'crawl["deadline_at"].send :strftime, "%s"',
+    # Round 7's decoder forms.
+    "to_time" => 'crawl["deadline_at"].to_time',
+    "to_datetime" => 'crawl["deadline_at"].to_datetime',
+    "in_time_zone" => 'crawl["deadline_at"].in_time_zone',
+    "acts_like with parentheses" => 'crawl["deadline_at"].acts_like?(:time)',
+    "reflective send with parentheses" => 'crawl["deadline_at"].send(:strftime, "%s")',
+    "chained subscript" => 'entry["a"]["b"].to_time',
+    "fetch receiver" => 'crawl.fetch("deadline_at").to_time',
+    "const_get by string" => 'Object.const_get("Time").parse(crawl["deadline_at"])',
+    "class name compare" => 'crawl["deadline_at"].class.name == "Time"',
+    "zone parse" => 'ActiveSupport::TimeZone["UTC"].parse(crawl["deadline_at"])',
+    # Round 8's escapes, each one the reason a whole class of shapes escaped.
+    "dig receiver" => 'crawl.dig("deadline_at").to_time',
+    "parenthesised receiver" => '(crawl["deadline_at"]).to_time',
+    "intermediate binding" => 'd = crawl["deadline_at"]; d.to_time',
+    "two-hop binding" => 'a = crawl["deadline_at"]; b = a; b.to_time',
+    "Date parser" => 'Date.parse(crawl["deadline_at"])',
+    "Date class method" => 'Date.iso8601(crawl["deadline_at"])',
+    # And forms constructed from the RULE rather than from its implementation, which is the property
+    # that distinguishes a structural check from a longer denylist.
+    "safe navigation" => 'crawl["deadline_at"]&.to_time',
+    "safe navigation after binding" => 'e = crawl["deadline_at"]; e&.getutc',
+    "block form" => 'crawl["deadline_at"].then { |v| v.to_time }',
+    "values_at receiver" => 'crawl.values_at("deadline_at").first.to_time',
+    "double parens" => '((crawl["deadline_at"])).to_time',
+    "scope resolution call" => 'crawl["deadline_at"]::to_time',
+    "method object" => 'crawl["deadline_at"].method(:to_time)',
+    "public_send" => 'crawl["deadline_at"].public_send(:iso8601)',
+    "respond_to on a row value" => 'crawl["deadline_at"].respond_to?(:getutc)',
+    "strptime on a row value" => 'crawl["deadline_at"].strptime("%s")',
+    "xmlschema on a row value" => 'crawl["deadline_at"].xmlschema',
+    "httpdate on a row value" => 'crawl["deadline_at"].httpdate',
+    "localtime on a row value" => 'crawl["deadline_at"].localtime',
+    "getlocal on a row value" => 'crawl["deadline_at"].getlocal',
+    "variable-keyed subscript" => 'crawl[column].to_time',
+    "interpolated key" => 'crawl["deadline_#{suffix}"].to_time',
+    "chained through a method" => 'crawl["deadline_at"].to_s.to_time',
+    "row value through a hop and a paren" => 'f = (crawl["deadline_at"]); f.to_datetime',
+    "aref on a fetch" => 'crawl.fetch("row")["deadline_at"].to_time',
+    # SHAPES THE RULE HAS NO CASE FOR AT ALL, which is what "fails closed" has to mean if it means
+    # anything: a receiver the analysis cannot classify is foreign, not assumed safe.
+    "conditional receiver" => '(entry["a"] ? crawl["deadline_at"] : crawl["started_at"]).to_time',
+    "begin-block receiver" => 'begin; crawl["deadline_at"]; end.to_time'
+  }.each do |label, form|
+    it "catches a decoder injected into the real corpus: #{label}" do
+      findings, line = findings_for(form)
+
+      expect(findings.grep(/:#{line} /)).not_to be_empty,
+                                                "#{label} was injected at #{ANCHOR_FILE}:#{line} as " \
+                                                "`#{form}` and the rule did not fire on it. " \
+                                                "Findings: #{findings.inspect}"
+    end
+  end
+
+  # AND THE FORMS THAT MUST NOT FIRE, injected the same way. A rule that caught everything would pass
+  # every example above and be useless, and round 6 recorded that a check people route around is worse
+  # than none. Each of these is a FORMAT of an instant the application already holds.
+  {
+    "local instant" => 'now.getutc.iso8601(6)',
+    "safe-navigated local" => 'due_at&.getutc',
+    "symbol-keyed hash" => 'context[:now].utc',
+    "symbol-keyed with safe navigation" => 'link[:due_at]&.getutc&.iso8601(6)',
+    "symbol-keyed nested" => 'handoff[:due_at].iso8601(6)',
+    "the canonical decoder" => 'Platform::PgInstant.utc(crawl["deadline_at"])',
+    "the canonical elapsed measure" => 'Platform::PgInstant.elapsed_minutes(crawl["started_at"], now)',
+    "the canonical boundary" => 'Platform::PgInstant.expired?(crawl["deadline_at"], at: now)',
+    "an integer conversion on a row value" => 'crawl["state_version"].to_i + 1',
+    "a string conversion on a row value" => 'entry["canonical_url"].to_s',
+    "a month bucket from an application instant" => 'Date.new(now.year, now.month, 1).iso8601',
+    "an accessor chain on a command" => 'command.due_at.getutc.iso8601(6)',
+    "a receiverless call" => 'stage_instant(latest).iso8601(6)',
+    "a regexp test" => '/\A\d+\z/.match?(raw)',
+    "a duck-type test on a domain object" => 'outcome.respond_to?(:latency_ms)'
+  }.each do |label, form|
+    it "does not fire on a legitimate form injected into the real corpus: #{label}" do
+      findings, line = findings_for(form)
+
+      expect(findings.grep(/:#{line} /)).to be_empty,
+                                            "#{label} injected at #{ANCHOR_FILE}:#{line} as `#{form}` " \
+                                            "was reported as a decoder: #{findings.grep(/:#{line} /).inspect}"
+    end
+  end
+
   it "proves the syntax detector against conforming, commented and violating programs" do
     conforming = <<~RUBY
       # Time.parse(row["deadline_at"])
@@ -275,7 +557,7 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
     expect(violations(conforming)).to be_empty
 
     # THE FOUR ROUND-6 ESCAPES, VERBATIM FROM THE REVIEW. Each returned an empty finding set against
-    # the committed detector, and each is the first thing this rewrite must catch.
+    # the committed detector, and each is a rule-1 or rule-2 matter, which needs no file context.
     escaped = {
       "zone parser" => "Time.zone.parse(value.to_s)",
       "rfc3339" => "Time.rfc3339(value.to_s)",
@@ -287,8 +569,6 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
                                                              "R6-7 escape still undetected: #{label}"
     end
 
-    # AND FORMS THE DETECTOR HAS NEVER BEEN TOLD ABOUT, constructed from the rule rather than copied
-    # from its implementation. None of these appears in `violations`.
     independent = {
       "top-level scope" => "::Time.parse(value)",
       "scope resolution call" => "Time::at(value)",
@@ -307,25 +587,6 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
       expect(violations(program, file: "#{label}.rb")).not_to be_empty,
                                                              "detector missed an unlisted form: #{label}"
     end
-
-    # THE ROUND-7 CLASS: a timestamp method on a value read out of a result row. None of these names a
-    # constant or uses a protocol symbol, so rules 1 and 2 are blind to every one of them.
-    row_rooted = {
-      "to_time" => 'row["deadline_at"].to_time',
-      "to_datetime" => 'row["deadline_at"].to_datetime',
-      "in_time_zone" => 'row["deadline_at"].in_time_zone',
-      "acts_like" => 'row["x"].acts_like?(:time)',
-      "reflective send" => 'row["x"].send(:strftime, "%s")',
-      "chained subscript" => 'gate["a"]["b"].to_time',
-      "fetch receiver" => 'row.fetch("deadline_at").to_time',
-      "const_get by string" => 'Object.const_get("Time").parse(row["deadline_at"])',
-      "class name compare" => 'row["x"].class.name == "Time"',
-      "zone parse" => 'ActiveSupport::TimeZone["UTC"].parse(row["x"])'
-    }
-    row_rooted.each do |label, program|
-      expect(violations(program, file: "#{label}.rb")).not_to be_empty,
-                                                             "round-7 decoder form undetected: #{label}"
-    end
   end
 
   it "rejects the banned constants under method names it has never been given" do
@@ -342,23 +603,16 @@ RSpec.describe "WF-005 PostgreSQL time single-surface fitness", type: :model do
     end
   end
 
-  it "does not fire on the legitimate uses the corpus actually contains" do
-    # THE RULE MUST NOT BE A BLANKET BAN ON THE WORD. `.getutc` as a METHOD CALL formats an instant the
-    # application already holds — `CrawlLedger#iso` and `CrawlDriver`'s due-instant comparison both do
-    # it — and that is a different act from deciding how to DECODE one. Banning it would have forced
-    # those two call sites to invent a workaround, which is how a fitness check starts being routed
-    # around instead of obeyed.
-    permitted = <<~RUBY
-      def iso(time) = time&.getutc&.iso8601(6)
-      return nil unless due_at && stage_instant(latest) == due_at.getutc
-      outcome.respond_to?(:response?) && outcome.response?
-      value.is_a?(::Hash)
-      context[:now].utc + (monotonic - context[:entered_monotonic])
-      link[:due_at]&.getutc&.iso8601(6)
-      row["state_version"].to_i + 1
-      gate["sitemap_candidates"].to_s
-    RUBY
-    expect(violations(permitted)).to be_empty
+  it "proves the call detection rests on the language's operators, not on node kinds" do
+    # THE INVERSION ROUND 8 REQUIRED, ASSERTED DIRECTLY. Ruby has exactly three explicit-receiver call
+    # operators; the rule keys on those rather than on Ripper's labels, which is why a parenless call
+    # (`:command_call`) is caught by the same code that catches a parenthesised one (`:call`) with
+    # nothing naming either.
+    expect(CALL_OPERATORS).to contain_exactly(".", "&.", "::")
+    detector = File.read(__FILE__)
+    body = detector[detector.index("def explicit_call")..detector.index("# Can this expression be PROVED")]
+    expect(body).not_to include(":command_call")
+    expect(body).not_to include(":method_add_arg")
   end
 
   it "finds no second timestamp decoder in the recursive tracked WF-005 corpus" do

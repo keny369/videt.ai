@@ -333,8 +333,10 @@ module Workflows
         # measured to the checkpoint's arrival rather than to the end of the run's work, so on a drained
         # run it is not the run's working duration at all.
         def observe_wall_clock(d, crawl)
-          deadline = crawl["deadline_at"]
-          return false if deadline.nil? || d[:now] < Platform::PgInstant.utc(deadline)
+          # :442's boundary, asked of the one owner (round 8, R8-9). The checkpoint fires AT
+          # `deadline_at`, so the equality belongs on the expired side — the same sentence
+          # `Admission`, `CrawlDriver` and `DiscoverSitemaps` are all judged by.
+          return false unless Platform::PgInstant.expired?(crawl["deadline_at"], at: d[:now])
 
           # Read FIRST, because it is the predicate and not merely a field of the record.
           affected = affected_by_wall_clock(d, crawl)

@@ -125,7 +125,34 @@ module Workflows
       # — `crawl_id`, `project_id`, `source_id`, `canonical_url` — is frozen for the life of the entry
       # by `f1_crawl_frontier_entries_guard`, so carrying it across the caller's transaction boundary
       # cannot go stale. Everything MUTABLE is re-read here.
+      # THE PASS IS THE TRANSLATION BOUNDARY (round 8, R8-2). Round 7 enumerated the producers that
+      # write governed child facts and wrapped those; round 8 found a third — `FetchContent#settle`, on
+      # the one stretch of a pass that spends unbounded real time outside every lock — and an execution
+      # census of the corpus then found governed writes reaching the database from EIGHT WF-005 source
+      # lines beneath this method, not three. A rule applied producer-by-producer is always one producer
+      # behind, which is the failure this tranche exists to end.
+      #
+      # So the rule is stated ONCE, HERE, at the thing owner ruling 2 is actually about: "a stale or
+      # late worker must receive a controlled domain outcome and must not append facts after
+      # terminalization". A stale worker IS a pass, and every governed write one can make happens below
+      # this line. Wrapping the pass covers the producers that exist today, the ones a later tranche
+      # adds and the ones no list remembered. Each producer keeps its own translation as well, so each
+      # is also correct when driven on its own — `spec/architecture/wf005_closed_fact_set_spec.rb`
+      # holds both halves against an execution census rather than against a list.
       def advance(organization_id:, entry:, now:, due_at: nil)
+        ClosedFactSet.translate { advance_pass(organization_id:, entry:, now:, due_at:) }
+      rescue ClosedFactSet::CrawlWentTerminal
+        # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (round 7, C-2). The
+        # database refused the governed write, correctly, and this is that refusal expressed as the
+        # pass outcome the ledger already knows how to record — rather than an exception the transport
+        # would classify `scheduled_action_execution_failed`, which means DEFECT. Nothing was written,
+        # so there is nothing to undo and nothing to schedule: a terminal run has no next pass.
+        halted(ClosedFactSet::REASON, entry:)
+      end
+
+      private
+
+      def advance_pass(organization_id:, entry:, now:, due_at: nil)
         # THE INSTANT `now` WAS TRUE FOR THIS PASS (round 4, R4-5). Everything below — the robots fetch,
         # sitemap discovery, admission — happens between here and the content request, and all of it is
         # real elapsed time that `now` cannot see. R3-4(b) anchored the request budget at
@@ -188,16 +215,7 @@ module Workflows
         return deferred(HOST_PACED, entry:, at: ready) if ready
 
         admit_or_resume(organization_id, crawl, entry, gate, now, due_at, entered_monotonic, anchored_at)
-      rescue ClosedFactSet::CrawlWentTerminal
-        # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (round 7, C-2). The
-        # database refused the governed write, correctly, and this is that refusal expressed as the
-        # pass outcome the ledger already knows how to record — rather than an exception the transport
-        # would classify `scheduled_action_execution_failed`, which means DEFECT. Nothing was written,
-        # so there is nothing to undo and nothing to schedule: a terminal run has no next pass.
-        halted(ClosedFactSet::REASON, entry:)
       end
-
-      private
 
       # ADMIT A NEW ENTRY, OR RESUME THE RETRY OF ONE THIS RUN ALREADY CLAIMED.
       #
@@ -467,9 +485,12 @@ module Workflows
       # entitlement lease are `authorize_run`'s, which has already refused above. Two readers of one
       # column is deliberate — this one DECIDES whether to start a request, and `Admission#wall_clock`
       # RECORDS the ratified `wall_clock_run_duration` decision.
+      # :442's boundary, asked of the one owner (round 8, R8-9). This is the pass's own gate on "at 60
+      # elapsed minutes, no new request starts", and it is the negation of the same question
+      # `Admission` and `DiscoverSitemaps` ask — which is why all three now ask it in one place rather
+      # than each spelling out a comparison whose direction a later edit can invert unnoticed.
       def within_wall_clock?(crawl, now)
-        deadline = crawl["deadline_at"]
-        deadline.nil? || Platform::PgInstant.utc(deadline) > now.utc
+        !Platform::PgInstant.expired?(crawl["deadline_at"], at: now)
       end
 
       # An unstartable run still goes through `Admission`, which is the ratified observation point for
@@ -564,14 +585,12 @@ module Workflows
       # terminal Crawl, so a pass that reaches its first effect after the run ended must get a domain
       # outcome rather than a raw `PG::RaiseException` a worker classifies as a defect.
       def ensure_gate(organization_id, entry, crawl, host, now)
-        ClosedFactSet.translate do
-          Platform::UnitOfWork.run do |conn|
-            store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
-            store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
-            HostGate.new(store, ids: @ids, correlation_id: @correlation_id)
-                    .ensure_gate(organization_id:, project_id: entry["project_id"], crawl_id: crawl["id"],
-                                 canonical_host: host, now:)
-          end
+        Platform::UnitOfWork.run do |conn|
+          store = IdentityAccess::Infrastructure::CrawlHostGateStore.new(conn.raw_connection)
+          store.enter_org_context(org: organization_id, correlation_id: @correlation_id)
+          HostGate.new(store, ids: @ids, correlation_id: @correlation_id)
+                  .ensure_gate(organization_id:, project_id: entry["project_id"], crawl_id: crawl["id"],
+                               canonical_host: host, now:)
         end
       end
 

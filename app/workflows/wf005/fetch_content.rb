@@ -170,7 +170,18 @@ module Workflows
           # CALLER when the caller observed `now` earlier than this method did (R4-5).
           entered_monotonic: entered_monotonic || monotonic
         }
-        one_pass(context, entry, reserved_bytes:)
+        # THIS PRODUCER'S TRANSLATION, AT ITS ENTRY POINT (round 8, R8-2). Two of this object's units of
+        # work write governed child facts: `settle` inserts `crawl_limit_decisions`, and `claim_slot`
+        # updates the host gate's outcome columns. Both open AFTER the content request — the one stretch
+        # of a pass that spends unbounded real time outside every lock — so both are exactly the "stale
+        # or late worker" owner ruling 2 is about. Round 7 enumerated two producers and repaired those
+        # two; this one was named by neither, and its refusal escaped `CrawlDriver#advance` as a raw
+        # `PG::RaiseException` that `ScheduledActions::Worker` classified
+        # `scheduled_action_execution_failed` — the token meaning DEFECT — for an ordinary, expected and
+        # correctly-refused race. Wrapping the ENTRY rather than one transaction is what makes the repair
+        # hold for the next unit of work this object grows. Nothing is swallowed: the refusal still
+        # aborts its transaction and still writes nothing, and the driver reports the pass outcome.
+        ClosedFactSet.translate { one_pass(context, entry, reserved_bytes:) }
       end
 
       private
@@ -700,6 +711,12 @@ module Workflows
 
       # One transaction: the run counter and the attempt record describe the same event, so they
       # commit together or neither does.
+      #
+      # THE GOVERNED WRITE THIS PRODUCER MAKES (round 8, R8-2). `observe_fetch_limits` below writes
+      # `crawl_limit_decisions`, which `f1_crawl_child_fact_closed` refuses for a terminal Crawl — and
+      # this transaction opens AFTER the content request, the one stretch of a pass that spends
+      # unbounded real time outside every lock. The translation is owned by `call`, so this transaction
+      # and the host-gate claim are covered by one rule rather than by two rescues.
       def settle(context, attempt, reserved, result, outcome, measurement, limits, release_unused:)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
