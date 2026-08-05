@@ -4197,8 +4197,10 @@ The third consecutive five-lens round on this tranche. Three of five lenses retu
 confirmed-blocking findings and **no production defect**. The schema lens returned
 PASS_WITH_OBSERVATIONS after rebuilding a reference database and matching the live one on all nine
 fingerprint dimensions, and after 40 deadlock-free rounds at 4,000 organizations and 20,000 grants.
-The concurrency lens did not return within the window; its verdict is not counted and the next round
-must run it.
+The concurrency lens also returned PASS_WITH_OBSERVATIONS, after this ADR was first written and after
+the round record had said it had not returned; both records are corrected. It re-confirmed the cycle
+closed at every pair it could build, and found two things about the instrument rather than the code
+(recorded at decision 7).
 
 **THE FINDING THAT MATTERS IS THAT FU-48 WAS NEVER FINISHED.** FU-48 exists because the capability
 axis "was enforced ONLY in Ruby, one deletion away from nothing". `WriteAuthority` carried
@@ -4261,8 +4263,19 @@ Every protected write now refuses a grant whose role the ratified baseline does 
 capability being spent, independently of any Ruby check. FU-52 is closed by this and its follow-up
 entry is retired.
 
+7. **THE PROBE MEASURED A RELATION LOCK AND WAS ITSELF UNSTABLE.** `RowExclusiveLock` on
+   `organizations` is taken by ANY data-modifying statement against the relation, including one that
+   matches no row — so a handler running `UPDATE organizations ... AND false` and then writing the
+   grant row FIRST reported "organizations first", with the cycle live and every example green. The
+   predicate is now `o.xmin = pg_current_xact_id()`, true only of a row this transaction actually
+   wrote. And the stability runs found the probe's own DDL cascading: `DROP TRIGGER` needs ACCESS
+   EXCLUSIVE, one contended cleanup leaves the trigger installed, and every later example then fails
+   `already exists` — 4 and 14 failures in two full-suite runs at the committed candidate. Setup is
+   idempotent now, the reversed-order control no longer holds the relation against its own cleanup,
+   and three consecutive full-suite runs are clean.
+
 **THIS DOES NOT ACCEPT S-07-009.** Sixteen rounds have run and none has returned PASS on the state it
-reviewed. The concurrency lens must be re-run.
+reviewed.
 
 Authority And Precedence:
 S-07-009 repair authority under the overnight instruction. Corrects ADR-134 decisions 3 and 6 and its

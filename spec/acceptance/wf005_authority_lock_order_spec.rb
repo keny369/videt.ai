@@ -382,22 +382,26 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       # probe observes is a genuine transaction that took the grant row first.
       g = bootstrap
       grant = revocable_grant(g)
-      conn = tagged_connection("lock_order_reverse")
-      first = begin
-        steps = revocation_steps(conn, g[:organization_id], grant)
-        measure_first_lock do
+      # THE CONNECTION IS CLOSED INSIDE THE MEASURED BLOCK. `measure_first_lock`'s cleanup needs
+      # ACCESS EXCLUSIVE on `role_assignments` to drop its trigger, and a second connection still
+      # holding that relation — even an already-committed one that has not been closed — deadlocks
+      # against it. The probe is an instrument; it must not fight itself.
+      first = measure_first_lock do
+        conn = tagged_connection("lock_order_reverse")
+        begin
+          steps = revocation_steps(conn, g[:organization_id], grant)
           conn.exec("BEGIN")
           steps.fetch(:role_assignments).call
           steps.fetch(:organizations).call
           conn.exec("COMMIT")
+        ensure
+          begin
+            conn.exec("ROLLBACK")
+          rescue PG::Error
+            nil
+          end
+          conn.close
         end
-      ensure
-        begin
-          conn.exec("ROLLBACK")
-        rescue PG::Error
-          nil
-        end
-        conn.close
       end
 
       expect(first).to eq(:role_assignments),

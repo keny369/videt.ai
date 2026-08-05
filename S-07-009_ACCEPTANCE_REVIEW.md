@@ -2379,7 +2379,7 @@ still closes; the rest are proofs that do not measure their claim and records th
 | Contract-correctness | FAIL | C17-1, C17-2, C17-3, C17-4, C17-5, C17-6 |
 | Architecture / scope / test-quality | FAIL | A17-1 (= C17-1), A17-2 (= C17-4) |
 | Security / tenant-isolation | FAIL | R17-SEC-1 |
-| Concurrency / atomicity / idempotency | (see note) | — |
+| Concurrency / atomicity / idempotency | PASS_WITH_OBSERVATIONS | none |
 | Schema / migration-safety / data-integrity | PASS_WITH_OBSERVATIONS | none |
 
 ## The findings
@@ -2415,9 +2415,24 @@ completion report's headline still said SIX findings and attributed the latest r
 an unbounded string replace had inserted a round-15 finding into the **ROUND 4** record, narrating
 rounds 15 and 16 inside a round that ran before either.
 
-**The concurrency lens did not return a report within this round's window.** Its worktree was left
-clean and its verdict is not counted; the round's verdict does not depend on it, since three other
-lenses returned confirmed-blocking findings. The next round must run it.
+**THE CONCURRENCY LENS RETURNED AFTER THIS RECORD WAS FIRST WRITTEN, AND THE RECORD SAID IT HAD NOT.**
+It ran for 83 minutes and returned PASS_WITH_OBSERVATIONS with no blocking finding. The sentence that
+said otherwise is corrected here rather than left standing: its verdict IS counted, and the round's
+lens table above reflects it.
+
+**IT ALSO FOUND THE PROBE'S MEASUREMENT WEAKER THAN ITS COMMENT CLAIMED (O-1), AND THE STABILITY RUNS
+FOUND THE PROBE ITSELF UNSTABLE.** `RowExclusiveLock` on `organizations` is taken by ANY data-modifying
+statement against the relation, including one matching no row: a handler that ran
+`UPDATE organizations ... AND false` and then wrote the grant row FIRST reported "organizations first"
+and left every example green with the cycle live. The predicate is now `o.xmin = pg_current_xact_id()`,
+true only of a row this transaction actually wrote. Separately, three full-suite runs at the committed
+candidate returned 4 and 14 failures: the probe's `CREATE TRIGGER` / `DROP TRIGGER` on
+`role_assignments` contends with the file's own concurrency probes, one contended cleanup leaves the
+trigger installed, and every later example then fails `already exists` " a cascade from a single
+contention. Setup is now idempotent (`DROP TRIGGER IF EXISTS` first), the reversed-order control closes
+its connection inside the measured block rather than holding the relation against the cleanup, and the
+residue is still reported at suite end. Three consecutive full-suite runs after the fix: 2458 examples
+with one deterministic failure each " the ledger digest, stale by construction until regeneration.
 
 ## The repair
 
@@ -2470,7 +2485,11 @@ mutation can leave a mutant installed — caught loudly by the ledger's byte-bin
 regeneration, but unbounded meanwhile. `landed` is not table-scoped while `original` is. Sixteen
 ledger rows share a `failure_digest` with another row, and six differ between generations. The
 `REORDERED_HANDLERS` and `WRITES` lists are still maintained rather than derived. A handler outside
-the `Workflows::Wf005::Handlers` namespace is still unobserved. `classify`'s suite-error channel is
+the `Workflows::Wf005::Handlers` namespace is still unobserved. **Two unstated exceptions to "one order
+everywhere" (concurrency O-3):** genesis writes `role_assignments` before advancing the epoch, and
+`RequestRoleAssignment` inserts a grant before advancing it " both unreachable, the first because both
+rows are created in the same uncommitted transaction and the second because the row is new, and
+neither recorded in ADR-133/134 prose. `classify`'s suite-error channel is
 still a substring the measured thing controls. FU-50 to FU-53 are unchanged.
 
 ## Stop

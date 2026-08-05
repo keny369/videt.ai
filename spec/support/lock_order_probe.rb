@@ -25,12 +25,23 @@ module LockOrderProbe
   # verdict depends on an interleaving it does not control is the defect class D10 was.
   #
   # WHAT IS MEASURED INSTEAD. A trigger on `role_assignments`, firing INSIDE the handler's own
-  # transaction, asks PostgreSQL whether this backend ALREADY holds a write lock on `organizations`.
-  # A transaction that has updated `organizations` holds `RowExclusiveLock` on that relation for the
-  # rest of its life, so the answer is exact, single-connection and deterministic: it is true when the
-  # epoch advance came first and false when it did not.
+  # transaction, asks PostgreSQL whether this transaction has ALREADY WRITTEN AN `organizations` ROW.
+  #
+  # IT ASKS ABOUT THE ROW, NOT THE RELATION (round-17 concurrency observation O-1). The first version
+  # asked whether the backend held `RowExclusiveLock` on `organizations`. The forward implication is
+  # true and the CONVERSE — which is what the proof depends on — is false: ANY data-modifying
+  # statement against the relation takes that lock, including one that matches no row. Measured, a
+  # handler that ran `UPDATE organizations … AND false` and THEN wrote the grant row first reported
+  # "organizations first" and every example stayed green with the cycle live. `o.xmin =
+  # pg_current_xact_id()` is true only of a row THIS transaction actually wrote, so the zero-row
+  # statement cannot buy it. Single-connection and deterministic either way.
   def measure_first_lock
     DbInspector.connection.exec(<<~SQL)
+      -- IDEMPOTENT SETUP. A contended cleanup can leave the trigger installed (`DROP TRIGGER` needs
+      -- ACCESS EXCLUSIVE and one ordinary reader defeats it), and a bare CREATE would then fail every
+      -- later example with `already exists` — turning one contended run into a cascade. The residue
+      -- is still reported at suite end; it just cannot break the next measurement.
+      DROP TRIGGER IF EXISTS f1_test_lock_order_probe ON role_assignments;
       CREATE UNLOGGED TABLE IF NOT EXISTS f1_test_lock_order (org_already_locked boolean NOT NULL);
       TRUNCATE f1_test_lock_order;
       -- the handler writes as the runtime role, which owns nothing; this scratch table lives and
@@ -41,9 +52,8 @@ module LockOrderProbe
       BEGIN
         INSERT INTO f1_test_lock_order (org_already_locked)
         SELECT EXISTS (
-          SELECT 1 FROM pg_locks
-          WHERE pid = pg_backend_pid() AND relation = 'organizations'::regclass
-            AND mode = 'RowExclusiveLock' AND granted
+          SELECT 1 FROM organizations o
+          WHERE o.xmin = pg_current_xact_id()::text::xid
         );
         RETURN NEW;
       END
