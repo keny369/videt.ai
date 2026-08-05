@@ -328,6 +328,45 @@ now repaired at a canonical owner, and the two classes that kept recurring — p
 unchecked records — are closed by a database rule and a truth check respectively rather than by another
 careful edit.
 
+## D7, D8, D9 and FU-48 — the antecedent, the lock, the harness, and the capability axis
+
+Recorded in full in `S-07-009_BLOCKER_LEDGER.md` and ratified by `DECISIONS.md` ADR-132. In summary,
+because the shape of each finding matters more than its size:
+
+| What | Was | Is |
+| --- | --- | --- |
+| **D7** the antecedent of the tranche's completeness rule | "SUCCEEDS and WRITES", behind a verb regex that counted `SELECT ... FOR UPDATE` as a write, so an idempotent replay satisfied it through a ROW LOCK | "SUCCEEDS and commits a PROTECTED SIDE EFFECT" — `:335`'s own words — observed by asking PostgreSQL to plan the real statement and reading its `ModifyTable` nodes |
+| **D7** the replay exemption | written into the sentinel's header, resting on a premise that was TRUE while the door that tested it was false | deleted, with nothing in its place: a replay executes no statement whose plan modifies a guarded relation |
+| **D8** the authority read's lock | `FOR KEY SHARE`, recorded as conflicting with an epoch advance | `FOR SHARE`. The advance is a NON-KEY update taking `FOR NO KEY UPDATE`, which does NOT conflict with `FOR KEY SHARE` — measured on the real row, the real statement |
+| **D9** the mutation harness | the round-two `broken` correction was applied to `replay_trigger` alone, leaving the file path — 79 of 82 definitions — recording the strongest kills as proving nothing | both paths classify identically |
+| **FU-48** the capability/scope axis | two Ruby predicates with no counterpart in any statement and no instrument watching them | a conjunct of every protected write, carrying the grants the decision relied on and the role the ratified scope rule demands, re-read under `FOR SHARE` in the same statement as the transition |
+
+**THE LEDGER'S OWN CANDIDATE REPAIR WAS REJECTED, AND THE REASON IS RECORDED.** It proposed reusing
+`GovernedWriteSentinel`'s governed set. That set is `f1_crawl_child_fact_closed` — owner ruling 2's
+CHILD-fact closure — and contains neither `crawls` nor `crawl_policies`, so the antecedent would have
+become unsatisfiable and the headline invariant would have gone quiet while reporting success.
+
+### The proofs D7 added
+
+| Proof | Property |
+| --- | --- |
+| 232, 232b–e | the door recognises every shape the three protected writes are written in; rejects a locking read, an advisory lock and a `SELECT` that merely names a column; is unchanged by six valid reformattings of the same statement; and reports a statement it cannot plan as a BLIND SPOT rather than as a read |
+| 233, 234, 235, 236 | a real cancellation commits a protected side effect and not every statement is one; an idempotent replay commits none and the rule does not fire for it; a denial moves no product fact |
+| 237, 238, 238b, 238c | the governed set is read from the catalogue and a newly guarded relation joins it unannounced; the classification is checked against a property it does not use; that check is shown to be non-vacuous; the command-evidence ledgers are classified incidental |
+| 239 | which reader lock actually conflicts with a revocation — `FOR KEY SHARE` does not, `FOR SHARE` and `FOR UPDATE` do, and two `FOR SHARE` readers do not block each other |
+| 240, 241, 242 | a revocation cannot land while each of the three guarded statements is blocked mid-flight, with the block observed through `pg_blocking_pids` rather than assumed |
+| 243–248, 253, 254 | the grant the decision relied on is re-read by the write: absent, revoked, revoked-with-version-held, version-moved and scope-changed each refuse; the two limbs are reported separately; and with both current the write applies |
+| 249, 250, 251 | no attestation is minted for a denied decision EVEN WHEN IT CARRIES GRANTS, nor for one naming none; one minted for a different capability is refused at the write |
+| 252 | the capability limb is lock-based too: a grant revocation cannot land while the statement is blocked |
+| 255, 256, 257 | each handler still refuses an actor holding no authority BEFORE taking its blocking lock, observed by invocation (`PRULE-039`/SEC-REQ-005: a check after a side effect is a bypass) |
+| 258, 258b, 258c | the ratified scope rule is a predicate of the write; it is not a blanket refusal; and it has ONE transcription that the Ruby guard and the write both read |
+
+### Whole-suite emptiness checks added
+
+Each fails a blind run rather than quietening it: zero protected side effects observed across the
+suite; a human-authorized handler never observed committing one; a statement that executed
+successfully and could not be planned; a relation WF-005 wrote that carries a lifecycle and no guard.
+
 ## Verification
 
 **THESE FIGURES ARE DERIVED, NOT RESTATED.** An earlier version of this table was maintained by hand

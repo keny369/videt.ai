@@ -216,15 +216,19 @@ module Workflows
           # one can block on `crawl-frontier:<crawl>` for as long as an in-flight pass or checkpoint
           # holds it, and a revocation, suspension or policy change committed inside that window
           # would otherwise be spent by an allowed decision that no longer exists.
-          attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:)
+          attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:,
+                                                        decision: d[:decision], capability: CAPABILITY)
           return denied(d, "crawl_cancel_unauthorized") if attestation.nil?
 
           commit(d, crawl, key_digest, attestation:)
         end
 
         def commit(d, crawl, key_digest, attestation:)
-          # THE WRITE IS WHAT REFUSES (round 9, R9-3).
-          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
+          # THE WRITE IS WHAT REFUSES (round 9, R9-3), AND IT CARRIES BOTH AUTHORITY AXES (FU-48).
+          authority = IdentityAccess::Authorization::WriteAuthority.for(
+            actor: d[:actor], decision: d[:decision], capability: CAPABILITY
+          )
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]
@@ -248,8 +252,7 @@ module Workflows
           # during the wait is a domain denial; a lost serialized transition is corruption. Collapsing
           # them would either report corruption for an ordinary revocation or, far worse, swallow
           # corruption as a denial.
-          outcome = d[:crawls].cancel(crawl["id"], crawl["state_version"].to_i, now,
-                                      authorization_epoch: actor.authorization_epoch, organization_id: org)
+          outcome = d[:crawls].cancel(crawl["id"], crawl["state_version"].to_i, now, authority:)
           return denied(d, "crawl_cancel_unauthorized") unless outcome[:authorized]
           raise Platform::InvariantViolation, "crawl cancellation lost its serialized transition" if outcome[:moved].zero?
 

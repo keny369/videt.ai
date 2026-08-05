@@ -26,6 +26,10 @@ module AutonomousBuild
     POLICY_STORE = "app/contexts/identity_access/infrastructure/crawl_policy_store.rb"
     QUEUE_HANDLER = "app/workflows/wf005/handlers/queue_crawl.rb"
     POLICY_HANDLER = "app/workflows/wf005/handlers/activate_crawl_policy.rb"
+    # D7
+    DOOR = "spec/support/protected_effect_door.rb"
+    ATTESTATION = "app/workflows/wf005/authority_attestation.rb"
+    WRITE_AUTHORITY = "app/contexts/identity_access/authorization/write_authority.rb"
 
     DEADLINE_PROOF = "spec/platform/run_deadline_spec.rb"
     GATES_PROOF = "spec/acceptance/wf005_deadline_gates_spec.rb"
@@ -36,6 +40,9 @@ module AutonomousBuild
     CLOSED_FACT_PROOF = "spec/acceptance/wf005_closed_fact_set_spec.rb"
     QUEUE_PROOF = "spec/acceptance/wf005_queue_crawl_spec.rb"
     POLICY_PROOF = "spec/acceptance/wf005_activate_crawl_policy_spec.rb"
+    DOOR_PROOF = "spec/architecture/protected_effect_door_spec.rb"
+    LOCK_PROOF = "spec/acceptance/wf005_authority_lock_concurrency_spec.rb"
+    CAPABILITY_PROOF = "spec/acceptance/wf005_capability_write_authority_spec.rb"
 
     ENTRIES = [
       # ---- D1/D2: the dead question, and the ones nothing pinned -------------------------------
@@ -63,7 +70,7 @@ module AutonomousBuild
       # ---- D3: authority as a conjunct of the cancellation write --------------------------------
       { id: "d3-conjunct-removed", blocker: "D3/R10-10", file: STORE, proof: AUTHORITY_PROOF,
         description: "the epoch conjunct removed from the write, accepting another actor's authority",
-        from: "              AND EXISTS (SELECT 1 FROM authority)\n", to: "", expectation: "kill" },
+        from: "              AND EXISTS (SELECT 1 FROM epoch_authority)\n", to: "", expectation: "kill" },
       { id: "d3-epoch-inequality", blocker: "D3/R10-10", file: STORE, proof: AUTHORITY_PROOF,
         description: "equality weakened to >=, accepting a stale epoch",
         from: "WHERE id = $5::uuid AND authorization_epoch = $4::bigint",
@@ -78,8 +85,8 @@ module AutonomousBuild
         to: "WHERE id = $1::uuid AND authorization_epoch = $4::bigint", expectation: "kill" },
       { id: "d3-authorized-independent", blocker: "D3/R10-10", file: STORE, proof: AUTHORITY_PROOF,
         description: "`authorized` reported independently of the write's own predicate",
-        from: "          SELECT (SELECT count(*) FROM authority) AS authorized,",
-        to: "          SELECT 1 AS authorized,", expectation: "kill" },
+        from: "          SELECT (SELECT count(*) FROM epoch_authority) AS epoch_authorized,",
+        to: "          SELECT 1 AS epoch_authorized,", expectation: "kill" },
       { id: "d3-denial-swallowed", blocker: "D3/R10-10", file: CANCEL, proof: AUTHORITY_PROOF,
         description: "the handler treats an unauthorized write as success",
         from: "          return denied(d, \"crawl_cancel_unauthorized\") unless outcome[:authorized]\n",
@@ -89,10 +96,13 @@ module AutonomousBuild
         from: "          return denied(d, \"crawl_cancel_unauthorized\") unless outcome[:authorized]\n          raise Platform::InvariantViolation, \"crawl cancellation lost its serialized transition\" if outcome[:moved].zero?",
         to: "          raise Platform::InvariantViolation, \"crawl cancellation lost its serialized transition\" if outcome[:moved].zero?\n          return denied(d, \"crawl_cancel_unauthorized\") unless outcome[:authorized]",
         expectation: "kill" },
-      { id: "d3-self-authorizing-epoch", blocker: "D3/R10-10", file: CANCEL, proof: CANCEL_PROOF,
-        description: "the actor's epoch replaced by row state, so the write authorizes itself",
-        from: "authorization_epoch: actor.authorization_epoch, organization_id: org",
-        to: "authorization_epoch: crawl[\"state_version\"].to_i, organization_id: org", expectation: "kill" },
+      { id: "d3-write-carries-another-capability", blocker: "D3/R10-10, FU-48", file: CANCEL,
+        proof: CANCEL_PROOF,
+        description: "the write carries a capability the attestation was not minted for, so the " \
+                     "attestation and the statement no longer describe the same authority",
+        from: "            actor: d[:actor], decision: d[:decision], capability: CAPABILITY\n          )\n          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)",
+        to: "            actor: d[:actor], decision: d[:decision], capability: \"crawl.recover\"\n          )\n          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)",
+        expectation: "kill" },
       # THE BOUND PROOF NAMES WHAT ACTUALLY REJECTS IT. The first regeneration bound this to the
       # cancel spec alone and it SURVIVED — the lock's absence is not observable from a single
       # command, only from two racing it. A ledger row whose proof cannot reject its mutation is a
@@ -192,8 +202,8 @@ module AutonomousBuild
       # ---- D6: write-level authority for QueueCrawl and ActivateCrawlPolicy ---------------------
       { id: "d6-q-predicate-removed", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
         description: "the authority predicate removed from the queue write",
-        from: "          WHERE EXISTS (\n            SELECT 1 FROM organizations\n            WHERE id = $4::uuid AND authorization_epoch = $14::bigint\n          )\n",
-        to: "", expectation: "kill" },
+        from: "            WHERE EXISTS (SELECT 1 FROM epoch_authority)\n              AND EXISTS (SELECT 1 FROM capability_authority)\n",
+        to: "            WHERE true\n", expectation: "kill" },
       { id: "d6-q-predicate-inverted", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
         description: "the authority predicate inverted, admitting exactly the revoked actor",
         from: "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
@@ -208,8 +218,9 @@ module AutonomousBuild
         to: "WHERE id = $5::uuid AND authorization_epoch = $14::bigint", expectation: "kill" },
       { id: "d6-q-stale-captured-epoch", blocker: "D6", file: QUEUE_HANDLER, proof: QUEUE_PROOF,
         description: "a stale captured epoch passed to the write",
-        from: "            authorization_epoch: actor.authorization_epoch,",
-        to: "            authorization_epoch: 0,", expectation: "kill" },
+        from: "            authority:,",
+        to: "            authority: IdentityAccess::Authorization::WriteAuthority.new(**authority.to_h.merge(epoch: 0)),",
+        expectation: "kill" },
       { id: "d6-q-handler-accepts-unauthorized", blocker: "D6", file: QUEUE_HANDLER, proof: QUEUE_PROOF,
         description: "the handler stops translating an unauthorised write into its domain denial",
         from: "          return denied(d, \"crawl_trigger_unauthorized\") unless queued[:authorized]\n",
@@ -257,6 +268,203 @@ module AutonomousBuild
         description: "the domain denial and the lost-serialization raise collapsed into one",
         from: "          return denied(d, \"crawl_policy_unauthorized\") unless applied[:authorized]\n          raise LostRace if current && applied[:superseded].zero?",
         to: "          raise LostRace if current && applied[:superseded].zero?", expectation: "kill" },
+
+      # ---- D7: the antecedent, the door, the lock strength, and FU-48 --------------------------
+      #
+      # WHAT EACH FAMILY FALSIFIES. The antecedent is the tranche's central completeness mechanism, so
+      # every component it now rests on gets a mutation that removes or weakens it INDEPENDENTLY:
+      # the door that observes a protected side effect, the catalogue classification on each side,
+      # the lock strength that makes the authority read lock-based, both authority limbs at all three
+      # writes, the attestation binding, the handler's own pre-lock refusal, and idempotent replay.
+
+      # -- the door: how a protected side effect is observed --
+      { id: "d7-door-regex-restored", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "the planner replaced by the HEAD verb regex, which counts SELECT ... FOR UPDATE " \
+                     "as a write and is exactly how a replay came to satisfy the antecedent",
+        from: "      json = mutex.synchronize do\n        connection.exec(\"EXPLAIN (GENERIC_PLAN, FORMAT JSON) \#{text}\").getvalue(0, 0)\n      end\n      modify_table_nodes(JSON.parse(json))",
+        to: "      return [] unless text.match?(/\\\\b(?:INSERT\\\\s+INTO|UPDATE|DELETE\\\\s+FROM)\\\\b/i)\n\n      [Effect.new(operation: \"Update\", relation: text[/\\\\b(?:INTO|UPDATE|FROM)\\\\s+\\\"?(\\\\w+)/i, 1])]",
+        expectation: "kill" },
+      { id: "d7-door-anchored", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "the door anchored to the start of the statement, the FIRST historical form, " \
+                     "which is blind to every CTE-shaped write and so to all three protected writes",
+        from: "      computed = plan(text)",
+        to: "      return (plans[text] = []) unless text.strip.match?(/\\\\A(?:INSERT|UPDATE|DELETE)\\\\b/i)\n\n      computed = plan(text)",
+        expectation: "kill" },
+      { id: "d7-door-hook-removed", blocker: "D7", file: SENTINEL, proof: DOOR_PROOF,
+        description: "the statement door removed, so no protected side effect is ever observed",
+        from: "      PG::Connection.prepend(StatementObserver)\n", to: "", expectation: "kill" },
+      { id: "d7-door-unknown-read-as-empty", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "a statement the planner could not answer for is reported as modifying nothing, " \
+                     "so a blind spot reads as a read instead of failing the run",
+        from: "      reconnect_if_dead(e)\n      nil", to: "      reconnect_if_dead(e)\n      []",
+        expectation: "kill" },
+
+      # -- the classification, on both sides --
+      { id: "d7-classification-all-governed", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "every relation classified as a product fact, so the command-evidence ledgers " \
+                     "are misclassified and the antecedent is the over-broad one D7 removed",
+        from: "    def governed?(relation) = governed_relations.include?(relation)",
+        to: "    def governed?(relation) = !relation.nil?", expectation: "kill" },
+      { id: "d7-classification-none-governed", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "no relation classified as a product fact, so a genuine governed write is never " \
+                     "observed and the invariant is switched off while reporting success",
+        from: "    def governed?(relation) = governed_relations.include?(relation)",
+        to: "    def governed?(_relation) = false", expectation: "kill" },
+      { id: "d7-classification-not-derived", blocker: "D7", file: DOOR, proof: DOOR_PROOF,
+        description: "the governed set stops being read from the catalogue and becomes a list, so a "\
+                     "guarded relation a later tranche adds never joins it",
+        from: "            SELECT DISTINCT c.relname\n            FROM pg_trigger t\n"\
+              "            JOIN pg_class c ON c.oid = t.tgrelid\n"\
+              "            JOIN pg_namespace n ON n.oid = c.relnamespace\n"\
+              "            WHERE NOT t.tgisinternal AND n.nspname = 'public'\n",
+        to: "            SELECT unnest(ARRAY['crawls', 'crawl_policies']) AS relname\n",
+        expectation: "kill" },
+      { id: "d7-census-not-recorded", blocker: "D7", file: SENTINEL, proof: DOOR_PROOF,
+        description: "the per-command relation census stops being recorded, so the classification's " \
+                     "own gate has nothing to read back and passes on an empty population",
+        from: "      f[:relations].uniq.each do |(relation, operation)|",
+        to: "      [].each do |(relation, operation)|", expectation: "kill" },
+
+      # -- the antecedent itself --
+      { id: "d7-antecedent-any-write", blocker: "D7", file: SENTINEL, proof: DOOR_PROOF,
+        description: "the antecedent widened back from a protected side effect to any statement, " \
+                     "which is the rule that fired on an idempotent replay",
+        from: "      governed = effects.count { |e| ProtectedEffectDoor.governed?(e.relation) }",
+        to: "      governed = effects.length", expectation: "kill" },
+      { id: "d7-antecedent-dropped", blocker: "D7", file: SENTINEL, proof: DOOR_PROOF,
+        description: "the antecedent's governed-write clause deleted, so every successful " \
+                     "human-authorized command satisfies it, replays included",
+        from: "      return unless f[:governed].positive?\n", to: "", expectation: "kill" },
+
+      # -- the lock strength, at all three writes --
+      { id: "d7-cancel-lock-key-share", blocker: "D7", file: STORE, proof: LOCK_PROOF,
+        description: "the cancellation's authority read downgraded to FOR KEY SHARE, which does NOT " \
+                     "conflict with a non-key epoch advance — the round-two repair, measured",
+        from: "            FOR SHARE\n", to: "            FOR KEY SHARE\n", expectation: "kill" },
+      { id: "d7-cancel-lock-removed", blocker: "D7", file: STORE, proof: LOCK_PROOF,
+        description: "the cancellation's authority read stops locking, so the predicate comes from " \
+                     "the statement's opening snapshot",
+        from: "            WHERE id = $5::uuid AND authorization_epoch = $4::bigint\n            FOR SHARE\n",
+        to: "            WHERE id = $5::uuid AND authorization_epoch = $4::bigint\n", expectation: "kill" },
+      { id: "d7-queue-lock-key-share", blocker: "D7", file: CRAWL_STORE, proof: LOCK_PROOF,
+        description: "the queue insert's authority read downgraded to FOR KEY SHARE",
+        from: "            FOR SHARE\n", to: "            FOR KEY SHARE\n", expectation: "kill" },
+      { id: "d7-policy-lock-key-share", blocker: "D7", file: POLICY_STORE, proof: LOCK_PROOF,
+        description: "the policy activation's authority read downgraded to FOR KEY SHARE",
+        from: "            FOR SHARE\n", to: "            FOR KEY SHARE\n", expectation: "kill" },
+      { id: "d7-capability-lock-removed", blocker: "D7, FU-48", file: STORE, proof: CAPABILITY_PROOF,
+        description: "the capability read stops locking, so a grant revoked while the statement is " \
+                     "blocked mid-flight is not seen by it",
+        from: "            FOR SHARE OF ra\n", to: "", expectation: "kill" },
+
+      # -- FU-48: the capability axis at each write --
+      { id: "d7-cancel-capability-conjunct-removed", blocker: "FU-48", file: STORE,
+        proof: CAPABILITY_PROOF,
+        description: "the capability conjunct removed from the cancellation, restoring the state in " \
+                     "which one Ruby branch was the only thing refusing an actor who held nothing",
+        from: "              AND EXISTS (SELECT 1 FROM capability_authority)\n", to: "",
+        expectation: "kill" },
+      { id: "d7-cancel-capability-always-true", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
+        description: "the capability CTE made unconditionally true, so the grant is never read at all",
+        from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n            FOR SHARE OF ra\n",
+        to: "            SELECT 1\n", expectation: "kill" },
+      { id: "d7-cancel-grant-version-unbound", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
+        description: "the grant's state version stops being bound, so a decision taken against a " \
+                     "different version of the Assignment still authorizes the write",
+        from: "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+        to: "              ON g.id = ra.id\n", expectation: "kill" },
+      { id: "d7-cancel-grant-scope-unbound", blocker: "FU-48, FU-2", file: STORE,
+        proof: CAPABILITY_PROOF,
+        description: "the grant's scope digest stops being bound, so the scope axis has no " \
+                     "representation at the write at all",
+        from: "             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n", to: "",
+        expectation: "kill" },
+      { id: "d7-cancel-grant-status-unbound", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
+        description: "a revoked Assignment still confers, so a revocation landing before the write " \
+                     "is not seen by it",
+        from: "              AND ra.status = 'active'\n", to: "", expectation: "kill" },
+      { id: "d7-queue-capability-conjunct-removed", blocker: "FU-48", file: CRAWL_STORE,
+        proof: CAPABILITY_PROOF,
+        description: "the capability conjunct removed from the queue insert",
+        from: "              AND EXISTS (SELECT 1 FROM capability_authority)\n", to: "",
+        expectation: "kill" },
+      { id: "d7-policy-capability-conjunct-removed", blocker: "FU-48", file: POLICY_STORE,
+        proof: CAPABILITY_PROOF,
+        description: "the capability conjunct removed from the policy activation's shared predicate",
+        from: "            SELECT 1 WHERE EXISTS (SELECT 1 FROM epoch_authority)\n                       AND EXISTS (SELECT 1 FROM capability_authority)",
+        to: "            SELECT 1 WHERE EXISTS (SELECT 1 FROM epoch_authority)", expectation: "kill" },
+
+      # -- FU-48: the attestation binding --
+      { id: "d7-attestation-mints-for-denial", blocker: "FU-48", file: ATTESTATION,
+        proof: CAPABILITY_PROOF,
+        description: "an attestation is minted for a decision that did not allow",
+        from: "        return nil unless decision.allowed?\n", to: "", expectation: "kill" },
+      { id: "d7-attestation-mints-without-grant", blocker: "FU-48", file: ATTESTATION,
+        proof: CAPABILITY_PROOF,
+        description: "an attestation is minted naming no grant, so it carries an empty array to a " \
+                     "write whose predicate then cannot be satisfied — and the handler learns it at " \
+                     "the write rather than at its own branch",
+        from: "        return nil unless authority.grants?\n", to: "", expectation: "kill" },
+      { id: "d7-attestation-authority-unbound", blocker: "FU-48", file: ATTESTATION,
+        proof: CAPABILITY_PROOF,
+        description: "the attestation stops being bound to the authority the write carries",
+        from: "        unless @authority.same_principal?(authority)\n          raise Missing, \"authority attestation names a different actor, epoch, capability or grant set\"\n        end\n",
+        to: "", expectation: "kill" },
+      { id: "d7-write-authority-ignores-capability", blocker: "FU-48", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "the binding stops comparing the capability, so an attestation minted for one " \
+                     "capability satisfies another's write",
+        from: "          other.capability == capability && other.grant_ids == grant_ids &&",
+        to: "          other.grant_ids == grant_ids &&", expectation: "kill" },
+
+      # -- the handler's own refusal, per command path --
+      { id: "d7-q-authorize-check-deleted", blocker: "D7, FU-48", file: QUEUE_HANDLER,
+        proof: CAPABILITY_PROOF,
+        description: "QueueCrawl's capability check deleted; the write still refuses, so only the " \
+                     "pre-lock property distinguishes the two",
+        from: "          unless decision.allowed?\n            return deny(**denial_args(d), resource_id: command.project_id,\n                        outward: \"crawl_trigger_unauthorized\", internal: \"crawl_trigger_unauthorized\")\n          end\n",
+        to: "", expectation: "kill" },
+      { id: "d7-c-authorize-check-deleted", blocker: "D7, FU-48", file: CANCEL,
+        proof: CAPABILITY_PROOF,
+        description: "CancelCrawl's capability check deleted",
+        from: "          unless decision.allowed?\n            return deny(**denial_args(d), resource_id: command.crawl_id,\n                        outward: \"crawl_cancel_unauthorized\", internal: \"crawl_cancel_unauthorized\")\n          end\n",
+        to: "", expectation: "kill" },
+      { id: "d7-a-authorize-check-deleted", blocker: "D7, FU-48", file: POLICY_HANDLER,
+        proof: CAPABILITY_PROOF,
+        description: "ActivateCrawlPolicy's capability check deleted",
+        from: "          unless decision.allowed? && authorized_for_scope?(command.scope, decision)\n            return deny(**denial_args(d), resource_id: scope_resource(command),\n                        outward: \"crawl_policy_unauthorized\", internal: \"crawl_policy_unauthorized\")\n          end\n",
+        to: "", expectation: "kill" },
+
+      # -- FU-48: the SCOPE rule as a predicate of the write --
+      { id: "d7-a-scope-role-unbound", blocker: "FU-48", file: POLICY_STORE, proof: CAPABILITY_PROOF,
+        description: "the scope rule stops being a predicate of the activation, so a MarketingOperator " \
+                     "grant authorizes an ORGANIZATION-scope policy — the round-two security finding",
+        from: "              AND ($18::text IS NULL OR ra.canonical_role = $18::text)\n", to: "",
+        expectation: "kill" },
+      # BOUND TO THE PROOF THAT ACTUALLY REACHES THE HANDLER'S COMMIT. The first binding named the
+      # capability proof, which drives this store DIRECTLY and supplies its own `required_role`, so no
+      # example reached `ActivateCrawlPolicy#commit` and the mutation SURVIVED. A ledger row whose
+      # proof cannot reject its mutation is a false row, and the fix is the correct proof.
+      { id: "d7-a-scope-role-not-carried", blocker: "FU-48", file: POLICY_HANDLER,
+        proof: POLICY_PROOF,
+        description: "the handler stops carrying the scope's required role into the write, so the " \
+                     "predicate is present and permanently vacuous and the attestation it minted " \
+                     "names an authority the write no longer carries",
+        from: "            required_role: SCOPE_ROLE[d[:command].scope]\n", to: "            required_role: nil\n",
+        expectation: "kill" },
+      { id: "d7-a-scope-map-widened", blocker: "FU-48", file: POLICY_HANDLER, proof: CAPABILITY_PROOF,
+        description: "the one transcription of :732/:738 widened, so both the Ruby guard and the " \
+                     "write agree on the wrong rule",
+        from: "        SCOPE_ROLE = { \"organization\" => \"OrganizationAdmin\", \"project\" => \"MarketingOperator\" }.freeze",
+        to: "        SCOPE_ROLE = { \"organization\" => \"MarketingOperator\", \"project\" => \"MarketingOperator\" }.freeze",
+        expectation: "kill" },
+
+      # -- idempotent replay --
+      { id: "d7-replay-not-idempotent", blocker: "D7", file: CANCEL, proof: DOOR_PROOF,
+        description: "the replay branch deleted, so a duplicate command re-performs the transition " \
+                     "and a correct replay stops being outside the antecedent",
+        from: "          return replay(d, existing) if existing && existing[\"request_hex\"] == hex(d[:request_sha256])\n",
+        to: "", expectation: "kill" },
 
       { id: "f6-lookup-class-traced", blocker: "R10-21", file: PROBE, proof: PROBE_PROOF,
         description: "traced_class reports the lookup class, not the defining class",

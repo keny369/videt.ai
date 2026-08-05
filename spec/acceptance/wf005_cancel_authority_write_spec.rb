@@ -39,7 +39,8 @@ RSpec.describe "WF-005 cancellation authority", type: :acceptance,
       store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
       row = DbInspector.one("SELECT state_version FROM crawls WHERE id=$1::uuid", [ctx[:crawl_id]])
       store.cancel(ctx[:crawl_id], row["state_version"].to_i, start_now,
-                   authorization_epoch: epoch, organization_id: ctx[:g][:organization_id])
+                   authority: AuthorityFixture.for_session(ctx[:g][:session_id],
+                                                           capability: "crawl.cancel", epoch:))
     end
   end
 
@@ -85,7 +86,8 @@ RSpec.describe "WF-005 cancellation authority", type: :acceptance,
       store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
       store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
       store.cancel(ctx[:crawl_id], 9999, start_now,
-                   authorization_epoch: current, organization_id: ctx[:g][:organization_id])
+                   authority: AuthorityFixture.for_session(ctx[:g][:session_id],
+                                                           capability: "crawl.cancel", epoch: current))
     end
 
     expect(outcome[:authorized]).to be(true), "authority was current; this is not a denial"

@@ -108,7 +108,8 @@ module Workflows
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
           attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                               .authority_attestation(auth_store: d[:auth_store], actor:)
+                                               .authority_attestation(auth_store: d[:auth_store], actor:,
+                                                                      decision: d[:decision], capability: CAPABILITY)
           if attestation.nil?
             return deny(**denial_args(d), resource_id: command.project_id,
                         outward: "crawl_trigger_unauthorized", internal: "crawl_trigger_unauthorized")
@@ -119,8 +120,11 @@ module Workflows
         end
 
         def commit(d, entitlement, sources, crawl_policy, key_digest, attestation:)
-          # THE WRITE IS WHAT REFUSES (round 9, R9-3).
-          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
+          # THE WRITE IS WHAT REFUSES (round 9, R9-3), AND IT CARRIES BOTH AUTHORITY AXES (FU-48).
+          authority = IdentityAccess::Authorization::WriteAuthority.for(
+            actor: d[:actor], decision: d[:decision], capability: CAPABILITY
+          )
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]
@@ -137,17 +141,16 @@ module Workflows
           # revoked authority possible — that is the property that removes the need to identify which
           # handlers must remember to re-read.
           #
-          # IT IS NOT A CLAIM ABOUT EVERY CHECK ABOVE, AND AN EARLIER VERSION OF THIS COMMENT SAID IT
-          # WAS. The conjunct is, in full, `organizations.authorization_epoch = the epoch this actor
-          # authenticated with`. That detects a CHANGE in authority since authentication. It does not
-          # detect the ABSENCE of a capability: `decision.allowed?` above is the only thing that
-          # refuses an actor who never held `crawl.trigger`, and deleting it lets such an actor queue
-          # a Crawl that this write will happily insert. The three sibling statements of this
-          # invariant say "the Ruby recheck" for exactly that reason. FU-48 records the open question
-          # of whether the capability axis should gain a write-level counterpart of its own.
+          # BOTH AXES ARE CONJUNCTS NOW, AND THIS COMMENT USED TO RECORD THAT ONLY ONE WAS (FU-48).
+          # The epoch limb detects a CHANGE in authority since authentication. It does NOT detect the
+          # ABSENCE of a capability, and until D7 `decision.allowed?` above was the only thing that
+          # refused an actor who never held `crawl.trigger` — deleting it let such an actor queue a
+          # Crawl this write happily inserted. The statement now also re-reads the granting Role
+          # Assignments that decision relied on, so the capability axis is enforced BELOW the Ruby
+          # branch rather than only at it.
           queued = store.insert_crawl(
             id: ids[:crawl], now:, correlation_id: ctx.correlation_id, organization_id: org,
-            authorization_epoch: actor.authorization_epoch,
+            authority:,
             project_id: command.project_id, kind: "root",
             requested_crawl_policy_id: crawl_policy && crawl_policy["id"],
             requested_crawl_policy_version: crawl_policy && crawl_policy["policy_version"],

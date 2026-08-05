@@ -1,5 +1,19 @@
 # frozen_string_literal: true
 
+require_relative "protected_effect_door"
+
+# TWO SENSES OF "GOVERNED" LIVE IN THIS REPOSITORY AND THEY ARE NOT THE SAME RULE (D7).
+#
+#   * HERE, "governed" means `f1_crawl_child_fact_closed` — OWNER RULING 2, the terminal fact closure
+#     over a Crawl's CHILD facts. `crawls` and `crawl_policies` are NOT in this set.
+#   * In `AuthoritySentinel`, a "governed write" is `:335`'s PROTECTED SIDE EFFECT, observed by
+#     `ProtectedEffectDoor`, and `crawls` and `crawl_policies` are exactly what it is about.
+#
+# The D7 blocker record proposed reusing THIS set for that antecedent. It would have been silently
+# catastrophic: none of the three protected writes touches a closed-fact table, so the headline
+# invariant's antecedent would have become unsatisfiable and the rule would have gone quiet while
+# reporting success.
+
 # WHAT ACTUALLY EXECUTED, OBSERVED AT THE WIRE (round 8, R8-2 and R8-3).
 #
 # Round 8's finding was not that the code was wrong. It was that the PROOFS did not reach the code
@@ -84,6 +98,12 @@ module GovernedWriteSentinel
   # PROOF 175's call-site analysis rather than on this census.
   module Instrumentation
     def exec_params(sql, *, &)
+      # THE OTHER INSTRUMENT'S PLAN QUERY IS NOT A PRODUCER. `ProtectedEffectDoor` asks PostgreSQL to
+      # plan the statement, and the text it sends CONTAINS the statement — so without this guard an
+      # `EXPLAIN (GENERIC_PLAN) INSERT INTO crawl_host_gates ...` matches this census's pattern and
+      # is recorded as a governed write issued from inside the harness.
+      return super if ProtectedEffectDoor.classifying?
+
       result = super
       GovernedWriteSentinel.observe(sql, nil)
       result

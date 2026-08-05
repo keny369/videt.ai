@@ -554,7 +554,8 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
                        [g[:organization_id], SecureRandom.uuid_v7])
         IdentityAccess::Infrastructure::CrawlStore.new(pg).insert_crawl(
           id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
-          organization_id: g[:organization_id], authorization_epoch: current,
+          organization_id: g[:organization_id],
+          authority: AuthorityFixture.for_session(g[:session_id], capability: "crawl.trigger", epoch: current),
           project_id: g[:project_id], kind: "root", requested_crawl_policy_id: nil,
           requested_crawl_policy_version: nil, requested_entitlement_policy_id: SecureRandom.uuid_v7,
           requested_entitlement_policy_version: "entitlement-interim-v1", trigger_kind: "manual",
@@ -563,6 +564,8 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
       end
 
       expect(outcome[:authorized]).to be(false)
+      expect(outcome[:epoch_authorized]).to be(false), "the epoch limb is what refused a stale epoch"
+      expect(outcome[:capability_authorized]).to be(true), "the capability limb held; only the epoch moved"
       expect(outcome[:inserted]).to eq(0)
       expect(crawls_for(g)).to be_empty
     end

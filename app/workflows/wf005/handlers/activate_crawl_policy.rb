@@ -101,7 +101,9 @@ module Workflows
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
           attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                               .authority_attestation(auth_store: d[:auth_store], actor:)
+                                               .authority_attestation(auth_store: d[:auth_store], actor:,
+                                                                      decision: d[:decision], capability: CAPABILITY,
+                                                                      required_role: SCOPE_ROLE[command.scope])
           if attestation.nil?
             return deny(**denial_args(d), resource_id: scope_resource(command),
                         outward: "crawl_policy_unauthorized", internal: "crawl_policy_unauthorized")
@@ -115,7 +117,11 @@ module Workflows
         def commit(d, current, key_digest, attestation:)
           # THE WRITE IS WHAT REFUSES (round 9, R9-3). No Boolean arrangement of the guard above can
           # reach this line with proof of a post-wait recheck it did not perform.
-          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], actor: d[:actor])
+          authority = IdentityAccess::Authorization::WriteAuthority.for(
+            actor: d[:actor], decision: d[:decision], capability: CAPABILITY,
+            required_role: SCOPE_ROLE[d[:command].scope]
+          )
+          Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)
           command = d[:command]
           ctx = d[:ctx]
           store = d[:store]
@@ -148,7 +154,7 @@ module Workflows
           # would not make an unauthorised activation possible.
           applied = store.activate_version(
             id: ids[:policy], now:, correlation_id: ctx.correlation_id, organization_id: org,
-            authorization_epoch: actor.authorization_epoch,
+            authority:,
             project_id: command.project_id, scope: command.scope, policy_version:,
             supersedes_id: current && current["id"],
             expected_state_version: current && current["state_version"].to_i,
@@ -204,13 +210,17 @@ module Workflows
         # Org scope requires an OrganizationAdmin grant; Project scope requires a MarketingOperator
         # grant (WORKFLOW_SPECIFICATIONS.md :173 / MTX-030 permission_checks — each role narrows
         # exactly its scope).
+        # ONE TRANSCRIPTION OF `:732`/`:738`, READ BY BOTH THE RUBY GUARD AND THE WRITE (FU-48).
+        # "OrganizationAdmin holding `policy.crawl.manage` may activate a more restrictive immutable
+        # Organization version; MarketingOperator with that permission may do so only for a Project."
+        # A second copy would be a rule stated twice, which is how it drifts.
+        SCOPE_ROLE = { "organization" => "OrganizationAdmin", "project" => "MarketingOperator" }.freeze
+
         def authorized_for_scope?(scope, decision)
-          roles = decision.granting.map { |a| a["canonical_role"] }
-          case scope
-          when "organization" then roles.include?("OrganizationAdmin")
-          when "project"      then roles.include?("MarketingOperator")
-          else false
-          end
+          required = SCOPE_ROLE[scope]
+          return false if required.nil?
+
+          decision.granting.any? { |a| a["canonical_role"] == required }
         end
 
         def valid_scope_shape?(command)

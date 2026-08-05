@@ -55,20 +55,37 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       # frame: writes were attributed to the wrong command and a real violation could be ERASED by a
       # concurrent well-behaved command. Two threads open frames simultaneously and each must see
       # only its own.
-      barrier = Queue.new
+      # THE ORDER IS ESTABLISHED, NOT SLEPT FOR. The first version incremented and THEN synchronised,
+      # so whether the mutation showed depended on the scheduler: if each thread opened its frame
+      # AFTER the other had incremented, a shared frame was reset back to zero between them and both
+      # threads still read 1. Measured: the `f4-accounting-global` mutation was killed on one
+      # regeneration and SURVIVED the next, from the same bytes. A proof whose verdict is a coin toss
+      # is not a proof, and this tranche has spent nine rounds on instruments that reported the
+      # scheduler's choice.
+      #
+      # Both frames are now open BEFORE either increments, which is the only interleaving that can
+      # distinguish per-thread accounting from shared accounting — and it is now the only one that
+      # runs.
+      opened = Queue.new
+      release = Queue.new
       results = {}
       threads = %i[a b].map do |name|
         Thread.new do
           described_class.around_command(Struct.new(:name).new("T#{name}")) do
-            described_class.frame[:writes] += 1
-            barrier << name
-            sleep 0.05 # hold the frame open while the other thread opens its own
-            results[name] = described_class.frame[:writes]
+            opened << name
+            release.pop(timeout: 10) || raise("thread #{name} was never released")
+            described_class.frame[:governed] += 1
+            results[name] = described_class.frame[:governed]
             nil
           end
         end
       end
-      2.times { barrier.pop }
+      # BOUNDED, BECAUSE AN UNBOUNDED `pop` TURNS A THREAD THAT DIED INTO A SUITE-WIDE HANG. It did:
+      # renaming the frame counter made both threads raise before reaching the barrier, and this
+      # example blocked forever with no output rather than failing. An instrument's own proof must
+      # fail loudly for the same reason the instrument must.
+      2.times { opened.pop(timeout: 10) || raise("a sentinel thread never opened its frame") }
+      2.times { release << :go }
       threads.each { |t| t.join(5) || raise("a sentinel thread did not finish within 5s") }
 
       expect(results.values).to eq([1, 1]),
@@ -79,9 +96,9 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       outer = Struct.new(:name).new("Outer")
       inner = Struct.new(:name).new("Inner")
       described_class.around_command(outer) do
-        described_class.frame[:writes] += 3
-        described_class.around_command(inner) { described_class.frame[:writes] += 1 }
-        expect(described_class.frame[:writes]).to eq(3), "the inner frame leaked into the outer"
+        described_class.frame[:governed] += 3
+        described_class.around_command(inner) { described_class.frame[:governed] += 1 }
+        expect(described_class.frame[:governed]).to eq(3), "the inner frame leaked into the outer"
         nil
       end
     end
@@ -125,36 +142,23 @@ RSpec.describe AuthoritySentinel, type: :architecture do
     end
   end
 
-  describe "the write door" do
-    it "PROOF 232 — recognises the verbatim SQL of every protected write in the tranche" do
-      # DRIVEN AGAINST PRODUCTION SOURCE, not against a sample someone wrote here. Both previous
-      # forms of this pattern passed every hand-written case and missed the real statements: the
-      # anchored one missed CTE-shaped writes, and its replacement missed every UPDATE whose table
-      # name was longer than one character.
-      sources = {
-        "D3 cancellation" => "app/contexts/identity_access/infrastructure/crawl_start_store.rb",
-        "D6 queue insert" => "app/contexts/identity_access/infrastructure/crawl_store.rb",
-        "D6 policy activation" => "app/contexts/identity_access/infrastructure/crawl_policy_store.rb"
-      }
-      statements = sources.transform_values do |rel|
-        File.read(Rails.root.join(rel)).scan(/<<~SQL(.*?)^\s*SQL$/m).flatten
-            .select { |sql| sql.match?(/INSERT\s+INTO\s+\w|UPDATE\s+\w|DELETE\s+FROM\s+\w/i) }
-      end
+  describe "the door" do
+    # PROOF 232 IS REPLACED BY `spec/architecture/protected_effect_door_spec.rb` (D7).
+    #
+    # WHAT IT WAS AND WHY IT COULD NOT SURVIVE. It read the three stores' heredocs and asserted the
+    # verb regex matched each one. That is the RIGHT direction and it was still not enough: the
+    # pattern it certified — `\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b` — matches `SELECT ... FOR
+    # UPDATE`, so `lock_crawl`'s ROW LOCK counted as a write and an idempotent replay, which executes
+    # no data-modifying statement at all, satisfied the sentinel's antecedent. PROOF 232 passed
+    # throughout, because it only ever asked whether the real writes MATCHED and never what else did.
+    #
+    # There is no pattern here to certify now. The door asks PostgreSQL to plan the statement and
+    # reads the `ModifyTable` nodes out of the answer, so both directions are proved against the
+    # planner rather than against a corpus someone remembered to write.
 
-      statements.each do |label, sqls|
-        expect(sqls).not_to be_empty, "found no write statement in the #{label} store"
-        sqls.each do |sql|
-          expect(sql).to match(described_class::WRITE_VERB),
-                         "the write door does not recognise the #{label} statement:\n#{sql[0, 220]}"
-        end
-      end
-    end
-
-    it "PROOF 232b — does NOT count a read that merely mentions an updated column" do
-      # Non-vacuity from the other side: a pattern that matched everything would satisfy 232 while
-      # counting every SELECT as a write.
-      expect("SELECT updated_at FROM crawls WHERE id = $1").not_to match(described_class::WRITE_VERB)
-      expect("SELECT count(*) FROM crawl_policies").not_to match(described_class::WRITE_VERB)
+    it "no longer carries a verb pattern for anything to be certified against" do
+      expect(described_class.const_defined?(:WRITE_VERB)).to be(false),
+             "a text pattern is back in the door; the D7 record explains why every form of it was wrong"
     end
   end
 
@@ -166,14 +170,27 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       # DRIVEN DIRECTLY, so this does not depend on what other files ran first. An earlier version
       # asserted the live counters and was order-dependent — which is itself one of the defects this
       # family exists to remove.
-      expect { described_class.assert_observed!(commands: 0, writes: 5, human: 5, undriven: []) }
+      ok = { commands: 5, statements: 9, governed: 5, human: 5, undriven: [], unreached: [],
+             unplannable: {} }
+      expect { described_class.assert_observed!(**ok, commands: 0) }
         .to raise_error(/observed ZERO WF-005 command executions/)
-      expect { described_class.assert_observed!(commands: 5, writes: 0, human: 5, undriven: []) }
-        .to raise_error(/observed ZERO writes/)
+      expect { described_class.assert_observed!(**ok, statements: 0) }
+        .to raise_error(/observed ZERO statements/)
       # AND THE ONE THAT WAS MISSING: commands and writes observed, but the antecedent never satisfied.
-      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 0, undriven: []) }
+      expect { described_class.assert_observed!(**ok, human: 0) }
         .to raise_error(/judged ZERO commands human-authorized/)
-      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5, undriven: []) }.not_to raise_error
+      # D7's OWN NON-VACUITY. Narrowing the antecedent from "wrote" to "committed a protected side
+      # effect" is only a sharpening if the narrower antecedent is still reached. Zero governed
+      # writes across the suite means the narrowing switched the invariant off.
+      expect { described_class.assert_observed!(**ok, governed: 0) }
+        .to raise_error(/observed ZERO protected side effects/)
+      expect { described_class.assert_observed!(**ok, unreached: ["Workflows::Wf005::Handlers::Quiet"]) }
+        .to raise_error(/never observed committing a protected side effect/)
+      # A STATEMENT THE DOOR COULD NOT PLAN IS NOT A READ. If the instrument has no answer for a
+      # statement that then executed, "no protected side effect" is a guess and the run must say so.
+      expect { described_class.assert_observed!(**ok, unplannable: { "INSERT INTO ..." => 1 }) }
+        .to raise_error(/could not\s+plan/)
+      expect { described_class.assert_observed!(**ok) }.not_to raise_error
     end
 
     it "REFUSES to report success while any discovered handler was never executed" do
@@ -184,11 +201,11 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       # are derived: the handlers from the directory, the executions from the run.
       expect(described_class.observed_handlers).not_to be_empty
 
-      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5,
-                                                undriven: ["Workflows::Wf005::Handlers::Unproved"]) }
+      ok = { commands: 5, statements: 9, governed: 5, human: 5, undriven: [], unreached: [],
+             unplannable: {} }
+      expect { described_class.assert_observed!(**ok, undriven: ["Workflows::Wf005::Handlers::Unproved"]) }
         .to raise_error(/never executed by any example/)
-      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5, undriven: []) }
-        .not_to raise_error
+      expect { described_class.assert_observed!(**ok) }.not_to raise_error
     end
   end
 end

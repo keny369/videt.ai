@@ -63,21 +63,52 @@ module IdentityAccess
       # belongs in the statement that depends on it. There is then no handler-level check to hoist and
       # no list of which handlers must remember to perform one.
       #
-      # THE THREE OUTCOMES ARE REPORTED SEPARATELY because the contract distinguishes them: authority
-      # that moved is a DOMAIN DENIAL, a prior version that would not supersede is a LOST SERIALIZED
-      # TRANSITION the handler raises on, and a successful pair is the transition.
+      # THE LOCK STRENGTH IS `FOR SHARE`, NOT `FOR KEY SHARE` (D7). An epoch advance changes no key,
+      # so it takes `FOR NO KEY UPDATE`, which does not conflict with `FOR KEY SHARE` — measured on
+      # this branch, a revocation committed straight through a `FOR KEY SHARE` reader. `FOR SHARE`
+      # conflicts with it and not with a second authorized reader.
+      #
+      # THE CAPABILITY AXIS IS A CONJUNCT TOO (FU-48): the granting Role Assignments the decision
+      # relied on are re-read in this statement, active, effective, unexpired, at the version and
+      # scope the decision saw.
+      #
+      # THE OUTCOMES ARE REPORTED SEPARATELY because the contract distinguishes them: authority that
+      # moved or a capability that is gone are DOMAIN DENIALS, a prior version that would not
+      # supersede is a LOST SERIALIZED TRANSITION the handler raises on, and a successful pair is the
+      # transition.
       def activate_version(row)
+        authority = row.fetch(:authority)
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:scope], row[:policy_version], row[:supersedes_id], row[:activated_by_account_id],
           JSON.generate(row[:normalized_bounds]), bytea(row[:content_sha256]),
-          row[:expected_state_version], row.fetch(:authorization_epoch)
+          row[:expected_state_version], authority.epoch, authority.uuid_array,
+          authority.bigint_array, authority.text_array, authority.account_id,
+          authority.required_role
         ]
         result = exec(<<~SQL, params).to_a.first
-          WITH authority AS (
+          WITH epoch_authority AS (
             SELECT 1 FROM organizations
             WHERE id = $4::uuid AND authorization_epoch = $13::bigint
-            FOR KEY SHARE
+            FOR SHARE
+          ), capability_authority AS (
+            SELECT 1 FROM role_assignments ra
+            JOIN unnest($14::uuid[], $15::bigint[], $16::text[]) AS g(id, state_version, scope_hex)
+              ON g.id = ra.id AND g.state_version = ra.state_version
+             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')
+            WHERE ra.organization_id = $4::uuid AND ra.account_id = $17::uuid
+              AND ra.status = 'active'
+              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz
+              AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)
+              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48). `:732`/`:738`
+              -- bind Organization scope to OrganizationAdmin and Project scope to MarketingOperator.
+              -- Removing the Ruby operand that said so let a MarketingOperator commit an
+              -- ORGANIZATION-scope policy through 2364 green examples; the statement now refuses it.
+              AND ($18::text IS NULL OR ra.canonical_role = $18::text)
+            FOR SHARE OF ra
+          ), authority AS (
+            SELECT 1 WHERE EXISTS (SELECT 1 FROM epoch_authority)
+                       AND EXISTS (SELECT 1 FROM capability_authority)
           ), superseded AS (
             UPDATE crawl_policies
             SET state = 'superseded', superseded_at = $2::timestamptz,
@@ -110,11 +141,14 @@ module IdentityAccess
               AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))
             RETURNING 1
           )
-          SELECT (SELECT count(*) FROM authority) AS authorized,
+          SELECT (SELECT count(*) FROM epoch_authority) AS epoch_authorized,
+                 (SELECT count(*) FROM capability_authority) AS capability_authorized,
                  (SELECT count(*) FROM superseded) AS superseded,
                  (SELECT count(*) FROM inserted) AS inserted
         SQL
-        { authorized: result["authorized"].to_i.positive?,
+        epoch = result["epoch_authorized"].to_i.positive?
+        capability = result["capability_authorized"].to_i.positive?
+        { authorized: epoch && capability, epoch_authorized: epoch, capability_authorized: capability,
           superseded: result["superseded"].to_i, inserted: result["inserted"].to_i }
       end
 

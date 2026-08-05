@@ -82,44 +82,79 @@ module IdentityAccess
       # authority and the insertion together, IN THE SAME STATEMENT as the write, with the authority read
       # taking `FOR KEY SHARE` on the organization row.
       #
-      # THE LOCK CLAUSE IS LOAD-BEARING. Without it the predicate comes from the snapshot the
-      # statement opened with, so a statement that BLOCKS INSIDE ITSELF — this one waits on the
-      # projects foreign-key check — would not see a revocation committing during that block, and the
-      # safety of the mechanism would rest on an unwritten enumeration of who else might hold a
-      # conflicting lock. `FOR KEY SHARE` makes an epoch advance conflict with this read, so it must
-      # either land before the statement (predicate fails) or after it (the write was authorised when
-      # it happened).
+      # THE LOCK CLAUSE IS LOAD-BEARING, AND ITS STRENGTH IS `FOR SHARE` (D7). Without a lock the
+      # predicate comes from the snapshot the statement opened with, so a statement that BLOCKS
+      # INSIDE ITSELF — this one waits on the projects foreign-key check — would not see a revocation
+      # committing during that block, and the safety of the mechanism would rest on an unwritten
+      # enumeration of who else might hold a conflicting lock.
       #
-      # A ZERO ROW COUNT HERE MEANS EXACTLY ONE THING. Unlike the cancellation UPDATE, this statement
-      # carries no state or version predicate — a queued Crawl is new — so the only way it can insert
-      # nothing is that authority moved. The caller therefore needs no disambiguation, and none is
-      # invented.
+      # `FOR KEY SHARE` DID NOT DELIVER THAT AND WAS MEASURED NOT TO. `authorization_epoch` is in no
+      # key, so an epoch advance is a NON-KEY update taking `FOR NO KEY UPDATE`, which does not
+      # conflict with `FOR KEY SHARE`: with a reader holding it, the advance committed straight
+      # through. `FOR SHARE` conflicts with the advance and not with another `FOR SHARE`, so two
+      # authorized commands still proceed together while a revocation must land before this read or
+      # wait until after this transaction.
+      #
+      # THE CAPABILITY AXIS IS A CONJUNCT TOO (FU-48). This comment used to record the opposite, and
+      # correctly: the epoch conjunct "does not detect the ABSENCE of a capability: `decision.allowed?`
+      # is the only thing that refuses an actor who never held `crawl.trigger`, and deleting it lets
+      # such an actor queue a Crawl that this write will happily insert." The write now re-reads the
+      # granting Role Assignments the decision relied on, so deleting the Ruby check no longer
+      # produces an unauthorised Crawl.
+      #
+      # THE ZERO-ROW CASES ARE REPORTED SEPARATELY. This statement carries no state or version
+      # predicate — a queued Crawl is new — so an insert that applied nothing means one of the two
+      # authority limbs failed, and the caller is told which.
       def insert_crawl(row)
+        authority = row.fetch(:authority)
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:kind], row[:requested_crawl_policy_id], row[:requested_crawl_policy_version],
           row[:requested_entitlement_policy_id], row[:requested_entitlement_policy_version],
           row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
-          row.fetch(:authorization_epoch)
+          authority.epoch, authority.uuid_array, authority.bigint_array, authority.text_array,
+          authority.account_id, authority.required_role
         ]
-        inserted = exec(<<~SQL, params).cmd_tuples
-          INSERT INTO crawls
-            (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
-             parent_evaluation_id, parent_crawl_id, requested_crawl_policy_id, requested_crawl_policy_version,
-             requested_entitlement_policy_id, requested_entitlement_policy_version, entitlement_decision_id,
-             entitlement_reservation_id, trigger_kind, triggered_by_account_id, queued_at, started_at,
-             terminal_at, deadline_at, state, coverage_status, completion_reason, limit_counters,
-             retry_generation, recovery_generation, recovery_of_id, idempotency_key_digest)
-          SELECT $1::uuid,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6,
-                 NULL,NULL,$7::uuid,$8,$9::uuid,$10,NULL,NULL,$11,$12::uuid,$2::timestamptz,NULL,
-                 NULL,NULL,'queued',NULL,NULL,'{}'::jsonb,0,0,NULL,$13
-          WHERE EXISTS (
+        result = exec(<<~SQL, params).to_a.first
+          WITH epoch_authority AS (
             SELECT 1 FROM organizations
             WHERE id = $4::uuid AND authorization_epoch = $14::bigint
-            FOR KEY SHARE
+            FOR SHARE
+          ), capability_authority AS (
+            SELECT 1 FROM role_assignments ra
+            JOIN unnest($15::uuid[], $16::bigint[], $17::text[]) AS g(id, state_version, scope_hex)
+              ON g.id = ra.id AND g.state_version = ra.state_version
+             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')
+            WHERE ra.organization_id = $4::uuid AND ra.account_id = $18::uuid
+              AND ra.status = 'active'
+              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz
+              AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)
+              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).
+              AND ($19::text IS NULL OR ra.canonical_role = $19::text)
+            FOR SHARE OF ra
+          ), inserted AS (
+            INSERT INTO crawls
+              (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+               parent_evaluation_id, parent_crawl_id, requested_crawl_policy_id, requested_crawl_policy_version,
+               requested_entitlement_policy_id, requested_entitlement_policy_version, entitlement_decision_id,
+               entitlement_reservation_id, trigger_kind, triggered_by_account_id, queued_at, started_at,
+               terminal_at, deadline_at, state, coverage_status, completion_reason, limit_counters,
+               retry_generation, recovery_generation, recovery_of_id, idempotency_key_digest)
+            SELECT $1::uuid,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6,
+                   NULL,NULL,$7::uuid,$8,$9::uuid,$10,NULL,NULL,$11,$12::uuid,$2::timestamptz,NULL,
+                   NULL,NULL,'queued',NULL,NULL,'{}'::jsonb,0,0,NULL,$13
+            WHERE EXISTS (SELECT 1 FROM epoch_authority)
+              AND EXISTS (SELECT 1 FROM capability_authority)
+            RETURNING 1
           )
+          SELECT (SELECT count(*) FROM epoch_authority) AS epoch_authorized,
+                 (SELECT count(*) FROM capability_authority) AS capability_authorized,
+                 (SELECT count(*) FROM inserted) AS inserted
         SQL
-        { authorized: inserted.positive?, inserted: }
+        epoch = result["epoch_authorized"].to_i.positive?
+        capability = result["capability_authorized"].to_i.positive?
+        { authorized: epoch && capability, epoch_authorized: epoch, capability_authorized: capability,
+          inserted: result["inserted"].to_i }
       end
 
       def insert_crawl_source(row)

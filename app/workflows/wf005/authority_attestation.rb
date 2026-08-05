@@ -3,7 +3,7 @@
 module Workflows
   module Wf005
     # PROOF THAT CURRENT AUTHORITY WAS RE-READ IN THIS TRANSACTION, WHICH THE PROTECTED WRITE DEMANDS
-    # (round 9, R9-3).
+    # (round 9, R9-3; extended to the capability axis by FU-48 in D7).
     #
     # WHY THIS EXISTS RATHER THAN A LONGER TEST MATRIX. Round 7 added the post-wait recheck. Round 8
     # found the proofs were branch-depth-one and named two bypasses; round 9's repair drove both of
@@ -21,7 +21,10 @@ module Workflows
     # WHAT IT IS BOUND TO, AND WHY EACH PART. An attestation is only good for the connection it was
     # read on and the transaction that read it (`txid_current()`), so one cannot be carried from an
     # earlier transaction, from another command, or from a different backend in the same process. It
-    # names the actor and the epoch it saw, so it cannot be reused for a different actor.
+    # names the actor and the epoch it saw, so it cannot be reused for a different actor. Since FU-48
+    # it also names the CAPABILITY and the GRANTS the decision relied on, so it cannot be reused for
+    # a different capability or handed to a write carrying different authority — the write's
+    # parameters and the attestation must be the same `WriteAuthority`.
     #
     # IT IS NOT A SECOND RECHECK. `CommandAuthorizer.authority_current?` remains the ratified durable
     # checkpoint and the only implementation; this carries its RESULT to the write that depends on it.
@@ -31,45 +34,59 @@ module Workflows
       # one is a defect in the handler, not a decision about the caller.
       class Missing < Platform::InvariantViolation; end
 
-      attr_reader :actor_account_id, :epoch, :transaction_id
+      attr_reader :authority, :transaction_id
 
-      def initialize(actor_account_id:, epoch:, transaction_id:, connection_id:)
-        @actor_account_id = actor_account_id
-        @epoch = epoch
+      def initialize(authority:, transaction_id:, connection_id:)
+        @authority = authority
         @transaction_id = transaction_id
         @connection_id = connection_id
         freeze
       end
 
+      def actor_account_id = @authority.account_id
+      def epoch = @authority.epoch
+      def capability = @authority.capability
+
       # THE ONLY MINT. Re-reads current authority through the ratified checkpoint and returns an
       # attestation when it holds, or nil when it does not — so a handler branches on the nil exactly
       # as it branched on the old boolean, and the commit is what enforces the rest.
-      def self.attest(connection, auth_store:, actor:)
+      #
+      # IT ALSO REFUSES TO MINT WITHOUT A POSITIVE CAPABILITY DECISION (FU-48). An actor who never
+      # held the capability has no granting Assignment, and an attestation naming no grant would
+      # carry an empty array to a write whose predicate then cannot be satisfied. Refusing here means
+      # the handler denies at the same place it always did rather than reaching a write that would
+      # refuse it anyway.
+      def self.attest(connection, auth_store:, actor:, decision:, capability:, required_role: nil)
+        return nil unless decision.allowed?
         return nil unless IdentityAccess::Authorization::CommandAuthorizer.authority_current?(
           store: auth_store, actor:
         )
 
-        new(actor_account_id: actor.account_id, epoch: actor.authorization_epoch,
-            transaction_id: transaction_id_of(connection), connection_id: connection.object_id)
+        authority = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:,
+                                                                      required_role:)
+        return nil unless authority.grants?
+
+        new(authority:, transaction_id: transaction_id_of(connection), connection_id: connection.object_id)
       end
 
       # THE FIRST STATEMENT OF EVERY PROTECTED COMMIT. Raises unless the attestation was minted by a
-      # passing recheck, for this actor, on this connection, inside this transaction.
-      def self.require!(attestation, connection:, actor:)
+      # passing recheck, for this actor, on this connection, inside this transaction, and for exactly
+      # the authority the write is about to carry.
+      def self.require!(attestation, connection:, authority:)
         raise Missing, "protected write attempted with no post-wait authority attestation" if attestation.nil?
         unless attestation.is_a?(self)
           raise Missing, "protected write attempted with #{attestation.class} in place of an attestation"
         end
 
-        attestation.verify!(connection:, actor:)
+        attestation.verify!(connection:, authority:)
       end
 
-      def verify!(connection:, actor:)
+      def verify!(connection:, authority:)
         unless @connection_id == connection.object_id
           raise Missing, "authority attestation was read on a different connection"
         end
-        unless @actor_account_id == actor.account_id && @epoch == actor.authorization_epoch
-          raise Missing, "authority attestation names a different actor or epoch"
+        unless @authority.same_principal?(authority)
+          raise Missing, "authority attestation names a different actor, epoch, capability or grant set"
         end
 
         current = self.class.transaction_id_of(connection)

@@ -272,34 +272,67 @@ module IdentityAccess
       # from the snapshot the statement opened with, so a statement that BLOCKS INSIDE ITSELF would
       # not see a revocation committing during that block — and the safety of the whole mechanism
       # would rest on an unwritten enumeration of which other transactions might hold a conflicting
-      # lock. That is the shape this tranche exists to remove. `FOR KEY SHARE` makes the read
-      # lock-based: an epoch advance must take a conflicting lock on the same row, so it either
-      # commits before this statement reads (and the predicate fails) or waits until after it (and
-      # the transition was authorised when it happened). The claim is then unconditional.
-      # No transaction-header interpretation is involved, and no `xmax` or multixact decoding — the
-      # invariant reads a column that means what it says.
+      # lock. That is the shape this tranche exists to remove.
       #
-      # THE TWO ZERO-ROW CASES ARE DISTINGUISHED, because they are opposite kinds of event. Authority
-      # that moved is a DOMAIN DENIAL the caller must report; a lost serialized transition is
-      # CORRUPTION. Both are computed in the same statement so neither can be inferred from the other.
-      def cancel(id, expected_version, now, authorization_epoch:, organization_id:)
-        row = exec(<<~SQL, [id, expected_version, iso(now), authorization_epoch, organization_id]).first
-          WITH authority AS (
+      # THE LOCK STRENGTH IS `FOR SHARE`, AND `FOR KEY SHARE` WAS THE WRONG ONE (D7). The round-two
+      # repair wrote `FOR KEY SHARE` and claimed "an epoch advance must take a conflicting lock on
+      # the same row". IT DOES NOT. `authorization_epoch` is in no key, so the advance is a NON-KEY
+      # update and takes `FOR NO KEY UPDATE`, which DOES NOT CONFLICT with `FOR KEY SHARE`. Measured
+      # on this branch: with a reader holding `FOR KEY SHARE`, a concurrent epoch advance committed
+      # straight through; with `FOR SHARE`, it blocked. The repair had restated the very premise it
+      # was written to remove. `FOR SHARE` conflicts with the advance and NOT with another `FOR
+      # SHARE`, so concurrent authorized commands still run side by side while a revocation must
+      # either land before this read (the predicate then fails on the updated row) or wait until
+      # after this transaction ends (the transition was authorised when it happened).
+      #
+      # THE CAPABILITY AXIS IS A CONJUNCT TOO (FU-48). The epoch detects a CHANGE in authority; it
+      # does not detect the ABSENCE of one, and until D7 nothing below the handler did. The write now
+      # re-reads the granting Role Assignments the decision relied on — active, effective, unexpired,
+      # at the version and scope it saw — under the same `FOR SHARE`. An actor who never held
+      # `crawl.cancel` carries no grant, so the array is empty and the predicate is false.
+      #
+      # THE ZERO-ROW CASES ARE DISTINGUISHED, because they are different kinds of event. Authority
+      # that moved and a capability that is gone are DOMAIN DENIALS the caller must report; a lost
+      # serialized transition is CORRUPTION. All three are computed in the same statement so none can
+      # be inferred from another.
+      def cancel(id, expected_version, now, authority:)
+        params = [id, expected_version, iso(now), authority.epoch, authority.organization_id,
+                  authority.uuid_array, authority.bigint_array, authority.text_array,
+                  authority.account_id, authority.required_role]
+        row = exec(<<~SQL, params).first
+          WITH epoch_authority AS (
             SELECT 1 FROM organizations
             WHERE id = $5::uuid AND authorization_epoch = $4::bigint
-            FOR KEY SHARE
+            FOR SHARE
+          ), capability_authority AS (
+            SELECT 1 FROM role_assignments ra
+            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)
+              ON g.id = ra.id AND g.state_version = ra.state_version
+             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')
+            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid
+              AND ra.status = 'active'
+              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz
+              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)
+              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).
+              AND ($10::text IS NULL OR ra.canonical_role = $10::text)
+            FOR SHARE OF ra
           ), moved AS (
             UPDATE crawls
             SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
                 state_version = state_version + 1, updated_at = $3::timestamptz
             WHERE id = $1::uuid AND state = ANY (ARRAY['queued','running']) AND state_version = $2
-              AND EXISTS (SELECT 1 FROM authority)
+              AND EXISTS (SELECT 1 FROM epoch_authority)
+              AND EXISTS (SELECT 1 FROM capability_authority)
             RETURNING 1
           )
-          SELECT (SELECT count(*) FROM authority) AS authorized,
+          SELECT (SELECT count(*) FROM epoch_authority) AS epoch_authorized,
+                 (SELECT count(*) FROM capability_authority) AS capability_authorized,
                  (SELECT count(*) FROM moved) AS moved
         SQL
-        { authorized: row["authorized"].to_i.positive?, moved: row["moved"].to_i }
+        epoch = row["epoch_authorized"].to_i.positive?
+        capability = row["capability_authorized"].to_i.positive?
+        { authorized: epoch && capability, epoch_authorized: epoch, capability_authorized: capability,
+          moved: row["moved"].to_i }
       end
 
       # ":442 — record … AFFECTED SOURCE AND URL COUNTS" for the wall-clock crossing, and — since

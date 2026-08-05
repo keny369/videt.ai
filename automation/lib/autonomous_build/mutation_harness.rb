@@ -382,8 +382,16 @@ module AutonomousBuild
         # A NON-ZERO EXIT IS NOT A KILL. A mutation that makes the file unparseable, or aborts the run
         # before any example executes, exits non-zero having proved NOTHING — recording that as
         # `killed` is how a proof system credits itself for a defect it never detected.
+        #
+        # AND AN `after(:suite)` ERROR IS NOT "NO EXAMPLE RAN" (D7). The round-two repair established
+        # exactly this and applied it to `replay_trigger` ALONE, leaving the file path — which carries
+        # 79 of the 89 definitions — still treating an outside error as `broken`. Measured here: both
+        # `d7-door-regex-restored` (13 examples, 7 failures) and `d7-antecedent-dropped` (13 examples,
+        # 1 failure) trip `AuthoritySentinel`'s suite-wide rule as well as failing their proof, which
+        # is the STRONGEST possible kill, and both were recorded as proving nothing. A repair applied
+        # to one of two paths is the enumeration defect one level up.
         verdict =
-          if summary.nil? || examples.to_i.zero? || output.include?("error occurred outside of examples")
+          if summary.nil? || examples.to_i.zero?
             "broken"
           elsif failures.to_i.positive? then "killed"
           elsif status.success? && !output.include?("error occurred outside of examples") then "survived"

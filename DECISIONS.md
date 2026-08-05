@@ -3912,3 +3912,77 @@ Authority And Precedence:
 Repository-level stability repair, recorded separately from S-07-009 because it is not an S-07-009
 defect. Corrects the round-11 attribution in `S-07-009_ACCEPTANCE_REVIEW.md`, which had already been
 amended to record the hypothesis as refuted. Allocated the next unused number after ADR-130.
+
+## ADR-132: D7 — The Antecedent Becomes `:335`'s Protected Side Effect, And FU-48 Is Taken
+
+Date: 2026-08-05
+Status: Accepted
+Owner authority: the D7 instruction, which records FU-48 as an explicit owner decision and places it
+in scope.
+
+Context:
+
+`b2e8cfb` recorded D7 rather than patching it, and its diagnosis was half right in a way that would
+have produced the wrong repair. It said the sentinel's rule "now fires on an idempotent replay, which
+correctly writes its execution record without re-reading authority". **A replay writes no execution
+record.** `CancelCrawl#replay` loads the stored result and returns it; it executes no data-modifying
+statement at all. What satisfied the antecedent was `CrawlStartStore#lock_crawl`, a
+`SELECT ... FOR UPDATE`, matched by `\bUPDATE\b` inside `FOR UPDATE`.
+
+So the sentinel's header was TRUE where it said a replay writes nothing. The DOOR was false, for the
+third time, and each form was greener than the last: anchored (blind to every CTE write), `UPDATE\s+\w`
+(blind to every update), and the HEAD form (blind to nothing and deaf to the difference between a
+write and a row lock). `PROOF 232` certified all three, because it only ever asked whether the real
+writes matched and never what else did.
+
+Decision:
+
+1. **The antecedent is `:335`'s own concept.** "A running privileged operation rechecks at each
+   durable checkpoint and stops before the next PROTECTED SIDE EFFECT after revocation." A governed
+   write is a data-modifying statement, in any shape, whose target relation carries product facts.
+2. **PostgreSQL answers, and nothing parses SQL.** `EXPLAIN (GENERIC_PLAN, FORMAT JSON)` on the real
+   statement; every `ModifyTable` node names a relation it modifies. `AuthoritySentinel::WRITE_VERB`
+   is deleted and there is no pattern left to certify.
+3. **The governed set is read from `pg_trigger` at run time**, and the classification is checked
+   against a property it does not use (`pg_attribute`), because the dangerous direction — a product
+   aggregate called command evidence — is silent.
+4. **The replay exemption is deleted and nothing replaces it.** Correct replay falls outside the
+   antecedent by what it does.
+5. **`FOR KEY SHARE` is replaced by `FOR SHARE` at all three authority reads.** The round-two claim
+   that `FOR KEY SHARE` conflicts with an epoch advance is FALSE — the advance is a non-key update
+   taking `FOR NO KEY UPDATE`, which does not conflict with it. Measured on the real row and the real
+   revocation statement.
+6. **FU-48 is implemented.** Each protected write carries `WriteAuthority` — the grants the decision
+   relied on, and the role the ratified scope rule demands — and PostgreSQL re-reads them under
+   `FOR SHARE` in the same statement as the transition.
+
+What was ruled out, and why:
+
+**Reusing `GovernedWriteSentinel`'s governed set**, which the blocker ledger proposed. That set is
+`f1_crawl_child_fact_closed` — owner ruling 2's CHILD-fact closure — and contains neither `crawls`
+nor `crawl_policies`. Adopting it would have made the antecedent unsatisfiable and the headline
+invariant would have gone quiet while reporting success. Both modules now carry the disambiguation.
+
+**Re-deriving the permission baseline in SQL.** The six-step algorithm reads two kinds of input: one
+immutable for the life of a deploy, one ordinary row state another transaction can move while this
+one waits. Only the second can go stale and only the second belongs in the statement. A second copy
+of the baseline in the database would be two sources of truth for one authority.
+
+**Implementing Assignment-scope CONTAINMENT.** That is FU-2, a pre-existing platform-wide deferral
+recorded for every resource capability and backlogged under ADR-066. Inventing it under a repair
+would be new authorization semantics. The axis is given a place at the write; the predicate is not.
+
+Consequences:
+
+An epoch advance for an Organization now waits behind any WF-005 human command that has reached its
+protected write, for the few statements between that write and commit. Two authorized commands for
+one Organization still proceed together, because `FOR SHARE` does not conflict with itself.
+
+This does NOT accept S-07-009. It closes D7, D8, D9 and FU-48 with production fixes and direct
+proofs. Acceptance remains an independent five-lens review's decision.
+
+Authority And Precedence:
+S-07-009 repair authority under the D7 instruction; FU-48 under the owner decision it carries.
+Supersedes the D7 candidate repair recorded in `S-07-009_BLOCKER_LEDGER.md` at `b2e8cfb`, whose
+diagnosis and proposed mechanism are both corrected here. Allocated the next unused number after
+ADR-131.

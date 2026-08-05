@@ -318,7 +318,9 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
                        [g[:organization_id], SecureRandom.uuid_v7])
         IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
           id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
-          organization_id: g[:organization_id], authorization_epoch: current, project_id: nil,
+          organization_id: g[:organization_id], project_id: nil,
+          authority: AuthorityFixture.for_session(g[:session_id], capability: "policy.crawl.manage",
+                                                  epoch: current),
           scope: "organization", policy_version: "crawl-policy-organization-v9",
           supersedes_id: nil, expected_state_version: nil,
           activated_by_account_id: nil, normalized_bounds: gceil, content_sha256: "\x00" * 32
@@ -326,6 +328,8 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
       end
 
       expect(outcome[:authorized]).to be(false)
+      expect(outcome[:epoch_authorized]).to be(false)
+      expect(outcome[:capability_authorized]).to be(true)
       expect(outcome[:inserted]).to eq(0)
       expect(outcome[:superseded]).to eq(0)
       expect(policies(g[:organization_id])).to be_empty
@@ -348,7 +352,9 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
                                 [g[:organization_id]])["authorization_epoch"].to_i
         IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
           id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
-          organization_id: g[:organization_id], authorization_epoch: epoch, project_id: nil,
+          organization_id: g[:organization_id], project_id: nil,
+          authority: AuthorityFixture.for_session(g[:session_id], capability: "policy.crawl.manage",
+                                                  epoch:),
           scope: "organization", policy_version: "crawl-policy-organization-v2",
           supersedes_id: current["id"], expected_state_version: 9999,
           activated_by_account_id: nil, normalized_bounds: gceil, content_sha256: "\x00" * 32
@@ -384,7 +390,9 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
                                 [g[:organization_id]])["authorization_epoch"].to_i
         IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
           id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
-          organization_id: g[:organization_id], authorization_epoch: epoch,
+          organization_id: g[:organization_id],
+          authority: AuthorityFixture.for_session(g[:session_id], capability: "policy.crawl.manage",
+                                                  epoch:),
           project_id: g[:project_id], scope: "project",
           policy_version: "crawl-policy-project-v1",
           supersedes_id: org_active["id"], expected_state_version: org_active["state_version"].to_i,

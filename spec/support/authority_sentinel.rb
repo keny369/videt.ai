@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
-# NO HUMAN-AUTHORIZED WF-005 COMMAND COMMITS WITHOUT RE-READING AUTHORITY (round 9, R9-3).
+require_relative "protected_effect_door"
+
+# NO HUMAN-AUTHORIZED WF-005 COMMAND COMMITS A PROTECTED SIDE EFFECT WITHOUT RE-READING AUTHORITY
+# (round 9, R9-3; antecedent corrected in D7).
 #
 # WHY THIS EXISTS RATHER THAN A THIRD BRANCH MATRIX. Round 8 named two bypass axes and round 9's
 # repair drove both. Round 9's review then found a THIRD — `unless current || ...` — which survived
@@ -11,40 +14,41 @@
 # THE INVARIANT INSTEAD, AND WHY IT NEEDS NO AXES. Across the ENTIRE suite, whatever any example
 # happens to drive:
 #
-#     a human-authorized WF-005 command that SUCCEEDS and WRITES
+#     a human-authorized WF-005 command that SUCCEEDS and COMMITS A PROTECTED SIDE EFFECT
 #       must have evaluated CommandAuthorizer.authority_current?
 #       and must have presented an AuthorityAttestation at its protected write.
 #
 # A bypass keyed to any axis — a scope, a Source count, a supersede path, a state, one nobody has
-# thought of — produces a successful writing command that evaluated neither. It does not matter which
-# example drives it: the suite has 2000+ examples and this watches all of them at once. The axis is
-# irrelevant, which is the property two rounds of matrices could not buy.
+# thought of — produces a successful command that made a governed write and evaluated neither. It
+# does not matter which example drives it: the suite has 2000+ examples and this watches all of them
+# at once. The axis is irrelevant, which is the property two rounds of matrices could not buy.
 #
-# A REPLAY IS CORRECTLY EXEMPT and is not special-cased: it returns the stored payload and WRITES
-# NOTHING, so it never satisfies the antecedent. A denial is exempt because it is not a success.
+# THE ANTECEDENT SAYS "PROTECTED SIDE EFFECT", NOT "WROTE" (D7). It used to say "WRITES", with a verb
+# regex behind it, and the record explained that a replay needed no special case because it "WRITES
+# NOTHING". Both halves were wrong in a way that only showed once the regex was corrected: the regex
+# counted `SELECT ... FOR UPDATE` as a write, so an idempotent `CancelCrawl` replay — which executes
+# no data-modifying statement at all — satisfied the antecedent through `lock_crawl`'s ROW LOCK.
+#
+# `:335` is where the right word already was: "a running privileged operation rechecks at each
+# durable checkpoint and STOPS BEFORE THE NEXT PROTECTED SIDE EFFECT after revocation". The
+# antecedent is now that, observed by `ProtectedEffectDoor` — PostgreSQL's own plan for the real
+# statement, and the catalogue's own record of which relations carry product facts.
+#
+# THERE IS NO REPLAY EXEMPTION, AND THERE IS NO NEED FOR ONE. A replay returns the stored result and
+# executes no statement whose plan modifies a guarded relation, so it falls outside the antecedent by
+# what it does rather than by being named. A denial is outside it because it is not a success. Both
+# are proved, not asserted: `spec/architecture/protected_effect_door_spec.rb`.
 #
 # THE HANDLER SET IS DERIVED FROM THE SOURCE, not listed here: a WF-005 handler is human-authorized
 # when it authenticates a Session. A handler added later joins this rule by being what it is.
 module AuthoritySentinel
   HANDLER_DIR = "app/workflows/wf005/handlers"
 
-  # A STATEMENT THAT WRITES, RECOGNISED WHEREVER THE VERB SITS.
-  #
-  # TWO DEFECTS, ONE AFTER THE OTHER, BOTH WORTH RECORDING. The first form was anchored to the start
-  # of the statement, so every CTE-shaped write was invisible — including the D3 cancellation
-  # (`WITH authority AS (...) UPDATE crawls ...`) and the D6 activation, the two writes this
-  # tranche's headline invariant is about. The replacement un-anchored it but wrote `UPDATE\s+\w`
-  # followed by `\b`: `\w` matches exactly ONE character, and the boundary then has to fall inside
-  # the table name, so it matched `UPDATE c` and nothing else. The door went from missing CTE writes
-  # to missing EVERY update, and the suite got greener as it got blinder — again.
-  #
-  # `PROOF 232` now drives this pattern against the verbatim SQL of all three protected writes read
-  # out of the production files, so a regex that stops matching them fails rather than quietening.
-  WRITE_VERB = /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b/i
-
-  Violation = Struct.new(:handler, :evaluated_recheck, :attested, :writes, keyword_init: true) do
+  Violation = Struct.new(:handler, :evaluated_recheck, :attested, :writes, :relations,
+                         keyword_init: true) do
     def to_s
-      "#{handler} SUCCEEDED and issued #{writes} write(s) with " \
+      "#{handler} SUCCEEDED and committed #{writes} protected side effect(s) " \
+        "#{Array(relations).sort.join(', ')} with " \
         "authority_current? evaluated=#{evaluated_recheck} attestation_required=#{attested}"
     end
   end
@@ -81,7 +85,7 @@ module AuthoritySentinel
     def arm!
       return if armed?
 
-      PG::Connection.prepend(WriteObserver)
+      PG::Connection.prepend(StatementObserver)
       IdentityAccess::Authorization::CommandAuthorizer.singleton_class.prepend(RecheckObserver)
       # THE HUMAN DOOR. Without this line `note_authentication` is never called, `f[:human]` is never
       # true, and `judge` returns at its first guard for EVERY command — the sentinel evaluates its
@@ -105,7 +109,15 @@ module AuthoritySentinel
     # NON-VACUITY COUNTERS, kept per process on purpose: they answer "did this instrument observe
     # anything at all across the run", which is a property of the run rather than of a thread.
     def observed_commands = (@observed_commands ||= 0)
-    def observed_writes = (@observed_writes ||= 0)
+    def observed_statements = (@observed_statements ||= 0)
+    # Statements whose PLAN modifies a guarded relation. Counted separately from statements because
+    # the antecedent is about protected side effects and the previous door could not tell the two
+    # apart — it counted a `FOR UPDATE` lock as a write.
+    def observed_governed_writes = (@observed_governed_writes ||= 0)
+    # EVERY relation-modifying effect, governed or not. Counted separately so a proof can assert that
+    # the two numbers DIFFER: an antecedent that counted its whole traffic would satisfy "at least one
+    # protected side effect" forever while being exactly the over-broad rule D7 removed.
+    def observed_effects = (@observed_effects ||= 0)
     # Commands judged HUMAN-AUTHORIZED. Counted separately because a sentinel that observes commands
     # and writes but never recognises a human one has an antecedent nothing satisfies, so its rule is
     # never evaluated and its silence means nothing.
@@ -115,20 +127,39 @@ module AuthoritySentinel
     # and this instrument would say nothing, which is exactly what PROOF 193's static census used to
     # catch. Requiring every discovered handler to have executed closes that without enumerating one.
     def executed_handlers = (@executed_handlers ||= Set.new)
+    # Handlers observed to be human-authorized at least once, and those observed committing at least
+    # one protected side effect. The gap between the two sets is the antecedent going unreached.
+    def human_handlers = (@human_handlers ||= Set.new)
+    def governed_writing_handlers = (@governed_writing_handlers ||= Set.new)
 
-    def note_write(sql)
+    # THE CENSUS. Every (handler, relation, operation, governed?, succeeded?) the run executed, with
+    # a count. It is what makes the classification an OBSERVATION rather than a claim: after a run it
+    # says exactly which relations each WF-005 command modified and how each was classified, and the
+    # architecture gate reads it back against the catalogue.
+    def census = (@census ||= Hash.new(0))
+
+    def note_statement(sql)
+      @observed_statements = observed_statements + 1
+      effects = ProtectedEffectDoor.effects_of(sql)
+      effects.nil? ? :unknown : effects
+    end
+
+    # Called only once the statement has actually executed: a statement PostgreSQL refused never
+    # committed anything, and a plan is not an effect.
+    #
+    # EVERY effect is recorded, not only the governed ones — the census is what the architecture gate
+    # reads back to check the classification, and a census holding only one side of a partition
+    # cannot show the other side is right.
+    def note_effects(effects)
       f = frame
-      # NOT ANCHORED, AND THAT IS THE POINT. The anchored form missed every CTE-shaped write — which
-      # is exactly what the D3 cancellation (`WITH authority AS (...) UPDATE crawls ...`) and the D6
-      # activation (`WITH authority, superseded, inserted`) are, so the two writes this tranche's
-      # headline invariant is about were not counted as writes at all. A verb list anchored to the
-      # start of the statement is a syntactic rule one form short.
-      return unless sql.match?(WRITE_VERB)
-
-      @observed_writes = observed_writes + 1
       return unless f[:depth].positive?
+      return if effects.empty?
 
-      f[:writes] += 1
+      @observed_effects = observed_effects + effects.length
+      governed = effects.count { |e| ProtectedEffectDoor.governed?(e.relation) }
+      @observed_governed_writes = observed_governed_writes + governed
+      f[:governed] += governed
+      effects.each { |e| f[:relations] << [e.relation, e.operation] }
     end
 
     def note_authentication
@@ -156,7 +187,8 @@ module AuthoritySentinel
       outer = f.dup
       @observed_commands = observed_commands + 1
       executed_handlers << handler.name
-      f.merge!(depth: f[:depth] + 1, writes: 0, evaluated: false, attested: false, human: false)
+      f.merge!(depth: f[:depth] + 1, governed: 0, evaluated: false, attested: false, human: false,
+               relations: [])
       result = yield
       judge(handler, result, f)
       result
@@ -167,9 +199,12 @@ module AuthoritySentinel
     # AN EMPTY CENSUS IS NOT SUCCESS, and this is callable so it can be proved directly rather than
     # only observed at suite end. Blinding the instrument makes the suite GREENER — a sentinel that
     # observes nothing records no violations — so a blind run must FAIL rather than quieten.
-    def assert_observed!(commands: observed_commands, writes: observed_writes,
-                         human: observed_human_commands,
-                         undriven: observed_handlers.map(&:name) - executed_handlers.to_a)
+    def assert_observed!(commands: observed_commands, statements: observed_statements,
+                         governed: observed_governed_writes, human: observed_human_commands,
+                         undriven: observed_handlers.map(&:name) - executed_handlers.to_a,
+                         unreached: unreached_handlers,
+                         unplannable: ProtectedEffectDoor.unplannable,
+                         mislabelled: lifecycle_but_unguarded)
       if human.zero?
         raise "AuthoritySentinel judged ZERO commands human-authorized across the entire suite; its " \
               "antecedent is never satisfied, `judge` returns at its first guard every time, and its " \
@@ -186,22 +221,81 @@ module AuthoritySentinel
         raise "AuthoritySentinel observed ZERO WF-005 command executions across the entire suite; " \
               "its handler discovery is blind and its 'no violations' result means nothing"
       end
-      return unless writes.zero?
+      if statements.zero?
+        raise "AuthoritySentinel observed ZERO statements across the entire suite; its door is " \
+              "blind and its 'no violations' result means nothing"
+      end
+      # THE ANTECEDENT MUST BE REACHED, NOT MERELY DEFINED. Narrowing "wrote" to "committed a
+      # protected side effect" is only an improvement if the narrower antecedent is still satisfied
+      # by the real transitions. Zero governed writes means the rule was never evaluated and the
+      # narrowing turned the invariant off.
+      if governed.zero?
+        raise "AuthoritySentinel observed ZERO protected side effects across the entire suite; the " \
+              "antecedent is never satisfied, so narrowing it from 'wrote' has switched the " \
+              "invariant off rather than sharpened it"
+      end
+      unless unreached.empty?
+        raise "#{unreached.length} human-authorized WF-005 handler(s) were never observed committing " \
+              "a protected side effect: #{unreached.join(', ')}. Either the handler's transition is " \
+              "never driven, or the door cannot see the relation it writes — and both make this " \
+              "instrument silent about exactly the command the rule exists for."
+      end
+      unless unplannable.empty?
+        raise "#{unplannable.length} statement(s) executed successfully that PostgreSQL could not " \
+              "plan, so the door has no answer for them and 'no protected side effect' is a guess:\n" \
+              "#{unplannable.keys.join("\n")}"
+      end
+      return if mislabelled.empty?
 
-      raise "AuthoritySentinel observed ZERO writes across the entire suite; its write door is " \
-            "blind and its 'no violations' result means nothing"
+      # THE CLASSIFICATION'S OWN CHECK, AGAINST A PROPERTY IT DOES NOT USE. Governed is derived from
+      # `pg_trigger`; this reads `pg_attribute`. A relation a WF-005 command wrote that carries a
+      # `state` lifecycle and NO PostgreSQL guard is a product aggregate the derivation would call
+      # command evidence — and that direction is silent, because a narrower antecedent makes the run
+      # greener rather than louder.
+      raise "#{mislabelled.length} relation(s) written by WF-005 carry product lifecycle state and " \
+            "no PostgreSQL guard, so the catalogue derivation classifies them as command evidence: " \
+            "#{mislabelled.join(', ')}"
+    end
+
+    def lifecycle_but_unguarded
+      observed_relations(governed: false).select { |r| ProtectedEffectDoor.lifecycle?(r) }
+    end
+
+    # HANDLERS THE ANTECEDENT NEVER REACHED, narrowed to the ones DISCOVERED IN THE HANDLER
+    # DIRECTORY. `around_command` is callable directly, and this instrument's own proofs call it with
+    # synthetic doubles to exercise the frame — those are not WF-005 handlers and have no transition
+    # to commit, so including them made the whole-suite check fail on a test double rather than on a
+    # production path. The narrowing is derived from the same directory discovery the rule uses, not
+    # from a list of names to excuse.
+    def unreached_handlers
+      (human_handlers & observed_handlers.map(&:name).to_set).to_a - governed_writing_handlers.to_a
+    end
+
+    # Relations the run observed on each side of the classification, for the architecture gate that
+    # checks the catalogue derivation against the complementary column shape. Derived from the census
+    # rather than listed, so the gate reads what the repository actually executed.
+    def observed_relations(governed:)
+      census.keys.select { |(_h, _r, _o, g, _s)| g == governed }.map { |k| k[1] }.uniq.sort
     end
 
     def judge(handler, result, f)
+      succeeded = result.respond_to?(:success?) && result.success?
+      f[:relations].uniq.each do |(relation, operation)|
+        census[[handler.name, relation, operation, ProtectedEffectDoor.governed?(relation), succeeded]] += 1
+      end
       # NOT HUMAN-AUTHORIZED: a platform-minted action (a `crawl_fetch_due` delivery) carries no
       # Session, so `authenticate` never ran and :335 does not govern it.
       return unless f[:human]
-      return unless result.respond_to?(:success?) && result.success?
-      return unless f[:writes].positive?
+
+      human_handlers << handler.name
+      governed_writing_handlers << handler.name if f[:governed].positive?
+      return unless succeeded
+      return unless f[:governed].positive?
       return if f[:evaluated] && f[:attested]
 
       violations << Violation.new(handler: handler.name, evaluated_recheck: f[:evaluated],
-                                  attested: f[:attested], writes: f[:writes])
+                                  attested: f[:attested], writes: f[:governed],
+                                  relations: f[:relations].map(&:first).uniq)
     end
   end
 
@@ -211,12 +305,27 @@ module AuthoritySentinel
     end
   end
 
-  # The same single door, with the same disclosed limitation as the census: a prepared-statement
-  # write would be invisible. The corpus uses neither.
-  module WriteObserver
+  # BOTH DOORS THE REPOSITORY USES, AND THE PLAN IS TAKEN BEFORE THE STATEMENT RUNS. `exec_params`
+  # carries every store statement; `exec` carries `txid_current()` and `clock_timestamp()`. Planning
+  # first and counting after means a statement PostgreSQL REFUSED is never counted as an effect,
+  # while a statement it could not plan at all is recorded as a blind spot rather than as a read.
+  module StatementObserver
     def exec_params(sql, *, &)
-      AuthoritySentinel.note_write(sql.to_s)
-      super
+      return super if ProtectedEffectDoor.classifying?
+
+      effects = AuthoritySentinel.note_statement(sql)
+      result = super
+      effects == :unknown ? ProtectedEffectDoor.note_unplannable(sql) : AuthoritySentinel.note_effects(effects)
+      result
+    end
+
+    def exec(sql, *, &)
+      return super if ProtectedEffectDoor.classifying?
+
+      effects = AuthoritySentinel.note_statement(sql)
+      result = super
+      effects == :unknown ? ProtectedEffectDoor.note_unplannable(sql) : AuthoritySentinel.note_effects(effects)
+      result
     end
   end
 
@@ -248,9 +357,10 @@ RSpec.configure do |config|
 
   # JUDGED OVER THE WHOLE SUITE, outside any one example — because the defect this catches is a path
   # nobody wrote an example for, so no example can be the thing that looks for it.
-  # AN EMPTY CENSUS IS NOT SUCCESS. If the instrument observed no commands or no writes across the
-  # whole run it did not check anything, and reporting "no violations" would be a green result from a
-  # gate that never looked. Removing either observer makes the run FAIL here rather than pass.
+  # AN EMPTY CENSUS IS NOT SUCCESS. If the instrument observed no commands or no protected side
+  # effects across the whole run it did not check anything, and reporting "no violations" would be a
+  # green result from a gate that never looked. Removing either observer makes the run FAIL here
+  # rather than pass.
   config.after(:suite) do
     # A WHOLE-SUITE PROPERTY. A run of one spec file legitimately drives no WF-005 command, so the
     # emptiness check applies only when the whole suite was loaded — otherwise every narrow gate in
@@ -264,7 +374,7 @@ RSpec.configure do |config|
     next if AuthoritySentinel.violations.empty?
 
     raise ":335/SEC-REQ-004/005 — #{AuthoritySentinel.violations.length} human-authorized WF-005 " \
-          "command(s) succeeded and wrote without re-reading current authority:\n" \
-          "#{AuthoritySentinel.violations.map(&:to_s).uniq.join("\n")}"
+          "command(s) succeeded and committed a protected side effect without re-reading current " \
+          "authority:\n#{AuthoritySentinel.violations.map(&:to_s).uniq.join("\n")}"
   end
 end
