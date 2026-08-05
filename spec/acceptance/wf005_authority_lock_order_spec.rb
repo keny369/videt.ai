@@ -44,7 +44,10 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
   self.use_transactional_tests = false
   after { ReceiptMinter.truncate_all }
 
-  LOCK_TIMEOUT = "2000ms"
+  # SCOPED TO THIS FILE (round-16 architecture observation O-2). A top-level constant of the same
+  # name lives in `wf005_authority_lock_concurrency_spec.rb`, and two proof files sharing a global
+  # that decides `:blocked` vs `:committed` are coupled in the one place that must not be.
+  def lock_timeout = "2000ms"
   # `RevokeRoleAssignment` requires a free-text reason of at least 20 characters.
   REVOCATION_REASON = "the round-15 lock-order proof revokes this grant deliberately"
 
@@ -131,7 +134,7 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       end
 
       revoker.exec("BEGIN")
-      revoker.exec("SET lock_timeout = '#{LOCK_TIMEOUT}'")
+      revoker.exec("SET lock_timeout = '#{lock_timeout}'")
       steps.fetch(order.first).call
 
       gate.exec_params("SELECT pg_advisory_unlock_all()")
@@ -216,7 +219,7 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       -- dies inside this example
       GRANT INSERT ON f1_test_lock_order TO PUBLIC;
       CREATE OR REPLACE FUNCTION f1_test_lock_order_probe() RETURNS trigger
-      LANGUAGE plpgsql AS $fn$
+      LANGUAGE plpgsql SET search_path TO 'pg_catalog', 'public' AS $fn$
       BEGIN
         INSERT INTO f1_test_lock_order (org_already_locked)
         SELECT EXISTS (
@@ -236,41 +239,164 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
 
     Platform::PgBool.true?(rows.first["org_already_locked"]) ? :organizations : :role_assignments
   ensure
-    DbInspector.connection.exec(<<~SQL)
-      DROP TRIGGER IF EXISTS f1_test_lock_order_probe ON role_assignments;
-      DROP FUNCTION IF EXISTS f1_test_lock_order_probe();
-      DROP TABLE IF EXISTS f1_test_lock_order;
-    SQL
-  end
-
-  def production_first_lock(g)
-    grant = revocable_grant(g)
-    measure_first_lock do
-      result = Workflows::Wf013::Handlers::RevokeRoleAssignment.new.call(
-        command: Workflows::Wf013::Commands::RevokeRoleAssignment.new(
-          command_id: SecureRandom.uuid_v7, idempotency_key: "lo-rv-#{SecureRandom.hex(6)}",
-          schema_version: "1.0", session_id: g[:session_id],
-          role_assignment_id: grant["id"], expected_state_version: grant["state_version"].to_i,
-          expected_authorization_epoch: epoch_of(g[:organization_id]),
-          reason: REVOCATION_REASON, requested_at_utc: act_now
-        ), request_context: act_ctx
-      )
-      raise "revocation failed: #{result.reason_code}" unless result.success?
+    # ONE STATEMENT AT A TIME, AND BOUNDED (round-16 schema observation S-R16-1). As a single
+    # multi-statement `exec` this ran in one implicit transaction, so an ordinary concurrent reader
+    # of `role_assignments` made the first `DROP TRIGGER` wait out the connection's 15-second
+    # `statement_timeout` and the whole batch rolled back — leaving the trigger, the function AND the
+    # table it writes to installed, which is silent because the suite stays green and only the
+    # structure-drift gate, run against this database, would ever say so. Separate statements each
+    # commit, a short `lock_timeout` turns a wait into an error rather than a 15-second stall, and the
+    # drops are ordered so the trigger goes first and can never outlive its table.
+    conn = DbInspector.connection
+    conn.exec("SET lock_timeout = '2000ms'")
+    ["DROP TRIGGER IF EXISTS f1_test_lock_order_probe ON role_assignments",
+     "DROP FUNCTION IF EXISTS f1_test_lock_order_probe()",
+     "DROP TABLE IF EXISTS f1_test_lock_order"].each do |statement|
+      conn.exec(statement)
+    rescue PG::Error => e
+      warn "lock-order probe cleanup failed on `#{statement}`: #{e.message}"
+      raise
     end
+    conn.exec("SET lock_timeout = 0")
   end
 
-  def production_write_order(g)
-    first = production_first_lock(g)
+  def revoke_through_handler(g, grant)
+    result = Workflows::Wf013::Handlers::RevokeRoleAssignment.new.call(
+      command: Workflows::Wf013::Commands::RevokeRoleAssignment.new(
+        command_id: SecureRandom.uuid_v7, idempotency_key: "lo-rv-#{SecureRandom.hex(6)}",
+        schema_version: "1.0", session_id: g[:session_id],
+        role_assignment_id: grant["id"], expected_state_version: grant["state_version"].to_i,
+        expected_authorization_epoch: epoch_of(g[:organization_id]),
+        reason: REVOCATION_REASON, requested_at_utc: act_now
+      ), request_context: act_ctx
+    )
+    raise "revocation failed: #{result.reason_code}" unless result.success?
+  end
+
+  # THE TIMED EXPIRY, DRIVEN THE ONLY WAY PRODUCTION DRIVES IT — through the ScheduledAction worker.
+  # It needs its own Organization because the grant must carry an `expires_at` already in the past, so
+  # PostgreSQL considers the timer due; the crawl chain's principal is unrelated to that.
+  def expire_through_worker
+    granted_at = fixed_now - (30 * 24 * 3600)
+    expires_at = granted_at + (24 * 3600)
+    admin = TenantSeeder.seed_authorized_admin(issued_at: granted_at - 900)
+    target = TenantSeeder.create_account(organization_id: admin[:organization_id],
+                                         issuer_key: "https://id.example/oidc",
+                                         subject: "lo-target-#{SecureRandom.hex(6)}")
+    granted = Workflows::Wf013::Handlers::RequestRoleAssignment.new.call(
+      command: Workflows::Wf013::Commands::RequestRoleAssignment.new(
+        command_id: SecureRandom.uuid_v7, idempotency_key: "lo-g-#{SecureRandom.hex(6)}",
+        schema_version: "1.0", session_id: admin[:session_id], account_id: target,
+        canonical_role: "MarketingOperator", permission_mode: "standard", persona: nil,
+        scope_sha256: Digest::SHA256.digest("scope:organization"), expires_at:,
+        expected_authorization_epoch: epoch_of(admin[:organization_id]), reason: nil,
+        requested_at_utc: granted_at
+      ), request_context: Platform::RequestContext.for_actor(
+        clock: Platform::Clock.fixed(granted_at), ids: Platform::Ids.system,
+        correlation_id: SecureRandom.uuid_v7
+      )
+    )
+    raise "grant failed: #{granted.reason_code}" unless granted.success?
+
+    worker = Platform::ScheduledActions::Worker.new(
+      registry: Platform::ScheduledActions::Registry.default,
+      scheduler: Platform::ScheduledActions::Scheduler.new,
+      clock: Platform::Clock.fixed(expires_at), ids: Platform::Ids.system
+    )
+    outcomes = worker.run_due_batch
+    raise "expiry did not run: #{outcomes.map(&:disposition).inspect}" unless
+      outcomes.map(&:disposition) == [:completed]
+  end
+
+  # Every WF-013 handler that can be holding an ACTIVE grant row when a WF-005 protected write asks
+  # for it. `DecideRoleAssignment` is not one of them and is proved so at PROOF 262b rather than
+  # excused in prose.
+  REORDERED_HANDLERS = {
+    "RevokeRoleAssignment" => :revoke_first_lock,
+    "ExpireRoleAssignment" => :expire_first_lock
+  }.freeze
+
+  def revoke_first_lock
+    g = bootstrap
+    grant = revocable_grant(g)
+    measure_first_lock { revoke_through_handler(g, grant) }
+  end
+
+  def expire_first_lock
+    measure_first_lock { expire_through_worker }
+  end
+
+  def production_write_order(first)
     first == :organizations ? %i[organizations role_assignments] : %i[role_assignments organizations]
   end
 
-  describe "PROOF 262 — the order is read out of the running handler, not written down here" do
-    it "RevokeRoleAssignment takes the Organization row before the grant row" do
-      first = production_first_lock(bootstrap)
+  describe "PROOF 262 — the order is read out of each running handler, not written down here" do
+    # ROUND 16 FOUND THIS PROOF COVERING ONE HANDLER OF THE THREE THE REPAIR CHANGED, and reverting
+    # either of the other two left every proof green while reintroducing a live 40P01 through the
+    # timed expiry. That is the defect class this tranche exists to remove — a control proved at one
+    # instance and assumed at the others — so the measurement is written once and run at each site.
+    REORDERED_HANDLERS.each do |name, driver|
+      it "#{name} takes the Organization row before the grant row" do
+        first = send(driver)
 
-      expect(first).to eq(:organizations),
-                       "the handler took #{first} first; every WF-005 protected write locks " \
-                       "organizations before role_assignments, so this order closes a cycle"
+        expect(first).to eq(:organizations),
+                         "#{name} took #{first} first; every WF-005 protected write locks " \
+                         "organizations before role_assignments, so this order closes a cycle"
+      end
+    end
+
+    it "PROOF 262b — DecideRoleAssignment is exempt BY CONSTRUCTION, and the construction is measured" do
+      # WHY IT CANNOT FORM THE CYCLE. Its target is a PENDING Assignment, and every protected write's
+      # capability CTE requires `ra.status = 'active'` — a qual applied before `FOR SHARE OF ra`, so
+      # the row is filtered out of the statement's plan and never locked. No concurrent protected
+      # write can therefore be holding the row this handler is about to write, whatever order it takes.
+      #
+      # PROVED RATHER THAN ARGUED: an authority naming a pending grant is refused by the write, which
+      # is the same fact as "the row was never locked" — the CTE that would have locked it yields
+      # nothing.
+      g = bootstrap
+      account = DbInspector.one("SELECT account_id FROM sessions WHERE id = $1::uuid",
+                                [g[:session_id]])["account_id"]
+      pending = Workflows::Wf013::Handlers::RequestRoleAssignment.new.call(
+        command: Workflows::Wf013::Commands::RequestRoleAssignment.new(
+          command_id: SecureRandom.uuid_v7, idempotency_key: "lo-p-#{SecureRandom.hex(6)}",
+          schema_version: "1.0", session_id: g[:session_id], account_id: account,
+          canonical_role: "SecurityOperator", permission_mode: "standard", persona: nil,
+          scope_sha256: Digest::SHA256.digest("scope:organization"), expires_at: act_now + 86_400,
+          expected_authorization_epoch: epoch_of(g[:organization_id]), reason: nil,
+          requested_at_utc: act_now
+        ), request_context: act_ctx
+      )
+      raise "protected request failed: #{pending.reason_code}" unless pending.success?
+
+      row = DbInspector.one(<<~SQL, [g[:organization_id]])
+        SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+        FROM role_assignments WHERE organization_id = $1::uuid AND status = 'pending'
+      SQL
+      expect(row).not_to be_nil, "the protected grant did not land pending, so this proof is vacuous"
+
+      authority = AuthorityFixture.build(organization_id: g[:organization_id], account_id: account,
+                                         capability: "crawl.trigger", grants: [row])
+      outcome = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        IdentityAccess::Infrastructure::CrawlStore.new(pg).insert_crawl(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authority:, project_id: g[:project_id], kind: "root",
+          requested_crawl_policy_id: nil, requested_crawl_policy_version: nil,
+          requested_entitlement_policy_id: SecureRandom.uuid_v7,
+          requested_entitlement_policy_version: "entitlement-interim-v1",
+          trigger_kind: "manual", triggered_by_account_id: nil, idempotency_key_digest: "\x00" * 32
+        )
+      end
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the grant is under test"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a PENDING grant satisfied a protected write's capability " \
+                                                 "CTE, so DecideRoleAssignment's target CAN be locked by a " \
+                                                 "concurrent write and its exemption does not hold"
+      expect(outcome[:inserted]).to eq(0)
     end
   end
 
@@ -281,7 +407,8 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       # ONE Organization for both halves: `identity` is memoized per example, so a second bootstrap
       # in the same example would collide on the principal.
       g = queueable_org
-      order = production_write_order(g)
+      grant = revocable_grant(g)
+      order = production_write_order(measure_first_lock { revoke_through_handler(g, grant) })
 
       outcome = interleave(g, order)
 
@@ -339,7 +466,7 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
         gate.exec_params("SELECT pg_advisory_unlock_all()")
         RaceHarness.wait_until("the command blocked behind the grant-row holder") { blocked_behind?(pid_of(holder)) }
 
-        prober.exec("SET lock_timeout = '#{LOCK_TIMEOUT}'")
+        prober.exec("SET lock_timeout = '#{lock_timeout}'")
         held = begin
           prober.exec("BEGIN")
           prober.exec_params("SELECT 1 FROM organizations WHERE id = $1::uuid FOR NO KEY UPDATE", [org])

@@ -1058,6 +1058,13 @@ itself that a reviewer disproved:
   side, which is precisely what makes FU-38 reachable (R4-2). FU-38's own note still carries the
   now-invalidated "no reachable interleaving" justification.
 
+**A15-4 — TWO MUTATIONS KILLED ON A TYPING ERROR RATHER THAN ON THEIR SEMANTICS.**
+`d7-a-scope-role-unbound` and `d7-cancel-capability-always-true` each deleted the last reference to a
+bind parameter, so PostgreSQL refused the statement with `PG::IndeterminateDatatype` and the kill
+proved only that the statement no longer type-checks. Non-blocking in round 15 and repaired with it;
+round 16 then found two more of the same shape (`d3-authority-always-true`, `d6-a-predicate-removed`)
+and made the class blocking. All four now keep every parameter bound.
+
 ## What the round confirmed sound
 
 Recorded so the next round need not re-derive it. **R3-10 is correct AND complete** — the ratified table
@@ -2071,8 +2078,12 @@ database, Redis instance, port or temporary directory was shared. Every lens end
 `git status --porcelain` empty and HEAD unmoved. The full suite, every static gate and three
 consecutive stability runs were measured centrally, in a sixth environment, before the lenses started.
 
-**VERDICT: FAIL. Four of five lenses. Six confirmed-blocking findings, two of them live production
+**VERDICT: FAIL. Four of five lenses. EIGHT confirmed-blocking findings, two of them live production
 defects. S-07-009 IS NOT ACCEPTED BY THIS ROUND.**
+
+(The count was written as "six" and corrected to eight by round 16, which observed that the lens table
+below names nine ids and that merging `R15-CTR-2` with `R15-CONC-2` — they are one records defect seen
+from two lenses — leaves eight. `R15-CTR-1` had no disposition paragraph at all; it has one now.)
 
 | Lens | Verdict | Confirmed blocking |
 | --- | --- | --- |
@@ -2124,7 +2135,17 @@ ADR-103 guarantees, or a security-critical revocation does not land — decided 
 verifier also ran the counterfactual at `b2e8cfb`, where the same interleaving merely blocks: the
 cycle needs BOTH of the candidate's changes, so it is squarely in range.
 
-## The four proof and record findings
+## The six proof and record findings
+
+**R15-CTR-1 — THE RATIFIED SCOPE RULE'S RUBY OPERAND HAD NO PROOF OF ITS OWN.**
+`ActivateCrawlPolicy#authorized_for_scope?` is the single transcription of `:732`/`:738`, and deleting
+it left 1136 acceptance examples green — because the WRITE still refuses, so the OUTCOME cannot tell
+the two apart. Deletion is not behaviour-preserving: the contract lens measured the reason code
+changing from `crawl_policy_unauthorized` to `crawl_policy_incomplete`, and the handler taking
+`lock_organization` before refusing, which `PRULE-039`/SEC-REQ-005 makes a bypass whatever its
+arithmetic. PROOF 255/256/257 drive an actor with NO authority, so they exercise only the first operand
+of a two-operand guard. CLOSED by PROOF 257b, which refuses a MIS-SCOPED MarketingOperator by
+invocation, before the lock; verified to fail when the operand is deleted.
 
 **A15-1 — TEN CONJUNCTS OF THE CAPABILITY PREDICATE COULD BE DELETED WITH THE WHOLE SUITE GREEN.** The
 predicate is written at three writes and the proofs enumerated which (write, conjunct) PAIRS were
@@ -2140,7 +2161,7 @@ re-read no authority, presented no attestation, and the run was green. A handler
 `def self.call` was never observed either, because the observer was prepended into the instance
 ancestry alone.
 
-**A15-3 — FOUR PUBLIC MEMBERS ADDED BY THE CANDIDATE HAVE NO CALLER ANYWHERE**, which is D1's rule
+**A15-3 — PUBLIC MEMBERS WITH NO CALLER ANYWHERE** (the lens named four; five were removed, three of which predate D7), which is D1's rule
 inside D1's own tranche.
 
 **R15-CONC-2 / R15-CTR-2 — RECORDS THE REPOSITORY REFUTES.** D9 and ADR-132 state that both replay
@@ -2155,6 +2176,13 @@ fact — "79 of the 82", "79 of 82", "79 of the 89" — where the tree measures 
 **R15-CTR-3 — `ProtectedEffectDoor` DESCRIBES A WHOLE-SUITE CROSS-CHECK THAT DOES NOT EXIST**, and
 could not: a refusal reaches the write and the statement's plan still modifies the guarded relation,
 so the census cannot tell a refused protected write from a committed one.
+
+**A15-4 — TWO MUTATIONS KILLED ON A TYPING ERROR RATHER THAN ON THEIR SEMANTICS.**
+`d7-a-scope-role-unbound` and `d7-cancel-capability-always-true` each deleted the last reference to a
+bind parameter, so PostgreSQL refused the statement with `PG::IndeterminateDatatype` and the kill
+proved only that the statement no longer type-checks. Non-blocking in round 15 and repaired with it;
+round 16 then found two more of the same shape (`d3-authority-always-true`, `d6-a-predicate-removed`)
+and made the class blocking. All four now keep every parameter bound.
 
 ## What the round confirmed sound
 
@@ -2223,3 +2251,120 @@ have none — all pre-existing and all exactly as `db/structure.sql` declares.
 
 S-07-009 remains NOT ACCEPTED. S-07-010 and S-07-011 remain blocked. No merge, no push of any branch
 carrying this tranche, and no progression is authorised by this round.
+
+---
+
+# ROUND 11 — the round-15 repaired candidate `b2e8cfb..fd40025`, records `84ea35e`
+
+Round run: 2026-08-05, full ADR-026 five-lens form, in the same five isolated worktrees/databases/Redis
+instances moved to the repaired commit. This is the fifteenth five-lens round this tranche has had.
+
+**VERDICT: FAIL. Three of five lenses. Five confirmed-blocking findings — and every one of them is
+about EVIDENCE rather than about behaviour. Both live production defects round 10 found are
+independently confirmed repaired.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R16-CTR-1, R16-CTR-2, R16-CTR-3, R16-CTR-4 |
+| Concurrency / atomicity / idempotency | FAIL | R16-CONC-1 (= R16-CTR-1) |
+| Security / tenant-isolation | PASS_WITH_OBSERVATIONS | none |
+| Schema / migration-safety / data-integrity | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | FAIL | A16-1 |
+
+## The blocking findings
+
+**R16-CONC-1 / R16-CTR-1 — THE LOCK-ORDER REPAIR WAS PROVED AT ONE HANDLER OF THE THREE IT CHANGED,
+AND THREE LENSES FOUND IT INDEPENDENTLY.** PROOF 262/263 drove `RevokeRoleAssignment` only. Reverting
+`ExpireRoleAssignment` to the pre-repair order left **144 examples green** — and the concurrency and
+contract lenses each drove a real `PG::TRDeadlockDetected` through that reverted handler against a
+real in-flight `QueueCrawl`. That is the tranche's own defect class, in the repair written to remove
+it, and ADR-133 names the principle in the sentence it broke.
+
+**A16-1 — TWO MORE MUTATION DEFINITIONS KILL ON `PG::IndeterminateDatatype`.**
+`d3-authority-always-true` and `d6-a-predicate-removed` each orphan a bind parameter, so the statement
+never executes and the kill proves only that the file still type-checks — including the POSITIVE
+control inside the same proof, which then cannot distinguish a refusing write from a broken one.
+ADR-133 decision 6 states the rule generally and applied it to the two instances round 15 happened to
+enumerate. A statement-scoped static scan of all 101 definitions found exactly these two.
+
+**R16-CTR-2 — THE D9 DIRECTION IS STATED BACKWARDS.** Measured at both `b2e8cfb` and `ea8ef8d`:
+`replay` (82 file definitions) carried the correction and `replay_trigger` (10) did not. Two records
+said the opposite, and the records commit re-asserted it while correcting its count.
+
+**R16-CTR-3 — TWO CLAIMS ABOUT THIS ROUND'S OWN PROOF COVERAGE WERE FALSE.** "Both escapes have
+proofs" — the `def self.call` escape had none. "Each is paired with a control that must SUCCEED" —
+PROOF 261 had none.
+
+**R16-CTR-4 — THE HEADLINE FINDING COUNT CONTRADICTED THE RECORD'S OWN TABLE**, and `R15-CTR-1` was
+named as blocking in the verdict table and dispositioned nowhere.
+
+## The repair
+
+`ExpireRoleAssignment` is now measured by PROOF 262, which is parameterised over every handler that
+can hold an ACTIVE grant row; reverting it fails. `DecideRoleAssignment` is NOT proved by measurement
+and no longer claims to be: PROOF 262b measures the property that exempts it — a protected write's
+capability CTE requires `ra.status = 'active'`, so a PENDING row is filtered before `FOR SHARE OF ra`
+asks for a lock, and the write refuses an authority naming one. Its reorder is uniformity, not safety,
+and the records say so. Both mutation definitions keep every parameter bound and die on their
+semantics; `r16-expire-order-reversed` binds the new coverage. PROOF 261b is the missing control; the
+`def self.call` and nested-in-a-class escapes both have discovery proofs, and the namespace walk now
+recurses into classes and decides membership by whether a constant can be CALLED. Four records are
+corrected in place.
+
+## What the round confirmed sound — this is what the repair rests on
+
+**R15-SEC-1 is closed at all three writes, proved by an independently built exploit.** The security
+lens wrote its own lock holder, waiter predicate and elapsed-time poll rather than reusing the
+candidate's harness, and refused at all three writes; it then REVERTED the one repair line and watched
+a Crawl and an immutable Organization-scope policy commit on a grant that had expired two seconds
+earlier. It ran 31 further attacks — eleven attestation-replay axes, cross-paired and NULL-padded
+grant arrays, a partial multi-grant revocation, far-past and far-future `requested_at_utc`, a forged
+victim organization, and the new epoch-advanced/grant-still-active window opened by the lock-order
+repair — and every one was refused. It also verified `PRULE-039` by holding each handler's own key and
+observing ZERO ungranted waiters for four (handler, case) pairs.
+
+**R15-CONC-1 is closed.** The concurrency lens drove the full 3×2 matrix of real WF-005 handlers ×
+real WF-013 transitions into the exact interleaving round 10 used: **0 deadlocks, 6/6**, every command
+returning a `Platform::CommandResult` with the right reason code. 40 jittered rounds of the real
+`RevokeRoleAssignment` against the real `QueueCrawl`: 40/40 clean, zero exceptions. Burst liveness
+20/20. The reversed-order control still deadlocks on demand, so the green results are not an
+interleaving that never had a cycle available. It measured the WF-005 half independently of PROOF 264
+and under 20,000 decoy rows with `ANALYZE`, and established from the catalogue that the set of
+transactions touching both rows is complete: no FK between the tables, no trigger reading the other,
+no function writing either, and every remaining reference an unlocked `SELECT`.
+
+**The schema lens could not refute the repair on any axis.** No constraint, trigger, index or view
+spans the two authority tables; there are zero deferrable constraints; the last-administrator
+predicate, the protected-grant allowlist rules and `one_active_assignment_per_tuple` are all row-local
+and evaluated before both writes; no CHECK on `crawls` or `crawl_policies` compares two timestamps at
+all, so a longer wait cannot produce an invalid row. It measured the added Organization-row hold at
+**one statement, p50 0.227 ms**, every plan a primary-key index scan, and confirmed the schema, the
+grants and the bootstrap gate unchanged.
+
+**The architecture lens applied all ten A15-1 deletions itself** — eight die in the battery, two in
+the lock proof, exactly as ADR-133 says — attacked the battery with three adversarial mutations
+including one that refuses everything (the COMMITS control catches it), re-ran all nine round-15
+mutations and found each dying for its stated semantic reason, blinded six instruments and watched all
+six fail loudly, and regenerated the whole ledger: **verdict, result, failing_examples, landed,
+restored, file_sha256 and proof_sha256 identical in all 101 rows.**
+
+## Carried non-blocking observations
+
+The namespace walk still has a root: a handler outside `Workflows::Wf005::Handlers` is not observed,
+and the architecture lens demonstrated one end to end. `WRITES` in the battery is a maintained
+three-entry list. `classify`'s suite-error channel is still a substring of output the measured thing
+controls, in the opposite direction to the one just repaired. `failure_digest` is non-deterministic in
+6 of 101 rows and nothing compares it across generations. The `required_role` limb is proved at one
+write and structurally absent at the other two. Two of the three protected writes bind their authority
+CTEs to the row's `organization_id` rather than the authority's, which coincide today (recorded as
+FU-53). The attestation does not bind the organization context, and a transaction can move that
+context. `RequestRoleAssignment` writes `role_assignments` then `organizations`, which cannot form the
+cycle (its write is an INSERT no concurrent reader can wait on) and which the WF-013 advisory lock
+serializes anyway. `DecideInvitation` adds effective access without advancing the epoch.
+`StartCrawl` decides on a pre-wait instant — the same shape as R15-SEC-1, pre-existing, service-
+authorized, and outside this candidate.
+
+## Stop
+
+S-07-009 remains NOT ACCEPTED. The round-16 repairs make a new candidate, and no round has yet
+returned PASS on the state it reviewed.

@@ -49,6 +49,7 @@ module AutonomousBuild
     ORDER_PROOF = "spec/acceptance/wf005_authority_lock_order_spec.rb"
     CLASSIFY_PROOF = "spec/automation/unit/mutation_harness_classification_spec.rb"
     REVOKE_HANDLER = "app/workflows/wf013/handlers/revoke_role_assignment.rb"
+    EXPIRE_HANDLER = "app/workflows/wf013/handlers/expire_role_assignment.rb"
     HARNESS = "automation/lib/autonomous_build/mutation_harness.rb"
 
     ENTRIES = [
@@ -84,8 +85,14 @@ module AutonomousBuild
         to: "WHERE id = $5::uuid AND authorization_epoch >= $4::bigint", expectation: "kill" },
       { id: "d3-authority-always-true", blocker: "D3/R10-10", file: STORE, proof: AUTHORITY_PROOF,
         description: "the authority CTE made unconditionally true",
+        # EVERY PARAMETER STAYS BOUND (round-16 architecture finding A16-1). `SELECT 1` alone orphans
+        # $4 and $5, so PostgreSQL refuses the statement with `IndeterminateDatatype` and the kill
+        # says only that the statement no longer type-checks — including the POSITIVE control, which
+        # then cannot tell a refusing write from a broken one. This form is unconditionally true and
+        # well-typed, so the proof fails on the epoch conjunct's absence.
         from: "            SELECT 1 FROM organizations\n            WHERE id = $5::uuid AND authorization_epoch = $4::bigint",
-        to: "            SELECT 1", expectation: "kill" },
+        to: "            SELECT 1 WHERE $5::uuid IS NOT NULL AND $4::bigint IS NOT NULL",
+        expectation: "kill" },
       { id: "d3-wrong-organization", blocker: "D3/R10-10", file: STORE, proof: AUTHORITY_PROOF,
         description: "the epoch compared against the wrong organization, rejecting valid ownership",
         from: "WHERE id = $5::uuid AND authorization_epoch = $4::bigint",
@@ -242,8 +249,11 @@ module AutonomousBuild
         to: "", expectation: "kill" },
       { id: "d6-a-predicate-removed", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
         description: "the authority predicate removed from the activation statement",
+        # $13 STAYS REFERENCED (A16-1): dropping it outright orphaned the parameter and the statement
+        # died of `IndeterminateDatatype` before the write was attempted.
         from: "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
-        to: "            WHERE id = $4::uuid", expectation: "kill" },
+        to: "            WHERE id = $4::uuid AND ($13::bigint IS NULL OR $13::bigint IS NOT NULL)",
+        expectation: "kill" },
       { id: "d6-a-insert-unconditional", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
         description: "the insert made unconditional, permitting a partial transition",
         from: "            WHERE EXISTS (SELECT 1 FROM authority)\n              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
@@ -534,6 +544,14 @@ module AutonomousBuild
               "                                         reason, epoch + 1).to_i.zero?\n",
         to: "          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n" \
             "                                         reason, epoch + 1).to_i.zero?\n" \
+            "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n",
+        expectation: "kill" },
+      { id: "r16-expire-order-reversed", blocker: "R16-CONC-1", file: EXPIRE_HANDLER, proof: ORDER_PROOF,
+        description: "ExpireRoleAssignment writes the grant before advancing the epoch, restoring the " \
+                     "lock-order cycle on the timed-expiry path — the handler round 16 found unbound",
+        from: "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n" \
+              "          raise LostRace if store.expire(command.role_assignment_id, row[\"state_version\"].to_i, now).to_i.zero?\n",
+        to: "          raise LostRace if store.expire(command.role_assignment_id, row[\"state_version\"].to_i, now).to_i.zero?\n" \
             "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n",
         expectation: "kill" },
       { id: "r15-classify-suite-error-broken", blocker: "R15-CONC-2", file: HARNESS, proof: CLASSIFY_PROOF,

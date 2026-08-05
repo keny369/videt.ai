@@ -84,9 +84,10 @@ module AuthoritySentinel
     # exposing `def self.call` was never observed either. Both escapes are silent and both make the
     # suite greener, which is the direction nothing notices.
     #
-    # THE SET IS NOW THE NAMESPACE, WALKED. Every class under `Workflows::Wf005::Handlers`, however
-    # deeply nested, whatever its file is named and wherever it lives. Eager loading is what makes the
-    # walk complete rather than dependent on what earlier examples happened to autoload.
+    # THE SET IS NOW THE NAMESPACE, WALKED. Everything under `Workflows::Wf005::Handlers` that can be
+    # CALLED — however deeply nested, nested inside another handler, whatever its file is named and
+    # wherever it lives, and whichever ancestry exposes `call`. Eager loading is what makes the walk
+    # complete rather than dependent on what earlier examples happened to autoload.
     def observed_handlers
       @observed_handlers ||= begin
         Rails.application.eager_load!
@@ -94,14 +95,28 @@ module AuthoritySentinel
       end
     end
 
-    def handlers_under(namespace)
+    # RECURSES INTO CLASSES TOO, AND DECIDES BY WHAT A CONSTANT CAN DO (round-16 architecture
+    # observation O-1). The first version stopped at the first `Class`, so a handler nested INSIDE a
+    # handler class escaped — the same shape as the directory glob that did not recurse, one level
+    # in. A constant joins the rule when it answers `call` in either ancestry, which is what being an
+    # entry point means; a namespace that answers nothing is walked through rather than collected.
+    def handlers_under(namespace, seen = Set.new)
       namespace.constants.flat_map do |name|
-        value = namespace.const_get(name)
-        if value.is_a?(Class) then [value]
-        elsif value.is_a?(Module) then handlers_under(value)
-        else []
+        value = begin
+          namespace.const_get(name)
+        rescue NameError
+          nil
         end
+        next [] unless value.is_a?(Module)
+        next [] unless seen.add?(value)
+
+        nested = handlers_under(value, seen)
+        entry_point?(value) ? [value, *nested] : nested
       end
+    end
+
+    def entry_point?(value)
+      value.respond_to?(:call) || (value.is_a?(Class) && value.method_defined?(:call))
     end
 
     def arm!
@@ -289,12 +304,12 @@ module AuthoritySentinel
       observed_relations(governed: false).select { |r| ProtectedEffectDoor.lifecycle?(r) }
     end
 
-    # HANDLERS THE ANTECEDENT NEVER REACHED, narrowed to the ones DISCOVERED IN THE HANDLER
-    # DIRECTORY. `around_command` is callable directly, and this instrument's own proofs call it with
+    # HANDLERS THE ANTECEDENT NEVER REACHED, narrowed to the ones DISCOVERY FOUND. `around_command` is callable directly, and this instrument's own proofs call it with
     # synthetic doubles to exercise the frame — those are not WF-005 handlers and have no transition
     # to commit, so including them made the whole-suite check fail on a test double rather than on a
-    # production path. The narrowing is derived from the same directory discovery the rule uses, not
-    # from a list of names to excuse.
+    # production path. The narrowing is derived from the same discovery the rule uses — the namespace
+    # walk, not the directory it used to be — rather than from a list of names to excuse. (The narrowing is derived from the same discovery the rule uses,
+    # which is now the namespace walk rather than the directory it used to be.)
     def unreached_handlers
       (human_handlers & observed_handlers.map(&:name).to_set).to_a - governed_writing_handlers.to_a
     end

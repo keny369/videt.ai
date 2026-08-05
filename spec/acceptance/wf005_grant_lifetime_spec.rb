@@ -191,5 +191,28 @@ RSpec.describe "WF-005 grant lifetime at the protected write", type: :acceptance
       expect(DbInspector.one("SELECT state FROM crawls WHERE id = $1::uuid", [ctx[:crawl_id]])["state"])
         .to eq("running")
     end
+
+    it "PROOF 261b — the same wait with a live grant still cancels, so the refusal is the expiry" do
+      # THE CONTROL THIS PROOF WAS MISSING (round-16 contract finding R16-CTR-3). The file's own
+      # header claimed every proof here is paired with one; 259 and 260 were, and 261 was not.
+      ctx = running_crawl
+      version = DbInspector.one("SELECT state_version FROM crawls WHERE id = $1::uuid",
+                                [ctx[:crawl_id]])["state_version"].to_i
+
+      result = wait_out_frontier(ctx, HOLD_SECONDS) do
+        Workflows::Wf005::Handlers::CancelCrawl.new.call(
+          command: Workflows::Wf005::Commands::CancelCrawl.new(
+            command_id: SecureRandom.uuid_v7, idempotency_key: "gl-#{SecureRandom.hex(6)}",
+            schema_version: "1.0", session_id: ctx[:g][:session_id],
+            organization_id: ctx[:g][:organization_id], project_id: ctx[:g][:project_id],
+            crawl_id: ctx[:crawl_id], expected_state_version: version, requested_at_utc: act_now
+          ), request_context: act_ctx
+        )
+      end
+
+      expect(result.success?).to be(true), "the control refused, so PROOF 261 proves only that the wait refuses"
+      expect(DbInspector.one("SELECT state FROM crawls WHERE id = $1::uuid", [ctx[:crawl_id]])["state"])
+        .to eq("canceled")
+    end
   end
 end

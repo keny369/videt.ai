@@ -381,9 +381,15 @@ refuses an actor holding no authority BEFORE taking the lock other tenants queue
 
 **FOUND BY THE D7 MUTATIONS, NOT BY A REVIEW.** `b2e8cfb` recorded that "`broken` now means what it
 says, since treating any after(:suite) error as 'no example ran' misclassified two real kills" — and
-applied that correction to `MutationHarness.replay_trigger` ALONE. `replay`, which carries ALL 82 of
-the 92 definitions that are file mutations (`replay_trigger` carries the other 10), still classified
-any run containing `error occurred outside of examples` as `broken`.
+applied that correction to ONE of the harness's two replay paths.
+
+**AND THIS RECORD HAD THE DIRECTION BACKWARDS UNTIL ROUND 16 MEASURED IT (R16-CTR-2).** The bytes at
+both `b2e8cfb` and `ea8ef8d` read the same way: `replay` - the file path, which carries all 82 of the
+92 definitions that are file mutations - CARRIED the correction, and `replay_trigger`, which carries
+the other 10, still ended `else "broken"`. The path left classifying a suite-level error as "proving
+nothing" was the TRIGGER path, not the file path. The defect D9 names is real and was real; the
+sentence describing which half had it was wrong, twice, and is corrected here rather than left
+standing.
 
 Measured on the first D7 regeneration: `d7-door-regex-restored` (13 examples, **7 failures**) and
 `d7-antecedent-dropped` (13 examples, **1 failure**) both trip `AuthoritySentinel`'s suite-wide rule
@@ -449,6 +455,7 @@ independently with no verdict difference. Four of five lenses returned FAIL anyw
 | --- | --- | --- |
 | **R15-SEC-1** | `QueueCrawl` and `ActivateCrawlPolicy` handed the write the instant they ENTERED with, so the grant-lifetime conjunct was judged before an unbounded lock wait. An expired Role Assignment queued a Crawl and activated an immutable Organization-scope policy, live. `CancelCrawl` was correct, and that asymmetry was the finding. | CLOSED — both handlers adopt the post-wait instant they were already computing; PROOF 259/260 fail before the fix, PROOF 261 locks the handler that was right, each paired with a must-succeed control |
 | **R15-CONC-1** | FU-48's second row lock closed a deadlock cycle: the protected writes take `organizations` then `role_assignments`, the WF-013 authority handlers took them the other way round, nothing serialized the two sides, and nothing rescues 40P01. 20 customer-command deaths and 8 revocation deaths over 80 rounds. | CLOSED — one global order, `organizations` first, in all three WF-013 handlers; PROOF 262 MEASURES the order inside the handler's own transaction, PROOF 263 replays it, PROOF 263b requires the reverse to deadlock, PROOF 264 measures the WF-005 half |
+| **R15-CTR-1** | `ActivateCrawlPolicy#authorized_for_scope?` — the single transcription of the ratified `:732`/`:738` scope rule — could be deleted with 1136 acceptance examples green, because the write refuses either way and the OUTCOME cannot tell them apart. Deletion changes the reason code and takes the tenant-shared lock before refusing. | CLOSED — PROOF 257b refuses a MIS-SCOPED actor by invocation, before the lock; verified to fail when the operand is deleted |
 | **A15-1** | Ten conjuncts of the capability predicate could be deleted with the whole suite green: the proofs enumerated which (write, conjunct) pairs were exercised. | CLOSED — one battery, seven cases, all three writes, plus PROOF 252b/252c for the two unproved locks; all ten deletions verified killed |
 | **A15-2** | Handler discovery was a NON-RECURSIVE directory glob and the observer was prepended into one ancestry, so a handler one directory deeper, or one exposing `def self.call`, was invisible — and invisible is greener. | CLOSED — discovery is the `Workflows::Wf005::Handlers` namespace walked; both ancestries observed; both escapes have proofs |
 | **A15-3** | Four public members added by D7 have no caller anywhere — D1's rule inside D1's own tranche. | CLOSED — deleted |

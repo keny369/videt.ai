@@ -48,6 +48,28 @@ RSpec.describe AuthoritySentinel, type: :architecture do
         Workflows::Wf005::Handlers.const_defined?(:SentinelDiscoveryProbe, false)
     end
 
+    it "picks up a handler whose entry point is `def self.call` (A15-2), and one nested in a CLASS (A16-1)" do
+      # TWO ESCAPES THE ROUND-15 REPAIR CLAIMED TO CLOSE AND ONE IT DID NOT. The observer is prepended
+      # into both ancestries, so a singleton entry point is observed — but nothing proved it. And the
+      # first namespace walk stopped at the first `Class`, so a handler nested INSIDE a handler class
+      # was still outside the rule: the directory glob's mistake one level in.
+      Workflows::Wf005::Handlers.const_set(:R16Singleton, Module.new { def self.call(**) = nil })
+      Workflows::Wf005::Handlers.const_set(:R16Outer, Class.new { def call(**) = nil })
+      Workflows::Wf005::Handlers::R16Outer.const_set(:Inner, Class.new { def call(**) = nil })
+      described_class.instance_variable_set(:@observed_handlers, nil)
+
+      names = described_class.observed_handlers.map(&:name)
+
+      expect(names).to include("Workflows::Wf005::Handlers::R16Singleton")
+      expect(names).to include("Workflows::Wf005::Handlers::R16Outer::Inner")
+    ensure
+      %i[R16Singleton R16Outer].each do |c|
+        Workflows::Wf005::Handlers.send(:remove_const, c) if
+          Workflows::Wf005::Handlers.const_defined?(c, false)
+      end
+      described_class.instance_variable_set(:@observed_handlers, nil)
+    end
+
     it "picks up a handler NESTED one namespace deeper, which the directory glob did not (A15-2)" do
       # THE MEASURED ESCAPE. The same class placed in `handlers/admin/` was not discovered, so it
       # authenticated a Session, committed a protected side effect, presented no attestation, and the

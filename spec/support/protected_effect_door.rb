@@ -153,13 +153,19 @@ module ProtectedEffectDoor
     # Relations PostgreSQL enforces its own rules over: the product facts. Read from the catalogue,
     # never listed.
     #
-    # MEMOIZED PER PROCESS, AND THE CATALOGUE *CAN* MOVE UNDER A RUN — this comment used to say it
-    # could not (round-15 schema observation). Six specs install non-internal triggers on public
-    # tables while the suite runs, and `protected_effect_door_spec.rb` deliberately resets this memo.
-    # The movement is strictly ADDITIVE — a test trigger only adds a relation to the governed set — so
-    # the antecedent becomes easier to satisfy and the failure mode is a louder run, never a quieter
-    # one. Recorded rather than papered over, because the memo is load-bearing and its justification
-    # was false.
+    # MEMOIZED PER PROCESS, AND THE CATALOGUE *CAN* MOVE UNDER A RUN - this comment used to say it
+    # could not (round-15 schema observation). At least ten specs install non-internal triggers on
+    # public tables while the suite runs, and `protected_effect_door_spec.rb` deliberately resets this
+    # memo.
+    #
+    # THE MOVEMENT IS ADDITIVE, AND "ADDITIVE" IS NOT THE SAME AS "LOUDER" - round 16 corrected that
+    # too. A relation joining the governed set makes the headline violation rule LOUDER, but it makes
+    # two emptiness limbs QUIETER: `unreached_handlers` subtracts handlers observed writing a governed
+    # relation, and every WF-005 command writes `command_executions` on every path, so a spec-installed
+    # trigger on THAT table would leave the limb unfireable; and `lifecycle_but_unguarded` inspects
+    # only relations recorded UNGOVERNED, so a relation that joined leaves that check. No
+    # spuriously-green whole-suite run has been reproduced, and the memo is load-bearing, so the honest
+    # statement is this one rather than a reassurance.
     def governed_relations
       @governed_relations ||= mutex.synchronize do
         Thread.current[:protected_effect_door_classifying] = true

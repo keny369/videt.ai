@@ -4005,7 +4005,7 @@ round began — rspec 2407/0 three times consecutively with no hang, zeitwerk, p
 bundler-audit, `verify_runtime`, no structure drift, the bootstrap gate's nine checks, and a mutation
 ledger of 92 definitions independently regenerated twice with no verdict difference.
 
-**FOUR OF FIVE LENSES RETURNED FAIL, AND TWO OF THE SIX BLOCKING FINDINGS WERE LIVE PRODUCTION
+**FOUR OF FIVE LENSES RETURNED FAIL, AND TWO OF THE EIGHT BLOCKING FINDINGS WERE LIVE PRODUCTION
 DEFECTS.** Both were introduced by FU-48 — the repair that put the capability axis at the write — and
 neither was visible to any existing proof.
 
@@ -4059,7 +4059,7 @@ Decision:
    (measured: 82 of 92 at the time, 91 of 101 now); `ProtectedEffectDoor`'s claim of a whole-suite
    cross-check that does not exist and could not, because a refusal still PLANS a modification of the
    guarded relation; and the same file's claim that the catalogue cannot move under a run, which six
-   specs falsify additively. Four dead public members added by D7 are deleted, and two mutation
+   specs falsify additively. Five dead public readers are deleted from `AuthorityAttestation` — `authority`, `transaction_id`, `actor_account_id`, `epoch`, `capability`; two were added by D7 and three predate it, and all five were callerless (round-16 contract observation 3 corrects round 15's "four ... added by D7") — and two mutation
    definitions that killed on `PG::IndeterminateDatatype` — an orphaned bind parameter, so the
    statement never executed — are rewritten to die on their own semantics.
 
@@ -4095,3 +4095,81 @@ Authority And Precedence:
 S-07-009 repair authority under the overnight instruction's Category A/B rule. Supersedes nothing;
 corrects the D9 closure recorded in ADR-132 and the record claims listed at point 6. Allocated the
 next unused number after ADR-132.
+
+## ADR-134: Round 16 — The Repair Was Right And Its Evidence Was Not
+
+Date: 2026-08-05
+Status: Accepted
+Owner authority: the overnight autonomous-build instruction (Category A/B repaired on discovery,
+Category C recorded and repaired where acceptance rules require it).
+Scope: S-07-009. `main` untouched; no merge; no push; no acceptance claimed.
+
+Context:
+
+ADR-133's repaired state was put through a second full ADR-026 five-lens round in the same five
+isolated environments. **Three of five lenses returned FAIL with five confirmed-blocking findings, and
+every one of them is about EVIDENCE rather than behaviour.** Both live production defects round 10
+found were independently confirmed repaired — the security lens by an exploit it built from scratch
+and then defeated by reverting the one repair line, the concurrency lens by a 3x2 real-handler
+deadlock matrix, 40 jittered rounds and a reversed-order control that still deadlocks on demand.
+
+**THE HEADLINE FINDING WAS FOUND BY THREE LENSES INDEPENDENTLY.** ADR-133 changed three WF-013
+handlers and proved one. Reverting `ExpireRoleAssignment` left 144 examples green while a real
+`PG::TRDeadlockDetected` went through the timed-expiry path — the tranche's own defect class, inside
+the repair written to remove it, in an ADR that names the principle in the sentence it breaks: "an
+exception maintained per handler is the enumeration this tranche exists to remove."
+
+Decision:
+
+1. **PROOF 262 IS PARAMETERISED OVER EVERY HANDLER THAT CAN HOLD AN ACTIVE GRANT ROW.**
+   `RevokeRoleAssignment` and `ExpireRoleAssignment` are each measured — the expiry through the
+   ScheduledAction worker, which is the only way production drives it — and reverting either now
+   fails.
+2. **`DecideRoleAssignment` IS NOT PROVED BY MEASUREMENT AND NO LONGER CLAIMS TO BE.** PROOF 262b
+   measures the property that exempts it instead: a protected write's capability CTE requires
+   `ra.status = 'active'`, a qual applied before `FOR SHARE OF ra`, so a PENDING row is filtered out
+   of the plan and never locked — proved by handing a protected write an authority naming a pending
+   grant and observing `capability_authorized: false`. Its reorder is uniformity, not safety, and the
+   records now say which.
+3. **EVERY MUTATION DEFINITION KEEPS ITS BIND PARAMETERS.** `d3-authority-always-true` and
+   `d6-a-predicate-removed` orphaned a parameter, so the statement died of `IndeterminateDatatype`
+   before the write was attempted and the kill said only that the file still type-checks. ADR-133
+   stated this rule generally and applied it to the two instances round 15 enumerated; a
+   statement-scoped scan of all 101 definitions found exactly two more, and both are rewritten.
+4. **THE FALSE RECORDS ARE CORRECTED WHERE THEY STAND**: the D9 direction (measured — `replay`
+   carried the correction, `replay_trigger` did not); the finding count (eight, not six, with
+   `R15-CTR-1` given the disposition it never had); "four dead public members added by D7" (five
+   readers removed, three of which predate D7); and `A15-4`, cited twice in the mutation set and
+   defined nowhere, now recorded.
+5. **THE TWO MISSING PROOFS EXIST.** PROOF 261b is the must-succeed control PROOF 261 lacked while its
+   file claimed every proof had one; the `def self.call` and nested-inside-a-class discovery escapes
+   both have examples. The namespace walk now recurses into classes and decides membership by whether
+   a constant can be CALLED, which is what being an entry point means.
+6. **THREE INSTRUMENT HAZARDS THE SCHEMA AND ARCHITECTURE LENSES MEASURED ARE CLOSED**: the lock-order
+   probe's cleanup ran as one implicit transaction and could leak its trigger, function and table
+   together under an ordinary concurrent reader (now separate statements under a short `lock_timeout`,
+   trigger first); its function did not pin `search_path` (now does); and `LOCK_TIMEOUT` collided
+   between two proof files that both decide `:blocked` vs `:committed` by it (now file-scoped).
+
+What was ruled out, and why:
+
+**PROVING `DecideRoleAssignment`'S ORDER BY MEASUREMENT.** It needs a protected pending grant and a
+SecurityOperator approver, and the property it would prove is not the one that matters — the handler
+cannot form the cycle at all. Measuring the exemption is both cheaper and stronger, because it fails
+if the exemption ever stops holding.
+
+**CORRECTING ADR-133 BY EDITING ITS TEXT.** It is an accepted record of what was decided and measured
+at the time. The corrections are recorded here, against the round that measured them.
+
+Consequences:
+
+The candidate's behaviour is unchanged by this ADR except in the mutation definitions and the proofs;
+the only production change is none. What changes is that the lock-order property is now bound at both
+handlers that can violate it, and that four records say what the repository contains.
+
+**THIS DOES NOT ACCEPT S-07-009.** No round has yet returned PASS on the state it reviewed, and the
+round-16 repairs make a new candidate. S-07-010 and S-07-011 remain blocked.
+
+Authority And Precedence:
+S-07-009 repair authority under the overnight instruction. Corrects the record claims listed at points
+2 and 4 of ADR-133. Allocated the next unused number after ADR-133.
