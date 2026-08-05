@@ -113,7 +113,7 @@ module IdentityAccess
           row[:requested_entitlement_policy_id], row[:requested_entitlement_policy_version],
           row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
           authority.epoch, authority.uuid_array, authority.bigint_array, authority.text_array,
-          authority.account_id, authority.required_role
+          authority.account_id, authority.required_role, authority.allowed_roles_array
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
@@ -131,6 +131,12 @@ module IdentityAccess
               AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)
               -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).
               AND ($19::text IS NULL OR ra.canonical_role = $19::text)
+              -- THE CAPABILITY ITSELF, AS A PREDICATE (round-17 finding R17-SEC-1). The rest of
+              -- this CTE asks whether the carried grant is still LIVE; without this line it never
+              -- asked what the grant CONFERS, so a role the ratified baseline denies satisfied it.
+              -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is
+              -- the baseline CARRIED, not a second copy of the six-step algorithm.
+              AND ra.canonical_role = ANY ($20::text[])
             FOR SHARE OF ra
           ), inserted AS (
             INSERT INTO crawls

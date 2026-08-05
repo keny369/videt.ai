@@ -130,14 +130,21 @@ module AuthoritySentinel
       # check below now covers the human predicate for exactly that reason.
       IdentityAccess::Authorization::CommandAuthorizer.prepend(AuthenticationObserver)
       Workflows::Wf005::AuthorityAttestation.singleton_class.prepend(AttestationObserver)
-      # BOTH ANCESTRIES. `#call` and `def self.call` are both ways to be the entry point, and this
-      # instrument used to see only the first — measured, a handler exposing the second ran entirely
-      # unobserved (A15-2). Prepending to both costs nothing when a handler has only one.
-      observed_handlers.each do |handler|
-        handler.prepend(CommandObserver)
-        handler.singleton_class.prepend(CommandObserver)
-      end
+      observed_handlers.each { |handler| install_observer(handler) }
       @armed = true
+    end
+
+    # BOTH ANCESTRIES. `#call` and `def self.call` are both ways to be the entry point, and this
+    # instrument used to see only the first — measured, a handler exposing the second ran entirely
+    # unobserved (A15-2). Prepending to both costs nothing when a handler has only one.
+    #
+    # IT IS A METHOD SO IT CAN BE PROVED (round-17 architecture observation O-4). Inline in `arm!`,
+    # the singleton half was bound by nothing: deleting it left the whole architecture suite green,
+    # because every proof of the escape tested DISCOVERY rather than OBSERVATION. A spec can now
+    # install the observer exactly as production does and drive a singleton entry point through it.
+    def install_observer(handler)
+      handler.prepend(CommandObserver)
+      handler.singleton_class.prepend(CommandObserver)
     end
 
     # ACCOUNTING IS PER THREAD, NOT PER PROCESS (D5 family 4, R10-11).
@@ -343,11 +350,16 @@ module AuthoritySentinel
   end
 
   # PREPENDED INTO BOTH ANCESTRIES, so `#call` and `def self.call` are both observed. `self` is the
-  # instance in the first case and the class itself in the second; the frame is labelled with the
-  # class either way.
+  # INSTANCE in the first case and the handler itself in the second, and the frame is labelled with
+  # the handler either way.
+  #
+  # `is_a?(Module)`, NOT `is_a?(Class)` (round-17). A handler exposing `def self.call` on a MODULE
+  # took the instance branch, so the frame was labelled `Module` — the observer fired, the census
+  # recorded a handler called "Module", and `executed_handlers` never contained the real name, which
+  # is the completeness limb that would have noticed the handler was never driven.
   module CommandObserver
     def call(...)
-      AuthoritySentinel.around_command(is_a?(Class) ? self : self.class) { super }
+      AuthoritySentinel.around_command(is_a?(Module) ? self : self.class) { super }
     end
   end
 

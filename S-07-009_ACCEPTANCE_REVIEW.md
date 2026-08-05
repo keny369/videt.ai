@@ -1058,13 +1058,6 @@ itself that a reviewer disproved:
   side, which is precisely what makes FU-38 reachable (R4-2). FU-38's own note still carries the
   now-invalidated "no reachable interleaving" justification.
 
-**A15-4 — TWO MUTATIONS KILLED ON A TYPING ERROR RATHER THAN ON THEIR SEMANTICS.**
-`d7-a-scope-role-unbound` and `d7-cancel-capability-always-true` each deleted the last reference to a
-bind parameter, so PostgreSQL refused the statement with `PG::IndeterminateDatatype` and the kill
-proved only that the statement no longer type-checks. Non-blocking in round 15 and repaired with it;
-round 16 then found two more of the same shape (`d3-authority-always-true`, `d6-a-predicate-removed`)
-and made the class blocking. All four now keep every parameter bound.
-
 ## What the round confirmed sound
 
 Recorded so the next round need not re-derive it. **R3-10 is correct AND complete** — the ratified table
@@ -2182,7 +2175,8 @@ so the census cannot tell a refused protected write from a committed one.
 bind parameter, so PostgreSQL refused the statement with `PG::IndeterminateDatatype` and the kill
 proved only that the statement no longer type-checks. Non-blocking in round 15 and repaired with it;
 round 16 then found two more of the same shape (`d3-authority-always-true`, `d6-a-predicate-removed`)
-and made the class blocking. All four now keep every parameter bound.
+and made the class blocking — and round 17 found a THIRD its scan had missed
+(`d6-a-state-predicate-omitted`). All five now keep every parameter bound.
 
 ## What the round confirmed sound
 
@@ -2367,4 +2361,119 @@ authorized, and outside this candidate.
 ## Stop
 
 S-07-009 remains NOT ACCEPTED. The round-16 repairs make a new candidate, and no round has yet
+returned PASS on the state it reviewed.
+
+---
+
+# ROUND 12 — the round-16 repaired candidate `b2e8cfb..b09508f`, records `ace9466`
+
+Round run: 2026-08-06, full ADR-026 five-lens form, same five isolated environments moved to the
+repaired commit. The sixteenth five-lens round this tranche has had.
+
+**VERDICT: FAIL. Three of five lenses. Six confirmed-blocking findings, NONE of them a production
+defect.** Two independent lenses found the same two things; one found a capability gap the Ruby layer
+still closes; the rest are proofs that do not measure their claim and records that are wrong.
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | C17-1, C17-2, C17-3, C17-4, C17-5, C17-6 |
+| Architecture / scope / test-quality | FAIL | A17-1 (= C17-1), A17-2 (= C17-4) |
+| Security / tenant-isolation | FAIL | R17-SEC-1 |
+| Concurrency / atomicity / idempotency | (see note) | — |
+| Schema / migration-safety / data-integrity | PASS_WITH_OBSERVATIONS | none |
+
+## The findings
+
+**R17-SEC-1 — THE CAPABILITY WAS NEVER SENT TO POSTGRESQL, AND THE CODE CLAIMED IT WAS.** FU-48
+exists because the capability axis "was enforced ONLY in Ruby, one deletion away from nothing", and
+each store said the write now closed that. `WriteAuthority` carried `capability` and never bound it
+into any statement: the CTE asked whether a carried grant is still LIVE, never what it CONFERS. The
+security lens drove an account whose only active Assignment is `TechnicalImplementer` — a role the
+ratified baseline denies `crawl.trigger` and `crawl.cancel` outright — and the write authorised it,
+inserting a Crawl and, at the cancellation, irreversibly canceling a running one. A capability string
+that does not exist in the baseline at all was accepted identically. `ActivateCrawlPolicy` was safe
+only by the accident that `SCOPE_ROLE`'s roles happen to lie inside its capability's cell. **Not a
+live bypass** — the Ruby `confers?` check still refuses, and is mutation-covered — but the
+owner-mandated write-level counterpart did not exist, and three files said it did.
+
+**C17-1 / A17-1 — A THIRD MUTATION KILLING ON A TYPING ERROR**, found independently by two lenses.
+`d6-a-state-predicate-omitted` orphans `$12`, so the statement never executes and all twelve recorded
+failures are the same `PG::IndeterminateDatatype` — including PROOF 226, the positive control, which
+then cannot tell a refusing write from a broken one. ADR-134 claimed a statement-scoped scan of all
+101 definitions had found "exactly two more".
+
+**C17-2 — PROOF 262b DID NOT MEASURE WHAT ITS ADR SAID.** It asserted `capability_authorized == false`
+and called that "the same fact as the row was never locked". It is not: a qual applied above
+`LockRows` would take the lock and still yield nothing. Worse, it was insensitive to the qual ADR-134
+named — deleting `AND ra.status = 'active'` left it green, because a pending grant has
+`effective_at IS NULL` and a different limb refused it.
+
+**C17-3, C17-4 / A17-2, C17-5, C17-6 — FOUR FALSE OR MISPLACED RECORDS.** ADR-134's ruled-out section
+says correcting ADR-133 by editing its text was rejected, in the same commit that edited it twice; the
+blocker ledger's A15-3 row still carried the count and provenance ADR-134 declares corrected; the
+completion report's headline still said SIX findings and attributed the latest round to ADR-133; and
+an unbounded string replace had inserted a round-15 finding into the **ROUND 4** record, narrating
+rounds 15 and 16 inside a round that ran before either.
+
+**The concurrency lens did not return a report within this round's window.** Its worktree was left
+clean and its verdict is not counted; the round's verdict does not depend on it, since three other
+lenses returned confirmed-blocking findings. The next round must run it.
+
+## The repair
+
+**The capability is now carried and bound.** `WriteAuthority` gains `allowed_roles` — the ratified
+`PermissionBaseline::CAPABILITIES` cell for the capability under test, read ONCE in Ruby, immutable
+for the life of a deploy — and every one of the three statements gains
+`AND ra.canonical_role = ANY ($n::text[])`. This is not a second copy of the six-step algorithm, which
+ADR-132 ruled out: it is exactly the shape `required_role` already had for the ratified scope rule,
+and what the statement re-reads is still only row state another transaction can move. `same_principal?`
+compares the new member, so an attestation minted for one capability cannot be presented at a write
+carrying another's cell. **The battery gains the case that would have caught it** — a grant that is
+live but whose role the baseline denies — run at all three writes, and three mutations bind it.
+
+PROOF 262b now measures the LOCK in both directions (a pending row held `FOR UPDATE` must not block
+the protected write; an active row must), PROOF 262c binds the exemption's second premise, and PROOF
+262d is the control the instrument itself lacked — the probe must be able to report the OTHER answer,
+driven through the real store methods in the reversed order. `d6-a-state-predicate-omitted` keeps its
+parameter bound. The cleanup no longer masks the example's failure or leaks a `lock_timeout`, and what
+it cannot drop now fails the run at suite end by name. The four records are corrected where they
+stand, and ADR-134's two false claims are corrected inside ADR-134 with a forward reference.
+
+## What the round confirmed sound
+
+The schema lens rebuilt a reference database from `db/structure.sql` and matched the live one on all
+nine fingerprint dimensions and all five counts; ran the bootstrap gate 9/9; confirmed `f1_web` holds
+no direct grant and there are zero PUBLIC table privileges anywhere in `public`; proved the probe
+trigger fires before the production guard and cannot alter it, in both the accepted and refused
+directions; drove the expiry path's failure branch and observed the ratified `:297` recovery; and
+seeded 4,000 organizations and 20,000 grants to show every plan stays an index scan, the
+last-administrator predicate an Index Only Scan with zero heap fetches, and 0 deadlocks in 40 rounds
+of a reordered revocation against a protected write, with `one_active_assignment_per_tuple` and
+`one_bootstrap_admin_per_organization` both refusing their duplicates.
+
+The architecture lens re-derived the completeness of `REORDERED_HANDLERS` from the catalogue rather
+than the list — only two statements in the repository lock an existing ACTIVE `role_assignments` row,
+and both are covered — forced six plan shapes on the capability CTE and found `status = 'active'`
+applied below `LockRows` in every one, regenerated the ledger with all seven bound fields identical in
+all 102 rows, and confirmed the discovery walk collects the six real handlers and no non-handlers.
+
+The security lens confirmed the reordered epoch window leaks nothing: another connection reads the old
+epoch, `authority_current?` answers correctly, and a `FOR SHARE` reader blocks, so no protected write
+can evaluate its epoch limb inside the window. Cross-tenant grant smuggling, account substitution, a
+forged victim Organization, a cross-tenant timed expiry, a mismatched `due_at` and a fully forged
+action identity were all refused.
+
+## Carried non-blocking observations
+
+`MutationHarness#replay_trigger`'s restore carries no `lock_timeout` at all, so an interrupted trigger
+mutation can leave a mutant installed — caught loudly by the ledger's byte-binding on the next
+regeneration, but unbounded meanwhile. `landed` is not table-scoped while `original` is. Sixteen
+ledger rows share a `failure_digest` with another row, and six differ between generations. The
+`REORDERED_HANDLERS` and `WRITES` lists are still maintained rather than derived. A handler outside
+the `Workflows::Wf005::Handlers` namespace is still unobserved. `classify`'s suite-error channel is
+still a substring the measured thing controls. FU-50 to FU-53 are unchanged.
+
+## Stop
+
+S-07-009 remains NOT ACCEPTED. The round-17 repairs make a new candidate, and no round has yet
 returned PASS on the state it reviewed.

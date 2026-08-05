@@ -232,6 +232,30 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
       expect(send(spec.fetch(:untouched), env)).to be(true)
     end
 
+    it "refuses when the grant is LIVE but its role confers nothing (round-17 finding R17-SEC-1)" do
+      # THE CASE TEN ROUNDS DID NOT ASK. Every other case moves the grant — revoked, version, scope,
+      # expiry, effectiveness — so all of them are about LIVENESS. None asked what the grant CONFERS.
+      # Measured before the repair: an account whose only active Assignment is a role the ratified
+      # baseline denies this capability outright was AUTHORISED by the write at two of the three
+      # sites, and so was a capability string that does not exist in the baseline at all. The write
+      # asked "is this grant still the grant the decision named", never "does it confer this".
+      #
+      # The predicate is the baseline CELL carried as a parameter, so this drives it by handing the
+      # write the real grant with a cell that excludes its role — which is exactly the state a
+      # deleted or wrong `confers?` produces upstream.
+      denied = AuthorityFixture.for_session(env[:session], capability: spec.fetch(:capability),
+                                                           allowed_roles: %w[NoSuchRole])
+
+      outcome = drive(spec, env, denied)
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a grant whose role the baseline denies this capability " \
+                                                 "authorised a protected write"
+      expect(spec.fetch(:applied).call(outcome)).to eq(0)
+      expect(send(spec.fetch(:untouched), env)).to be(true)
+    end
+
     it "COMMITS when the grant is exactly the one the decision relied on, so the battery is not vacuous" do
       outcome = drive(spec, env, authority)
 

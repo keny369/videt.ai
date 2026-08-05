@@ -13,17 +13,22 @@
 module AuthorityFixture
   module_function
 
-  def for_session(session_id, capability:, epoch: nil, grants: nil, required_role: nil)
+  def for_session(session_id, capability:, epoch: nil, grants: nil, required_role: nil,
+                  allowed_roles: nil)
     row = DbInspector.one("SELECT account_id, organization_id FROM sessions WHERE id = $1::uuid", [session_id])
     raise "no session #{session_id}" if row.nil?
 
     build(organization_id: row["organization_id"], account_id: row["account_id"], capability:, epoch:,
-          grants:, required_role:)
+          grants:, required_role:, allowed_roles:)
   end
 
-  def build(organization_id:, account_id:, capability:, epoch: nil, grants: nil, required_role: nil)
+  # `allowed_roles` DEFAULTS TO THE RATIFIED CELL, so a fixture proves the production shape unless it
+  # deliberately builds a wrong one (round-17 finding R17-SEC-1).
+  def build(organization_id:, account_id:, capability:, epoch: nil, grants: nil, required_role: nil,
+            allowed_roles: nil)
     IdentityAccess::Authorization::WriteAuthority.new(
       organization_id:, account_id:, capability:, required_role:,
+      allowed_roles: allowed_roles || Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
       epoch: epoch || current_epoch(organization_id),
       grant_ids: (grants || active_grants(organization_id, account_id)).map { |g| g["id"] },
       grant_versions: (grants || active_grants(organization_id, account_id)).map { |g| g["state_version"].to_i },

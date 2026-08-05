@@ -88,6 +88,36 @@ RSpec.describe AuthoritySentinel, type: :architecture do
     end
   end
 
+  describe "observation" do
+    it "opens a frame for a handler whose entry point is `def self.call` (round-17 observation O-4)" do
+      # DISCOVERY WAS PROVED AND OBSERVATION WAS NOT. Round 16 added the singleton prepend and two
+      # discovery examples; deleting the prepend left the whole architecture suite green, because
+      # nothing drove a singleton entry point THROUGH the observer. This installs the observer exactly
+      # as `arm!` does — same method — and requires the frame to open.
+      probe = Module.new do
+        def self.name = "Workflows::Wf005::Handlers::R17SingletonProbe"
+        def self.call(**) = :done
+      end
+      described_class.install_observer(probe)
+      before = described_class.observed_commands
+
+      expect(probe.call).to eq(:done)
+
+      expect(described_class.observed_commands).to eq(before + 1),
+                                                   "a handler exposing `def self.call` ran without the " \
+                                                   "sentinel opening a frame for it, so :335 does not " \
+                                                   "govern it and the run would stay green"
+      expect(described_class.executed_handlers).to include("Workflows::Wf005::Handlers::R17SingletonProbe")
+    end
+
+    it "installs the observer in BOTH ancestries of every discovered handler" do
+      described_class.observed_handlers.each do |handler|
+        expect(handler.ancestors).to include(AuthoritySentinel::CommandObserver), handler.name
+        expect(handler.singleton_class.ancestors).to include(AuthoritySentinel::CommandObserver), handler.name
+      end
+    end
+  end
+
   describe "accounting" do
     it "keeps each thread's frame separate, so one command cannot erase another's" do
       # R10-11. The counters lived in module state, so one thread's `ensure` restored the other's

@@ -47,6 +47,7 @@ module AutonomousBuild
     BATTERY_PROOF = "spec/acceptance/wf005_grant_battery_spec.rb"
     LIFETIME_PROOF = "spec/acceptance/wf005_grant_lifetime_spec.rb"
     ORDER_PROOF = "spec/acceptance/wf005_authority_lock_order_spec.rb"
+    ORDER_PROOF_FILE = ORDER_PROOF
     CLASSIFY_PROOF = "spec/automation/unit/mutation_harness_classification_spec.rb"
     REVOKE_HANDLER = "app/workflows/wf013/handlers/revoke_role_assignment.rb"
     EXPIRE_HANDLER = "app/workflows/wf013/handlers/expire_role_assignment.rb"
@@ -268,9 +269,17 @@ module AutonomousBuild
         to: "            WHERE EXISTS (SELECT 1 FROM authority)\n              OR ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
         expectation: "kill" },
       { id: "d6-a-state-predicate-omitted", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
-        description: "the expected-version predicate omitted from the supersede",
+        description: "the supersede stops requiring the expected state version, so a stale caller " \
+                     "supersedes a version it was not looking at",
+        # $12 STAYS REFERENCED (round-17 findings A17-1/C17-1). Dropping the predicate orphaned the
+        # parameter, so PostgreSQL refused the statement at parse-analysis, the write was never
+        # attempted, and all twelve recorded failures were the SAME type error — including PROOF 226,
+        # the positive control, which then could not tell a refusing write from a broken one. This is
+        # the third definition of this shape; round 16 claimed a statement-scoped scan had found
+        # "exactly two more", and it had missed this one.
         from: "AND id = $8::uuid AND state = 'active'\n              AND state_version = $12::int",
-        to: "AND id = $8::uuid AND state = 'active'", expectation: "kill" },
+        to: "AND id = $8::uuid AND state = 'active'\n              AND ($12::int IS NULL OR $12::int IS NOT NULL)",
+        expectation: "kill" },
       { id: "d6-a-wrong-organization", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
         description: "the predicate applied to the wrong row",
         from: "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
@@ -387,11 +396,10 @@ module AutonomousBuild
         expectation: "kill" },
       { id: "d7-cancel-capability-always-true", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the capability CTE made unconditionally true, so the grant is never read at all",
-        from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n            FOR SHARE OF ra\n",
-        # EVERY PARAMETER STAYS BOUND (A15-4): `SELECT 1` alone orphans $6-$10 and the statement dies
-        # of `IndeterminateDatatype` before the write is ever attempted, so the kill said nothing
-        # about whether the grant is read. This form is unconditionally true AND well-typed.
-        to: "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n",
+        from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n              -- THE CAPABILITY ITSELF, AS A PREDICATE (round-17 finding R17-SEC-1). The rest of\n              -- this CTE asks whether the carried grant is still LIVE; without this line it never\n              -- asked what the grant CONFERS, so a role the ratified baseline denies satisfied it.\n              -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is\n              -- the baseline CARRIED, not a second copy of the six-step algorithm.\n              AND ra.canonical_role = ANY ($11::text[])\n            FOR SHARE OF ra\n",
+        # EVERY PARAMETER STAYS BOUND (A15-4): `SELECT 1` alone orphans the authority parameters and
+        # the statement dies of `IndeterminateDatatype` before the write is attempted.
+        to: "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n              AND $11::text[] IS NOT NULL\n",
         expectation: "kill" },
       { id: "d7-cancel-grant-version-unbound", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the grant's state version stops being bound, so a decision taken against a " \
@@ -545,6 +553,39 @@ module AutonomousBuild
         to: "          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n" \
             "                                         reason, epoch + 1).to_i.zero?\n" \
             "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n",
+        expectation: "kill" },
+      # ---- ROUND 17 ----------------------------------------------------------------------------
+      { id: "r17-queue-capability-cell-unbound", blocker: "R17-SEC-1", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the QUEUE write stops asking what the grant CONFERS, so a live grant whose role " \
+                     "the ratified baseline denies this capability authorises the write",
+        from: "              AND ra.canonical_role = ANY ($20::text[])\n",
+        # THE PARAMETER STAYS BOUND (A15-4/A17-1): deleting the line outright orphans it and the
+        # statement dies of `IndeterminateDatatype` before the write is attempted.
+        to: "              AND ($20::text[] IS NULL OR $20::text[] IS NOT NULL)\n",
+        expectation: "kill" },
+      { id: "r17-cancel-capability-cell-unbound", blocker: "R17-SEC-1", file: STORE, proof: BATTERY_PROOF,
+        description: "the CANCELLATION write stops asking what the grant confers — the irreversible one",
+        from: "              AND ra.canonical_role = ANY ($11::text[])\n",
+        # THE PARAMETER STAYS BOUND (A15-4/A17-1): deleting the line outright orphans it and the
+        # statement dies of `IndeterminateDatatype` before the write is attempted.
+        to: "              AND ($11::text[] IS NULL OR $11::text[] IS NOT NULL)\n",
+        expectation: "kill" },
+      { id: "r17-policy-capability-cell-unbound", blocker: "R17-SEC-1", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the POLICY write stops asking what the grant confers",
+        from: "              AND ra.canonical_role = ANY ($19::text[])\n",
+        # THE PARAMETER STAYS BOUND (A15-4/A17-1): deleting the line outright orphans it and the
+        # statement dies of `IndeterminateDatatype` before the write is attempted.
+        to: "              AND ($19::text[] IS NULL OR $19::text[] IS NOT NULL)\n",
+        expectation: "kill" },
+      { id: "r17-probe-blinded", blocker: "R17-ARCH-O1", file: ORDER_PROOF_FILE, proof: ORDER_PROOF,
+        description: "the lock-order probe's predicate replaced by a constant, so the instrument that " \
+                     "reads the production order can no longer report the other answer",
+        from: "        SELECT EXISTS (\n          SELECT 1 FROM pg_locks\n          WHERE pid = pg_backend_pid() AND relation = 'organizations'::regclass\n            AND mode = 'RowExclusiveLock' AND granted\n        );\n",
+        to: "        SELECT true;\n", expectation: "kill" },
+      { id: "r17-singleton-observer-removed", blocker: "R17-ARCH-O4", file: SENTINEL, proof: SENTINEL_PROOF,
+        description: "the sentinel stops observing the singleton ancestry, so a handler exposing " \
+                     "`def self.call` runs unobserved",
+        from: "      handler.singleton_class.prepend(CommandObserver)\n", to: "",
         expectation: "kill" },
       { id: "r16-expire-order-reversed", blocker: "R16-CONC-1", file: EXPIRE_HANDLER, proof: ORDER_PROOF,
         description: "ExpireRoleAssignment writes the grant before advancing the epoch, restoring the " \

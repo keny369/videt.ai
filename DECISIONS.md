@@ -4135,7 +4135,9 @@ Decision:
    `d6-a-predicate-removed` orphaned a parameter, so the statement died of `IndeterminateDatatype`
    before the write was attempted and the kill said only that the file still type-checks. ADR-133
    stated this rule generally and applied it to the two instances round 15 enumerated; a
-   statement-scoped scan of all 101 definitions found exactly two more, and both are rewritten.
+   statement-scoped scan of all 101 definitions found two more, and both are rewritten. **THAT SCAN
+   WAS INCOMPLETE AND ROUND 17 FOUND A THIRD** (`d6-a-state-predicate-omitted`), recorded at ADR-135:
+   the rule stated here was right and its application was not.
 4. **THE FALSE RECORDS ARE CORRECTED WHERE THEY STAND**: the D9 direction (measured — `replay`
    carried the correction, `replay_trigger` did not); the finding count (eight, not six, with
    `R15-CTR-1` given the disposition it never had); "four dead public members added by D7" (five
@@ -4145,11 +4147,13 @@ Decision:
    file claimed every proof had one; the `def self.call` and nested-inside-a-class discovery escapes
    both have examples. The namespace walk now recurses into classes and decides membership by whether
    a constant can be CALLED, which is what being an entry point means.
-6. **THREE INSTRUMENT HAZARDS THE SCHEMA AND ARCHITECTURE LENSES MEASURED ARE CLOSED**: the lock-order
-   probe's cleanup ran as one implicit transaction and could leak its trigger, function and table
-   together under an ordinary concurrent reader (now separate statements under a short `lock_timeout`,
-   trigger first); its function did not pin `search_path` (now does); and `LOCK_TIMEOUT` collided
-   between two proof files that both decide `:blocked` vs `:committed` by it (now file-scoped).
+6. **THREE INSTRUMENT HAZARDS ADDRESSED — AND THE FIRST WAS NOT CLOSED BY THIS REPAIR** (round-17
+   finding S-R17-1). Splitting the cleanup into separate statements under a short `lock_timeout`
+   cannot help, because `DROP TRIGGER` is both the FIRST statement and the one needing the strongest
+   lock: one ordinary open reader still leaks the identical set. What it bought is 2.1s instead of
+   15s and a guarantee that a LATER failure cannot roll back an earlier drop. ADR-135 records the
+   actual closure. The other two hold: the probe function pins `search_path`, and `LOCK_TIMEOUT` no
+   longer collides between two proof files that both decide `:blocked` vs `:committed` by it.
 
 What was ruled out, and why:
 
@@ -4158,8 +4162,14 @@ SecurityOperator approver, and the property it would prove is not the one that m
 cannot form the cycle at all. Measuring the exemption is both cheaper and stronger, because it fails
 if the exemption ever stops holding.
 
-**CORRECTING ADR-133 BY EDITING ITS TEXT.** It is an accepted record of what was decided and measured
-at the time. The corrections are recorded here, against the round that measured them.
+**CORRECTING ADR-133 BY EDITING ITS TEXT — AND THIS PARAGRAPH WAS FALSE WHEN IT WAS WRITTEN
+(round-17 finding C17-3).** The same commit that recorded this ADR edited ADR-133 twice, changing its
+finding count and its dead-member sentence in place. Decision 4 above says the opposite in as many
+words ("THE FALSE RECORDS ARE CORRECTED WHERE THEY STAND"), and the repository shows the edits. What
+was actually decided, and is recorded here so the next reader is not misled: a false FIGURE inside an
+accepted ADR is corrected in place with a forward reference to the round that measured it, because
+leaving a number known to be wrong is worse than amending the record; the ADR's REASONING and
+decisions are never rewritten.
 
 Consequences:
 
@@ -4173,3 +4183,87 @@ round-16 repairs make a new candidate. S-07-010 and S-07-011 remain blocked.
 Authority And Precedence:
 S-07-009 repair authority under the overnight instruction. Corrects the record claims listed at points
 2 and 4 of ADR-133. Allocated the next unused number after ADR-133.
+
+## ADR-135: Round 17 — The Capability Was Never Sent To The Database
+
+Date: 2026-08-06
+Status: Accepted
+Owner authority: the overnight autonomous-build instruction.
+Scope: S-07-009. `main` untouched; no merge; no push; no acceptance claimed.
+
+Context:
+
+The third consecutive five-lens round on this tranche. Three of five lenses returned FAIL with six
+confirmed-blocking findings and **no production defect**. The schema lens returned
+PASS_WITH_OBSERVATIONS after rebuilding a reference database and matching the live one on all nine
+fingerprint dimensions, and after 40 deadlock-free rounds at 4,000 organizations and 20,000 grants.
+The concurrency lens did not return within the window; its verdict is not counted and the next round
+must run it.
+
+**THE FINDING THAT MATTERS IS THAT FU-48 WAS NEVER FINISHED.** FU-48 exists because the capability
+axis "was enforced ONLY in Ruby, one deletion away from nothing". `WriteAuthority` carried
+`capability` and never bound it into any statement. The capability CTE asked whether a carried grant
+is still LIVE — status, version, scope, effectiveness, expiry — and never what the grant CONFERS. An
+account whose only active Assignment is `TechnicalImplementer`, a role the ratified baseline denies
+`crawl.trigger` and `crawl.cancel` outright, was authorised by the write; so was a capability string
+that does not exist in the baseline. `ActivateCrawlPolicy` was safe only because `SCOPE_ROLE`'s roles
+happen to lie inside its capability's cell. Three files claimed the opposite in as many words.
+
+It is **not a live bypass**: the Ruby `confers?` check still refuses, and is mutation-covered. What
+was missing is the owner-mandated write-level counterpart, and what was false is the record.
+
+Decision:
+
+1. **THE CAPABILITY IS CARRIED AND BOUND.** `WriteAuthority` gains `allowed_roles` — the ratified
+   `Platform::PermissionBaseline::CAPABILITIES` cell for the capability under test — and each of the
+   three protected writes gains `AND ra.canonical_role = ANY ($n::text[])`. ADR-132 ruled out
+   re-deriving the six-step algorithm in SQL and this does not do that: the cell is IMMUTABLE FOR THE
+   LIFE OF A DEPLOY and is read once in Ruby, exactly as `required_role` already carried the ratified
+   scope rule. What the statement re-reads is still only row state another transaction can move.
+   `same_principal?` compares the new member, so an attestation minted for one capability cannot be
+   presented at a write carrying another's cell. The battery gains the case that would have caught
+   it — a grant that is LIVE but whose role the baseline denies — at all three writes, and three
+   mutations bind it.
+2. **PROOF 262b MEASURES THE LOCK.** Its first version asserted an OUTCOME and called it the same fact
+   as "the row was never locked", which it is not, and was insensitive to the qual it named. A pending
+   row is now held `FOR UPDATE` on a second connection and the protected write must NOT block on it,
+   with an ACTIVE-row control that must. PROOF 262c binds the exemption's other premise — the store
+   methods only ever write a `pending` row — and PROOF 262d requires the probe itself to be able to
+   report the other answer, driven through the real store methods in the reversed order.
+3. **THE THIRD TYPING MUTATION IS REWRITTEN.** `d6-a-state-predicate-omitted` orphaned `$12`; all
+   twelve of its recorded failures were the same `PG::IndeterminateDatatype`, including the positive
+   control. ADR-134's scan claimed "exactly two more" and is corrected there.
+4. **THE PROBE CLEANUP NO LONGER MASKS OR LEAKS SILENTLY.** ADR-134 recorded the hazard as closed; it
+   was not, because `DROP TRIGGER` is both the first statement and the one needing the strongest lock,
+   so splitting the batch cannot help. The cleanup no longer raises (a raise in an `ensure` replaces
+   the example's real failure and skipped the `lock_timeout` reset, both introduced by ADR-134), it
+   always restores `lock_timeout`, and anything it cannot drop fails the run at suite end by name.
+5. **THE SINGLETON OBSERVER IS BOUND, AND ITS LABEL WAS WRONG.** Deleting
+   `handler.singleton_class.prepend(CommandObserver)` left the architecture suite green. Installing it
+   is now a method a spec can call, and driving a `def self.call` handler through it revealed that the
+   frame was being labelled `Module` — the observer fired, the census recorded a handler called
+   "Module", and `executed_handlers` never held the real name, which is the completeness limb that
+   notices an undriven handler. `is_a?(Module)` replaces `is_a?(Class)`.
+6. **FOUR RECORDS CORRECTED**: ADR-134's ruled-out paragraph (which stated the opposite of what its
+   own commit did), the blocker ledger's A15-3 row, the completion report's headline count and round
+   attribution, and a round-15 finding an unbounded string replace had inserted into the ROUND 4
+   record.
+
+What was ruled out:
+
+**BINDING THE CAPABILITY STRING ITSELF INTO THE STATEMENT.** It would require the database to hold the
+baseline, which is the second copy ADR-132 refused. The cell is the same fact in the form the
+statement can check.
+
+Consequences:
+
+Every protected write now refuses a grant whose role the ratified baseline does not admit for the
+capability being spent, independently of any Ruby check. FU-52 is closed by this and its follow-up
+entry is retired.
+
+**THIS DOES NOT ACCEPT S-07-009.** Sixteen rounds have run and none has returned PASS on the state it
+reviewed. The concurrency lens must be re-run.
+
+Authority And Precedence:
+S-07-009 repair authority under the overnight instruction. Corrects ADR-134 decisions 3 and 6 and its
+ruled-out section, in place, with forward references. Allocated the next unused number after ADR-134.

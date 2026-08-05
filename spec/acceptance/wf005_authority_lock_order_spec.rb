@@ -239,14 +239,26 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
 
     Platform::PgBool.true?(rows.first["org_already_locked"]) ? :organizations : :role_assignments
   ensure
-    # ONE STATEMENT AT A TIME, AND BOUNDED (round-16 schema observation S-R16-1). As a single
-    # multi-statement `exec` this ran in one implicit transaction, so an ordinary concurrent reader
-    # of `role_assignments` made the first `DROP TRIGGER` wait out the connection's 15-second
-    # `statement_timeout` and the whole batch rolled back — leaving the trigger, the function AND the
-    # table it writes to installed, which is silent because the suite stays green and only the
-    # structure-drift gate, run against this database, would ever say so. Separate statements each
-    # commit, a short `lock_timeout` turns a wait into an error rather than a 15-second stall, and the
-    # drops are ordered so the trigger goes first and can never outlive its table.
+    drop_probe!
+  end
+
+  # THE CLEANUP CANNOT LEAK SILENTLY, AND ROUND 16's REPAIR DID NOT ACHIEVE THAT (round-17 schema
+  # finding S-R17-1).
+  #
+  # Round 16 split one multi-statement `exec` into three under a short `lock_timeout`, on the theory
+  # that a later statement failing would no longer roll back the earlier drops. The measurement it did
+  # not make: `DROP TRIGGER` is the FIRST statement AND the one needing the strongest lock
+  # (ACCESS EXCLUSIVE). One ordinary open reader of `role_assignments` — a plain `SELECT count(*)` in
+  # an open transaction — makes it time out, and the leak set is identical to before, byte for byte.
+  # Splitting a batch cannot help when statement one is the contended one.
+  #
+  # SO THIS DOES THREE THINGS INSTEAD. It never raises, because a `raise` in an `ensure` REPLACES the
+  # example's real failure (S-R17-5) and skips the `lock_timeout` reset (S-R17-2) — the round-16
+  # repair introduced both. It always restores `lock_timeout`, which lives on the process-wide
+  # inspector connection. And what it cannot drop is recorded, so `assert_no_probe_residue!` fails the
+  # run at suite end rather than leaving committed DDL on a production authority table for the drift
+  # gate to find much later.
+  def drop_probe!
     conn = DbInspector.connection
     conn.exec("SET lock_timeout = '2000ms'")
     ["DROP TRIGGER IF EXISTS f1_test_lock_order_probe ON role_assignments",
@@ -254,11 +266,34 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
      "DROP TABLE IF EXISTS f1_test_lock_order"].each do |statement|
       conn.exec(statement)
     rescue PG::Error => e
-      warn "lock-order probe cleanup failed on `#{statement}`: #{e.message}"
-      raise
+      warn "lock-order probe cleanup could not run `#{statement}`: #{e.message}"
+      LockOrderProbeResidue.record(statement)
     end
-    conn.exec("SET lock_timeout = 0")
+  ensure
+    begin
+      conn&.exec("SET lock_timeout = 0")
+    rescue PG::Error
+      nil
+    end
   end
+
+  # A leak is a property of the RUN, so it is judged once at the end of it rather than by whichever
+  # example happened to be contended.
+  module LockOrderProbeResidue
+    class << self
+      def statements = (@statements ||= [])
+      def record(statement) = statements << statement
+
+      def assert_none!
+        return if statements.empty?
+
+        raise "the lock-order probe could not remove #{statements.length} object(s) from the database " \
+              "and they are still installed on a production authority table: #{statements.uniq.join('; ')}"
+      end
+    end
+  end
+
+  RSpec.configure { |config| config.after(:suite) { LockOrderProbeResidue.assert_none! } }
 
   def revoke_through_handler(g, grant)
     result = Workflows::Wf013::Handlers::RevokeRoleAssignment.new.call(
@@ -326,6 +361,47 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
     measure_first_lock { expire_through_worker }
   end
 
+  # Hold one `role_assignments` row `FOR UPDATE` on a second connection and ask whether a real
+  # protected write blocks on it. `true` means the statement asked for that row's lock; `false` means
+  # its plan filtered the row out before `LockRows`.
+  def blocks_on_held_grant?(g, row)
+    holder = tagged_connection("lock_order_grant_holder")
+    authority = AuthorityFixture.build(organization_id: g[:organization_id],
+                                       account_id: DbInspector.one(
+                                         "SELECT account_id FROM sessions WHERE id = $1::uuid",
+                                         [g[:session_id]]
+                                       )["account_id"],
+                                       capability: "crawl.trigger", grants: [row])
+    begin
+      holder.exec("BEGIN")
+      holder.exec_params("SELECT 1 FROM role_assignments WHERE id = $1::uuid FOR UPDATE", [row["id"]])
+      Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec("SET LOCAL lock_timeout = '#{lock_timeout}'")
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        IdentityAccess::Infrastructure::CrawlStore.new(pg).insert_crawl(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authority:, project_id: g[:project_id], kind: "root",
+          requested_crawl_policy_id: nil, requested_crawl_policy_version: nil,
+          requested_entitlement_policy_id: SecureRandom.uuid_v7,
+          requested_entitlement_policy_version: "entitlement-interim-v1",
+          trigger_kind: "manual", triggered_by_account_id: nil, idempotency_key_digest: "\x00" * 32
+        )
+      end
+      false
+    rescue PG::LockNotAvailable, PG::QueryCanceled, ActiveRecord::LockWaitTimeout, ActiveRecord::StatementInvalid
+      true
+    ensure
+      begin
+        holder.exec("ROLLBACK")
+      rescue PG::Error
+        nil
+      end
+      holder.close
+    end
+  end
+
   def production_write_order(first)
     first == :organizations ? %i[organizations role_assignments] : %i[role_assignments organizations]
   end
@@ -345,15 +421,22 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       end
     end
 
-    it "PROOF 262b — DecideRoleAssignment is exempt BY CONSTRUCTION, and the construction is measured" do
+    it "PROOF 262b — DecideRoleAssignment is exempt BY CONSTRUCTION, and the LOCK is what is measured" do
       # WHY IT CANNOT FORM THE CYCLE. Its target is a PENDING Assignment, and every protected write's
-      # capability CTE requires `ra.status = 'active'` — a qual applied before `FOR SHARE OF ra`, so
-      # the row is filtered out of the statement's plan and never locked. No concurrent protected
-      # write can therefore be holding the row this handler is about to write, whatever order it takes.
+      # capability CTE applies `ra.status = 'active'` at the scan, strictly below `LockRows` — so the
+      # row is filtered out before any lock is asked for. No concurrent protected write can be holding
+      # the row this handler is about to write, whatever order it takes.
       #
-      # PROVED RATHER THAN ARGUED: an authority naming a pending grant is refused by the write, which
-      # is the same fact as "the row was never locked" — the CTE that would have locked it yields
-      # nothing.
+      # ROUND 17 REJECTED THE FIRST VERSION OF THIS PROOF AND WAS RIGHT TO. It asserted
+      # `capability_authorized == false` and called that "the same fact as the row was never locked".
+      # It is not: a qual applied ABOVE `LockRows` would take the lock and still yield nothing, so the
+      # outcome is consistent with the row having been locked. Worse, the assertion was insensitive to
+      # the qual it named — deleting `AND ra.status = 'active'` left it green, because a pending grant
+      # has `effective_at IS NULL` and a different limb refused it.
+      #
+      # SO THE LOCK IS MEASURED DIRECTLY. A second connection holds the pending row `FOR UPDATE`; the
+      # protected write must NOT block on it. The control is the same write against an ACTIVE grant,
+      # which must block — otherwise this example would pass against a statement that locks nothing.
       g = bootstrap
       account = DbInspector.one("SELECT account_id FROM sessions WHERE id = $1::uuid",
                                 [g[:session_id]])["account_id"]
@@ -369,34 +452,72 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
       )
       raise "protected request failed: #{pending.reason_code}" unless pending.success?
 
-      row = DbInspector.one(<<~SQL, [g[:organization_id]])
+      pending_row = DbInspector.one(<<~SQL, [g[:organization_id]])
         SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
         FROM role_assignments WHERE organization_id = $1::uuid AND status = 'pending'
       SQL
-      expect(row).not_to be_nil, "the protected grant did not land pending, so this proof is vacuous"
+      active_row = DbInspector.one(<<~SQL, [g[:organization_id]])
+        SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+        FROM role_assignments WHERE organization_id = $1::uuid AND status = 'active' ORDER BY id LIMIT 1
+      SQL
+      expect(pending_row).not_to be_nil, "the protected grant did not land pending, so this proof is vacuous"
+      expect(active_row).not_to be_nil
 
-      authority = AuthorityFixture.build(organization_id: g[:organization_id], account_id: account,
-                                         capability: "crawl.trigger", grants: [row])
-      outcome = Platform::UnitOfWork.run do |conn|
-        pg = conn.raw_connection
-        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
-                       [g[:organization_id], SecureRandom.uuid_v7])
-        IdentityAccess::Infrastructure::CrawlStore.new(pg).insert_crawl(
-          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
-          organization_id: g[:organization_id], authority:, project_id: g[:project_id], kind: "root",
-          requested_crawl_policy_id: nil, requested_crawl_policy_version: nil,
-          requested_entitlement_policy_id: SecureRandom.uuid_v7,
-          requested_entitlement_policy_version: "entitlement-interim-v1",
-          trigger_kind: "manual", triggered_by_account_id: nil, idempotency_key_digest: "\x00" * 32
-        )
+      expect(blocks_on_held_grant?(g, pending_row)).to be(false),
+                                                      "a protected write BLOCKED on a PENDING grant row, so " \
+                                                      "DecideRoleAssignment's target CAN be held by a " \
+                                                      "concurrent write and its exemption does not hold"
+      expect(blocks_on_held_grant?(g, active_row)).to be(true),
+                                                     "the control did not block on an ACTIVE grant either, so " \
+                                                     "this example would pass against a statement that locks " \
+                                                     "nothing and proves nothing about pending rows"
+    end
+
+    it "PROOF 262d — the probe can report the OTHER answer, so a green PROOF 262 is a measurement" do
+      # THE CONTROL THE INSTRUMENT ITSELF LACKED (round-17 architecture observation O-1). Blinding the
+      # probe's predicate to a constant left every example in this file green — including with BOTH
+      # production handlers reverted to the cycle-forming order. A reader that cannot report the wrong
+      # answer is not reading anything, and PROOF 262 is only a measurement if this passes.
+      #
+      # The reversed order is driven through the REAL store methods on one connection, so what the
+      # probe observes is a genuine transaction that took the grant row first.
+      g = bootstrap
+      grant = revocable_grant(g)
+      conn = tagged_connection("lock_order_reverse")
+      first = begin
+        steps = revocation_steps(conn, g[:organization_id], grant)
+        measure_first_lock do
+          conn.exec("BEGIN")
+          steps.fetch(:role_assignments).call
+          steps.fetch(:organizations).call
+          conn.exec("COMMIT")
+        end
+      ensure
+        begin
+          conn.exec("ROLLBACK")
+        rescue PG::Error
+          nil
+        end
+        conn.close
       end
 
-      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the grant is under test"
-      expect(outcome[:capability_authorized]).to be(false),
-                                                 "a PENDING grant satisfied a protected write's capability " \
-                                                 "CTE, so DecideRoleAssignment's target CAN be locked by a " \
-                                                 "concurrent write and its exemption does not hold"
-      expect(outcome[:inserted]).to eq(0)
+      expect(first).to eq(:role_assignments),
+                       "the probe reported #{first} for a transaction that demonstrably took the grant " \
+                       "row first, so it cannot distinguish the two orders and PROOF 262 measures nothing"
+    end
+
+    it "PROOF 262c — and DecideRoleAssignment only ever writes a PENDING row, which is the exemption's other half" do
+      # THE SECOND PREMISE (round-17 architecture observation O-3). PROOF 262b establishes that a
+      # protected write never locks a pending row; the exemption also needs that this handler never
+      # writes a NON-pending one. Both of its store methods carry the guard, and widening either
+      # silently would end the exemption while 262b stayed green.
+      %i[activate reject].each do |method|
+        sql = IdentityAccess::Infrastructure::RoleAssignmentStore.instance_method(method).source_location
+        body = File.read(sql.first)[/def #{method}\b.*?\n      end/m]
+        expect(body).to include("status = 'pending'"),
+                        "RoleAssignmentStore##{method} no longer restricts itself to a pending row, so " \
+                        "DecideRoleAssignment can hold a row a protected write may also hold"
+      end
     end
   end
 

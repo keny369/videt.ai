@@ -37,7 +37,8 @@ module IdentityAccess
     #
     # EVERY VALUE COMES FROM THE AUTHENTICATED ACTOR AND ITS OWN DECISION, never from caller input.
     WriteAuthority = Data.define(:organization_id, :account_id, :capability, :epoch,
-                                 :grant_ids, :grant_versions, :grant_scopes, :required_role) do
+                                 :grant_ids, :grant_versions, :grant_scopes, :required_role,
+                                 :allowed_roles) do
       # `scope_hex` is NULL for an Organization-scope Assignment. It is normalised to the empty
       # string on both sides rather than carried as a NULL, because a NULL never equals a NULL and a
       # scope comparison that is silently never true is a conjunct that does nothing — the same shape
@@ -57,10 +58,30 @@ module IdentityAccess
       # It is nil for a command whose capability carries no scope rule, and the statement then binds
       # only the grant itself — a NULL that means "no rule", spelled so it cannot silently mean
       # "no check".
+      # `allowed_roles` IS THE CAPABILITY, CARRIED (round-17 security finding R17-SEC-1).
+      #
+      # WHAT WAS OPEN, AND WHY IT LOOKED CLOSED. FU-48's whole purpose was that the capability axis
+      # "was enforced ONLY in Ruby, one deletion away from nothing", and the stores said so: "the
+      # write now re-reads the granting Role Assignments the decision relied on, so deleting the Ruby
+      # check no longer produces an unauthorised Crawl." But `capability` was never SENT to
+      # PostgreSQL. The statement asked only whether one of the carried grants is still live — grant
+      # LIVENESS, not capability — so a grant conferring nothing satisfied it. Measured: an account
+      # whose only grant is `TechnicalImplementer`, a role the ratified baseline denies
+      # `crawl.trigger` and `crawl.cancel` outright, was authorised by the write, and so was a
+      # capability string that does not exist in the baseline at all. Only `ActivateCrawlPolicy` was
+      # safe, and only by the accident that `SCOPE_ROLE`'s roles happen to be inside its capability's
+      # cell.
+      #
+      # WHY THIS IS THE BASELINE CELL AND NOT A SECOND COPY OF THE ALGORITHM. ADR-132 ruled out
+      # re-deriving the six-step algorithm in SQL, and this does not: `CAPABILITIES` is IMMUTABLE FOR
+      # THE LIFE OF A DEPLOY, read ONCE in Ruby, and handed to the statement as a value — exactly the
+      # shape `required_role` already had for the ratified scope rule. What the statement re-reads is
+      # still only row state another transaction can move: which role the granting Assignment holds.
       def self.for(actor:, decision:, capability:, required_role: nil)
         grants = decision.granting
         new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,
             epoch: actor.authorization_epoch, required_role:,
+            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
             grant_ids: grants.map { |g| g["id"] },
             grant_versions: grants.map { |g| g["state_version"].to_i },
             grant_scopes: grants.map { |g| g["scope_hex"] || NO_SCOPE })
@@ -74,6 +95,7 @@ module IdentityAccess
       def uuid_array = pg_array(grant_ids)
       def bigint_array = pg_array(grant_versions)
       def text_array = pg_array(grant_scopes)
+      def allowed_roles_array = pg_array(allowed_roles)
 
       # Bound to the same actor and epoch the attestation names, so a write cannot be handed one
       # command's authority while another command's attestation is presented.
@@ -81,7 +103,7 @@ module IdentityAccess
         other.is_a?(self.class) && other.account_id == account_id &&
           other.organization_id == organization_id && other.epoch == epoch &&
           other.capability == capability && other.grant_ids == grant_ids &&
-          other.required_role == required_role &&
+          other.required_role == required_role && other.allowed_roles == allowed_roles &&
           other.grant_versions == grant_versions && other.grant_scopes == grant_scopes
       end
 

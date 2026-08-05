@@ -1,6 +1,6 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-15 repair is complete under ADR-133; this report is not an acceptance record.**
+**Acceptance status: NOT ACCEPTED. The round-17 repair is complete under ADR-135; this report is not an acceptance record.**
 
 **FIFTEEN full ADR-026 five-lens rounds have reviewed this tranche and all fifteen returned FAIL.**
 Eleven of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
@@ -11,10 +11,11 @@ figure below counts the sections of that file, which is what its gate measures; 
 generalised it to "rounds that have reviewed this tranche", and that was wrong (round-15 finding
 R15-CTR-2, out of range but corrected here rather than carried).
 
-The latest round found SIX confirmed-blocking findings, **two of them live production defects**: an
-expired Role Assignment could still spend its authority at two of the three protected writes, and
-FU-48's second row lock closed a deadlock cycle against every authority revocation. Both are repaired
-under ADR-133.
+The latest round — round 17, this record's ROUND 12 — found SIX confirmed-blocking findings and **no production defect**: one live capability gap that the Ruby layer still closed (the write never received the
+capability at all), one proof that did not measure what its ADR said it measured, a third mutation killing on a
+typing error, and three records that were wrong. Round 15 found EIGHT, two of them live production defects, and
+round 16 found five, all of them evidence. Every one is repaired; the dispositions are ADR-133, ADR-134 and
+ADR-135.
 
 ```f1-evidence
 candidate_range: b2e8cfb..b09508f
