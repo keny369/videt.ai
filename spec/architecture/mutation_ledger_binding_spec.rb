@@ -49,11 +49,21 @@ RSpec.describe AutonomousBuild::MutationHarness, type: :architecture do
       .to raise_error(/which does not exist/)
   end
 
-  it "rejects a correctly sealed row measured at a different commit" do
-    stale_commit = described_class.seal(truthful_row.tap { |r| r.delete("binding_sha256") }
-                                        .merge("commit" => "0" * 40))
-    expect { described_class.verify_bindings!([stale_commit], root: LEDGER_ROOT) }
-      .to raise_error(/but HEAD is/)
+  it "rejects a correctly sealed row whose commit this history does not contain" do
+    # Provenance, not equality with HEAD. Requiring equality was unsatisfiable: regenerating the
+    # ledger produces a file that must be committed, which moves HEAD and invalidates the rows just
+    # measured. What can hold is that the row names a commit this branch actually contains.
+    foreign = described_class.seal(truthful_row.tap { |r| r.delete("binding_sha256") }
+                                   .merge("commit" => "0" * 40))
+    expect { described_class.verify_bindings!([foreign], root: LEDGER_ROOT) }
+      .to raise_error(/not an ancestor of/)
+  end
+
+  it "rejects a correctly sealed row carrying no commit at all" do
+    unprovenanced = described_class.seal(truthful_row.tap { |r| r.delete("binding_sha256") }
+                                         .merge("commit" => ""))
+    expect { described_class.verify_bindings!([unprovenanced], root: LEDGER_ROOT) }
+      .to raise_error(/no commit, so its verdict has no provenance/)
   end
 
   it "rejects a STALE verdict — the production file has changed since it was measured" do

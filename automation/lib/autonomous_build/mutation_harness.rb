@@ -136,13 +136,24 @@ module AutonomousBuild
                   "another reason, or not run at all"
       end
 
-      # A row must describe THIS commit. Without this the `commit` field was decorative: every row
-      # could name any commit and nothing compared it, so a verdict measured against an older tree
-      # survived indefinitely.
-      head = Open3.capture2e("git", "-C", root, "rev-parse", "HEAD").first.strip
-      if entry["commit"] != head
-        errors << "was measured at commit #{entry['commit'].to_s[0, 12]} but HEAD is #{head[0, 12]}; " \
-                  "regenerate the ledger rather than carrying a verdict across a commit"
+      # THE COMMIT RECORDS PROVENANCE AND MUST BE REACHABLE — not equal to HEAD.
+      #
+      # Requiring equality was unsatisfiable and I had to watch it fail to see why: regenerating the
+      # ledger produces a file that must itself be committed, which moves HEAD, which invalidates
+      # every row that was just measured. Provenance is the property that can hold: the row names a
+      # commit this history actually contains. Byte-level staleness — the thing that would make a
+      # verdict wrong — is caught by `file_sha256` and `proof_sha256`, which compare against the
+      # working tree and do not care what HEAD is.
+      recorded_commit = entry["commit"].to_s
+      if recorded_commit.empty?
+        errors << "records no commit, so its verdict has no provenance"
+      else
+        _, status = Open3.capture2e("git", "-C", root, "merge-base", "--is-ancestor",
+                                    recorded_commit, "HEAD")
+        unless status.success?
+          errors << "was measured at commit #{recorded_commit[0, 12]}, which is not an ancestor of " \
+                    "HEAD; the verdict comes from a history this branch does not contain"
+        end
       end
 
       # A kill must name failing examples that EXIST. A fabricated row naming invented spec paths is
