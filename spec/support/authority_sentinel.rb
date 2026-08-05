@@ -65,7 +65,7 @@ module AuthoritySentinel
       @writes = 0
       @evaluated = false
       @attested = false
-      WireTap.subscribe { |sql, _error| note_write(sql) }
+      PG::Connection.prepend(WriteObserver)
       IdentityAccess::Authorization::CommandAuthorizer.singleton_class.prepend(RecheckObserver)
       Workflows::Wf005::AuthorityAttestation.singleton_class.prepend(AttestationObserver)
       human_authorized_handlers.each { |handler| handler.prepend(CommandObserver) }
@@ -114,6 +114,15 @@ module AuthoritySentinel
   module CommandObserver
     def call(...)
       AuthoritySentinel.around_command(self.class) { super }
+    end
+  end
+
+  # The same single door, with the same disclosed limitation as the census: a prepared-statement
+  # write would be invisible. The corpus uses neither.
+  module WriteObserver
+    def exec_params(sql, *, &)
+      AuthoritySentinel.note_write(sql.to_s)
+      super
     end
   end
 

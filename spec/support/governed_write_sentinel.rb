@@ -67,6 +67,32 @@ module GovernedWriteSentinel
   # ever needs an entry again, that is the signal that the structural property has been lost.
   CLASSIFIED_UNTRANSLATED = {}.freeze
 
+  # THE ONE DOOR, OWNED BY THE BEHAVIOUR IT PROVES (D5 family 2; R10-7, R10-8).
+  #
+  # WHAT THIS REPLACED. `WireTap` prepended redefinitions of FOURTEEN `PG::Connection` methods and
+  # claimed to observe "every execution API". It could not: for the prepared-statement doors the
+  # first argument is a statement NAME, not SQL, so a governed-write pattern match on it was blind by
+  # construction. Measured on this branch, `exec_prepared("wt_repro", [1])` published `"wt_repro"`.
+  # It also redefined every door as `*args, **kwargs, &block`, which is not the forwarding those
+  # methods declare, and it produced a SIGSEGV in the headline gate.
+  #
+  # THE REPLACEMENT IS NARROW AND HONEST. It hooks `exec_params` — the single door every
+  # `Platform::Db` call and every WF-005 store actually goes through — forwards arguments with a bare
+  # `super` so dispatch, arity, visibility and keyword handling are untouched, and observes both
+  # outcomes because a write REFUSED by the closure trigger is exactly the event owner ruling 2 is
+  # about. It does NOT claim to see prepared-statement writes, and the completeness argument rests on
+  # PROOF 175's call-site analysis rather than on this census.
+  module Instrumentation
+    def exec_params(sql, *, &)
+      result = super
+      GovernedWriteSentinel.observe(sql, nil)
+      result
+    rescue PG::Error => e
+      GovernedWriteSentinel.observe(sql, e)
+      raise
+    end
+  end
+
   class << self
     # Tables closed by the ratified trigger, read from the catalogue exactly as
     # `crawl_terminal_fact_closure_spec.rb` reads it. Memoized per process, never hardcoded.
@@ -147,8 +173,7 @@ module GovernedWriteSentinel
       # EVERY DOOR, NOT ONE. This hooked `exec_params` alone, which was complete only because nothing
       # in `app/` happened to use `exec`, `exec_prepared` or the async forms — "complete because
       # nobody has used the other doors yet" is the shape of every finding this tranche has produced.
-      # `WireTap` covers all of them and proves the set is the whole surface `PG::Connection` exposes.
-      WireTap.subscribe { |sql, error| observe(sql, error) }
+      PG::Connection.prepend(Instrumentation)
       @armed = true
     end
 
@@ -173,7 +198,7 @@ module GovernedWriteSentinel
       stack = caller_locations(1, STACK_DEPTH) || []
       # NEAREST OWNER WINS. Whichever comes first — WF-005 code or an example — is the frame that
       # issued this statement, and a statement issued by an example is the harness, not a producer.
-      # THE INSTRUMENT CHAIN IS NOT AN ISSUER. Both this file and `WireTap` live under `spec/`, so
+      # THIS FILE IS NOT AN ISSUER. The hook lives under `spec/`, so
       # without this the tap itself becomes the "nearest owning frame" and every write is classified
       # as harness-issued — which would blind the census while every assertion below still passed.
       issuer = stack.find do |l|
