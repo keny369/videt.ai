@@ -104,6 +104,33 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
     SQL
   end
 
+  # A claimed host gate, written while the Crawl is still live. The UPDATE limb of the closure is
+  # about what may happen to THIS row afterwards, so it has to exist before the run terminalises.
+  # COMMITTED, NOT WRITTEN INSIDE `as_runtime`. That helper wraps its block in BEGIN/ROLLBACK, so a
+  # gate inserted there is gone before the UPDATE limb can be driven against it — the UPDATE then
+  # matches zero rows, no trigger fires, and the proof reports "not refused" while never having
+  # presented the database with anything to refuse. That is the vacuity this whole file guards against,
+  # and it happened here first.
+  def insert_host_gate(f, organization_id: org)
+    id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, organization_id, f[:pid], f[:crawl]])
+      INSERT INTO crawl_host_gates
+        (id, created_at, updated_at, correlation_id, organization_id, project_id, crawl_id,
+         canonical_host, canonical_host_sha256)
+      VALUES ($1, now(), now(), gen_random_uuid(), $2::uuid, $3::uuid, $4::uuid,
+              'gate.example', sha256('gate.example'::bytea))
+    SQL
+    id
+  end
+
+  # `f1_crawl_host_gates_guard` requires every UPDATE to advance `state_version` and `updated_at`, so
+  # an update that omits them is refused by THAT guard and never reaches the closure. A proof that
+  # tripped the wrong guard would report a refusal it did not cause.
+  def gate_update(assignment)
+    "UPDATE crawl_host_gates SET #{assignment}, state_version = state_version + 1, " \
+      "updated_at = now() WHERE id = $1::uuid"
+  end
+
   describe "the rule itself" do
     it "PROOF 153 — a governed child fact commits normally while the Crawl is NOT terminal" do
       # The closure must not be a blanket refusal. Every ordinary observation this subsystem makes
@@ -184,11 +211,173 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
                                           "crawl_host_gates")
     end
 
-    it "PROOF 157 — the sitemap and robots OUTCOME columns are closed on UPDATE as well" do
-      # R6-3's second variant is an UPDATE — `sitemap_unavailable` written onto a claimed gate after
-      # the checkpoint had already counted `unresolved_discovery = 0` — so no INSERT rule can reach
-      # it. The limb is narrowed to the outcome columns, and this asserts both halves of that: the
-      # trigger exists on UPDATE, and its WHEN clause names the outcome rather than the whole row.
+    # THE COLUMNS THE UPDATE LIMB MUST CLOSE, each driven from a LEGAL BASELINE.
+    #
+    # These are contract-derived: each is read by terminal selection, so a late write to it can
+    # contradict a frozen coverage record. `sitemap_limit_reasons` is in the list because
+    # `CrawlStartStore#terminal_facts` sums it into `sitemap_limit_facts`, which `TerminalSelection`
+    # turns into `limit_reached` and `partial`.
+    #
+    # WHY A BASELINE IS NEEDED, AND WHY IT IS NOT A FIXTURE SHORTCUT. `crawl_host_gates` carries a
+    # state machine and five shape constraints: `robots_state` may only walk pending -> in_progress ->
+    # terminal and is FROZEN once terminal; `robots_terminal_at` is non-null exactly when robots is
+    # terminal; `sitemap_state = 'pending'` exactly when the claim is unheld. A single-column poke at a
+    # freshly inserted gate therefore trips one of THOSE guards and raises a different error — which is
+    # how the first version of this proof reported refusals it had not caused. The gate is walked to a
+    # legal resting state WHILE THE RUN IS LIVE, using the same transitions production uses, and only
+    # then is the post-terminal write attempted. PROOF 157/live drives every one of those writes on a
+    # live run and requires it to COMMIT, so the only thing left that can refuse them is the closure.
+    def advance_gate_to_terminal_facts(gate)
+      conn.exec_params(<<~SQL, [gate])
+        UPDATE crawl_host_gates
+        SET sitemap_state = 'in_progress', sitemap_claim_token = gen_random_uuid(),
+            sitemap_attempt_started_at = now(), robots_state = 'in_progress',
+            state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid
+      SQL
+      conn.exec_params(<<~SQL, [gate])
+        UPDATE crawl_host_gates
+        SET sitemap_state = 'absent', sitemap_outcome_reason = 'no_sitemap', sitemap_terminal_at = now(),
+            robots_state = 'unavailable', robots_terminal_reason = 'robots_unavailable',
+            robots_terminal_at = now(), state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid
+      SQL
+    end
+
+    def advance_gate_to_robots_in_progress(gate)
+      conn.exec_params(<<~SQL, [gate])
+        UPDATE crawl_host_gates SET robots_state = 'in_progress',
+               state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid
+      SQL
+    end
+
+    # THE GATE IS DRIVEN TO `in_progress` FIRST, AND THAT IS NOT A FIXTURE SHORTCUT.
+    #
+    # `crawl_host_gates` carries guards STRONGER than the closure: `f1_crawl_host_gates_sitemap_guard`
+    # raises `crawl_host_gate_sitemap_decision_frozen` and the robots limb of
+    # `f1_crawl_host_gates_guard` raises `crawl_host_gate_robots_decision_frozen` once each decision is
+    # terminal, whatever the crawl's state. A column driven from a terminal gate is therefore refused
+    # by THAT rule and proves nothing about this one — which is exactly the mistake the first version
+    # of this proof made, reporting refusals it had not caused. Every write below is issued against a
+    # gate whose own guards still permit it, using the same transitions production uses, so the CRAWL's
+    # terminality is the only thing left that can refuse it. PROOF 157/live drives every one of them on
+    # a live run and requires it to COMMIT.
+    def advance_gate_to_in_progress(gate)
+      conn.exec_params(<<~SQL, [gate])
+        UPDATE crawl_host_gates
+        SET sitemap_state = 'in_progress', sitemap_claim_token = gen_random_uuid(),
+            sitemap_attempt_started_at = now(), robots_state = 'in_progress',
+            state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid
+      SQL
+    end
+
+    # Each of these changes EXACTLY ONE governed column and is legal from `in_progress`.
+    ISOLATED_WRITES = {
+      "sitemap_outcome_reason" => "sitemap_outcome_reason = 'sitemap_unavailable'",
+      "sitemap_limit_reasons" => %q(sitemap_limit_reasons = '["depth_cap"]'::jsonb),
+      "robots_terminal_reason" => "robots_terminal_reason = 'robots_fetch_failed'"
+    }.freeze
+
+    # THE REMAINING FOUR CANNOT BE ISOLATED, and the reason is a real contract rather than a limitation
+    # of this file. `crawl_host_gates_sitemap_terminal_shape` makes `sitemap_terminal_at` non-null
+    # exactly when the sitemap decision is terminal, and `crawl_host_gates_robots_terminal_shape` does
+    # the same for robots — so a decision and its instant must move together, and the sitemap decision
+    # additionally requires its reason. They are driven as the coherent groups the schema demands, and
+    # are labelled as groups so nobody later reads them as isolated writes.
+    GROUPED_WRITES = {
+      "sitemap_state + sitemap_terminal_at" =>
+        "sitemap_state = 'absent', sitemap_outcome_reason = 'no_sitemap', sitemap_terminal_at = now()",
+      "robots_state + robots_terminal_at" =>
+        "robots_state = 'no_restrictions', robots_terminal_at = now()"
+    }.freeze
+
+    UNGOVERNED_PACING_WRITES = {
+      "next_allowed_start_at" => "next_allowed_start_at = now() + interval '30 seconds'",
+      "recent_start_instants" => "recent_start_instants = ARRAY[now()]"
+    }.freeze
+
+    ISOLATED_WRITES.merge(GROUPED_WRITES).each do |label, assignment|
+      it "PROOF 157/#{label} — a post-terminal write to #{label} is REFUSED BY THE DATABASE" do
+        # WHY THIS REPLACED A TEXT ASSERTION (R10-15 / ledger D4). The previous PROOF 157 read
+        # `pg_get_triggerdef` and asserted that seven column NAMES appeared in it. Replacing `OR` with
+        # `AND` in the WHEN clause keeps every one of those names present while making the limb
+        # UNFIREABLE — so the proof passed, 248 examples stayed green, and a post-terminal
+        # `sitemap_state` write was ACCEPTED under the mutant and REFUSED at HEAD. It asserted the
+        # presence of names in text; the contract is about WHEN THE TRIGGER FIRES.
+        #
+        # One example per column or coherent group, because a single example looping over them reports
+        # the first failure and hides the rest — and the round-7 gap was three columns nobody noticed.
+        f = fixture
+        gate = insert_host_gate(f)
+        advance_gate_to_in_progress(gate)
+        terminalize(f[:crawl])
+
+        as_runtime(org) do |pg|
+          expect { pg.exec_params(gate_update(assignment), [gate]) }
+            .to raise_error(PG::RaiseException, /crawl_child_fact_after_terminal/)
+        end
+      end
+    end
+
+    UNGOVERNED_PACING_WRITES.each do |column, assignment|
+      it "PROOF 157/#{column} — pacing stays writable after terminal, so the limb is not blanket" do
+        # NON-VACUITY. A closure that refused every UPDATE would satisfy every example above while
+        # breaking the host rate window for the next run.
+        f = fixture
+        gate = insert_host_gate(f)
+        advance_gate_to_in_progress(gate)
+        terminalize(f[:crawl])
+
+        as_runtime(org) { |pg| expect { pg.exec_params(gate_update(assignment), [gate]) }.not_to raise_error }
+      end
+    end
+
+    it "PROOF 157/live — every governed write COMMITS while the run is live, so terminality is what refuses" do
+      # THE OTHER HALF OF NON-VACUITY, and what makes the refusals above mean anything: each write is
+      # accepted by the gate's own guards and every shape constraint on a live run. Without this, a
+      # write that was merely malformed would look exactly like a write the closure refused — which is
+      # the mistake the first version of this proof actually made.
+      ISOLATED_WRITES.merge(GROUPED_WRITES).each do |label, assignment|
+        f = fixture
+        gate = insert_host_gate(f)
+        advance_gate_to_in_progress(gate)
+
+        as_runtime(org) do |pg|
+          expect { pg.exec_params(gate_update(assignment), [gate]) }
+            .not_to raise_error, "#{label}'s write is not legal on a live run, so its refusal after " \
+                                 "terminalisation would prove nothing about the closure"
+        end
+      end
+    end
+
+    it "PROOF 157/coverage — every column the closure governs is exercised by the examples above" do
+      # THE SET IS DERIVED FROM THE TRIGGER, NOT FROM THIS FILE. If a later change adds a column to the
+      # WHEN clause and no example drives it, this fails — which is the hole the round-7 review found
+      # by hand and the round-10 review found again.
+      definition = DbInspector.one(<<~SQL, [CLOSURE_FUNCTION])["def"]
+        SELECT pg_get_triggerdef(t.oid) AS def
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_proc pr ON pr.oid = t.tgfoid
+        WHERE NOT t.tgisinternal AND pr.proname = $1 AND c.relname = 'crawl_host_gates'
+          AND (t.tgtype & 16) <> 0
+      SQL
+      governed = definition.scan(/new\.(\w+) IS DISTINCT FROM/).flatten.uniq
+      exercised = (ISOLATED_WRITES.merge(GROUPED_WRITES).values.join(" ").scan(/(\w+) =/).flatten).uniq
+
+      expect(governed).not_to be_empty, "the WHEN clause parse found no governed columns"
+      expect(governed - exercised).to be_empty,
+                                      "the closure governs #{(governed - exercised).join(', ')}, which no " \
+                                      "example above drives"
+    end
+
+    it "PROOF 157b — the UPDATE trigger exists on the row, AFTER rather than BEFORE" do
+      # RETAINED FROM THE OLD PROOF FOR THE ONE THING TEXT CAN HONESTLY ANSWER. PROOF 40b: PostgreSQL
+      # evaluates a policy's WITH CHECK limb on the row a BEFORE trigger leaves behind, so a BEFORE
+      # trigger would run ahead of RLS and answer a cross-tenant write with a state message instead of
+      # a tenant refusal. Ordering is a property of the declaration, not of any single write.
       definition = DbInspector.one(<<~SQL, [CLOSURE_FUNCTION])["def"]
         SELECT pg_get_triggerdef(t.oid) AS def
         FROM pg_trigger t
@@ -198,26 +387,7 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
           AND (t.tgtype & 16) <> 0
       SQL
 
-      # AFTER, not BEFORE, and PROOF 40b is why: PostgreSQL evaluates a policy's WITH CHECK limb on the
-      # row a BEFORE trigger leaves behind, so a BEFORE trigger would run ahead of RLS and answer a
-      # cross-tenant write with a state message instead of a tenant refusal.
       expect(definition).to include("AFTER UPDATE")
-      # ALL SEVEN, NOT THE FOUR THAT WERE OBVIOUS (round 7, mutation-gap review). The round-6 form
-      # asserted four columns, and narrowing the WHEN clause to drop `sitemap_limit_reasons`,
-      # `robots_terminal_reason` and `robots_terminal_at` survived this proof AND the whole
-      # 241-example persistence suite. `sitemap_limit_reasons` is coverage-bearing —
-      # `CrawlStartStore#terminal_facts` sums it into `sitemap_limit_facts`, which
-      # `TerminalSelection` turns into `limit_reached` and `partial` — so a late write to it can
-      # contradict a frozen coverage record exactly as `sitemap_state` can.
-      %w[sitemap_state sitemap_outcome_reason sitemap_terminal_at sitemap_limit_reasons
-         robots_state robots_terminal_reason robots_terminal_at].each do |column|
-        expect(definition).to include(column),
-                              "the UPDATE closure does not govern #{column}, which the terminal " \
-                              "selection reads; a late write to it can contradict a frozen record"
-      end
-      # The pacing columns stay writable: a terminal run must not break the host's rate window.
-      expect(definition).not_to include("next_allowed_start_at")
-      expect(definition).not_to include("recent_start_instants")
     end
   end
 end
