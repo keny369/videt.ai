@@ -235,11 +235,23 @@ module Workflows
           from_state = crawl["state"]
           new_version = crawl["state_version"].to_i + 1
 
-          # Guarded on the state AND the version, so a race that got past the read above still writes
-          # nothing. Zero rows here would mean the lock did not hold, which is corruption rather than a
-          # domain outcome.
-          moved = d[:crawls].cancel(crawl["id"], crawl["state_version"].to_i, now)
-          raise Platform::InvariantViolation, "crawl cancellation lost its serialized transition" if moved.to_i.zero?
+          # Guarded on the state, the version AND CURRENT AUTHORITY, all in one statement (D3/R10-10).
+          #
+          # THE AUTHORITY TEST IS NOT HERE. It is a conjunct of the UPDATE, so a revocation that lands
+          # while this transaction was blocked on `lock_frontier`/`lock_crawl` is seen by PostgreSQL at
+          # the instant of the write. That is what makes the round-10 exploit — hoisting the Ruby
+          # recheck above the locks — inert: there is no separate check left to hoist. The Ruby recheck
+          # above remains as the DENIAL path, so an already-revoked caller is refused politely rather
+          # than reaching a write that would refuse it anyway.
+          #
+          # THE TWO ZERO-ROW CASES ARE OPPOSITE EVENTS and are reported as such. Authority that moved
+          # during the wait is a domain denial; a lost serialized transition is corruption. Collapsing
+          # them would either report corruption for an ordinary revocation or, far worse, swallow
+          # corruption as a denial.
+          outcome = d[:crawls].cancel(crawl["id"], crawl["state_version"].to_i, now,
+                                      authorization_epoch: actor.authorization_epoch, organization_id: org)
+          return denied(d, "crawl_cancel_unauthorized") unless outcome[:authorized]
+          raise Platform::InvariantViolation, "crawl cancellation lost its serialized transition" if outcome[:moved].zero?
 
           metering = release_reservation(d, crawl)
 

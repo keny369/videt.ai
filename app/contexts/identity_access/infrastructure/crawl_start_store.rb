@@ -251,13 +251,45 @@ module IdentityAccess
       # cancelled run's coverage is not a number anyone should read — the run was stopped, not measured.
       CANCELED_STATES = %w[queued running].freeze
 
-      def cancel(id, expected_version, now)
-        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
-          UPDATE crawls
-          SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
-              state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE id = $1::uuid AND state = ANY (ARRAY['queued','running']) AND state_version = $2
+      # CANCELLATION CARRIES ITS OWN AUTHORITY CHECK, IN THE WRITE (D3 / R10-10).
+      #
+      # THE DEFECT THIS CLOSES. `:335`/SEC-REQ-004/005 require authority to be re-read AFTER the wait,
+      # because the wait is exactly when it can be revoked. Round 9 expressed that as a Ruby recheck
+      # that minted an attestation the commit demanded. The round-10 review then hoisted the mint
+      # ABOVE `lock_frontier`/`lock_crawl` — an ordinary "compute it once, early" refactor — and the
+      # cancellation COMMITTED ON REVOKED AUTHORITY, irreversibly, while passing every mechanism.
+      # Round 11 added a floor requiring the transaction to hold an assigned xid before minting; the
+      # exact same hoist SURVIVED it, because `authorize` assigns an xid before the locks are taken.
+      #
+      # WHY THIS SHAPE ENDS IT. `CommandAuthorizer.authority_current?` is, in full,
+      # "`organizations.authorization_epoch` equals the epoch the actor was authenticated with". That
+      # is ORDINARY ROW STATE, so it can be a CONJUNCT OF THE WRITE rather than a Ruby statement
+      # standing next to it. There is then nothing to hoist, reorder, extract into a helper,
+      # short-circuit or arrange a Boolean around: the authority test and the state transition are one
+      # statement, evaluated by PostgreSQL at the instant of the write, which is necessarily after
+      # every lock the handler took to get here. No transaction-header interpretation is involved, and
+      # no `xmax` or multixact decoding — the invariant reads a column that means what it says.
+      #
+      # THE TWO ZERO-ROW CASES ARE DISTINGUISHED, because they are opposite kinds of event. Authority
+      # that moved is a DOMAIN DENIAL the caller must report; a lost serialized transition is
+      # CORRUPTION. Both are computed in the same statement so neither can be inferred from the other.
+      def cancel(id, expected_version, now, authorization_epoch:, organization_id:)
+        row = exec(<<~SQL, [id, expected_version, iso(now), authorization_epoch, organization_id]).first
+          WITH authority AS (
+            SELECT 1 FROM organizations
+            WHERE id = $5::uuid AND authorization_epoch = $4::bigint
+          ), moved AS (
+            UPDATE crawls
+            SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
+                state_version = state_version + 1, updated_at = $3::timestamptz
+            WHERE id = $1::uuid AND state = ANY (ARRAY['queued','running']) AND state_version = $2
+              AND EXISTS (SELECT 1 FROM authority)
+            RETURNING 1
+          )
+          SELECT (SELECT count(*) FROM authority) AS authorized,
+                 (SELECT count(*) FROM moved) AS moved
         SQL
+        { authorized: row["authorized"].to_i.positive?, moved: row["moved"].to_i }
       end
 
       # ":442 — record … AFFECTED SOURCE AND URL COUNTS" for the wall-clock crossing, and — since
