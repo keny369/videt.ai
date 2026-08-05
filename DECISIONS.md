@@ -3986,3 +3986,112 @@ S-07-009 repair authority under the D7 instruction; FU-48 under the owner decisi
 Supersedes the D7 candidate repair recorded in `S-07-009_BLOCKER_LEDGER.md` at `b2e8cfb`, whose
 diagnosis and proposed mechanism are both corrected here. Allocated the next unused number after
 ADR-131.
+
+## ADR-133: Round 15 — Two Live Authority Defects, And The Proof Gaps That Hid Them
+
+Date: 2026-08-05
+Status: Accepted
+Owner authority: the overnight autonomous-build instruction, which directs that Category A and
+Category B findings be repaired on discovery, that Category C findings be recorded and repaired where
+repository acceptance rules require it, and that work continue rather than stop at the first defect.
+Scope: S-07-009. `main` untouched; no merge; no push; no acceptance claimed.
+
+Context:
+
+The D7 candidate `b2e8cfb..ea8ef8d` (ADR-132), records `c398434`, was put through a full ADR-026
+five-lens independent review in five isolated worktrees, five databases built by its own Model C
+bootstrap, and five dedicated Redis instances. Every mandatory gate passed at the candidate before the
+round began — rspec 2407/0 three times consecutively with no hang, zeitwerk, packwerk, brakeman,
+bundler-audit, `verify_runtime`, no structure drift, the bootstrap gate's nine checks, and a mutation
+ledger of 92 definitions independently regenerated twice with no verdict difference.
+
+**FOUR OF FIVE LENSES RETURNED FAIL, AND TWO OF THE SIX BLOCKING FINDINGS WERE LIVE PRODUCTION
+DEFECTS.** Both were introduced by FU-48 — the repair that put the capability axis at the write — and
+neither was visible to any existing proof.
+
+Decision:
+
+1. **R15-SEC-1 — THE GRANT'S LIFETIME IS JUDGED AFTER THE WAIT, IN ALL THREE WRITES.** `QueueCrawl`
+   and `ActivateCrawlPolicy` each constructed a `PostWaitDecision`, used it to mint the attestation,
+   and then handed the write the instant the command ENTERED WITH. The expiry conjunct was therefore
+   evaluated against a clock reading taken before an unbounded advisory-lock wait, and a Role
+   Assignment that expired during that wait still conferred — reproduced live, committing both a Crawl
+   and an immutable Organization-scope crawl policy on a grant that had expired three seconds earlier.
+   `CancelCrawl` was correct, and its correctness was the finding: one line, `d = d.merge(now:
+   post_wait.now)`, which `PostWaitDecision`'s own rules 2 and 5 already required. Both handlers now
+   adopt the instant they were already computing. PROOF 259/260 fail at `c398434` and pass here; PROOF
+   261 is the regression lock on the handler that was already right; each is paired with a control
+   that must SUCCEED under the identical wait.
+
+2. **R15-CONC-1 — ONE LOCK ORDER FOR THE TWO AUTHORITY ROWS, EVERYWHERE.** FU-48 gave every protected
+   write a second locked relation: `organizations` then `role_assignments`, inside one statement.
+   `RevokeRoleAssignment` and `ExpireRoleAssignment` wrote them the other way round in one
+   transaction, and nothing serialized the two sides. That is a cycle. Reproduced 13/13 through the
+   real handler, and over 80 jittered rounds: 20 deaths of the customer's command, 8 of the
+   revocation, decided by arrival order. Nothing rescues `PG::TRDeadlockDetected` anywhere in `app`,
+   `lib` or `automation`. The three WF-013 handlers now advance the epoch FIRST. Both writes stay in
+   the same transaction, keep their guards and still raise `LostRace` on zero rows: only which row the
+   transaction holds first changes. `DecideRoleAssignment` cannot form the cycle — its target is
+   `pending`, which the capability CTE filters out before asking for a lock — and is reordered anyway,
+   because an exception maintained per handler is the enumeration this tranche exists to remove.
+
+3. **A15-1 — THE BATTERY IS WRITTEN ONCE AND RUN AT EVERY PROTECTED WRITE.** The capability predicate
+   exists at three writes and the proofs enumerated which (write, conjunct) pairs were exercised; ten
+   conjuncts could be deleted with the whole suite green. `wf005_grant_battery_spec.rb` drives seven
+   cases — revoked, version moved, scope moved, expired, not yet effective, no grant at all, and a
+   control that must commit — against all three writes, and PROOF 252b/252c drive a real grant
+   revocation against the queue and policy writes while each is blocked mid-flight. All ten deletions
+   verified killed.
+
+4. **A15-2 — THE HANDLER SET IS THE NAMESPACE, WALKED.** It was a non-recursive directory glob plus a
+   filename-to-constant derivation, and the observer was prepended into the instance ancestry alone. A
+   handler one directory deeper, or one exposing `def self.call`, was invisible — and invisible is
+   greener. Discovery is now every class under `Workflows::Wf005::Handlers`, however nested, with the
+   observer in both ancestries.
+
+5. **R15-CONC-2 — ONE CLASSIFIER, WITH THE FIRST SPEC IT HAS EVER HAD.** D7 recorded that both replay
+   paths of `MutationHarness` classify identically. They did not: the correction had reached `replay`
+   and left `replay_trigger` ending `else "broken"`. No ledger verdict was wrong — every trigger
+   mutation kills with failing examples, so the divergent branch is unreached — so this was a false
+   record and a latent asymmetry. The two copies are now one.
+
+6. **THREE FALSE RECORDS CORRECTED WHERE THEY STOOD**: the "79 of 82" / "79 of 89" definition counts
+   (measured: 82 of 92 at the time, 91 of 101 now); `ProtectedEffectDoor`'s claim of a whole-suite
+   cross-check that does not exist and could not, because a refusal still PLANS a modification of the
+   guarded relation; and the same file's claim that the catalogue cannot move under a run, which six
+   specs falsify additively. Four dead public members added by D7 are deleted, and two mutation
+   definitions that killed on `PG::IndeterminateDatatype` — an orphaned bind parameter, so the
+   statement never executed — are rewritten to die on their own semantics.
+
+What was ruled out, and why:
+
+**REORDERING THE WF-005 SIDE INSTEAD.** Both locks are taken inside one statement, so their order is a
+property of the statement rather than of Ruby, and forcing the reverse would mean making the
+capability CTE depend on the epoch CTE — which collapses the two reason codes the contract
+distinguishes. The WF-013 side has two separate statements and reorders cleanly.
+
+**DROPPING `FOR SHARE OF ra` TO BREAK THE CYCLE.** It would work, and it would restore exactly the
+premise D8 removed: safety resting on "every transition that removes a grant also advances the epoch
+in the same transaction", an enumeration nobody wrote down.
+
+**EXTRACTING THE CAPABILITY CTE TO ONE SQL FRAGMENT.** The right shape, and not taken tonight: it
+moves the text every existing mutation definition patches, and the fourteen-round history of this
+tranche is largely repairs introducing new defects. The battery makes the three copies provably agree
+— any drift fails seven cases at the drifting write — so the duplication is recorded as an open
+improvement rather than repaired under a review cycle.
+
+Consequences:
+
+An epoch advance and a role-assignment revocation now wait behind an in-flight WF-005 human command
+for the few statements between its protected write and its commit, and no longer deadlock with it.
+Two authorized commands for one Organization still proceed together. `QueueCrawl` and
+`ActivateCrawlPolicy` now stamp their rows with the post-wait instant, as `CancelCrawl` already did.
+
+**THIS DOES NOT ACCEPT S-07-009.** The repaired state is a NEW candidate and requires its own
+independent review; a repair round has never yet been accepted on the strength of its own author's
+verification in this tranche. S-07-010 and S-07-011 remain blocked.
+
+Authority And Precedence:
+S-07-009 repair authority under the overnight instruction's Category A/B rule. Supersedes nothing;
+corrects the D9 closure recorded in ADR-132 and the record claims listed at point 6. Allocated the
+next unused number after ADR-132.

@@ -1,17 +1,27 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-10 repair is complete under ADR-126; this report is not an acceptance record.**
+**Acceptance status: NOT ACCEPTED. The round-15 repair is complete under ADR-133; this report is not an acceptance record.**
 
-Nine full ADR-026 five-lens rounds have reviewed this tranche and all nine returned FAIL. Round 9
-(ADR-125) closed six of round 8's nine blockers and then reproduced its own failure mode one step
-later in the other three: **it replaced three enumerations with three narrower enumerations.**
+**FOURTEEN full ADR-026 five-lens rounds have reviewed this tranche and all fourteen returned FAIL.**
+Ten of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
+unmerged `repair/s07-009-r10@68c1d52`, and two more — run at `f801245` and `abf5390` — were integrated
+through the repair commits `0b90938` and `b2e8cfb` and the D-numbered sections of
+`S-07-009_BLOCKER_LEDGER.md` without ever being written into the review record. The `review_rounds`
+figure below counts the sections of that file, which is what its gate measures; earlier prose
+generalised it to "rounds that have reviewed this tranche", and that was wrong (round-15 finding
+R15-CTR-2, out of range but corrected here rather than carried).
+
+The latest round found SIX confirmed-blocking findings, **two of them live production defects**: an
+expired Role Assignment could still spend its authority at two of the three protected writes, and
+FU-48's second row lock closed a deadlock cycle against every authority revocation. Both are repaired
+under ADR-133.
 
 ```f1-evidence
-candidate_range: b2e8cfb..ea8ef8d
+candidate_range: b2e8cfb..fd40025
 frozen_path_changes: 0
 frozen_paths: []
-suite_examples: 2407
-review_rounds: 9
+suite_examples: 2447
+review_rounds: 10
 ```
 
 The block above exists because round 9's frozen-path gate NEVER EXECUTED: it read prose with a regex
@@ -298,7 +308,7 @@ arity of foreign keys it found but could not discover a missing link; migration 
 proof repair that exact gap. The separate `IS NOT DISTINCT FROM` refutation remains unchanged and is
 covered by `spec/architecture/repository_truth_spec.rb`'s tracked-record corpus.
 
-## Review history — nine rounds, nine FAILs
+## Review history — fourteen rounds, fourteen FAILs (ten recorded in the review file)
 
 | Round | Candidate | Outcome |
 | --- | --- | --- |
@@ -311,6 +321,9 @@ covered by `spec/architecture/repository_truth_spec.rb`'s tracked-record corpus.
 | 7 | `7f043a2..4e2d8cf` | FAIL — three of five lenses, 5 blockers: C-1, C-2, SEC-B1, A-1, A-2 |
 | 8 | `7f043a2..e1f5bab` | FAIL — four of five lenses, 9 blockers, EIGHT of them proof defects rather than behaviour defects |
 | 9 | `7f043a2..6fda00d` | FAIL — four of five lenses, 7 blockers; six of round 8's nine closed, and three enumerations replaced by narrower ones |
+| — | `7f043a2..6d00aa1`, `7f043a2..2601917` | two rounds recorded on `repair/s07-009-r10@68c1d52`, preserved and unmerged |
+| — | `f801245`, `abf5390` | two rounds integrated through `0b90938` and `b2e8cfb`; findings live in the blocker ledger's D-sections, not in the review record |
+| 10 | `b2e8cfb..ea8ef8d`, records `c398434` | FAIL — four of five lenses, 6 blockers, TWO live production defects (an expired grant spending authority; a deadlock cycle against every revocation) |
 
 Round 6 returned contract FAIL (R6-2, R6-3, R6-4), concurrency FAIL (R6-1, R6-2, R6-3), security FAIL
 (R6-1, R6-5, R6-6), schema FAIL (R6-2) and architecture FAIL (R6-7, R6-8, R6-9). The complete findings and
@@ -377,8 +390,8 @@ never the one under review. `repository_truth_spec` now governs this table too.
 
 | Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2407 examples, 0 failures` |
-| `bundle exec rspec spec/architecture` | `238 examples, 0 failures, 1 pending` |
+| `bundle exec rspec` | `2447 examples, 0 failures` |
+| `bundle exec rspec spec/architecture` | `239 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
 | `bin/rails zeitwerk:check` | all is good |
@@ -386,7 +399,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 92 mutations, 92 killed, 0 survived, 0 broken |
+| mutation ledger | 101 mutations, 101 killed, 0 survived, 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -521,7 +534,7 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**92 mutations, 92 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+**101 mutations, 101 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
 replayed, sealed and verified by the same machinery rather than copied in as literals.
 
 Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the

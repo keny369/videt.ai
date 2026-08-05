@@ -432,3 +432,30 @@ ACCEPTED by this branch. D7, D8, D9 and D10 are closed with production fixes and
 FU-48 is implemented under its owner decision; acceptance remains an independent five-lens review's
 decision, and no acceptance transition, merge, push or progression is authorised until one returns
 PASS.
+
+---
+
+## ROUND 15 — the D7 candidate was reviewed, and it carried two live authority defects
+
+Recorded 2026-08-05 on `repair/s07-009-r15`. Full findings in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 10;
+disposition in `DECISIONS.md` ADR-133.
+
+**THE CANDIDATE PASSED EVERY MANDATORY GATE AND WAS STILL WRONG IN TWO PLACES THAT MATTER.** rspec
+2407/0 three times consecutively, zeitwerk, packwerk, brakeman, bundler-audit, `verify_runtime`, no
+structure drift, the bootstrap gate's nine checks, and a 92-row mutation ledger regenerated twice
+independently with no verdict difference. Four of five lenses returned FAIL anyway.
+
+| Finding | What was actually wrong | Status |
+| --- | --- | --- |
+| **R15-SEC-1** | `QueueCrawl` and `ActivateCrawlPolicy` handed the write the instant they ENTERED with, so the grant-lifetime conjunct was judged before an unbounded lock wait. An expired Role Assignment queued a Crawl and activated an immutable Organization-scope policy, live. `CancelCrawl` was correct, and that asymmetry was the finding. | CLOSED — both handlers adopt the post-wait instant they were already computing; PROOF 259/260 fail before the fix, PROOF 261 locks the handler that was right, each paired with a must-succeed control |
+| **R15-CONC-1** | FU-48's second row lock closed a deadlock cycle: the protected writes take `organizations` then `role_assignments`, the WF-013 authority handlers took them the other way round, nothing serialized the two sides, and nothing rescues 40P01. 20 customer-command deaths and 8 revocation deaths over 80 rounds. | CLOSED — one global order, `organizations` first, in all three WF-013 handlers; PROOF 262 MEASURES the order inside the handler's own transaction, PROOF 263 replays it, PROOF 263b requires the reverse to deadlock, PROOF 264 measures the WF-005 half |
+| **A15-1** | Ten conjuncts of the capability predicate could be deleted with the whole suite green: the proofs enumerated which (write, conjunct) pairs were exercised. | CLOSED — one battery, seven cases, all three writes, plus PROOF 252b/252c for the two unproved locks; all ten deletions verified killed |
+| **A15-2** | Handler discovery was a NON-RECURSIVE directory glob and the observer was prepended into one ancestry, so a handler one directory deeper, or one exposing `def self.call`, was invisible — and invisible is greener. | CLOSED — discovery is the `Workflows::Wf005::Handlers` namespace walked; both ancestries observed; both escapes have proofs |
+| **A15-3** | Four public members added by D7 have no caller anywhere — D1's rule inside D1's own tranche. | CLOSED — deleted |
+| **R15-CONC-2 / R15-CTR-2 / R15-CTR-3** | D9's closure was itself false (`replay_trigger` still ended `else "broken"`); three records gave three inconsistent definition counts; the door described a whole-suite cross-check that does not exist and could not. | CLOSED — one classifier with the first spec that decision has ever had; counts measured; the door's comment now states what is actually checked and names its limit |
+
+**THE RULE AT `:150` STANDS AND IS NOT SATISFIED BY THIS ROUND.** S-07-009 is NOT ACCEPTED. The
+repaired state is a NEW candidate and needs its own independent review: in fourteen rounds, no repair
+has ever been accepted on the strength of its own author's verification, and this round is the reason
+why — every gate was green on a candidate carrying two live authority defects. S-07-010 and S-07-011
+remain blocked.

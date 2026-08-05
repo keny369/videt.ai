@@ -21,9 +21,9 @@
       "failure_digest": "59aa3b8d4c58241f988fc9185e1beb5a5d26f0221ee9cb1721784e1bcc99c680",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "88c5d1d29a9dfb31318eb9929c9a665625dff8e28e8a4b82c23ccdbbdfca75c3"
+      "binding_sha256": "cdab01638ceda54295e6b2c2ca593b42f998e911780938dd7ea18f2818ca5a7f"
     },
     {
       "id": "d2-not-after-unclamped",
@@ -43,9 +43,9 @@
       "failure_digest": "076541e367d8db3ae8416f4a63dbb0a875359686fcc672e7afa45ebb724f01d5",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "99fd3d03219fbb6e4a1e327692d1a1dffaaebc6fb4b5df970cd8a65d2cfca148"
+      "binding_sha256": "7d2f5a5c71020bcd0aa9be0bf206ee50bee71810ca86cf8c6d66838ecbd46afe"
     },
     {
       "id": "d2-at-weakened",
@@ -65,9 +65,9 @@
       "failure_digest": "08901d31af4977ab5a8b59756576d7138d790a7d0d88817a5752282873fa7df8",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f47efb76aec3d839a838c81fccc927849025f29e221bd9e59017c35753b6bf93"
+      "binding_sha256": "40f5c2957ac61ad5a07e4061fecac2c706665c069ba8191668e320dc7ecaeb49"
     },
     {
       "id": "d2-none-incomplete",
@@ -87,9 +87,9 @@
       "failure_digest": "b01d208dd0a94027afe2a089fa487876762d7c30e520b27d7651c42d78d65c22",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f70c072937404eb98f171e3ceaa028b391e12e1655afbedeac8a2fcef9042c48"
+      "binding_sha256": "b4a0ee8753a5019292b54045a948731295cbc1d02fa0ec57d18207923fb0f19d"
     },
     {
       "id": "d1-dead-method-returns",
@@ -109,9 +109,9 @@
       "failure_digest": "6741b8e1f2dff14a6fac59d1f0ea95979cad4387f5057a1211ba6146d4c2a51c",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "0f0df5cbd501ee2464b0bfa156fb69a59528129db3ace243b58178a752bf721c"
+      "binding_sha256": "0316aa44f647c2e2e00d459af19c1c90e5256ba1909d3b56662b533595baee8b"
     },
     {
       "id": "d3-conjunct-removed",
@@ -132,9 +132,9 @@
       "failure_digest": "bb00085d8fd67196a4da1a0d09538bf6191c0dabc92822d40df14c4d6e085f60",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "dea2697f455c488ba00de7ccf24e0583a7d4cf844814450aff60623d896ce7f0"
+      "binding_sha256": "ca61c016a4cf1c1bcce1a3c3296e6c525fcd80f801b4ea8e2606b509c686167f"
     },
     {
       "id": "d3-epoch-inequality",
@@ -152,12 +152,12 @@
         "spec/acceptance/wf005_cancel_authority_write_spec.rb:47",
         "spec/acceptance/wf005_cancel_authority_write_spec.rb:142"
       ],
-      "failure_digest": "57e85180e7fa7a0ef7ef427d658f21544f0731e4bff8ad29668e7ec94b534f0c",
+      "failure_digest": "a450437cb3ad6305f803dbac028e5c92a283c28bf04f1751c3ff330c3ac49cde",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "e91fecc43d91fe3d4b48912f907f75b6cfece0d664baea1fdf7f6c92f015ad23"
+      "binding_sha256": "56f55b99ba99913c4f0c18f2111c20cb424894b77b4032849cca92209d6b2690"
     },
     {
       "id": "d3-authority-always-true",
@@ -180,9 +180,9 @@
       "failure_digest": "fa5213e31a2c3f6fb3cb292fdcf966f7e516e9520f7b51bcb68a8b6ba16e9afe",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "9498558e46181365f0b2e4f45a7b306d454db3807e07b22c1a045352e2a6af00"
+      "binding_sha256": "e30424c2f05d950e6988302cf5ebcd6d03f78754dcf3fb8c23aa123ed2b4d537"
     },
     {
       "id": "d3-wrong-organization",
@@ -203,9 +203,9 @@
       "failure_digest": "424f17760b4f1e29f45c3cc120d5103d7f1a2caa6c152cb1c00a3928c39ae7d5",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "06e3119cbafaef18f20954847ef338c51ded091741fb6164f95899964f1fed7e"
+      "binding_sha256": "8840dda8aa5ea277afd04c141e1614f87af9ea2fbbf5e9939e9d45945f4e8f5a"
     },
     {
       "id": "d3-authorized-independent",
@@ -226,9 +226,9 @@
       "failure_digest": "040f06cbac79a9cb2eb679846a0ef49f560d315f3eb3efecef836b562e458a23",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "64f14034e4079c747fcce5e6aa294199f1b8672518d3cbbada749cd58a3d5f38"
+      "binding_sha256": "63a9fdfe1d29352f8796113b9dbcf7058e7ce0c7d569421833b9967cd305c049"
     },
     {
       "id": "d3-denial-swallowed",
@@ -248,9 +248,9 @@
       "failure_digest": "c0f61783719bdd0c38298b5c2843bce998eefa4433bfe771da216dff27306097",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "a69bb3380e75f7c56eb12205f7d6225b796de3f11a776350cb138e4807a5c691"
+      "binding_sha256": "e7d0bf614101c30da58355e4f35a179692b2c12880bd616646b9461a7ddacd6c"
     },
     {
       "id": "d3-branches-reversed",
@@ -270,9 +270,9 @@
       "failure_digest": "c0f61783719bdd0c38298b5c2843bce998eefa4433bfe771da216dff27306097",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
       "proof_sha256": "1cfcbd551c1aa4544eae8b7c62efb1e98daf00901a867a6fadf526f895187fda",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "41d8cc19dc14bccf86c9b1da2b8d13dd02570bdeb681cbd2da2334841d259d41"
+      "binding_sha256": "c308b0146259817d5bc897dd8265b5969a5b80704cffc1358f6a9e7b4ab5d15a"
     },
     {
       "id": "d3-write-carries-another-capability",
@@ -298,9 +298,9 @@
       "failure_digest": "a0ea38f313a4145e147d8988ac312996119cdd0fa917f8e73662849c7b3d4c90",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
       "proof_sha256": "bececc4a13482509cfbb81f704cc12f9f875bc0ddbcbdf34bccc5cf45f222f38",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "9168cbe05b4cfc932fb71fa8397295fe6894db5722db52cf172513fb63d94b64"
+      "binding_sha256": "3ebed37b88e1530399bcde5149c6c8cc2e7781d025ead26610daff81b64bb508"
     },
     {
       "id": "d3-lock-removed",
@@ -323,9 +323,9 @@
       "failure_digest": "bbfa3a434eeaa13ac893188fdf3521529086b6fdc8a867265a294fa87e867f6b",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
       "proof_sha256": "5ef94cd24a13a2c6f76d06e981dd1e34bc0e5003d4cd45318779309739cc72e4",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f1181b6c515c341db3daf26c8f31858a911f5e8cae97ebed9013faa3642db297"
+      "binding_sha256": "f67c856d87932644c1e864f45c94bbeacf2b55e266826bfcc567aa6d7082fe1d"
     },
     {
       "id": "f1-admission-inverted",
@@ -345,9 +345,9 @@
       "failure_digest": "2e85fcf1f99a11f405b66626b53c7b3b2833d8ce6ccef15ccf84cfd9c4351a6c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "07b5291e670ca18165b1d9de5c153ce63d6a0bfe6c99d92416adea24f5513ff8"
+      "binding_sha256": "2c199fd5c231af886008dfa6a9e249c93e304039a3052ae0e863ea59a56b866b"
     },
     {
       "id": "f1-driver-reimplemented",
@@ -367,9 +367,9 @@
       "failure_digest": "7334cefae37f140ca39bdbafb74244af79df91dbd31f76e4e901b567d482cb46",
       "file_sha256": "19252c6fd3aa3ea786c5bb301af0c27ab6c7a51107f48bbfc26e7ada402eb80d",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "eb79739cd5d806a1801912ce2a7054df4100820b9fa18b5d9ccd470ab7b7309c"
+      "binding_sha256": "c952087b79a303b03e4f4d47c8093c559cf647aa91c6d7b3fcfbf22235c89b6a"
     },
     {
       "id": "f1-bounded-respelled",
@@ -389,9 +389,9 @@
       "failure_digest": "d26c8798dfeb7cbbf657a3524ed2cb13ed8e34ef48a35de10f1a549dc12fc3a3",
       "file_sha256": "71d21192a90a11995a326a4d2820823ca41c133ab1a293fcef00a28615e1806c",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "38a5eaae0198fd5b3b4dfd171f8a3a71f0eb51c76f011adf0b726ff8fe3d66b9"
+      "binding_sha256": "df9dd12075e77fdd425a6a969a312c1cc0724d24fda053fe0e6469e3b6ebc589"
     },
     {
       "id": "f1-gate-delegates",
@@ -411,9 +411,9 @@
       "failure_digest": "8e78996fb275d38b500da7346679fc32a22c987051235dbe6636f835d30ecdb3",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "e24c86bc993c1c9ab9ccf70d80e17c91a3b431f3912702c6b10540def0ca8ad9"
+      "binding_sha256": "fea5b017d88d59c960c1e9321676324afca85d37f9e375fa8943b1ebff434f61"
     },
     {
       "id": "f1-caller-binding-dropped",
@@ -436,9 +436,9 @@
       "failure_digest": "2c3f9ef5daca53bb813e971268e14510c83dffeeb96ca020b4b7401490e39b43",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "270f3f8f057dfd99f7fc552964aebbac7e1b82533d2f4ac3ed66be73a3dad3ad"
+      "binding_sha256": "e300449f375475a40b23573cb8105ddb076a584e1ad2e379689e1a3eb639a6a8"
     },
     {
       "id": "f1-thread-identity-dropped",
@@ -458,9 +458,9 @@
       "failure_digest": "99e8746f893daee0debd0b1b1583ceb68b589728771e52375ec597e20cc45707",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "a158b4af77ce75564751292f9407e384373bb96d0240e948425352c1dcf4131c"
+      "binding_sha256": "e46d681b4e5aeca279cad00e3fb675c8325f7dd74a3d7c47d5d4422ee24704c6"
     },
     {
       "id": "f3-rebuilt-via-local",
@@ -480,9 +480,9 @@
       "failure_digest": "2e85fcf1f99a11f405b66626b53c7b3b2833d8ce6ccef15ccf84cfd9c4351a6c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "1bb9cafa3e60c038f640d964966b29320fe98f90cf4e2344337d4fc3f5c7b320"
+      "binding_sha256": "52b94c2938ffcaca4cdd6423a0ce8cda4586aad70f9b65013194e908adf0cb61"
     },
     {
       "id": "f3-rebuilt-via-container",
@@ -502,9 +502,9 @@
       "failure_digest": "2e85fcf1f99a11f405b66626b53c7b3b2833d8ce6ccef15ccf84cfd9c4351a6c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "82ac17280fab5af5c7e362baf56944428e557284bc937a75ceb127781ce442bd"
+      "binding_sha256": "d4aee802aef8ddb8f2f6f9430edb51991d47e752a7ee3388602f82002f2cdd86"
     },
     {
       "id": "f3-rebuilt-via-block-pass",
@@ -524,9 +524,9 @@
       "failure_digest": "2e85fcf1f99a11f405b66626b53c7b3b2833d8ce6ccef15ccf84cfd9c4351a6c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "a3690f32b6c75ff03abdf3061d951387627aed003b93833d182d7a8fecfa4d83"
+      "binding_sha256": "445adce48de08d263ceb2f7c65446ea0800169412b5432598a9f9fb1638155ec"
     },
     {
       "id": "f2-census-door-removed",
@@ -552,9 +552,9 @@
       "failure_digest": "04145695d0ee8669683a2e75e2d6d19c89ad93aae18b34855eca8950501fd843",
       "file_sha256": "5645286e73826809b8e56375e248ec1dd768c342cb6eebcec28566c5e8f83ea8",
       "proof_sha256": "234510cf3b2a3a94b82dc7e1ecaaf413ba39b4423cc2702278282b0c1ce28012",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "15e2bd2f7a6b469d9375472da89df8438c80c0695283a9af6a1050cbb1b9cbe2"
+      "binding_sha256": "b849e6d7831a80a418f81d8c5a964f40fdeb9f1964680724e9b1af512a28f998"
     },
     {
       "id": "f2-refusals-unobserved",
@@ -576,32 +576,31 @@
       "failure_digest": "92437770f8305d62fab857ff54b08f4523acdc5127267d73f51c17041e6d3031",
       "file_sha256": "5645286e73826809b8e56375e248ec1dd768c342cb6eebcec28566c5e8f83ea8",
       "proof_sha256": "234510cf3b2a3a94b82dc7e1ecaaf413ba39b4423cc2702278282b0c1ce28012",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "02ebc7ad93ca9ac0a91922646f26e79d05524545c8fbe1651af6784afc4092d0"
+      "binding_sha256": "77e40acf2b11f436e70749bda6abe4212cb58b26f2be7d1c790cb047bfa92cb1"
     },
     {
       "id": "f4-discovery-narrowed",
-      "blocker": "R10-9",
+      "blocker": "R10-9, A15-2",
       "file": "spec/support/authority_sentinel.rb",
       "proof": "spec/architecture/authority_sentinel_spec.rb",
-      "description": "discovery narrowed back to a source-text match over one spelling",
-      "from": "      @observed_handlers ||= Dir[Rails.root.join(HANDLER_DIR, \"*.rb\")].sort.filter_map { |f| constant_for(f) }",
-      "to": "      @observed_handlers ||= Dir[Rails.root.join(HANDLER_DIR, \"*.rb\")].sort.filter_map { |f| constant_for(f) if File.read(f).match?(/authenticate\\(session_id:/) }",
+      "description": "discovery stops recursing into nested namespaces, so a handler one module deeper is silently outside the rule",
+      "from": "        elsif value.is_a?(Module) then handlers_under(value)\n",
+      "to": "        elsif value.is_a?(Module) then []\n",
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "10 examples, 2 failures",
+      "result": "11 examples, 1 failure",
       "failing_examples": [
-        "spec/architecture/authority_sentinel_spec.rb:11",
-        "spec/architecture/authority_sentinel_spec.rb:24"
+        "spec/architecture/authority_sentinel_spec.rb:51"
       ],
-      "failure_digest": "3a4153a0a63c873b9251fb82148424796248dd550de3b01cbe43490f67691cfc",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
-      "proof_sha256": "7c5ae6326a299b0dc3ae65ed20d2fa56843d1f4ef1daa7c409b2f8473f420bc5",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "3f14a7d09762d90060937ae32a91b15f14df7e55562ce67824cf4de172f78670",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
+      "proof_sha256": "f77e2e82af91caab57997f3a454c6b7e4e8dc3ced3b53ecbbd4709f8396bcb43",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "d836f9580f7195f656a1286bb4fecf61d3fd6cf19917ed0fd5d685060c4942f4"
+      "binding_sha256": "cd6a2ea6989e239b031e65117b71633177cbde1db34ab987a0905111e67f8f15"
     },
     {
       "id": "f4-accounting-global",
@@ -614,16 +613,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "10 examples, 1 failure",
+      "result": "11 examples, 1 failure",
       "failing_examples": [
-        "spec/architecture/authority_sentinel_spec.rb:53"
+        "spec/architecture/authority_sentinel_spec.rb:70"
       ],
-      "failure_digest": "4fb462d2ef57e7dcceb0c5bef7d9a946adb97f4e22227462f0ef9e5685ee421e",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
-      "proof_sha256": "7c5ae6326a299b0dc3ae65ed20d2fa56843d1f4ef1daa7c409b2f8473f420bc5",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "1f74b54d470c8f9294533c82fcdda51e6cccd95cdfd9c8888178a7f8cb2b3828",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
+      "proof_sha256": "f77e2e82af91caab57997f3a454c6b7e4e8dc3ced3b53ecbbd4709f8396bcb43",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "ed95a060637e0b3a9ef4bf67363066025bdb69832de91c5a1842cb59ba7765c3"
+      "binding_sha256": "189e53facb1ba7ef30b9c3e248d1a77ce59977a7fa766efd257061489e1da16b"
     },
     {
       "id": "f4-empty-census-accepted",
@@ -636,16 +635,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "10 examples, 1 failure",
+      "result": "11 examples, 1 failure",
       "failing_examples": [
-        "spec/architecture/authority_sentinel_spec.rb:166"
+        "spec/architecture/authority_sentinel_spec.rb:183"
       ],
-      "failure_digest": "a96d2ab306fe7b828415777531fb38d766a04d66ac8a63ec1e8f71e81a14fe75",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
-      "proof_sha256": "7c5ae6326a299b0dc3ae65ed20d2fa56843d1f4ef1daa7c409b2f8473f420bc5",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "6f3c3abdabc2806d721ec086e0f2eb594d7e6689654922718f8035f11707f4f0",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
+      "proof_sha256": "f77e2e82af91caab57997f3a454c6b7e4e8dc3ced3b53ecbbd4709f8396bcb43",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "3d697fea08afcf0c00dd8906382aeb9f22a91c94a1355d57ba299ec5abc25a7b"
+      "binding_sha256": "029b4d4a91d4e80d4d3579630284ace88b2afbcd724286e86bc03f8d436f16c8"
     },
     {
       "id": "f4-frame-not-restored",
@@ -658,16 +657,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "10 examples, 1 failure",
+      "result": "11 examples, 1 failure",
       "failing_examples": [
-        "spec/architecture/authority_sentinel_spec.rb:95"
+        "spec/architecture/authority_sentinel_spec.rb:112"
       ],
-      "failure_digest": "b5a8800db94d891ec0b22f8e538da681f4c3acf24b1ba78c7d0287e2e38790ff",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
-      "proof_sha256": "7c5ae6326a299b0dc3ae65ed20d2fa56843d1f4ef1daa7c409b2f8473f420bc5",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "e96a5c32b118e822eadce4334da62f74d4f1251ab16d757cdd184f15c8211b25",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
+      "proof_sha256": "f77e2e82af91caab57997f3a454c6b7e4e8dc3ced3b53ecbbd4709f8396bcb43",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "e3ee865f9e9c63a23de091dd1e6c942e5ba6151d05fd3824acee76f793ae671e"
+      "binding_sha256": "036e1f0123afe0545a4ff5be96ff09e492dd2d363f3881fbcd1cd16fc0bdac64"
     },
     {
       "id": "f6-source-location-discriminator",
@@ -689,9 +688,9 @@
       "failure_digest": "d3895d3e2a4817fe2efec703e4130e41520a5265defc41784dbc9f0d575b629c",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "0f7f2d565741a024aa45d0a0004f25db09ce55e471a6dac90178ca4154344b7c"
+      "binding_sha256": "ddb070531d076aaef9c3d4fc564deab2f512ecc8e545d48921eb247d8df1149f"
     },
     {
       "id": "f6-refusal-removed",
@@ -714,9 +713,9 @@
       "failure_digest": "3691a857ee131160d5b4317b4327d26e61ddd3e57008d5f7c41d80423ef29a7d",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "5883be297f6ff8a87f631befba257eb66f2607f0d5072a402889c289810226c5"
+      "binding_sha256": "f24835fb4ace447636f8dbc1d809fb65dbc758a50ca78e6b42c5394fc179f5df"
     },
     {
       "id": "f6-kind-forced-ruby",
@@ -740,9 +739,9 @@
       "failure_digest": "5b7a53e3d117752920fc5619895fe33b997f4e5f04fff20cc785fc4534ef14e2",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "60df651395939f987ddbfa7e947e6b9842c9c9f0768d5bcbed7a805a319f3dab"
+      "binding_sha256": "aead7a65685199b718310dd4e91cef7d5f65864b00376ad5938da70f4f69f0de"
     },
     {
       "id": "d6-q-predicate-removed",
@@ -763,9 +762,9 @@
       "failure_digest": "cf746ba31cad77e6b7ce5cd3445f8e8deed0b11f881765189f82834930315364",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "b628b322f0bcbe21924cc83e8eb387d9802d0ab3af4c391605b04dc9a6fa9ee1"
+      "binding_sha256": "833103899b8c819346527dab1a906c3727067eb74f6f10d40c36151b09619315"
     },
     {
       "id": "d6-q-predicate-inverted",
@@ -797,12 +796,12 @@
         "spec/acceptance/wf005_queue_crawl_spec.rb:573",
         "spec/acceptance/wf005_queue_crawl_spec.rb:596"
       ],
-      "failure_digest": "77f8bb0aa2ef1750718225f7fa431cba657b00cb3a5792d75a170bb6886c345f",
+      "failure_digest": "8c5f0a95f7ade903b4b123662e93509731feeb506ef9b0814c6ec6f7e9fa5f81",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "357a529dfbf60bdb7fb3907251be290cae344dbc1c17247db80a52db5b3a5cd2"
+      "binding_sha256": "fd1016f1a2943b4c1437ffda093f7ed0e8019d1bfd74d9faab0aad4f2110fd19"
     },
     {
       "id": "d6-q-wrong-epoch-column",
@@ -821,12 +820,12 @@
         "spec/acceptance/wf005_queue_crawl_spec.rb:523",
         "spec/acceptance/wf005_queue_crawl_spec.rb:543"
       ],
-      "failure_digest": "054d8810ebb5b2b43ab9b81032f89c0254d1c9bf2a6d24853984be6114015fce",
+      "failure_digest": "faae04c3c7913f404d64b3a14a6a02d6e07f0e13476665fda9361a4bca72b7fd",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "848e3ab957ffe1ec0a79aa0c7d79275203da1ae5f919182a1ff311e2a36529bd"
+      "binding_sha256": "0b1bbd17d3e5d2206d8db163120a233926880bdbb84d53083e3db1d8d6a955b9"
     },
     {
       "id": "d6-q-wrong-row",
@@ -859,9 +858,9 @@
       "failure_digest": "e5528387b2f172bfa4d80669af81d1553d0a3fb83ead34b2e0c1587c3cdcb604",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "3e2da67195e2096b40c0857d8e8809f0ede12f08c3504540483642ba132f7d48"
+      "binding_sha256": "601064de5fcdaa99c62c259fe739b75f83ee4a9341af5fef2aef981c6736ab18"
     },
     {
       "id": "d6-q-stale-captured-epoch",
@@ -892,11 +891,11 @@
         "spec/acceptance/wf005_queue_crawl_spec.rb:596"
       ],
       "failure_digest": "e5528387b2f172bfa4d80669af81d1553d0a3fb83ead34b2e0c1587c3cdcb604",
-      "file_sha256": "e7ff26d982a98ccbcf94a27e64fdb4e693f0c1254b308ebdbaf32c63f4599d00",
+      "file_sha256": "87c1b97b6249efbc4985a096f95b827e38b28b7b20b1badf1cfbffb880cea1ee",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "367d6405447b241ad6564cb8e64ad9089c9aa4e910deae7a01f7aba087e4511b"
+      "binding_sha256": "5e5dc8b53a02aa6cc3a4e611739875969fbf5a65a0afc7ec135e9811cc6d4102"
     },
     {
       "id": "d6-q-handler-accepts-unauthorized",
@@ -914,11 +913,11 @@
         "spec/acceptance/wf005_queue_crawl_spec.rb:523"
       ],
       "failure_digest": "4b24f5bea2fa3c67bf1f34c9034eaa5e7c16067ba5965fa838133ee249dae2af",
-      "file_sha256": "e7ff26d982a98ccbcf94a27e64fdb4e693f0c1254b308ebdbaf32c63f4599d00",
+      "file_sha256": "87c1b97b6249efbc4985a096f95b827e38b28b7b20b1badf1cfbffb880cea1ee",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "350666da0b4f686656814edd54ac5633815ea997c710dd7a32de7dfeb708ec92"
+      "binding_sha256": "5e9bdec2382e14622062ad0b40fcc5ad1643d6de5e4d6779e14b85f7ebb3332c"
     },
     {
       "id": "d6-q-ruby-recheck-deleted",
@@ -937,11 +936,11 @@
         "spec/acceptance/wf005_queue_crawl_spec.rb:509"
       ],
       "failure_digest": "e34138e605c6663c5d466f29ccb34268d7422c0dac71be62f3ce5bd07afe6172",
-      "file_sha256": "e7ff26d982a98ccbcf94a27e64fdb4e693f0c1254b308ebdbaf32c63f4599d00",
+      "file_sha256": "87c1b97b6249efbc4985a096f95b827e38b28b7b20b1badf1cfbffb880cea1ee",
       "proof_sha256": "2735dd0e3e18e4bc22f22a8bae7dcd2216cc7d503802f17ad45930d9fcbe396a",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "56252e3686581959727fb6bbe8f02e5fb25c2904f8878182520c30db46b80db1"
+      "binding_sha256": "1f6de327651346957149a6e2bb7d2a796c36f98ae52980e8187ceb2bf7dbfd2b"
     },
     {
       "id": "d6-a-predicate-removed",
@@ -972,9 +971,9 @@
       "failure_digest": "27a8eba3e25a1ebdb3c4513cf9c79425b5fa076db3e8462760f2834f2c2fbb08",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "934633a0b0007bdc268405a2736f8e0224a4254ca78b00849b36fe3d6b19c422"
+      "binding_sha256": "4f24c271d95fceb0fd366870a3effacaa0c23b605304ada2722bfd1a1b7ddb09"
     },
     {
       "id": "d6-a-insert-unconditional",
@@ -997,9 +996,9 @@
       "failure_digest": "1004ba85063e370fcd1b9ba1495aaf4789ed073e11f5894a4a25a8bfc7d8dd97",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "56e359351b3e7e55400eba3365cbad4805f74bbd19b118070d1db89974ca924a"
+      "binding_sha256": "bcf67c8767055e9cd3fcd915c0b14807331914f8cabb2f53fddb2fdcc817a07a"
     },
     {
       "id": "d6-a-supersede-unconditional",
@@ -1019,9 +1018,9 @@
       "failure_digest": "3bc5c99eb0085e80b8eeafb33b4e210496977f1187c6378513ed976ba101dc01",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "8d5b106be80f108e038dbebbb42406667f27f3e4987fe706832892ec090afc03"
+      "binding_sha256": "2551a68080ad03729aeed50f1ca2deb9671ef687d1a384929d913cbd3b1ef7c6"
     },
     {
       "id": "d6-a-conjunction-to-disjunction",
@@ -1043,9 +1042,9 @@
       "failure_digest": "ddaab0c83deecfefc4dcf5ab47b1ecc468d144fcce13e00807a3c4310588556d",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "3839b4f65fbdaf8797d6fede93e1ed55693be129bab60d99bec63d58461e8b2b"
+      "binding_sha256": "8dc989d71c165b68ea91e7f62659c9a468fc3d62067e1d8d297053d21692ba78"
     },
     {
       "id": "d6-a-state-predicate-omitted",
@@ -1076,9 +1075,9 @@
       "failure_digest": "27a8eba3e25a1ebdb3c4513cf9c79425b5fa076db3e8462760f2834f2c2fbb08",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "43e4ab8407632b6b916a5a8708d2322577af336b4a4b43a5499b5a376a92f0da"
+      "binding_sha256": "3b651e4b8a9ae075a800a11eb2a7984e2eab8bf351b8613fc3a1dad8c30ae299"
     },
     {
       "id": "d6-a-wrong-organization",
@@ -1108,9 +1107,9 @@
       "failure_digest": "dc4030648da747f01a290c67b972790ff36db1d57d9f5d35c9eda00b0d61c447",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "422446cea9bd275b581888df6d96220c23ac3ddb3f69b52a6c609d6c230c535d"
+      "binding_sha256": "eaccdaaf1af06f38c25ddd064f28c58647b3e3c4f505cc84659ecddfaa985ed3"
     },
     {
       "id": "d6-a-ledger-before-guard",
@@ -1138,11 +1137,11 @@
         "spec/acceptance/wf005_activate_crawl_policy_spec.rb:410"
       ],
       "failure_digest": "030bbdbba2066f4bed8f8836e93e0b020c940509edf038bbb12c9bde6cdda43d",
-      "file_sha256": "d6ddbd608e5d73a37d4d4dc439a5333e1d774d2bcf1b4d0c03523a70013dead2",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "cbc9fae758f1ca18a8333981e864dbf87a9927b158576663d58cc3f39f52babf"
+      "binding_sha256": "49e4ed6dc11c2ed73a2e37ce10a6cb7b99dedb726b60a84e09915eae0e6443f6"
     },
     {
       "id": "f4-human-door-removed",
@@ -1155,16 +1154,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "10 examples, 1 failure",
+      "result": "11 examples, 1 failure",
       "failing_examples": [
-        "spec/architecture/authority_sentinel_spec.rb:108"
+        "spec/architecture/authority_sentinel_spec.rb:125"
       ],
-      "failure_digest": "b204f0fd103052c47ff6b588dba2f64433404d585c2a8280c632c96193db150e",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
-      "proof_sha256": "7c5ae6326a299b0dc3ae65ed20d2fa56843d1f4ef1daa7c409b2f8473f420bc5",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "30a9943943343140d5fa3576897312c4260cddc4f44ae9ca15290f39b494139f",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
+      "proof_sha256": "f77e2e82af91caab57997f3a454c6b7e4e8dc3ced3b53ecbbd4709f8396bcb43",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "10c710d77e0794c0b71f253e8dbf58e22cc1a821104c95a5e484f54ef14fc5c3"
+      "binding_sha256": "85cebf272f00a1f3c401c4c40068d8a4b9a36712e722edffe8c5657324a0bca3"
     },
     {
       "id": "d6-a-outcomes-collapsed",
@@ -1182,11 +1181,11 @@
         "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264"
       ],
       "failure_digest": "295fd0290aff0b5d39cf1856465a53dca5e8c91875e150c7f33c94bb227235d7",
-      "file_sha256": "d6ddbd608e5d73a37d4d4dc439a5333e1d774d2bcf1b4d0c03523a70013dead2",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "10d081bfe7c29bb26929504fc4e41cb2d2fa46be36b83ae31a22884eb7d280e4"
+      "binding_sha256": "c7b8fc002d55acfcd75a0a26dd3df9bd65f5114b325065a14aac8541fa5b765e"
     },
     {
       "id": "d7-door-regex-restored",
@@ -1210,11 +1209,11 @@
         "spec/architecture/protected_effect_door_spec.rb:265"
       ],
       "failure_digest": "a0603ee2d694ec074a354755c1de4154f2ed96538bd6657c2222eaa266c28dab",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "aa5ecbf6f27f52c062bc85fbe8d7ef903045deac63ba57c87419e231dae663e2"
+      "binding_sha256": "8a6c9efd5fc92e669d4bfd9ec78fc2ed9771461ad927578e9c1a2ff1a6bd0ad9"
     },
     {
       "id": "d7-door-anchored",
@@ -1234,11 +1233,11 @@
         "spec/architecture/protected_effect_door_spec.rb:136"
       ],
       "failure_digest": "df4d6419973ac347a371b23a77fbf232637ee16563038e676a6a6b26796e462a",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "dcb1d6766f322bf476afa5a38d41cb22724a8f62d29fe4a4d0d183f34b6a5fc3"
+      "binding_sha256": "e91b7de4ef470849ef50296b7a8abe3cc40eb29fa1869aa19407c9c4c33f6135"
     },
     {
       "id": "d7-door-hook-removed",
@@ -1257,11 +1256,11 @@
         "spec/architecture/protected_effect_door_spec.rb:225"
       ],
       "failure_digest": "702371a24dcd282e354b630cf51dec3a3d1168b639098e70f3db183fe71d9f53",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f77fb8391edc66e349e7d3752e2d19c999364fef328ac64e59028fafc2880bea"
+      "binding_sha256": "7b698aacdb7fd9de60b9cfb0d77e64742b12fafae385f8f1bef4ac3bdac7f867"
     },
     {
       "id": "d7-door-unknown-read-as-empty",
@@ -1279,11 +1278,11 @@
         "spec/architecture/protected_effect_door_spec.rb:136"
       ],
       "failure_digest": "69bdeca64919f1b98a73bad7ca1e1bba80b1db63bd281d8f8d0d27132ee355d9",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "ee3bb15679c72c850f603fa318be77b614382e20bbd6768d9414f359f80ab2cb"
+      "binding_sha256": "d525e46504addb97bbdc4a972e5a0da91b6e9438f7bb5bdda473dc066f07bc03"
     },
     {
       "id": "d7-classification-all-governed",
@@ -1305,11 +1304,11 @@
         "spec/architecture/protected_effect_door_spec.rb:225"
       ],
       "failure_digest": "86ed815889f13054d1374987884bebcb44493d0400d848f442ca0a15f06e85b4",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f073905e00fa9bd17e0f1a67015964940fb82b25622e88f2f2840b222ff65fde"
+      "binding_sha256": "a824fde36c3633f8487d7943e30acc5ca5de0c488242f02c0358a608096cf886"
     },
     {
       "id": "d7-classification-none-governed",
@@ -1330,11 +1329,11 @@
         "spec/architecture/protected_effect_door_spec.rb:225"
       ],
       "failure_digest": "f857a9524449503b2d199860c7ba966d06fd83443778dbee3f8e8460150219fd",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "5ba9b7930906eb3ad7389db5b52d88192d6d5e2eb1026a092c0d46512863aa4e"
+      "binding_sha256": "861a24e182c5a05a4c8c19171d5982dc65b2dffe2e043458cae5fadea56f1118"
     },
     {
       "id": "d7-classification-not-derived",
@@ -1353,11 +1352,11 @@
         "spec/architecture/protected_effect_door_spec.rb:170"
       ],
       "failure_digest": "2529377d90a0cfd0d09791d434f4e24d38bc7b6d7e7093b6247748ba2cccfd9d",
-      "file_sha256": "d104ed80577a897a495d25d984b06460773e3f4e637ebfbaa5a5e00551cdd5c6",
+      "file_sha256": "d87c239241a844ed81e98dea76da24c9f9f2b9ffa5fc2de1984370bb9d58d2f1",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "0c4ef5985a00440072d36d9cc31b0c22792c9237e1d586e8fbc4aa5cb7f034c9"
+      "binding_sha256": "a97a18292b3a5ed1f9f90c63379505f1838bf484b88fc0ea1c4658d0ff3c1dbc"
     },
     {
       "id": "d7-census-not-recorded",
@@ -1375,11 +1374,11 @@
         "spec/architecture/protected_effect_door_spec.rb:170"
       ],
       "failure_digest": "6e9656e4c5feb10a620c0138081766d85cb98ab18345d5a5d9258a8b32b0428b",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "3362a8d2fe3df5e4184d3c7a41c27be8ce93527da38e2358aaa0d19e113622c2"
+      "binding_sha256": "3c46ed7324227de1b870e3d12cdddfc172579cf5f1573ddb6f4842dd1f757222"
     },
     {
       "id": "d7-antecedent-any-write",
@@ -1397,11 +1396,11 @@
         "spec/architecture/protected_effect_door_spec.rb:225"
       ],
       "failure_digest": "d10f27c95dddb556c5ad6f93ecb69e440c7f4beffac5d54b8cbf3e998e5a0be4",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "5b30177e2a103a2df3f04d47aa9248af090f2a19d436f49b63d4b0ef566c741c"
+      "binding_sha256": "e6c99a1fe60c6c1df9d35b18f88c59a3c494730277c82b2e7c6f9c294166eee7"
     },
     {
       "id": "d7-antecedent-dropped",
@@ -1419,11 +1418,11 @@
         "spec/architecture/protected_effect_door_spec.rb:265"
       ],
       "failure_digest": "4f43b535481d2e06a8005c4702e29a08b146c6a665c7a57e64464cf6886c6681",
-      "file_sha256": "d10cc805c0e6056094cf85377879ec872389ce3b73bc6e883f19e7b3c7a8dc12",
+      "file_sha256": "47d4be1fc5701bacf39fecef64aaa593aaec5d778a9b9e5976205817e8950a5c",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "a44bb953ae44de8c166da1c510d5be9005aff8ab87e8979bd872402a0112a05d"
+      "binding_sha256": "7ca5e897c35866fd6f602b5695f95b68de82865a6b1da0654d87dfd63d0445ba"
     },
     {
       "id": "d7-cancel-lock-key-share",
@@ -1436,16 +1435,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "7 examples, 1 failure",
+      "result": "9 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:186"
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:216"
       ],
-      "failure_digest": "887b0c45fa93045dc856c75177d8172a924baea2999b31768946ba7b5117e429",
+      "failure_digest": "e447291211227eadd254dd12673afb0e8781820b820725b8b5804c98cdee4996",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "8b3a855e8b3c4e1ad25209dbe1446bf09f5709c23013e17badde5ae77e065365",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "0d45f73c3fe1ccfe9717c896b676714e1e8a4493e307e9a81ee8eec8dc730fa0"
+      "binding_sha256": "4f46cf92af2e16864a4262e6757e380a1e1f4a65449e04cebd838b3d16c80fcf"
     },
     {
       "id": "d7-cancel-lock-removed",
@@ -1458,16 +1457,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "7 examples, 1 failure",
+      "result": "9 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:186"
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:216"
       ],
-      "failure_digest": "887b0c45fa93045dc856c75177d8172a924baea2999b31768946ba7b5117e429",
+      "failure_digest": "e447291211227eadd254dd12673afb0e8781820b820725b8b5804c98cdee4996",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "8b3a855e8b3c4e1ad25209dbe1446bf09f5709c23013e17badde5ae77e065365",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "dc74c7dd21a0af9fc785d59b0a3316efebdd24c74f35b17a5536e2f83fa41206"
+      "binding_sha256": "279e382248600680c7c43241a9a101b10ee08588dceb2ae06818741105d6f5e1"
     },
     {
       "id": "d7-queue-lock-key-share",
@@ -1480,16 +1479,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "7 examples, 1 failure",
+      "result": "9 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:217"
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:247"
       ],
-      "failure_digest": "fe78969f1b00839e207709623dcf7602f55c7ff4792633978b0c147ca1e8c379",
+      "failure_digest": "ab1626583aae948f0704117be91315b245ae9751431da01e2f0f45f3f42b484e",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
-      "proof_sha256": "8b3a855e8b3c4e1ad25209dbe1446bf09f5709c23013e17badde5ae77e065365",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "c96d98133398c114b38cea3305a266f9bcfeea54b40307af6bc445dfc6bf4a03"
+      "binding_sha256": "a05aaf4e384be0f801cf64c6a30f9cbe5ed43219ded20f9a4e1deb40bdb27111"
     },
     {
       "id": "d7-policy-lock-key-share",
@@ -1502,16 +1501,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "7 examples, 1 failure",
+      "result": "9 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:250"
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:280"
       ],
-      "failure_digest": "e94c28f3b98131489a7edc28e9724268d7ea3656e068ffa0887771c10e3fb1ad",
+      "failure_digest": "9066d052e62421f6f3e9139911442c741ea0f0d34cf3b63436a0af6993df192f",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
-      "proof_sha256": "8b3a855e8b3c4e1ad25209dbe1446bf09f5709c23013e17badde5ae77e065365",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "4d505d0c6872f0477ec3384f79fdc3a845d2f92dcb2e0e979208877cd71ed320"
+      "binding_sha256": "e9d3a900e8f35c686ad53b3cd1ac51dc8cb6097d8b66299cd24e3601c5a27390"
     },
     {
       "id": "d7-capability-lock-removed",
@@ -1524,16 +1523,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:494"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:544"
       ],
-      "failure_digest": "2f7ac6371ccd59a81fc5ebc5142bc10e96f79c293b8ae8772a2a558d413be6a1",
+      "failure_digest": "58b78419ea209245d776f0a3371d57fcfd174176037908fee5feef2086b0ade8",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "87ca6c804335609e7b566b97e18ac675569383ebee757d9201ea70df6bd48ae9"
+      "binding_sha256": "5c129fe9df4f883eb7190673a88e4ce2e6162660289b80026a138844ca4db55e"
     },
     {
       "id": "d7-cancel-capability-conjunct-removed",
@@ -1546,7 +1545,7 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 5 failures",
+      "result": "20 examples, 5 failures",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:69",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:83",
@@ -1556,10 +1555,10 @@
       ],
       "failure_digest": "01da58252bcaa081aca81b718db6b6a124fe40f4b11cf857d12161eee8508219",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "0aa0939b0752c278dad2f9059c68e4b43cc69ddf0abd8ecd064c6c894fdfcc27"
+      "binding_sha256": "73e2697ddf2bca8813234d1b8a63d70caaad0359ff3184137512341e04fc1eee"
     },
     {
       "id": "d7-cancel-capability-always-true",
@@ -1568,11 +1567,11 @@
       "proof": "spec/acceptance/wf005_capability_write_authority_spec.rb",
       "description": "the capability CTE made unconditionally true, so the grant is never read at all",
       "from": "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n            FOR SHARE OF ra\n",
-      "to": "            SELECT 1\n",
+      "to": "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n",
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 8 failures",
+      "result": "20 examples, 7 failures",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:69",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:83",
@@ -1580,15 +1579,14 @@
         "spec/acceptance/wf005_capability_write_authority_spec.rb:120",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:135",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:150",
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:165",
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:494"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:544"
       ],
-      "failure_digest": "05ecac251671a76f13da6b41a2ca8d80537e6c4c12b95b92e15145b1a344bac5",
+      "failure_digest": "ae31b04490f863aff02eb17bf15fa418dc3a1caf5beaf7428a5b39a7007c415c",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "314b883e37c0784de78e2f2aa16a152cfc8e4a21cd4551d84eeff8c473d844c4"
+      "binding_sha256": "243dd3d9ee0059afe161783da407fd1decceded6e0c4553a4252740924638add"
     },
     {
       "id": "d7-cancel-grant-version-unbound",
@@ -1601,16 +1599,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:120"
       ],
       "failure_digest": "b7a0ce1e2595a441ce37d41d32f3bf4aebf7c6a934b2ea8356fe6a374ecb03b3",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "9f1b5bee9c28995910300a8977b3d0f8b07b93ac59890982922d6aa028bbc97b"
+      "binding_sha256": "a14cdc79336fb14df6ccd2406f71c78378f95ea8cf42c7846d764ad9abd7da20"
     },
     {
       "id": "d7-cancel-grant-scope-unbound",
@@ -1623,16 +1621,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:135"
       ],
       "failure_digest": "29b4c0deecae1e10ab86126011727e31180abc4c12cbc2dc188e5afeda0c6f01",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "b6eb49539fd9013845b5a191f078d3b1d103ed379fac285ad1eaae4956c0a2df"
+      "binding_sha256": "cfb5cad68be06e0ae01745916fe3b3c7c7be877ee3f1f6b64b06cf9d31cb3498"
     },
     {
       "id": "d7-cancel-grant-status-unbound",
@@ -1645,16 +1643,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:100"
       ],
       "failure_digest": "7d60f022e717eeadb06d55327b11c5ef7e9ecb0edeac7e9c310d790af28752ff",
       "file_sha256": "c2887d8f0ec9d4294a5bcd691d7c9b3a5ee21ae053d5c44c773ba684ddf2ff54",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "5aaa1a6675d002b2602088862fce2b50caaf921c7ffd32e9a138d78dc466013c"
+      "binding_sha256": "b1e7d1eaec2c2c980b890cac716ad89b92505d3abbf35a40016562cc471fd033"
     },
     {
       "id": "d7-queue-capability-conjunct-removed",
@@ -1667,16 +1665,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:261"
       ],
       "failure_digest": "0be2ed70d6672a0034c6aed5a26650a470e0e34b53b78290792e8728a82ed8d1",
       "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "6bc1e7012d0a4f061e108939b5b1f0f51bc990088b1c7b4257b4899ac79150f9"
+      "binding_sha256": "a6f966e2d5f7570b3c8d5e5e23a449c109e159f874b54953e636eb60ed1d12f2"
     },
     {
       "id": "d7-policy-capability-conjunct-removed",
@@ -1689,17 +1687,17 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 2 failures",
+      "result": "20 examples, 2 failures",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:190",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:286"
       ],
       "failure_digest": "db3d9ea55a12c257046a9053415b547fc7c01c71c9c0303416cac24536564cf9",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "4de1881f57265aff06a156ab5eacc6c8055898642a35a7086794283835d7a30e"
+      "binding_sha256": "3c874e4096e84d7aac9658a11ad4988e4fac4118b19be29d534c0908864bbbe7"
     },
     {
       "id": "d7-attestation-mints-for-denial",
@@ -1712,16 +1710,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:424"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:474"
       ],
-      "failure_digest": "845de15cfa4ff4f548b31b2244fa18cae28ff39a1b3a7c7443a295ae938ad8a3",
-      "file_sha256": "26f9e3b41a88ce84b00d1558d18988564b8cb77f8848a3b17fd1680b28d112b6",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "f84dafcd3f2084a25b9aaee8d516ace4c95e494542991f2c6cd817d389248ec2",
+      "file_sha256": "9311bc82a584f5abc762c4a831ec490d63c71fdf2a11d4e5189fe65a21806392",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f262c4e8560004be9dbe4a785988b0d939c0d9a4370c9edfd3c940bc1c2c9a9d"
+      "binding_sha256": "d1bc9e304611cacb6063426e1edb2c480ed21178f23fc8a3cabdc630dd2da6c5"
     },
     {
       "id": "d7-attestation-mints-without-grant",
@@ -1734,16 +1732,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:455"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:505"
       ],
-      "failure_digest": "e0ef513e3f9ca86c6a7f71f07acf0c497258bf3a246f71f11aea672955f555cf",
-      "file_sha256": "26f9e3b41a88ce84b00d1558d18988564b8cb77f8848a3b17fd1680b28d112b6",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "4efed5e1661bdb09859af256ee0513b51bbbf303f1f639bc6fbb8b1ef21466ea",
+      "file_sha256": "9311bc82a584f5abc762c4a831ec490d63c71fdf2a11d4e5189fe65a21806392",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "78d679402bd22c771cb520bfe1208c350b760a50411b1795786dbfcc00c33eb4"
+      "binding_sha256": "a4991e1c71ba05fb3b6810a89fcd4eba4756bde2d90c274833504b4719443a45"
     },
     {
       "id": "d7-attestation-authority-unbound",
@@ -1756,16 +1754,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:469"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:519"
       ],
-      "failure_digest": "9dc5c0eb8ede61f8624338dd664b5e36ce32813557944283e06684440ea2f051",
-      "file_sha256": "26f9e3b41a88ce84b00d1558d18988564b8cb77f8848a3b17fd1680b28d112b6",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "256a443fe25c2a7dc4f049a549d116defdacd8eb5550b76cd1cf74104cc261af",
+      "file_sha256": "9311bc82a584f5abc762c4a831ec490d63c71fdf2a11d4e5189fe65a21806392",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "f1b45710c437aa67cb7e505469c4ebda18df46732f2091b0832af2e2076fc8cf"
+      "binding_sha256": "e95ed0259a3878b0e517c70c36431e6fecc481b35a1d2dbf5cc34cdfb7e614ff"
     },
     {
       "id": "d7-write-authority-ignores-capability",
@@ -1778,16 +1776,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:469"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:519"
       ],
-      "failure_digest": "9dc5c0eb8ede61f8624338dd664b5e36ce32813557944283e06684440ea2f051",
+      "failure_digest": "256a443fe25c2a7dc4f049a549d116defdacd8eb5550b76cd1cf74104cc261af",
       "file_sha256": "e7b80dbee4d072353f527a17cce161cfe49b55030106d45e38599bbcc4a49acd",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "981705711c7c146833b4355e48a455e13ef64659cdd07aa2090a1296c051c5f2"
+      "binding_sha256": "4c5994e411b6598180fd830ef6affc84a0135f020ea3d3cbd24507449ca938a8"
     },
     {
       "id": "d7-q-authorize-check-deleted",
@@ -1800,16 +1798,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:328"
       ],
       "failure_digest": "bc9b3d081004943a3c84eb61c30afdda20678f0541ad385b0e769c4c2ac48a5f",
-      "file_sha256": "e7ff26d982a98ccbcf94a27e64fdb4e693f0c1254b308ebdbaf32c63f4599d00",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "file_sha256": "87c1b97b6249efbc4985a096f95b827e38b28b7b20b1badf1cfbffb880cea1ee",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "c359d85004bde6ca7175da057a7e82b7273887a914b2bfcfaa523fd2138727fd"
+      "binding_sha256": "9e80a4650c54420b77c38b8849f23cc0066cd8c70931f834e69c6875ca5ac207"
     },
     {
       "id": "d7-c-authorize-check-deleted",
@@ -1822,16 +1820,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:352"
       ],
       "failure_digest": "7ee3472678bb34259a68dbb1bce073982ac9b345ed1c345ce95e391d98c47acc",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "b2095b1689976164871b0a8b9b6989bdc6526aba74476636985587bc09da4b96"
+      "binding_sha256": "e85266c6a8879a967061a2b9d3a5db7a6b7664476f0e4ffe3ccdfd4f231454c6"
     },
     {
       "id": "d7-a-authorize-check-deleted",
@@ -1844,16 +1842,17 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 1 failure",
+      "result": "20 examples, 2 failures",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:381"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:381",
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:410"
       ],
-      "failure_digest": "160cd8e70d34050c7ae1e227b1f93543c40cf80a8ab949ed183c5c448b0270b3",
-      "file_sha256": "d6ddbd608e5d73a37d4d4dc439a5333e1d774d2bcf1b4d0c03523a70013dead2",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "4e019049bbce9f185ffce0d686946948d578ec48d387ec3b84f65a077fdfa0ad",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "315ec016e0903d9974fe069d72607ef233248ddb9e0fdef151e0ec387f3385da"
+      "binding_sha256": "575f1c3542cdc598427ac9c2b04a7e2bdf053e195cff2e7f7adc2d6f9447c7ad"
     },
     {
       "id": "d7-a-scope-role-unbound",
@@ -1862,22 +1861,20 @@
       "proof": "spec/acceptance/wf005_capability_write_authority_spec.rb",
       "description": "the scope rule stops being a predicate of the activation, so a MarketingOperator grant authorizes an ORGANIZATION-scope policy — the round-two security finding",
       "from": "              AND ($18::text IS NULL OR ra.canonical_role = $18::text)\n",
-      "to": "",
+      "to": "              AND ($18::text IS NULL OR $18::text IS NOT NULL)\n",
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 3 failures",
+      "result": "20 examples, 1 failure",
       "failing_examples": [
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:190",
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:222",
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:286"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:190"
       ],
-      "failure_digest": "22fb69b8f68d15fda383a796cede6ab30da201e8ff3990ff53759853d924e2c8",
+      "failure_digest": "a56dd7b4ae7f0d7d2b4a21c7259237111c14960c2309b96c870e962b839fa960",
       "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "04b4fbb356045b5e2be2b7cac498306b12ae3544b94fc7cc3e1d087d11b28973"
+      "binding_sha256": "e50c28dedf9a5f0ec0579ca89f92bceb24505e7eed984c8bab6ce43677c40d11"
     },
     {
       "id": "d7-a-scope-role-not-carried",
@@ -1905,11 +1902,11 @@
         "spec/acceptance/wf005_activate_crawl_policy_spec.rb:410"
       ],
       "failure_digest": "030bbdbba2066f4bed8f8836e93e0b020c940509edf038bbb12c9bde6cdda43d",
-      "file_sha256": "d6ddbd608e5d73a37d4d4dc439a5333e1d774d2bcf1b4d0c03523a70013dead2",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
       "proof_sha256": "b4005da2d5c63fa3608a7fa330bcf4e584006b94b79afa11280fc2818a01381f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "ce989a6a23926003de039a1e45b5ed90a12091df934347c063ed4e7625868d69"
+      "binding_sha256": "5a2dc150304408be5abefdbd5fcafaa6d7690de191ac682ed2351e0efcb11a34"
     },
     {
       "id": "d7-a-scope-map-widened",
@@ -1922,18 +1919,19 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "19 examples, 3 failures",
+      "result": "20 examples, 4 failures",
       "failing_examples": [
         "spec/acceptance/wf005_capability_write_authority_spec.rb:190",
         "spec/acceptance/wf005_capability_write_authority_spec.rb:222",
-        "spec/acceptance/wf005_capability_write_authority_spec.rb:248"
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:248",
+        "spec/acceptance/wf005_capability_write_authority_spec.rb:410"
       ],
-      "failure_digest": "85060a6c6ce4ff2408cfee3a2ccd2620879f016c546435290cb9bd2e23f40498",
-      "file_sha256": "d6ddbd608e5d73a37d4d4dc439a5333e1d774d2bcf1b4d0c03523a70013dead2",
-      "proof_sha256": "75ebc5de831e6b4c55afc4b2c9a65fec2dacb34d1086fd43a644a3e9e164147f",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "failure_digest": "d4df3dfad7d67a590c2f5d36ab7eb0eefa290460bb291d90176057f572acd1c8",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
+      "proof_sha256": "6a25db1f3dcb903eb0ae0a8559b0d81687d9132b875201394459e8fb11522785",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "29bd16bcca9596cb0d3b20332867b63bd57c515a87d5be4aa82abec3c5047937"
+      "binding_sha256": "768367fd6873ced8f6750b31222d1ac3159573ff925afd8bf1dfffce0d6cad65"
     },
     {
       "id": "d7-replay-not-idempotent",
@@ -1953,9 +1951,9 @@
       "failure_digest": "1cd6ec9f702d5aff47a8468202ef2287bba700f749211670f571f6717637cda0",
       "file_sha256": "109f34dd6b28a98b4bf305a0dfda7f8c49d723475b06890042cd71cfadafbef5",
       "proof_sha256": "7f0230bad77ee5675fb1bd420f353a77cd0a17f4c5f35dbf47863632ad930970",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "6128f9bf415b8432e296184100e45358eaf9f2c1170435707e9c4d8cb7c8310c"
+      "binding_sha256": "a04036679bdea0c10657e98b90222ebf8312e6d906bf6b5fd1c24bb6983b6203"
     },
     {
       "id": "f6-lookup-class-traced",
@@ -1975,9 +1973,208 @@
       "failure_digest": "7524cb7b4248e7d3360e61f86cb624b78a4a643817eb43410f6f59a292bc000b",
       "file_sha256": "7104c6b79de4ce7a7db59f321f66d2b7fb37be4643178f9773e7215279b8aa06",
       "proof_sha256": "e879a57d111e78b0d69bf0c03c2882945cca9ce66a661bc599fade1585f88cf2",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "7b215e523a37fba411e3928b5f028d52e69bcdd820d90422ebaff4a38f21e675"
+      "binding_sha256": "901d2df921ea696f18448e0dbbfdae039e9458559c591c05f56b8b4032059028"
+    },
+    {
+      "id": "r15-queue-grant-status-unbound",
+      "blocker": "A15-1",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_grant_battery_spec.rb",
+      "description": "the QUEUE write stops requiring the granting Assignment to be active — one of the ten conjuncts the architecture lens deleted with the whole suite green",
+      "from": "              AND ra.status = 'active'\n",
+      "to": "              AND ra.status IS NOT NULL\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "21 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_grant_battery_spec.rb[1:2:1]"
+      ],
+      "failure_digest": "9c19eb2c70d12663d167fdf1ffa3a767f9b5eaf972898d036d5a0b3e64d26715",
+      "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
+      "proof_sha256": "36c44e27e9bc2bd76b5af9f47279d565572ae2a00428968ab8b40fc4273c0df0",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "a3440c5f8f6d25179e4a33c7b9b55246c0b507505ac4a1b2942534f970e8960d"
+    },
+    {
+      "id": "r15-policy-grant-version-unbound",
+      "blocker": "A15-1",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_grant_battery_spec.rb",
+      "description": "the POLICY write stops binding the grant's state version, so a decision taken against another version of the Assignment still authorizes the activation",
+      "from": "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+      "to": "              ON g.id = ra.id\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "21 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_grant_battery_spec.rb[1:3:2]"
+      ],
+      "failure_digest": "77934327b9331eebc5ab5307abf24246a6b0248b71b341b4b303aaf71c96b791",
+      "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
+      "proof_sha256": "36c44e27e9bc2bd76b5af9f47279d565572ae2a00428968ab8b40fc4273c0df0",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "8d902f05a6fa82ba0a3af67d938f637a359d03d056a14e76c8bd3ac24410395c"
+    },
+    {
+      "id": "r15-queue-grant-expiry-unbound",
+      "blocker": "A15-1",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_grant_battery_spec.rb",
+      "description": "the QUEUE write stops checking that the grant has not expired",
+      "from": "              AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "21 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_grant_battery_spec.rb[1:2:4]"
+      ],
+      "failure_digest": "c5d3c86824a96addd1cd9cb4bda7f68769cd6bd5323ee6435f6c0568a70e1be2",
+      "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
+      "proof_sha256": "36c44e27e9bc2bd76b5af9f47279d565572ae2a00428968ab8b40fc4273c0df0",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "a358856d01f7877a4c6d396fb3a2ac6c745b3a9b15e9cf3991c0dc9aad834a74"
+    },
+    {
+      "id": "r15-queue-capability-lock-removed",
+      "blocker": "A15-1",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_authority_lock_concurrency_spec.rb",
+      "description": "the QUEUE write reads its grants without `FOR SHARE`, so a revocation can land while the statement is blocked mid-flight",
+      "from": "            FOR SHARE OF ra\n",
+      "to": "\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "9 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:315"
+      ],
+      "failure_digest": "abad6f08576a1a05fe038cfebec8c0fb40a0677d3effb536f45db5366d54f131",
+      "file_sha256": "d69beeb9eb6674fa24cf6f4988b775d2a367b426c25ee22669add5ea96ef0381",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "8247f8c19014ff4bad972d73b9202ee1de25f816c815ec21573e637003bf81ae"
+    },
+    {
+      "id": "r15-policy-capability-lock-removed",
+      "blocker": "A15-1",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_authority_lock_concurrency_spec.rb",
+      "description": "the POLICY write reads its grants without `FOR SHARE`",
+      "from": "            FOR SHARE OF ra\n",
+      "to": "\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "9 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_authority_lock_concurrency_spec.rb:349"
+      ],
+      "failure_digest": "d077edaae7ff5d9f7efb18648dc82d1d5e110f39090b6970ebaa1c29fa4789e3",
+      "file_sha256": "5bcf82af3ac43d54aab7777d7beeb81fd602028592bc8f5ea98e20691e8a3630",
+      "proof_sha256": "709798ced28b13ea525b586caf6e0f21fb744c88ae1957d35f317aa02620508f",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "8fecece546491cbb6eed48e1480fb5da360533a02192eca3e1cb73b63f9efd6d"
+    },
+    {
+      "id": "r15-queue-pre-wait-instant",
+      "blocker": "R15-SEC-1",
+      "file": "app/workflows/wf005/handlers/queue_crawl.rb",
+      "proof": "spec/acceptance/wf005_grant_lifetime_spec.rb",
+      "description": "QueueCrawl goes back to writing with the instant it entered with, so a grant that expired during the lock wait still queues a Crawl",
+      "from": "          d = d.merge(now: post_wait.now)\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "5 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_grant_lifetime_spec.rb:120"
+      ],
+      "failure_digest": "c339db4ed2f71cdc0361f048109315b2595d1e4c94b90cbc2006b0c432c98912",
+      "file_sha256": "87c1b97b6249efbc4985a096f95b827e38b28b7b20b1badf1cfbffb880cea1ee",
+      "proof_sha256": "11d393f1117f76c32091c197c51d2168fe53c20d43f8a0d48259a982b843e3d0",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "2242717be091c0f42f7c89cdae0c9969bdb728f8f34b1e85a5f694510da32263"
+    },
+    {
+      "id": "r15-policy-pre-wait-instant",
+      "blocker": "R15-SEC-1",
+      "file": "app/workflows/wf005/handlers/activate_crawl_policy.rb",
+      "proof": "spec/acceptance/wf005_grant_lifetime_spec.rb",
+      "description": "ActivateCrawlPolicy goes back to writing with its pre-wait instant",
+      "from": "          d = d.merge(now: post_wait.now)\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "5 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_grant_lifetime_spec.rb:144"
+      ],
+      "failure_digest": "ff3503224e2ed1ce2cf5155b202b6877de72e7c005e8d9f51f19ad7c7e79666a",
+      "file_sha256": "6e1ffb21b4a521878b491297392c16b1a2265601ac2c1f985e8b3edecfec7916",
+      "proof_sha256": "11d393f1117f76c32091c197c51d2168fe53c20d43f8a0d48259a982b843e3d0",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "7cbfe5df0ff8392ddeda562e0490ecd22537edeaaf90cfe5c62ceb3a2f57b7bb"
+    },
+    {
+      "id": "r15-revoke-order-reversed",
+      "blocker": "R15-CONC-1",
+      "file": "app/workflows/wf013/handlers/revoke_role_assignment.rb",
+      "proof": "spec/acceptance/wf005_authority_lock_order_spec.rb",
+      "description": "RevokeRoleAssignment writes the grant before advancing the epoch, restoring the lock-order cycle that deadlocks against every protected WF-005 write",
+      "from": "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n                                         reason, epoch + 1).to_i.zero?\n",
+      "to": "          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n                                         reason, epoch + 1).to_i.zero?\n          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "4 examples, 2 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_authority_lock_order_spec.rb:268",
+        "spec/acceptance/wf005_authority_lock_order_spec.rb:278"
+      ],
+      "failure_digest": "a9d6f112dd11bc77829b92bd68b094cde6c6eae6b1579da0705261c5c70a3793",
+      "file_sha256": "dc5a63419e20ccd551aa827c2a8717c94f403ce2d7f5beac3004520517743f6f",
+      "proof_sha256": "bd23de9769377870df9c3e5ce156b0d632aadb1fc42d789848c0ef613fc4e2d4",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "f6bb7bc4515e438fc3bfd13b2364ebc226a07d3a27cf848ee4d515c6df2e1f6c"
+    },
+    {
+      "id": "r15-classify-suite-error-broken",
+      "blocker": "R15-CONC-2",
+      "file": "automation/lib/autonomous_build/mutation_harness.rb",
+      "proof": "spec/automation/unit/mutation_harness_classification_spec.rb",
+      "description": "the one classifier goes back to calling a run that tripped a suite-wide invariant `broken`, which is what the two copies disagreed about",
+      "from": "      return \"survived\" if status.success? && !output.include?(SUITE_LEVEL_ERROR)",
+      "to": "      return \"survived\" if status.success?",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "6 examples, 1 failure",
+      "failing_examples": [
+        "spec/automation/unit/mutation_harness_classification_spec.rb:58"
+      ],
+      "failure_digest": "2ab6c679cab85c3084d5e139c2edb79f03841151223df0cb7cae7553e689bbe4",
+      "file_sha256": "e6155dede0154349b051a25429f28f9d3b22809c657fa8b2581a25329e56dac4",
+      "proof_sha256": "b74f9c81275c878cbc551f51e1bb8cc87633944739eeef9ae95f8062ffe56954",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
+      "restored": true,
+      "binding_sha256": "ff1af61636ccccf23acf8c94ca4e4b7493bf6bbcf956ae2dad876c374e59d3d1"
     },
     {
       "id": "d4-when-or-to-and",
@@ -2002,9 +2199,9 @@
       "failure_digest": "21703781e97a0648f2e4d1bf80192272f35131f18b3fcf2cb5cbf55e2716c29b",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "51a81c9c5d8ead80ed715bad0b6861e91b161616cb9631f15a308ce6e12b73de"
+      "binding_sha256": "3e87b5fd502e8eeaa53b17eca66922325c655645a8fedd33543e416ab838505d"
     },
     {
       "id": "d4-when-false",
@@ -2030,9 +2227,9 @@
       "failure_digest": "7442168e514bcfb2b157e28d339e3ca24deb5408254aa3f40644033696c16837",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "5d7e3cde4c51887bc62f755bbe6b0e0af9c41ed837cbe4b107fdd35a4f3b099f"
+      "binding_sha256": "d2a369855db11cc50dc3c3f13cc680f1e7dc6bd7bd5230ffb564b7b581175b25"
     },
     {
       "id": "d4-when-true",
@@ -2055,9 +2252,9 @@
       "failure_digest": "b9e652bbc3bd913a697440650f693acfb6066f0980b150c167784d7e2e0f6765",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "3bd2f66e922f33fa7714b4d698000deac8efea01011b0ccc23297094b742cb38"
+      "binding_sha256": "3a8ab609ea8a800647fddca5d251da0e7999f1f75aff391704cbae7eb5e9daca"
     },
     {
       "id": "d4-drop-sitemap_state",
@@ -2079,9 +2276,9 @@
       "failure_digest": "ccf40f4529615069c3e0176b1423776fefddf6945805303faeafea3101ef1eca",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "34c94b986b877867d61da7f0b5959d6eff768ce86991e86cb097d897c7333777"
+      "binding_sha256": "dc565173e89d6acfed34cfef54db869a5aa781995e9fb1fc67cf8dad25480fcb"
     },
     {
       "id": "d4-drop-sitemap_outcome_reason",
@@ -2102,9 +2299,9 @@
       "failure_digest": "11f92cd3d6c5f85f5e08bf18fc46d843ceb803ccb354c4d59e64f7c230b4afa0",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "fca9ec09fb5269eef151b10ddbbbf75f6d1cbca79e8b948b5b564df7c8b0f003"
+      "binding_sha256": "3dd385c6c186bf29b1e368b72d4d79af77533f61c061f0e9eac314351ab9bc99"
     },
     {
       "id": "d4-drop-sitemap_terminal_at",
@@ -2125,9 +2322,9 @@
       "failure_digest": "3ba207d6e2c0846a727e55547406705efc8d79de59f30a957828711a3c17a2a3",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "9759598ee18536e4c806d7afa8baa23d7951290f84c1ac05ef5cab457d4383b4"
+      "binding_sha256": "fa51ed74ac38e613054a944b36f096d982f2832a8eeb42f6a3d91eabd2a6c7b3"
     },
     {
       "id": "d4-drop-sitemap_limit_reasons",
@@ -2149,9 +2346,9 @@
       "failure_digest": "b2125af306d8bd37b06a8af61ce5479c376894813a46250997f9968ff5295b63",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "2030c2469ec8956708839b2a6e77b9baed0cd912b6cb8428d799b5cc54e2d9f5"
+      "binding_sha256": "78acd4d5733244b638a9c83d60653c168d7dfa581181656b0417cad68bc64977"
     },
     {
       "id": "d4-drop-robots_state",
@@ -2173,9 +2370,9 @@
       "failure_digest": "add823bc79a8c490acbe6ff87b77dfbf40a0776b0304e2f81138848af3d90745",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "212aae24357d5bec878a0e21d8505cad077ce1bc997404f0bd7891e73d5749fc"
+      "binding_sha256": "c9fbf00d086e2215c43488f576379c131de759fcd30dad9684f2e3508f37da3c"
     },
     {
       "id": "d4-drop-robots_terminal_reason",
@@ -2196,9 +2393,9 @@
       "failure_digest": "336582be5e65d197d3b14b21de1930bbe7189e3ec90f5599e861979f66dc3ec5",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "68b6c82e38d9bd20004db27a3ef585f740e01ccac53e91a3ee505a7f7bc0c336"
+      "binding_sha256": "13e73fffe03135ccf7bcc5357212c072c93bfd9c93f6d015ff86bb6334e2d976"
     },
     {
       "id": "d4-drop-robots_terminal_at",
@@ -2219,9 +2416,9 @@
       "failure_digest": "3ba207d6e2c0846a727e55547406705efc8d79de59f30a957828711a3c17a2a3",
       "file_sha256": "19836384e432ba894d94f0d2947517bbb063f6a32b5ab8cb24fec2d02b84b688",
       "proof_sha256": "255422ec94a57164f59270b4a30675ab63bd9d01dc05357aee6c56a9f33c4658",
-      "commit": "b2e8cfb34ff42d4754b13eb99084dba25b39e9b2",
+      "commit": "fd4002507de9fdec8c1e753d60df43b94d97f22f",
       "restored": true,
-      "binding_sha256": "677889f9aeed5d9892ecc189eef3e7926a3c71b08fb6e99f4abb5a18c60fbd17"
+      "binding_sha256": "c1713c3fb6061db3349523647c7cf492ed265d10788bbb9d0bb93f57f0bf22b7"
     }
   ]
 }

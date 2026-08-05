@@ -2048,3 +2048,178 @@ failing is worth an owner's attention.
 This review authorizes no repair. S-07-009 remains NOT ACCEPTED. Do not merge, push, begin S-07-010 or
 S-07-011, or start a repair cycle from any reviewer context or from the round-9 repair-author context.
 FU-32, FU-33, FU-43 and R3-P1..R3-P3 are unchanged. FU-44 remains correctly SUPERSEDED.
+
+---
+
+# ROUND 10 — the D7 candidate `b2e8cfb..ea8ef8d`, records `c398434`
+
+Implementation candidate: `b2e8cfb..ea8ef8d`, pinned. Governance/records commit: `c398434`. Review
+HEAD: `c398434` on `repair/s07-009-d7`. Round run: 2026-08-05, full ADR-026 five-lens form.
+
+**THIS RECORD'S TENTH SECTION IS THIS TRANCHE'S FOURTEENTH FIVE-LENS ROUND, AND THE NUMBERING SAYS SO
+RATHER THAN HIDING IT.** Rounds recorded elsewhere: two rounds on the preserved, unmerged
+`repair/s07-009-r10@68c1d52` (its own "ROUND 10" and "ROUND 11"), and two further rounds run at
+`f801245` and `abf5390` whose findings were integrated through the repair commits `0b90938` and
+`b2e8cfb` and the D-numbered sections of `S-07-009_BLOCKER_LEDGER.md` but never written into this
+file. The `review_rounds` figure in the completion report's evidence block counts THIS FILE's
+sections, which is what its gate measures; the prose that generalises it to "rounds that have reviewed
+this tranche" is what was wrong, and is corrected in that report.
+
+**ISOLATION.** Five worktrees at review HEAD, five databases built by the candidate's own Model C
+bootstrap, five Redis servers on their own ports (6501-6505) with their own directories. No worktree,
+database, Redis instance, port or temporary directory was shared. Every lens ended with
+`git status --porcelain` empty and HEAD unmoved. The full suite, every static gate and three
+consecutive stability runs were measured centrally, in a sixth environment, before the lenses started.
+
+**VERDICT: FAIL. Four of five lenses. Six confirmed-blocking findings, two of them live production
+defects. S-07-009 IS NOT ACCEPTED BY THIS ROUND.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R15-CTR-1, R15-CTR-2, R15-CTR-3 |
+| Concurrency / atomicity / idempotency | FAIL | R15-CONC-1, R15-CONC-2 |
+| Security / tenant-isolation | FAIL | R15-SEC-1 |
+| Schema / migration-safety / governed set | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | FAIL | A15-1, A15-2, A15-3 |
+
+## Gates at the candidate, measured centrally before the round
+
+| Gate | Result |
+| --- | --- |
+| `bundle exec rspec` | 2407 examples, 0 failures — and again 2407/0, and again 2407/0 (three consecutive runs, no hang, no suite-level error) |
+| `bin/rails zeitwerk:check` | all is good |
+| `bin/packwerk check` | no offenses, no stale violations |
+| `bundle exec brakeman -q --no-pager -z` | no warnings |
+| `bundle exec bundle-audit check --update` | no vulnerabilities |
+| `bin/f1db f1:db:verify_runtime` | OK as `f1_web`, 15 checks, RLS intact |
+| `bin/f1db db:schema:dump` + `git diff --exit-code` | no drift |
+| `bin/f1-db-bootstrap-gate` (schema lens, own gate database) | 9 checks passed against `c398434` |
+| mutation ledger | 92 definitions, 92 killed, 0 survived, 0 broken; independently regenerated TWICE by the architecture lens with no verdict, result or failing-example difference |
+
+## The two live production defects
+
+**R15-SEC-1 — AN EXPIRED ROLE ASSIGNMENT COULD STILL SPEND ITS AUTHORITY, IN TWO OF THE THREE
+PROTECTED WRITES.** `write_authority.rb` states that the statement re-reads the granting Assignments
+"still active, still effective, NOT YET EXPIRED", and ADR-132 decision 6 says it of each protected
+write. `CancelCrawl` did that — it adopts its post-wait instant. `QueueCrawl` and `ActivateCrawlPolicy`
+each CONSTRUCT a `PostWaitDecision`, use it to mint the attestation, and then hand the write the
+instant the command ENTERED WITH, so the expiry conjunct was evaluated against a clock reading taken
+before an unbounded advisory-lock wait. The security lens drove the real handlers with the lock held
+and committed both a Crawl and an immutable Organization-scope crawl policy on a grant that had
+expired 3 seconds earlier; the same fixture against `CancelCrawl` was correctly refused. No other limb
+can see it: an unprocessed expiry advances no authorization epoch. Every time-boxed grant — a
+contractor's, a temporary elevation, and by CHECK every protected grant — was affected.
+
+**R15-CONC-1 — FU-48's SECOND ROW LOCK CLOSED A DEADLOCK CYCLE AGAINST EVERY AUTHORITY REVOCATION.**
+The three protected writes lock `organizations` (`FOR SHARE`) and then `role_assignments`
+(`FOR SHARE OF ra`) inside one statement. `RevokeRoleAssignment` and `ExpireRoleAssignment` write
+`role_assignments` and then `organizations`, in one transaction, and no advisory lock serializes the
+two sides. The concurrency lens reproduced SQLSTATE 40P01 on all three writes with the interleaving
+established through `pg_blocking_pids`; an independent adversarial verifier reproduced it 13/13 through
+the real handler and tallied 80 rounds at ±3ms jitter: 20 deaths of the customer's command, 8 of the
+revocation. Nothing rescues `PG::TRDeadlockDetected` anywhere in `app`, `lib` or `automation`, and the
+stores use `raw_connection.exec_params`, so it is not even an `ActiveRecord::Deadlocked` a job retry
+could catch. Either a customer command raises instead of returning the `Platform::CommandResult`
+ADR-103 guarantees, or a security-critical revocation does not land — decided by arrival order. The
+verifier also ran the counterfactual at `b2e8cfb`, where the same interleaving merely blocks: the
+cycle needs BOTH of the candidate's changes, so it is squarely in range.
+
+## The four proof and record findings
+
+**A15-1 — TEN CONJUNCTS OF THE CAPABILITY PREDICATE COULD BE DELETED WITH THE WHOLE SUITE GREEN.** The
+predicate is written at three writes and the proofs enumerated which (write, conjunct) PAIRS were
+exercised: the cancellation deeply, the queue and policy writes with an empty grant set only. The
+architecture lens deleted the queue and policy `status`, `state_version`, `scope` and `FOR SHARE OF ra`
+limbs, the queue expiry limb and the cancellation `effective_at` limb, one at a time: 97 examples green
+each time, and 2406 of 2407 on the whole suite, the single failure being a byte-digest staleness check
+that fires for a comment-only edit too.
+
+**A15-2 — THE HANDLER SET WAS A NON-RECURSIVE DIRECTORY GLOB.** The same handler class placed one
+directory deeper was not discovered: it authenticated a Session, committed a protected side effect,
+re-read no authority, presented no attestation, and the run was green. A handler exposing
+`def self.call` was never observed either, because the observer was prepended into the instance
+ancestry alone.
+
+**A15-3 — FOUR PUBLIC MEMBERS ADDED BY THE CANDIDATE HAVE NO CALLER ANYWHERE**, which is D1's rule
+inside D1's own tranche.
+
+**R15-CONC-2 / R15-CTR-2 — RECORDS THE REPOSITORY REFUTES.** D9 and ADR-132 state that both replay
+paths of `MutationHarness` now classify identically; `replay_trigger` still ended `else "broken"`, so a
+run whose examples pass and which trips a suite-wide invariant — the strongest kill this repository
+can produce — is recorded as proving nothing on the path carrying the ten trigger definitions. The
+adversarial verifier established that no current ledger verdict is wrong (all ten trigger mutations
+kill with failing examples, so the divergent branch is unreached), making this a false record plus a
+latent asymmetry. Three further records give three mutually inconsistent counts for one measurable
+fact — "79 of the 82", "79 of 82", "79 of the 89" — where the tree measures 82 of 92.
+
+**R15-CTR-3 — `ProtectedEffectDoor` DESCRIBES A WHOLE-SUITE CROSS-CHECK THAT DOES NOT EXIST**, and
+could not: a refusal reaches the write and the statement's plan still modifies the guarded relation,
+so the census cannot tell a refused protected write from a committed one.
+
+## What the round confirmed sound
+
+The schema lens attacked the plan-based door with triggers, rules, views, `INSTEAD OF` views, FK
+cascades, partitioned tables, `MERGE`, `ON CONFLICT`, `TRUNCATE`, `COPY`, `CALL`, function-body writes
+and a data-modifying CTE nested in a subquery, and established from the catalogue that every blind
+spot it found is either impossible in this schema (zero views, zero rules, zero partitioned tables,
+zero non-`NO ACTION` foreign keys, no trigger function that writes) or unreachable by the runtime role
+(`f1_web` holds no TRUNCATE and no DELETE on any product table). `SELECT ... FOR UPDATE`,
+`FOR NO KEY UPDATE` and `FOR SHARE` all plan to `LockRows` and yield no effect, so the D7 symptom is
+closed by construction and no over-report is constructible. The governed set is correct for everything
+WF-005 writes: all six command-evidence ledgers carry zero non-internal triggers and are correctly
+INCIDENTAL, and a live census over 86 commands, 9577 statements and 253 governed writes returned no
+unplannable statement and no mislabelled lifecycle relation. The FU-48 capability CTE takes the
+existing partial unique index on `role_assignments` — measured on a 162,500-row analogue at 0.103 ms
+and 7 buffer hits, no sequential scan.
+
+The security lens ran nine attestation-replay attacks across every axis (capability, grant set, empty
+grant set, versions, scopes, required role, organization, account, epoch) and all nine were refused,
+with the identical authority accepted so the test is not vacuous; deleted `decision.allowed?` from all
+three handlers AND both guards from `AuthorityAttestation.attest`, and still could not commit an
+unauthorised transition; and proved that the new capability CTE closes a cross-tenant hole the epoch
+limb alone did not — with a forged victim organization context the epoch limb passes and the
+capability CTE is what refuses. `WriteAuthority`'s array quoting round-trips five hostile elements as
+exactly five, and no component is caller-influenced today.
+
+The concurrency lens confirmed the locks are taken before the write in every plan, drove EvalPlanQual
+on both axes in the direction the candidate never tested (revocation wins the lock and commits while
+the statement waits) and found refusals with the right reason codes in all three cases, confirmed the
+isolation level is READ COMMITTED throughout so no serialization failure is reachable on these paths,
+and re-ran every new concurrency proof five times from identical bytes with no verdict change. The
+architecture lens blinded four instruments deliberately — the stack-depth bound, the catalogue read,
+the door's dedicated connection, and effect recording — and all four failed loudly; it re-ran fourteen
+mutations individually and found twelve dying for the semantic reason they name; and it regenerated
+the entire ledger twice with no verdict, result or failing-example difference from the committed file.
+**D10's symptom did not reproduce.**
+
+## The repair, and what it changed
+
+Recorded in `DECISIONS.md` ADR-133 and in the commits `aac7ab0`, `c223cac`, `fd40025` on
+`repair/s07-009-r15`. Every repair carries a proof that was demonstrated to FAIL before it and a
+mutation in the regenerated ledger. **This round authorises no acceptance: the repaired candidate is a
+new candidate and requires its own independent review.**
+
+## Carried non-blocking observations
+
+The door's `42601` branch records nothing, so a genuine syntax error in a statement that then executed
+would read as "no write" — every refusal observed in a real run was a utility statement, and a sweep of
+all 287 SQL strings in `app/` and `lib/` produced no non-42601 refusal, but the branch is not checked.
+Writes performed inside a `SECURITY DEFINER` function body are invisible to the door; nine such
+functions exist over `scheduled_actions`, none reachable from a human-authorized handler and none
+executable by `f1_web`. The lifecycle cross-check keys on the literal column name `state`, so seven
+relations carrying a lifecycle spelled `status`, `invitation_state` or `from_state`/`to_state` are
+outside it. `WriteAuthority#capability` is never bound into any statement: the write's capability limb
+is a grant-IDENTITY limb, and with the baseline `confers?` neutralised a SecurityOperator could queue
+and cancel — the escalating deletion is in base code, and `ActivateCrawlPolicy` survives it only
+because `required_role` gives that one write a role axis its two siblings lack. Only the FIRST
+protected side effect of each command carries the conjunct; the follow-on writes are gated by Ruby
+alone, and no consequence was reproduced. `GovernedWriteSentinel` still carries a SQL-text pattern,
+five path regexes and a hardcoded stack depth. The ledger's `failure_digest` is non-deterministic for
+five of ninety-two rows, and nothing compares it across generations. `AuthoritySentinel` hooks two of
+nine `PG::Connection` execution doors. Seven public tables have RLS enabled but not FORCED, and five
+have none — all pre-existing and all exactly as `db/structure.sql` declares.
+
+## Stop
+
+S-07-009 remains NOT ACCEPTED. S-07-010 and S-07-011 remain blocked. No merge, no push of any branch
+carrying this tranche, and no progression is authorised by this round.

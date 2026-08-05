@@ -239,7 +239,7 @@ module AutonomousBuild
       begin
         output, status = Open3.capture2e(env.transform_keys(&:to_s), "bundle", "exec", "rspec",
                                          *entry.fetch("proof").split(/\s+/), chdir: root)
-        summary = output[/(\d+) examples?, (\d+) failures?/]
+        summary = rspec_summary(output)
         examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
         verdict = classify(summary:, examples:, failures:, status:, output:)
         { "id" => entry["id"], "landed" => landed, "verdict" => verdict, "result" => summary,
@@ -269,6 +269,19 @@ module AutonomousBuild
     #
     # It now captures the failing example identities, the exception classes and messages, and the
     # assertion text RSpec prints under each header — so two different failures cannot collide.
+    # RSPEC'S OWN SUMMARY, WHICH IS THE LAST ONE IT PRINTS.
+    #
+    # This used to take the FIRST match in the output, and a spec can put that shape in a failure
+    # message: `spec/automation/unit/mutation_harness_classification_spec.rb` asserts over the literal
+    # "13 examples, 0 failures", so the ledger recorded THAT as the run's result instead of the real
+    # "6 examples, 1 failure". The verdict happened to come out right, and only because a failing exit
+    # fell through to `killed` — the counts a verdict is computed from were the spec's, not the run's.
+    # An instrument that can be handed its own answer by the thing it measures is the defect class the
+    # ledger's byte-binding exists for, found in the field feeding the binding.
+    def rspec_summary(output)
+      output.scan(/\d+ examples?, \d+ failures?/).last
+    end
+
     # THE OUTCOME OF ONE REPLAY, CLASSIFIED ONCE FOR BOTH PATHS (round-15 concurrency finding
     # R15-CONC-2).
     #
@@ -402,7 +415,7 @@ module AutonomousBuild
         output, status = Open3.capture2e(env.transform_keys(&:to_s),
                                          "bundle", "exec", "rspec", *entry.fetch("proof").split(/\s+/),
                                          chdir: root)
-        summary = output[/(\d+) examples?, (\d+) failures?/]
+        summary = rspec_summary(output)
         examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
         verdict = classify(summary:, examples:, failures:, status:, output:)
         failing = output.scan(%r{^rspec '?\./(spec/[^'\s]+)}).flatten.uniq
