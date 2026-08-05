@@ -12,7 +12,7 @@ frozen_path_changes: 2
 frozen_paths:
   - lib/f1/runtime_grants.rb
   - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2299
+suite_examples: 2311
 review_rounds: 9
 ```
 
@@ -405,7 +405,7 @@ the five rounds that were reading it.
 | `spec/workflows/wf005/terminal_selection_spec.rb` | 12 |
 | `spec/acceptance/wf005_admission_terminal_concurrency_spec.rb` | 11 |
 | `spec/acceptance/wf005_checkpoint_pass_concurrency_spec.rb` | 10 |
-| `spec/platform/pg_instant_spec.rb` | 10 |
+| `spec/platform/pg_instant_spec.rb` | 9 |
 | `spec/acceptance/wf005_closed_fact_set_spec.rb` | 8 |
 | `spec/acceptance/wf005_pass_anchor_spec.rb` | 11 |
 | `spec/acceptance/wf005_post_wait_authority_spec.rb` | 6 |
@@ -415,6 +415,7 @@ the five rounds that were reading it.
 | `spec/acceptance/wf005_host_gate_robots_spec.rb` | 4 |
 | `spec/acceptance/wf005_start_cancel_concurrency_spec.rb` | 3 |
 | `spec/acceptance/wf005_queue_crawl_spec.rb` | 3 |
+| `spec/acceptance/wf005_deadline_gates_spec.rb` | 7 |
 | `spec/architecture/run_deadline_query_surface_spec.rb` | 1 |
 | `spec/acceptance/wf005_cancel_authority_write_spec.rb` | 5 |
 | `spec/platform/run_deadline_spec.rb` | 5 |

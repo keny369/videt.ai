@@ -139,48 +139,18 @@ RSpec.describe Platform::PgInstant, type: :model do
     # raises at runtime rather than passing a scan.
     CLASSIFIED_DEADLINE_COMPARISONS = {}.freeze
 
-    it "PROOF 185 — the corpus obtains no raw deadline to compare" do
-      # WHAT MAKES THIS DIFFERENT FROM THE SCAN IT REPLACES: it is not looking for comparisons, which
-      # is a question about spellings. It asserts that the only decode of the column in the whole
-      # repository lives in the owner, so no caller HAS an instant to compare however it is written.
-      decoders = Dir[Rails.root.join("app/**/*.rb")].sort.filter_map do |file|
-        relative = Pathname(file).relative_path_from(Rails.root).to_s
-        next if relative == "app/platform/run_deadline.rb"
-
-        lines = File.read(file).lines.each_with_index.filter_map do |line, index|
-          next if line.strip.start_with?("#")
-          # A READ OF THE COLUMN OUT OF A ROW, which is the only shape that yields an instant a
-          # caller could compare. A parameter named `deadline_at`, a bound SQL value and a write of
-          # the column are none of them.
-          next unless line.match?(/\["deadline_at"\]/)
-          next if line.include?("RunDeadline")
-
-          "#{relative}:#{index + 1}: #{line.strip}"
-        end
-        lines.empty? ? nil : lines
-      end.flatten
-
-      offenders = decoders
-
-      expect(offenders).to be_empty, <<~MESSAGE
-        A file outside Platform::RunDeadline reads `deadline_at` directly. :442's boundary has one
-        owner, and the way that stays true is that nobody else obtains the instant to compare:
-        #{offenders.join("\n")}
-      MESSAGE
-      expect(CLASSIFIED_DEADLINE_COMPARISONS).to be_empty
-    end
-
-    it "PROOF 186 — the owner exposes no comparison operator to reimplement the boundary with" do
-      # THE STRUCTURAL PROPERTY, ASSERTED ON THE OBJECT ITSELF rather than on the source of its
-      # callers. A caller cannot invert what it cannot compare.
-      deadline = Platform::RunDeadline.of("deadline_at" => Time.utc(2026, 8, 4, 12, 0, 0))
-
-      %i[< <= > >= to_time to_i getutc iso8601_raw].each do |operator|
-        expect(deadline).not_to respond_to(operator),
-                                "RunDeadline answers ##{operator}, which is a way to rebuild :442's " \
-                                "boundary outside its owner"
-      end
-      expect(deadline).to respond_to(:expired?, :remaining_seconds, :not_after, :beyond?, :at?)
-    end
+    # PROOF 185 AND 186 ARE DELETED, NOT WIDENED (D5 family 1, R10-18).
+    #
+    # 185 was a per-line text scan for a raw deadline read carrying one exception; 186 was an
+    # eight-name denylist of comparison methods. On this branch, inverting
+    # `Admission#wall_clock_expired?` through `instant_for_transport` — an accessor 186 does not name
+    # and 185 skips by construction — left this file and two others at 82 examples, 0 failures. A
+    # denylist that omits the accessor that matters is not a defence, and widening it would be the
+    # sixth enumeration in six rounds.
+    #
+    # WHAT DEFENDS THE BOUNDARY NOW is `spec/acceptance/wf005_deadline_gates_spec.rb`, which proves BY
+    # CALLER-BOUND INVOCATION that each :442 gate consulted `RunDeadline#expired?` as part of its own
+    # execution, on the asserting thread. No respelling through any accessor satisfies that, because
+    # it observes the owner EXECUTING rather than observing that some spelling is absent.
   end
 end

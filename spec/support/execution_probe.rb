@@ -68,15 +68,17 @@ module ExecutionProbe
       :c_defined
     end
 
-    # Identity of the BODY this target resolved to, so a later redefinition is detectable. A probe
-    # holding stale metadata would watch a class/method pair that no longer names the code under
-    # test and report "not evaluated" forever.
-    def fingerprint
-      method = reflect
-      [method.owner, method.source_location, method.arity]
-    rescue NameError
-      nil
-    end
+    # NO STALE METADATA, BY CONSTRUCTION.
+    #
+    # An earlier version of this repair cached the resolved body and refused to watch a target whose
+    # definition had moved. That was solving a problem this probe does not have — `traced_class` is
+    # re-derived on EVERY `watch`, so the hook is always keyed on the definition that is current when
+    # the block runs. The cached form also could not tell a redefinition from ordinary
+    # instrumentation: `AuthoritySentinel` prepends an observer to `CommandAuthorizer` for the whole
+    # suite, and treating that as staleness broke eight existing post-wait authority proofs.
+    #
+    # PROOF 207b and 207c hold both halves: a redefined body is observed, and a prepended wrapper
+    # leaves the original observable.
 
     def resolve!
       unless singleton ? klass.respond_to?(name, true) : klass.method_defined?(name) || klass.private_method_defined?(name)
@@ -84,21 +86,9 @@ module ExecutionProbe
       end
 
       refuse_unobservable!
-      @resolved_fingerprint = fingerprint
       self
     rescue NameError => e
       raise "#{self} does not resolve: #{e.message}"
-    end
-
-    # RE-CHECKED AT OBSERVATION TIME. Resolution proves the target existed when the proof was
-    # written; this proves it is still the same body when the proof RUNS. `stub_const`, a monkey
-    # patch, a reopened class or a `prepend` between the two would otherwise leave the probe
-    # watching a body nobody calls, and every negative assertion on it would pass.
-    def assert_current!
-      return if @resolved_fingerprint.nil? || fingerprint == @resolved_fingerprint
-
-      raise "#{self} was redefined after this target was resolved (was #{@resolved_fingerprint.inspect}, " \
-            "now #{fingerprint.inspect}); the probe would be watching a body nothing calls"
     end
 
     # A TARGET THIS PROBE CANNOT SEE IS REFUSED AT CONSTRUCTION, NOT SILENTLY WATCHED (R10-21).
@@ -125,9 +115,31 @@ module ExecutionProbe
 
   # What the block did, per target.
   class Observation
-    def initialize(counts) = @counts = counts
+    def initialize(counts, invocations = {})
+      @counts = counts
+      @invocations = invocations
+    end
+
     def evaluated?(target) = count(target).positive?
     def count(target) = @counts.fetch(target.to_s, 0)
+
+    # EVERY INVOCATION, WITH WHO ISSUED IT AND ON WHICH THREAD (D5 family 1).
+    #
+    # WHY `evaluated?` IS NOT ENOUGH, stated where it will be read. It answers "did anything call this
+    # during the block", and that is too weak wherever the block reaches the control by more than one
+    # route. Inverting `CrawlDriver#within_wall_clock?` to reimplement :442's comparison left
+    # `evaluated?` TRUE and its proof passing, because the same pass consults the deadline again
+    # through `RunBoundedOutbound` on every request. A proof that a control ran SOMEWHERE is not a
+    # proof that a given caller consulted it — and a setup hook, a sibling path, another instance or
+    # another thread all satisfy "somewhere".
+    def invocations(target) = @invocations.fetch(target.to_s, [])
+
+    def sites(target) = invocations(target).map { |i| i[:site] }
+
+    # Did THIS caller, on THIS thread, invoke the target during the block?
+    def evaluated_from?(target, site, thread: Thread.current)
+      invocations(target).any? { |i| i[:site].include?(site) && i[:thread] == thread.object_id }
+    end
     def to_s = @counts.empty? ? "(nothing observed)" : @counts.map { |k, v| "#{k}=#{v}" }.join(" ")
     def inspect = "#<ExecutionProbe::Observation #{self}>"
   end
@@ -152,12 +164,20 @@ module ExecutionProbe
   # formatting can make it unobservable.
   def watch(targets)
     counts = Hash.new(0)
-    # STALE METADATA IS REFUSED BEFORE THE BLOCK RUNS, not discovered afterwards as an empty result.
-    targets.each(&:assert_current!)
+    invocations = Hash.new { |h, k| h[k] = [] }
     wanted = targets.to_h { |t| [[t.traced_class, t.name], t.to_s] }
     trace = TracePoint.new(:call) do |tp|
       label = wanted[[tp.defined_class, tp.method_id]]
-      counts[label] += 1 if label
+      next unless label
+
+      counts[label] += 1
+      # THE CALLER, NOT THE CALLEE. `caller_locations(2, 1)` from inside the hook is the frame that
+      # ISSUED the call. Recorded as file plus calling-method name rather than a line number, so it
+      # survives an edit above it and still names exactly which gate consulted the control — and with
+      # the THREAD, so one thread's work cannot be attributed to another's caller.
+      origin = caller_locations(2, 1)&.first
+      invocations[label] << { site: origin ? "#{origin.path.split('/app/').last}:#{origin.label}" : "(unknown)",
+                              thread: Thread.current.object_id }
     end
     trace.enable
     begin
@@ -165,7 +185,7 @@ module ExecutionProbe
     ensure
       trace.disable
     end
-    Observation.new(counts)
+    Observation.new(counts, invocations)
   end
 
   # Every line of `relative_paths` executed inside the block, as { relative_path => Set(line) }.
@@ -213,9 +233,25 @@ module ExecutionProbe
 end
 
 RSpec::Matchers.define :have_evaluated do |target|
-  match { |observation| observation.evaluated?(target) }
+  # `.from("Caller#method")` binds the assertion to the CALLER AND THE THREAD. Without it, a block
+  # that reaches the control by ANY route passes — which is how an inverted gate survived its own
+  # proof. `.on_thread(t)` is for the deliberate cross-thread case.
+  chain(:from) { |site| @site = site }
+  chain(:on_thread) { |thread| @thread = thread }
+
+  match do |observation|
+    next false unless observation.evaluated?(target)
+
+    @site.nil? || observation.evaluated_from?(target, @site, thread: @thread || Thread.current)
+  end
+
   failure_message do |observation|
-    "expected #{target} to have been evaluated in this block, but it was not. Observed: #{observation}"
+    if @site && observation.evaluated?(target)
+      "expected #{target} to have been evaluated BY #{@site} on the asserting thread, but it was " \
+        "only evaluated by: #{observation.invocations(target).map { |i| "#{i[:site]} (thread #{i[:thread]})" }.uniq.join(', ')}"
+    else
+      "expected #{target} to have been evaluated in this block, but it was not. Observed: #{observation}"
+    end
   end
   failure_message_when_negated do |observation|
     "expected #{target} NOT to have been evaluated, but it ran #{observation.count(target)} time(s)"
