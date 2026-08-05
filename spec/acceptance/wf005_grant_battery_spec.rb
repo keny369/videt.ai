@@ -291,6 +291,53 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
       expect(send(spec.fetch(:untouched), env)).to be(true)
     end
 
+    it "refuses a grant that belongs to ANOTHER ACCOUNT in the same Organization (round-19 finding R19-CTR-2)" do
+      # THE CONJUNCT NINETEEN ROUNDS NEVER BOUND. Every case above moves the GRANT — revoked, version,
+      # scope, expiry, effectiveness, role, mode — so each binds a qual about the grant's own state.
+      # None asked whether the grant belongs to the PRINCIPAL the authority names. Measured at round 19:
+      # replacing `ra.account_id = $n` with a tautology of the same arity left all 27 battery examples
+      # green, and the only thing in the whole 2464-example suite that reacted was
+      # `repository_truth_spec`'s byte-digest staleness check — which fires identically for a
+      # comment-only edit, so it cannot tell deleting an authorization qual from adding a comment.
+      #
+      # FU-50's recorded basis was that "any drift fails seven cases at the drifting write". That is
+      # refuted for this qual, and the copies agree only in SQL TEXT: `crawl_store`/`crawl_policy_store`
+      # bind the organization slot to the ROW's id while `crawl_start_store` binds it to the
+      # AUTHORITY's, which a textual comparison cannot see (round-19 finding R19-ARCH-3).
+      #
+      # THE GRANT IS REAL AND FULLY LIVE — same Organization, active, effective, unexpired, and a role
+      # the ratified cell admits — so every OTHER qual passes and this one is the only thing that can
+      # refuse it. That is the state a `confers?` that selected another principal's Assignments would
+      # produce upstream.
+      other = TenantSeeder.create_account(organization_id: env[:org],
+                                          issuer_key: "https://id.example/oidc",
+                                          subject: "other-#{SecureRandom.hex(6)}")
+      TenantSeeder.create_role_assignment(organization_id: env[:org], account_id: other,
+                                          canonical_role: "MarketingOperator")
+      foreign = DbInspector.one(<<~SQL, [env[:org], other])
+        SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+        FROM role_assignments
+        WHERE organization_id = $1::uuid AND account_id = $2::uuid AND status = 'active'
+      SQL
+      expect(foreign).not_to be_nil, "the second account's grant was not seeded, so this case is vacuous"
+      expect(Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)))
+        .to include("MarketingOperator"),
+            "the foreign grant's role is outside this capability's cell, so the role qual would refuse " \
+            "it and this case would not bind the account qual"
+
+      borrowed = AuthorityFixture.build(organization_id: env[:org], account_id: authority.account_id,
+                                        capability: spec.fetch(:capability), grants: [foreign])
+
+      outcome = drive(spec, env, borrowed)
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a grant belonging to another Account authorised this " \
+                                                 "principal's protected write"
+      expect(spec.fetch(:applied).call(outcome)).to eq(0)
+      expect(send(spec.fetch(:untouched), env)).to be(true)
+    end
+
     it "COMMITS when the grant is exactly the one the decision relied on, so the battery is not vacuous" do
       outcome = drive(spec, env, authority)
 
