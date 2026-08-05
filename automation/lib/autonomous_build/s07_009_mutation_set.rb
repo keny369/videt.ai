@@ -191,8 +191,8 @@ module AutonomousBuild
       { id: "f4-discovery-narrowed", blocker: "R10-9, A15-2", file: SENTINEL, proof: SENTINEL_PROOF,
         description: "discovery stops recursing into nested namespaces, so a handler one module " \
                      "deeper is silently outside the rule",
-        from: "        elsif value.is_a?(Module) then handlers_under(value)\n",
-        to: "        elsif value.is_a?(Module) then []\n",
+        from: "        nested = handlers_under(value, seen)\n",
+        to: "        nested = []\n",
         expectation: "kill" },
       { id: "f4-accounting-global", blocker: "R10-11", file: SENTINEL, proof: SENTINEL_PROOF,
         description: "accounting returned to process-global state, so threads corrupt each other",
