@@ -47,7 +47,9 @@ module AutonomousBuild
     BATTERY_PROOF = "spec/acceptance/wf005_grant_battery_spec.rb"
     LIFETIME_PROOF = "spec/acceptance/wf005_grant_lifetime_spec.rb"
     ORDER_PROOF = "spec/acceptance/wf005_authority_lock_order_spec.rb"
-    ORDER_PROOF_FILE = ORDER_PROOF
+    # The probe lives in its own support file so a mutation of it does not change the bytes of the
+    # proof that reads it — `verify_bindings!` refuses that, correctly (round-17).
+    ORDER_PROOF_FILE = "spec/support/lock_order_probe.rb"
     CLASSIFY_PROOF = "spec/automation/unit/mutation_harness_classification_spec.rb"
     REVOKE_HANDLER = "app/workflows/wf013/handlers/revoke_role_assignment.rb"
     EXPIRE_HANDLER = "app/workflows/wf013/handlers/expire_role_assignment.rb"
