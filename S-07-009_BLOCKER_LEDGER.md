@@ -43,7 +43,23 @@ from production, and then proving the choice.
   `crawl_fetch_due_schedule.rb` invoke. Verified by reading the singleton definitions on this tree.
   Both declared no-deadline branches raise `NoMethodError`.
 
-### D3 — R10-10, the authority mint is not bound to the wait. OPEN, AND THE OBVIOUS FIX IS KNOWN TO FAIL.
+### D3 — R10-10. **CLOSED 2026-08-05**, and not by the rejected xid floor.
+
+**HOW IT WAS ACTUALLY CLOSED.** `CommandAuthorizer.authority_current?` is, in full,
+"`organizations.authorization_epoch` equals the epoch the actor authenticated with". That is
+ordinary row state, so it is now a CONJUNCT OF THE CANCELLATION WRITE. There is no separate
+check left to hoist, reorder, extract into a helper or arrange a Boolean around: PostgreSQL
+evaluates authority and the state transition in one statement, at the instant of the write,
+which is necessarily after every lock the handler took. No transaction-header interpretation is
+involved and the multixact question below is moot — the design does not read `xmax` at all.
+The two zero-row cases are computed in the same statement and reported separately, because a
+revocation is a domain denial and a lost serialized transition is corruption. PROOF 216-220;
+9 of 9 mutations killed by their proof targets, including the handler-branch gaps the battery
+itself uncovered.
+
+The original analysis is retained below as the record of what was ruled out.
+
+#### The rejected approaches, retained
 
 Hoisting the recheck above `lock_frontier`/`lock_crawl` in `CancelCrawl` passes `require!`, passes the
 sentinel, and commits an irreversible cancellation on revoked authority.
@@ -79,7 +95,18 @@ carries a live multixact when the handler arrives. A designed concurrency proof 
 what D3 needs before the invariant is adopted, and adopting it on one favourable probe is precisely
 the shape of reasoning that produced ten failed rounds.
 
-### D4 — R10-15, PROOF 157 does not defend the closure trigger's UPDATE limb. VERIFIED OPEN.
+### D4 — R10-15. **CLOSED 2026-08-05.**
+
+PROOF 157 is replaced by BEHAVIOURAL proofs that observe the trigger's decision: each governed
+column or coherent group is written post-terminal against a gate whose OWN guards still permit
+the write, and must be refused by the closure; pacing must still succeed; every write must
+commit on a live run so a malformed write cannot masquerade as a refusal; and a census derived
+from the WHEN clause requires every governed column to be exercised. 4 of 4 trigger mutations
+killed, including the `OR`->`AND` mutant R10-15 named, which the old text proof could not see.
+
+The original finding is retained below.
+
+#### The finding, retained
 
 Replacing `OR` with `AND` in the trigger's WHEN clause keeps all seven column names present, so the
 proof passes while the limb becomes unfireable — a post-terminal `sitemap_state` write is ACCEPTED
@@ -117,7 +144,7 @@ control ran somewhere is not a proof that a given gate consulted it.
 | --- | --- |
 | WF-013 concurrency hang | CLOSED by ADR-131. It was the harness contending with itself and was never an S-07-009 defect. S-07-009 still may not claim acceptance while any stability violation is live. |
 | Database "from empty" evidence | CLOSED by ADR-129/130. S-07-009's schema evidence is invalidated by it; none of its blockers was caused by it. |
-| FU-45 | BLOCKING, repository-level: `controller_crash_recovery` and `controller_locking` name spec paths that have never existed. Two mandatory gates have never executed for any acceptance. |
+| FU-45 | **RESOLVED 2026-08-05.** Both mandatory gates now have real, owned targets and both execute (5 examples each). `spec/architecture/mandatory_gate_targets_spec.rb` makes a gate that names nothing, or a target that defines zero examples, fail loudly. No declaration was deleted or weakened. |
 | FU-46, FU-47 | repository-level; recorded by ADR-130. |
 
 ## Rule carried forward
