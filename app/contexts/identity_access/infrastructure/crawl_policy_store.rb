@@ -46,30 +46,62 @@ module IdentityAccess
         SQL
       end
 
-      def insert_policy_version(row)
+      # POLICY ACTIVATION IS ONE STATEMENT, AND IT CARRIES ITS OWN AUTHORITY CHECK.
+      #
+      # WHY ONE STATEMENT. The transition is two writes — supersede the prior active version, insert
+      # the new one — and the scope's one-active-per-scope partial-unique index means a half-applied
+      # transition is a corrupt scope: superseded with nothing active, or two active rows. Run as two
+      # statements with authority tested in each, a revocation landing BETWEEN them denies the second
+      # while the first stands. Run as two statements with authority tested in Ruby, the test can be
+      # hoisted, reordered or deleted. Neither is acceptable, so the supersede and the insert are one
+      # statement whose data-modifying CTEs share a single evaluation of one authority predicate.
+      # PostgreSQL applies both or neither, and `inserted` depends on `superseded`, which forces the
+      # order rather than leaving it to the planner.
+      #
+      # WHY THE PREDICATE IS ORDINARY ROW STATE. `authority_current?` is, in full,
+      # "`organizations.authorization_epoch` equals the epoch the actor authenticated with", so it
+      # belongs in the statement that depends on it. There is then no handler-level check to hoist and
+      # no list of which handlers must remember to perform one.
+      #
+      # THE THREE OUTCOMES ARE REPORTED SEPARATELY because the contract distinguishes them: authority
+      # that moved is a DOMAIN DENIAL, a prior version that would not supersede is a LOST SERIALIZED
+      # TRANSITION the handler raises on, and a successful pair is the transition.
+      def activate_version(row)
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:scope], row[:policy_version], row[:supersedes_id], row[:activated_by_account_id],
-          JSON.generate(row[:normalized_bounds]), bytea(row[:content_sha256])
+          JSON.generate(row[:normalized_bounds]), bytea(row[:content_sha256]),
+          row[:expected_state_version], row.fetch(:authorization_epoch)
         ]
-        exec(<<~SQL, params)
-          INSERT INTO crawl_policies
-            (id, state_version, created_at, updated_at, correlation_id, schema_version, organization_id,
-             project_id, scope, policy_version, state, supersedes_id, activated_by_account_id,
-             normalized_bounds, content_sha256, superseded_at)
-          VALUES ($1,0,$2::timestamptz,$2::timestamptz,$3::uuid,'crawl-policy-v1',$4::uuid,
-                  $5::uuid,$6,$7,'active',$8::uuid,$9::uuid,$10::jsonb,$11,NULL)
+        result = exec(<<~SQL, params).to_a.first
+          WITH authority AS (
+            SELECT 1 FROM organizations
+            WHERE id = $4::uuid AND authorization_epoch = $13::bigint
+          ), superseded AS (
+            UPDATE crawl_policies
+            SET state = 'superseded', superseded_at = $2::timestamptz,
+                state_version = state_version + 1, updated_at = $2::timestamptz
+            WHERE $8::uuid IS NOT NULL AND id = $8::uuid AND state = 'active'
+              AND state_version = $12::int
+              AND EXISTS (SELECT 1 FROM authority)
+            RETURNING 1
+          ), inserted AS (
+            INSERT INTO crawl_policies
+              (id, state_version, created_at, updated_at, correlation_id, schema_version, organization_id,
+               project_id, scope, policy_version, state, supersedes_id, activated_by_account_id,
+               normalized_bounds, content_sha256, superseded_at)
+            SELECT $1,0,$2::timestamptz,$2::timestamptz,$3::uuid,'crawl-policy-v1',$4::uuid,
+                   $5::uuid,$6,$7,'active',$8::uuid,$9::uuid,$10::jsonb,$11,NULL
+            WHERE EXISTS (SELECT 1 FROM authority)
+              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))
+            RETURNING 1
+          )
+          SELECT (SELECT count(*) FROM authority) AS authorized,
+                 (SELECT count(*) FROM superseded) AS superseded,
+                 (SELECT count(*) FROM inserted) AS inserted
         SQL
-      end
-
-      # Supersede the prior active version, guarded on its expected state version; returns rows.
-      def supersede(id, expected_state_version, now)
-        exec(<<~SQL, [id, expected_state_version, iso(now)]).cmd_tuples
-          UPDATE crawl_policies
-          SET state = 'superseded', superseded_at = $3::timestamptz,
-              state_version = state_version + 1, updated_at = $3::timestamptz
-          WHERE id = $1::uuid AND state = 'active' AND state_version = $2
-        SQL
+        { authorized: result["authorized"].to_i.positive?,
+          superseded: result["superseded"].to_i, inserted: result["inserted"].to_i }
       end
 
       # WF-005 audit writer — ActorLedgerWriters row shape stamped 'WF-005'.

@@ -136,15 +136,26 @@ module Workflows
                                        ids[:policy], ACTION)
           # Supersede the prior active version BEFORE inserting the new one, so the
           # one-active-per-scope partial-unique index never sees two active rows at once.
-          if current
-            raise LostRace if store.supersede(current["id"], current["state_version"].to_i, now).to_i.zero?
-          end
-          store.insert_policy_version(
+          # ONE STATEMENT, CARRYING ITS OWN AUTHORITY TEST. The supersede and the insert are data-
+          # modifying CTEs sharing a single evaluation of one authority predicate, so PostgreSQL
+          # applies both or neither and a revocation landing between them is impossible. The Ruby
+          # recheck above remains as the polite denial for an already-revoked caller; deleting it
+          # would not make an unauthorised activation possible.
+          applied = store.activate_version(
             id: ids[:policy], now:, correlation_id: ctx.correlation_id, organization_id: org,
+            authorization_epoch: actor.authorization_epoch,
             project_id: command.project_id, scope: command.scope, policy_version:,
-            supersedes_id: current && current["id"], activated_by_account_id: actor.account_id,
+            supersedes_id: current && current["id"],
+            expected_state_version: current && current["state_version"].to_i,
+            activated_by_account_id: actor.account_id,
             normalized_bounds: normalized, content_sha256: digest
           )
+          # Authority that moved during the wait is a DOMAIN DENIAL. A prior version that would not
+          # supersede is a LOST SERIALIZED TRANSITION. Collapsing them would either report corruption
+          # for an ordinary revocation or swallow a lost race as a polite denial.
+          return denied(d, "crawl_policy_unauthorized") unless applied[:authorized]
+          raise LostRace if current && applied[:superseded].zero?
+          raise LostRace if applied[:inserted].zero?
 
           payload = {
             "crawl_policy_id" => ids[:policy], "organization_id" => org, "project_id" => command.project_id,

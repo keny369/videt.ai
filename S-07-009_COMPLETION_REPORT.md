@@ -12,7 +12,7 @@ frozen_path_changes: 2
 frozen_paths:
   - lib/f1/runtime_grants.rb
   - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2335
+suite_examples: 2346
 review_rounds: 9
 ```
 
@@ -414,7 +414,7 @@ the five rounds that were reading it.
 | `spec/persistence/crawl_terminal_fact_closure_spec.rb` | 7 |
 | `spec/acceptance/wf005_host_gate_robots_spec.rb` | 4 |
 | `spec/acceptance/wf005_start_cancel_concurrency_spec.rb` | 3 |
-| `spec/acceptance/wf005_queue_crawl_spec.rb` | 3 |
+| `spec/acceptance/wf005_queue_crawl_spec.rb` | 10 |
 | `spec/acceptance/wf005_deadline_gates_spec.rb` | 7 |
 | `spec/architecture/run_deadline_query_surface_spec.rb` | 1 |
 | `spec/acceptance/wf005_cancel_authority_write_spec.rb` | 5 |

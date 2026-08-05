@@ -131,8 +131,14 @@ module Workflows
 
           ids = %i[crawl execution audit event result decision idem].to_h { |k| [k, ctx.generate_id] }
 
-          store.insert_crawl(
+          # THE AUTHORITY TEST IS NOT HERE. It is a conjunct of the INSERT below, so a revocation that
+          # lands while this transaction was blocked on its locks is seen by PostgreSQL at the instant
+          # of the write. Deleting every Ruby check above would not make an unauthorised queue
+          # possible, which is the property that removes the need to identify which handlers must
+          # remember to look.
+          queued = store.insert_crawl(
             id: ids[:crawl], now:, correlation_id: ctx.correlation_id, organization_id: org,
+            authorization_epoch: actor.authorization_epoch,
             project_id: command.project_id, kind: "root",
             requested_crawl_policy_id: crawl_policy && crawl_policy["id"],
             requested_crawl_policy_version: crawl_policy && crawl_policy["policy_version"],
@@ -140,6 +146,10 @@ module Workflows
             requested_entitlement_policy_version: entitlement["semantic_version"],
             trigger_kind: "manual", triggered_by_account_id: actor.account_id, idempotency_key_digest: key_digest
           )
+          # A queued Crawl carries no state or version predicate, so an insert that applied nothing can
+          # only mean authority moved. Nothing further is written on this path.
+          return denied(d, "crawl_trigger_unauthorized") unless queued[:authorized]
+
           sources.each_with_index do |s, i|
             store.insert_crawl_source(
               id: ctx.generate_id, now:, correlation_id: ctx.correlation_id, organization_id: org,

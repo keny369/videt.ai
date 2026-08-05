@@ -22,6 +22,10 @@ module AutonomousBuild
     PROBE = "spec/support/execution_probe.rb"
     SENTINEL = "spec/support/authority_sentinel.rb"
     CENSUS = "spec/support/governed_write_sentinel.rb"
+    CRAWL_STORE = "app/contexts/identity_access/infrastructure/crawl_store.rb"
+    POLICY_STORE = "app/contexts/identity_access/infrastructure/crawl_policy_store.rb"
+    QUEUE_HANDLER = "app/workflows/wf005/handlers/queue_crawl.rb"
+    POLICY_HANDLER = "app/workflows/wf005/handlers/activate_crawl_policy.rb"
 
     DEADLINE_PROOF = "spec/platform/run_deadline_spec.rb"
     GATES_PROOF = "spec/acceptance/wf005_deadline_gates_spec.rb"
@@ -30,6 +34,8 @@ module AutonomousBuild
     PROBE_PROOF = "spec/architecture/execution_probe_spec.rb"
     SENTINEL_PROOF = "spec/architecture/authority_sentinel_spec.rb"
     CLOSED_FACT_PROOF = "spec/acceptance/wf005_closed_fact_set_spec.rb"
+    QUEUE_PROOF = "spec/acceptance/wf005_queue_crawl_spec.rb"
+    POLICY_PROOF = "spec/acceptance/wf005_activate_crawl_policy_spec.rb"
 
     ENTRIES = [
       # ---- D1/D2: the dead question, and the ones nothing pinned -------------------------------
@@ -183,6 +189,65 @@ module AutonomousBuild
         description: "`kind` forced to :ruby, so every unobservable target is accepted",
         from: "      return :ruby if RubyVM::InstructionSequence.of(method)", to: "      return :ruby if true",
         expectation: "kill" },
+      # ---- D6: write-level authority for QueueCrawl and ActivateCrawlPolicy ---------------------
+      { id: "d6-q-predicate-removed", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
+        description: "the authority predicate removed from the queue write",
+        from: "          WHERE EXISTS (\n            SELECT 1 FROM organizations\n            WHERE id = $4::uuid AND authorization_epoch = $14::bigint\n          )\n",
+        to: "", expectation: "kill" },
+      { id: "d6-q-predicate-inverted", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
+        description: "the authority predicate inverted, admitting exactly the revoked actor",
+        from: "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+        to: "WHERE id = $4::uuid AND authorization_epoch <> $14::bigint", expectation: "kill" },
+      { id: "d6-q-wrong-epoch-column", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
+        description: "the epoch compared against an unrelated column",
+        from: "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+        to: "WHERE id = $4::uuid AND state_version = $14::bigint", expectation: "kill" },
+      { id: "d6-q-wrong-row", blocker: "D6", file: CRAWL_STORE, proof: QUEUE_PROOF,
+        description: "the predicate applied to the wrong row (project id in place of organization id)",
+        from: "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+        to: "WHERE id = $5::uuid AND authorization_epoch = $14::bigint", expectation: "kill" },
+      { id: "d6-q-stale-captured-epoch", blocker: "D6", file: QUEUE_HANDLER, proof: QUEUE_PROOF,
+        description: "a stale captured epoch passed to the write",
+        from: "            authorization_epoch: actor.authorization_epoch,",
+        to: "            authorization_epoch: 0,", expectation: "kill" },
+      { id: "d6-q-handler-accepts-unauthorized", blocker: "D6", file: QUEUE_HANDLER, proof: QUEUE_PROOF,
+        description: "the handler stops translating an unauthorised write into its domain denial",
+        from: "          return denied(d, \"crawl_trigger_unauthorized\") unless queued[:authorized]\n",
+        to: "", expectation: "kill" },
+      { id: "d6-q-ruby-recheck-deleted", blocker: "D6", file: QUEUE_HANDLER, proof: QUEUE_PROOF,
+        description: "the handler's Ruby post-wait recheck deleted entirely; the write must still own safety",
+        from: "          if attestation.nil?\n            return deny(**denial_args(d), resource_id: command.project_id,\n                        outward: \"crawl_trigger_unauthorized\", internal: \"crawl_trigger_unauthorized\")\n          end\n",
+        to: "", expectation: "kill" },
+      { id: "d6-a-predicate-removed", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the authority predicate removed from the activation statement",
+        from: "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
+        to: "            WHERE id = $4::uuid", expectation: "kill" },
+      { id: "d6-a-insert-unconditional", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the insert made unconditional, permitting a partial transition",
+        from: "            WHERE EXISTS (SELECT 1 FROM authority)\n              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+        to: "            WHERE true", expectation: "kill" },
+      { id: "d6-a-supersede-unconditional", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the supersede made unconditional, so half the transition can commit on revoked authority",
+        from: "              AND EXISTS (SELECT 1 FROM authority)\n            RETURNING 1",
+        to: "            RETURNING 1", expectation: "kill" },
+      { id: "d6-a-conjunction-to-disjunction", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the insert's conjunction weakened to a disjunction",
+        from: "            WHERE EXISTS (SELECT 1 FROM authority)\n              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+        to: "            WHERE EXISTS (SELECT 1 FROM authority)\n              OR ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+        expectation: "kill" },
+      { id: "d6-a-state-predicate-omitted", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the expected-version predicate omitted from the supersede",
+        from: "AND id = $8::uuid AND state = 'active'\n              AND state_version = $12::int",
+        to: "AND id = $8::uuid AND state = 'active'", expectation: "kill" },
+      { id: "d6-a-wrong-organization", blocker: "D6", file: POLICY_STORE, proof: POLICY_PROOF,
+        description: "the predicate applied to the wrong row",
+        from: "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
+        to: "            WHERE id = $5::uuid AND authorization_epoch = $13::bigint", expectation: "kill" },
+      { id: "d6-a-outcomes-collapsed", blocker: "D6", file: POLICY_HANDLER, proof: POLICY_PROOF,
+        description: "the domain denial and the lost-serialization raise collapsed into one",
+        from: "          return denied(d, \"crawl_policy_unauthorized\") unless applied[:authorized]\n          raise LostRace if current && applied[:superseded].zero?",
+        to: "          raise LostRace if current && applied[:superseded].zero?", expectation: "kill" },
+
       { id: "f6-lookup-class-traced", blocker: "R10-21", file: PROBE, proof: PROBE_PROOF,
         description: "traced_class reports the lookup class, not the defining class",
         from: "    def traced_class = singleton ? klass.singleton_class : reflect.owner",

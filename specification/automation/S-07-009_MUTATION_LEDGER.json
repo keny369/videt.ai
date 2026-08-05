@@ -55,9 +55,9 @@
       "failure_digest": "fd94a83d7e17ea78cde2823dc383d085d0306f3fcfecc8c9f97c06aaa3f6ea7c",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "ba542cb909fbbb703c317a37309d44bc5014312f400f5c2cc14cd44c764187c9"
+      "binding_sha256": "8dbad231197935de97c9c7ed0bd1f92b019a0cd9cbf27766179c29dd316c13a5"
     },
     {
       "id": "d2-not-after-unclamped",
@@ -77,9 +77,9 @@
       "failure_digest": "72b693c9305146705e2717b94bb5cbd7d2202a9fb7c82b9933dafbe30db07317",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "617173b62891368365782ceff327e88d384ba8c3d04f23ac27e327061618f87a"
+      "binding_sha256": "3ae9e8c58bc420b1923074a6c5e67f912ef3f753c7cba06e40ff7f732e216c7c"
     },
     {
       "id": "d2-at-weakened",
@@ -99,9 +99,9 @@
       "failure_digest": "21c89febb5fd38c2551f23667b1da4197e97022336a1a5c91652689e4f3804bc",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "b98e86239282023a3ef5d8dc34a8aa661f775e2528c5293027a5905a6c99b2dc"
+      "binding_sha256": "c0278e3a3b36944c1a60b900bf52892df56313a71a4f30a7229689725eb529c2"
     },
     {
       "id": "d2-none-incomplete",
@@ -121,9 +121,9 @@
       "failure_digest": "0b8eff11e4f72a884e93bcb59da5de9f20f578b0276520d78019c62060c6140b",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "13af43e43ebaa1da1d5101490da0e5329cd6c71e7df219fa42d141ebde2f4fba"
+      "binding_sha256": "e5fa44fef874385317d491dd7e7baca221d08b7efe809ed3efd07364e90c7aad"
     },
     {
       "id": "d1-dead-method-returns",
@@ -143,9 +143,9 @@
       "failure_digest": "2f439b20c94feed7ee3b04eab5791d01467a4e4591e46dfe90fd354a906f8180",
       "file_sha256": "ebfe1f6cb2131721ad1c902b34dfa2628e927de4b536f34b4feaa3b263bed326",
       "proof_sha256": "6837ae2d0e85731043e56b7f88f156dfcdc5e513c7ef05fc6f8b54e80d75708f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "cd7eefaa56ab48715cf33049d00abb2d0652c91424ed0206cfc370c8b4205e72"
+      "binding_sha256": "71edbd2b8fc5ff2ca0b4f8f2afa9740ba88d5bfa52083a8e163cd513e925151f"
     },
     {
       "id": "d3-conjunct-removed",
@@ -166,9 +166,9 @@
       "failure_digest": "ec062447b34dc0948465c7e95f8da2afd892ce338a869b2295061994b995035a",
       "file_sha256": "36d60b46b9efa400ade83859b689e5617158c51a9f5b32a7a41ae391d8911cc5",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "627d508f0115548b464bed964d7ba767969f86140faac5e2050e804fe51ba695"
+      "binding_sha256": "9e9456a9239541424a486b272f50bcc16ab1513d6e112b303280305225d9ddc4"
     },
     {
       "id": "d3-epoch-inequality",
@@ -189,9 +189,9 @@
       "failure_digest": "b9ddc9d7a688d9e6c5352d0891474437fc31a051c5545bbe6f7a5cdc81d04b45",
       "file_sha256": "36d60b46b9efa400ade83859b689e5617158c51a9f5b32a7a41ae391d8911cc5",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "23b9143b8cabb39f591b75a93d29a7c711fe026effb29ed828d2e4ccb85044e9"
+      "binding_sha256": "784b6a58fdd2f41eda5f34a022694396d204a4a812d81b48aef2a052899764a2"
     },
     {
       "id": "d3-authority-always-true",
@@ -214,9 +214,9 @@
       "failure_digest": "7d2da3ec248a582eb14291c19046fad505b959f8bc8254ec2e48a88c5fa0afbc",
       "file_sha256": "36d60b46b9efa400ade83859b689e5617158c51a9f5b32a7a41ae391d8911cc5",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "95dcc6f1803da415e6554f010a6148622e6d8cf300a368a1c1f3ec34e53017b3"
+      "binding_sha256": "da4cee765814166d4d7fa94db6ef963d91a6445e03fc3dea8031b30aac943719"
     },
     {
       "id": "d3-wrong-organization",
@@ -239,9 +239,9 @@
       "failure_digest": "7d2da3ec248a582eb14291c19046fad505b959f8bc8254ec2e48a88c5fa0afbc",
       "file_sha256": "36d60b46b9efa400ade83859b689e5617158c51a9f5b32a7a41ae391d8911cc5",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "6655f63bfd36870a8b0a75075d059a288b6928e19e8bbc3035b11a4a1dd8cd17"
+      "binding_sha256": "bad002a24bd9608528baa8d80a3bdeb461cd272c47bb9bd20f83e7748431ae03"
     },
     {
       "id": "d3-authorized-independent",
@@ -262,9 +262,9 @@
       "failure_digest": "aba578c14ca5343ed81b824edea3ff835e7169cea92abe975108ee13ea47a126",
       "file_sha256": "36d60b46b9efa400ade83859b689e5617158c51a9f5b32a7a41ae391d8911cc5",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "8bc7af69a4a8946da7c59a09e136669129370284c2ed354c76eb2b0bf3fff55e"
+      "binding_sha256": "9fb449100b43fd0e187937989f2811fa071b237a15bafcaf230e7dccda2d16e9"
     },
     {
       "id": "d3-denial-swallowed",
@@ -285,9 +285,9 @@
       "failure_digest": "fbfdbac2ebeba12069fce705a18e377624d079453196ed756cdf521a5ac0ec0a",
       "file_sha256": "e147cf2254421642893595021b068819afc9f2f754488bed0d91d74fd5655229",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "78ceab5841d789c4cfcdb32345a6a58e28cf6181689a62252c916a449e961234"
+      "binding_sha256": "1c0b6cb6f008d809ad5aace43fedf902abe2251a62b70f6579f2e467f346eef9"
     },
     {
       "id": "d3-branches-reversed",
@@ -308,9 +308,9 @@
       "failure_digest": "e2eed3bdc805a848de688932a500765f0ab3d59ab3c8b9a23d0f4dba2a93176f",
       "file_sha256": "e147cf2254421642893595021b068819afc9f2f754488bed0d91d74fd5655229",
       "proof_sha256": "b66257744e8f31ec114f1e74c2752adc0462a5ad61fb8a916d2089292105028b",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "d258d9752f4bfc969b262405060ab8814d246849c3839233b907df22b2ae062c"
+      "binding_sha256": "718bfa8b71e425da765932d9470b7ee26d122abea28b287b01b8ecad59ed59cf"
     },
     {
       "id": "d3-self-authorizing-epoch",
@@ -330,9 +330,9 @@
       "failure_digest": "b594904a861bbc4f3ec2197f126120b653e31d75f36bd45e66693169e051e60b",
       "file_sha256": "e147cf2254421642893595021b068819afc9f2f754488bed0d91d74fd5655229",
       "proof_sha256": "bececc4a13482509cfbb81f704cc12f9f875bc0ddbcbdf34bccc5cf45f222f38",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "d44d8e4f2b684bef742eaed0280249dd1345fabe12533dd02728a2d1bfac7312"
+      "binding_sha256": "a9cef1afc6408ea0c8c5578d9b0f193aa97e2368e55606e08159068943b5cde0"
     },
     {
       "id": "d3-lock-removed",
@@ -355,9 +355,9 @@
       "failure_digest": "0ee0b87d49df67104a70f83dade1d5df5abf815fef0ae1760c12c079bdf01156",
       "file_sha256": "e147cf2254421642893595021b068819afc9f2f754488bed0d91d74fd5655229",
       "proof_sha256": "5ef94cd24a13a2c6f76d06e981dd1e34bc0e5003d4cd45318779309739cc72e4",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "c9abf0774dd9a944b45ff309f78270993190b3b1b920527799d12af034310694"
+      "binding_sha256": "276cea06f2838d393fd8eed5b4dc6768ecd9c4a7668e210f5cfe2f637bcb5b76"
     },
     {
       "id": "f1-admission-inverted",
@@ -377,9 +377,9 @@
       "failure_digest": "0254340b6568a722fa4b79c1a95a534de649a1aab4b793ee6684be9c565aaa7c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "50e679d80851f931d84b47bbe7164ab30d1ba5c3b8606186378bd6743073b1bc"
+      "binding_sha256": "67c0565a8cf6b56419c4a99e412d5b9a8429a9dbd5e23bde498160ac405e19eb"
     },
     {
       "id": "f1-driver-reimplemented",
@@ -399,9 +399,9 @@
       "failure_digest": "e86bcac921ed467a2105266eae0eef86e2dcae74d91419b421a46fd50477d21a",
       "file_sha256": "19252c6fd3aa3ea786c5bb301af0c27ab6c7a51107f48bbfc26e7ada402eb80d",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "28ac0950f8bf45f9e5696fedb39748bd07e519991368c5840272b24f1b8e9768"
+      "binding_sha256": "8dac7abebd827336325331dc6957a6bf9596dbadc6b8a32d6eb89f8060674240"
     },
     {
       "id": "f1-bounded-respelled",
@@ -421,9 +421,9 @@
       "failure_digest": "df28569fb65505fb8cb3bfb0f29a86a1fb9a902b63a5380f5c1d2cfc0afa7d5b",
       "file_sha256": "71d21192a90a11995a326a4d2820823ca41c133ab1a293fcef00a28615e1806c",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "a84abfad6a34929af3c5258718747802ca79c362040bfa60d46327248e3287d7"
+      "binding_sha256": "5b51bfbcd8c2c581a9c6a00cf09be9f332026c2b8cb6f103bc648df0e5ae4163"
     },
     {
       "id": "f1-gate-delegates",
@@ -443,9 +443,9 @@
       "failure_digest": "0254340b6568a722fa4b79c1a95a534de649a1aab4b793ee6684be9c565aaa7c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "14cdddeb46f2fd1dd7a39163b39cb0fd86202399fae253d944b7d1fd87c9892b"
+      "binding_sha256": "3e5de2502d016e75fe446b662e5220208f41610d6b77e29e3c4ba2ec7f121f06"
     },
     {
       "id": "f1-caller-binding-dropped",
@@ -468,9 +468,9 @@
       "failure_digest": "134226684db521485a88b931a435caff791fd8c5cb149ee39709da9acc4f7d7d",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "f6e19819d60f3faaea87bd10439659fbee48300dfab906f137e44fafd488deee"
+      "binding_sha256": "b92fc86790200e8d927a35446461bc4a7be1ffc9310c245dbc755e984681df8d"
     },
     {
       "id": "f1-thread-identity-dropped",
@@ -490,9 +490,9 @@
       "failure_digest": "2f439b20c94feed7ee3b04eab5791d01467a4e4591e46dfe90fd354a906f8180",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "f78745d4cb05020fdeec4f861aaa1f5906e1ebfd0bb30ada6f6de24733a9f2ef"
+      "binding_sha256": "e55122c13e58c6e06e7787dc65c2267304917b9da0468cd62c86f0166316775b"
     },
     {
       "id": "f3-rebuilt-via-local",
@@ -512,9 +512,9 @@
       "failure_digest": "0254340b6568a722fa4b79c1a95a534de649a1aab4b793ee6684be9c565aaa7c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "64d6dbe63af779af1e2c308fa731148e64385e6d95900a2abccec4b76cfd477a"
+      "binding_sha256": "f7cbe518751639ee073cf6b9f40c8d0f35d78b46447fc784ebb50ed99e643f6c"
     },
     {
       "id": "f3-rebuilt-via-container",
@@ -534,9 +534,9 @@
       "failure_digest": "0254340b6568a722fa4b79c1a95a534de649a1aab4b793ee6684be9c565aaa7c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "3d4d36195f0a83f2d912e422839f816c47ec5d05679bf0b5b2d1052bcd4b3d44"
+      "binding_sha256": "209b54c6765f8324ff9d3ae1fbb5f1dfe9ec2824b2792b48ea4f4ea405abfe79"
     },
     {
       "id": "f3-rebuilt-via-block-pass",
@@ -556,9 +556,9 @@
       "failure_digest": "0254340b6568a722fa4b79c1a95a534de649a1aab4b793ee6684be9c565aaa7c",
       "file_sha256": "1bd30e844075e4a716f04267b52bdac0cc9027bd5b5693ae0fe717884c39f611",
       "proof_sha256": "c9669cc304d312e52eeea5d296f4721289a90cb6ab7ac8e0e866bffad4b075f7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "da57ce2253851877db278c080f2b02969937da84f63d2e2475578dc54b64dc4c"
+      "binding_sha256": "f235d7f250bd2423d1d44a1d9e7845e2e141edc77247353dfce3f7b7166b2cfe"
     },
     {
       "id": "f2-census-door-removed",
@@ -584,9 +584,9 @@
       "failure_digest": "b927eff4a91d4d4d4c4d99ed6a4e6d397c4952b02262807a7210b0460a1a65b4",
       "file_sha256": "430e9b41bcfe5fedf24947a66ab8a4229bf72a0ce588fa551a61dbbe5b292f79",
       "proof_sha256": "234510cf3b2a3a94b82dc7e1ecaaf413ba39b4423cc2702278282b0c1ce28012",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "456d5bf5677fbedbcee206a93784ea9f9fffe7fc77091d371acbae6b1b542b9d"
+      "binding_sha256": "1ad11df3264e7c9f54eb965478b5a6607f5afb35bd15b745e3cb5b3850d8b7f7"
     },
     {
       "id": "f2-refusals-unobserved",
@@ -608,9 +608,9 @@
       "failure_digest": "9393ba76de8de4269d30d8059fdb6c1b58995c02651344a018dea03b9161f2b6",
       "file_sha256": "430e9b41bcfe5fedf24947a66ab8a4229bf72a0ce588fa551a61dbbe5b292f79",
       "proof_sha256": "234510cf3b2a3a94b82dc7e1ecaaf413ba39b4423cc2702278282b0c1ce28012",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "a36844cd829c1f219247947b028cae936fc4b388b75dbdb5c7c8ea06192582bd"
+      "binding_sha256": "e5a6cc5867e2054714e445c5b907e886d1fb0f3c09959d31d21bad15718c7c25"
     },
     {
       "id": "f4-discovery-narrowed",
@@ -631,9 +631,9 @@
       "failure_digest": "6eeb08d090f56a5e977ee1ff413138e2d28cb3835e52468adb473c297c44350f",
       "file_sha256": "76654801871ee1b0229a35c6e676cb3415097bb6f86baecc413adf1f6ec57bc9",
       "proof_sha256": "574561633f90defce7c07d32400a4eba3cc4ca621b85f636d770e8040348958f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "7061be67595fbe8f0b6af010e25fb1969523a652933d152be6b3badecfaf43f8"
+      "binding_sha256": "6219aa58402548c2fe38837ec39a9b9808584e4f3a811e733d06dcdd47b6dacf"
     },
     {
       "id": "f4-accounting-global",
@@ -653,9 +653,9 @@
       "failure_digest": "2f439b20c94feed7ee3b04eab5791d01467a4e4591e46dfe90fd354a906f8180",
       "file_sha256": "76654801871ee1b0229a35c6e676cb3415097bb6f86baecc413adf1f6ec57bc9",
       "proof_sha256": "574561633f90defce7c07d32400a4eba3cc4ca621b85f636d770e8040348958f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "2cf13496572c2e0ecdf7c4386f4aa4a843357a0b5c8e00d5506096ab7011e13c"
+      "binding_sha256": "a2681ff1ccecbdd66a0110bc06647f5cfaca9faccd6ea9fe742f2367af52892c"
     },
     {
       "id": "f4-empty-census-accepted",
@@ -675,9 +675,9 @@
       "failure_digest": "2f439b20c94feed7ee3b04eab5791d01467a4e4591e46dfe90fd354a906f8180",
       "file_sha256": "76654801871ee1b0229a35c6e676cb3415097bb6f86baecc413adf1f6ec57bc9",
       "proof_sha256": "574561633f90defce7c07d32400a4eba3cc4ca621b85f636d770e8040348958f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "11ca15adb11d41576696aba7352822318268fb785b0059a64a17a6a7dbd9c8ca"
+      "binding_sha256": "71343c26be5fd7b48d8810a8886347721894a493223e4b169f19ef817f421feb"
     },
     {
       "id": "f4-frame-not-restored",
@@ -697,9 +697,9 @@
       "failure_digest": "16b042d5299b9e666975f678d8647f5edb43af80e986b68f6abd4387d961e8d5",
       "file_sha256": "76654801871ee1b0229a35c6e676cb3415097bb6f86baecc413adf1f6ec57bc9",
       "proof_sha256": "574561633f90defce7c07d32400a4eba3cc4ca621b85f636d770e8040348958f",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "7a2b9b753af58526176412b27cde93944c2da223d236c666b5fd6a1c8e09a781"
+      "binding_sha256": "f46f472884492d9886bade60bfdf57cf88b3d431b0acee6c382bc68314e4c929"
     },
     {
       "id": "f6-source-location-discriminator",
@@ -720,9 +720,9 @@
       "failure_digest": "76c2a935601f125cc538bff1ea878eaa09bc3ba6764b9386951a548c85a317a0",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "e1bdf52f03b0944e504951e95a2c2b28e77d11149778a9ad9b8506f49799ce61"
+      "binding_sha256": "7ae712a34578ee05c3a91e285c03c72ec9f914c5f9411fde7ec087849ca18b28"
     },
     {
       "id": "f6-refusal-removed",
@@ -745,9 +745,9 @@
       "failure_digest": "c1c071927016207cf720a8e5302bb59cb85c587c538d9d8d3e1b123fc9baeea9",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "c0fcd711f7f46445653191562483cb3b386ba8ad3880dd056699be6d19e451a5"
+      "binding_sha256": "2c00a0fd7b88c27fc8ac753ed29f5d3f8e87ddf39867d4688bdb8a50cb949d78"
     },
     {
       "id": "f6-kind-forced-ruby",
@@ -770,9 +770,408 @@
       "failure_digest": "c1c071927016207cf720a8e5302bb59cb85c587c538d9d8d3e1b123fc9baeea9",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "3c02149bd8b16b1707ef154aa40590662ec951db6630591d111571fb28b952a4"
+      "binding_sha256": "537d81585ca28a24b63fe762df671f6741b26d6f529eaac105eaa4e9823a990b"
+    },
+    {
+      "id": "d6-q-predicate-removed",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the authority predicate removed from the queue write",
+      "from": "          WHERE EXISTS (\n            SELECT 1 FROM organizations\n            WHERE id = $4::uuid AND authorization_epoch = $14::bigint\n          )\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 16 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:160",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:189",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:198",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:264",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:284",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:293",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:309",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:324",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:347",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:403",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:486",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:493",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:523",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:543",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:570",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:593"
+      ],
+      "failure_digest": "441f54cbfed741028f77214b0597bce4d68aaede76e15dcd24b086b5fa4b464d",
+      "file_sha256": "f0d04e7933b5484588682b54b7c3f99943f1ea745e71beee7580ccaca449a6be",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "6cf7d3a39fdd58a6d9d18bd280091c68fb4ced9da68b25141513ecb08fbcdd0b"
+    },
+    {
+      "id": "d6-q-predicate-inverted",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the authority predicate inverted, admitting exactly the revoked actor",
+      "from": "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+      "to": "WHERE id = $4::uuid AND authorization_epoch <> $14::bigint",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 16 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:160",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:189",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:198",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:264",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:284",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:293",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:309",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:324",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:347",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:403",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:486",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:493",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:523",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:543",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:570",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:593"
+      ],
+      "failure_digest": "510fe979cb0e899df1f1a245046028487ba0a3496ecba8a07d5ccbc11eefa62f",
+      "file_sha256": "f0d04e7933b5484588682b54b7c3f99943f1ea745e71beee7580ccaca449a6be",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "f391d46f756518bb0004befb302c0ef6fc555a941c8b9ab14bea1a992395fb50"
+    },
+    {
+      "id": "d6-q-wrong-epoch-column",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the epoch compared against an unrelated column",
+      "from": "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+      "to": "WHERE id = $4::uuid AND state_version = $14::bigint",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 3 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:493",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:523",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:543"
+      ],
+      "failure_digest": "b8c3a1563dcfd5f955d9ad1715ecd1174dd32a05136ddd3a75228b9db4a83afa",
+      "file_sha256": "f0d04e7933b5484588682b54b7c3f99943f1ea745e71beee7580ccaca449a6be",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "ac55d16d6504e5348e49687eaa66dd122afc37fc9ffd8ef8ff96d5aed3e7f454"
+    },
+    {
+      "id": "d6-q-wrong-row",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_store.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the predicate applied to the wrong row (project id in place of organization id)",
+      "from": "WHERE id = $4::uuid AND authorization_epoch = $14::bigint",
+      "to": "WHERE id = $5::uuid AND authorization_epoch = $14::bigint",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 14 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:160",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:189",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:198",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:264",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:284",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:293",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:309",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:324",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:347",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:403",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:486",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:493",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:570",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:593"
+      ],
+      "failure_digest": "6f310de25d6cfbfae9bb0c46affcf89682c3f820b4fd8f3ffe7d9237cbee9422",
+      "file_sha256": "f0d04e7933b5484588682b54b7c3f99943f1ea745e71beee7580ccaca449a6be",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "e2cc8970660409375797df347b53eedac6ebd686c405e36e2619adbbe0a95a5e"
+    },
+    {
+      "id": "d6-q-stale-captured-epoch",
+      "blocker": "D6",
+      "file": "app/workflows/wf005/handlers/queue_crawl.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "a stale captured epoch passed to the write",
+      "from": "            authorization_epoch: actor.authorization_epoch,",
+      "to": "            authorization_epoch: 0,",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 14 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:160",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:189",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:198",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:264",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:284",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:293",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:309",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:324",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:347",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:403",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:486",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:493",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:570",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:593"
+      ],
+      "failure_digest": "6f310de25d6cfbfae9bb0c46affcf89682c3f820b4fd8f3ffe7d9237cbee9422",
+      "file_sha256": "5d822b81d8f2165766951b9ed2c47c01c04d8d0c8c14bf2deab6357775147962",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "c35d14febbfd60da7126d802620f1f07236b6cb8a284cc56c0dbec2f4bb936e6"
+    },
+    {
+      "id": "d6-q-handler-accepts-unauthorized",
+      "blocker": "D6",
+      "file": "app/workflows/wf005/handlers/queue_crawl.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the handler stops translating an unauthorised write into its domain denial",
+      "from": "          return denied(d, \"crawl_trigger_unauthorized\") unless queued[:authorized]\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:523"
+      ],
+      "failure_digest": "bfa41aaca6e6d4f3001e44587295a69d8dc8f7fef994ed836a930a6786e5dcfa",
+      "file_sha256": "5d822b81d8f2165766951b9ed2c47c01c04d8d0c8c14bf2deab6357775147962",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "ee1e62a39016498382b0eddfe4ed64e5962cc4256698d28c5aad2deaf404bc28"
+    },
+    {
+      "id": "d6-q-ruby-recheck-deleted",
+      "blocker": "D6",
+      "file": "app/workflows/wf005/handlers/queue_crawl.rb",
+      "proof": "spec/acceptance/wf005_queue_crawl_spec.rb",
+      "description": "the handler's Ruby post-wait recheck deleted entirely; the write must still own safety",
+      "from": "          if attestation.nil?\n            return deny(**denial_args(d), resource_id: command.project_id,\n                        outward: \"crawl_trigger_unauthorized\", internal: \"crawl_trigger_unauthorized\")\n          end\n",
+      "to": "",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "24 examples, 2 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_queue_crawl_spec.rb:365",
+        "spec/acceptance/wf005_queue_crawl_spec.rb:509"
+      ],
+      "failure_digest": "5fd1cc35f888c00d21344e7d3c8c4a20408394e3935cd77f0eb4c67d484bb304",
+      "file_sha256": "5d822b81d8f2165766951b9ed2c47c01c04d8d0c8c14bf2deab6357775147962",
+      "proof_sha256": "2d2594c089872d6d07b6abc222f181ece8124b2c89e5b075245f5401f91aad88",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "8fc550ec6c944283cab2215b649d2d3106ff62c09653319aba8fbdc392ac5429"
+    },
+    {
+      "id": "d6-a-predicate-removed",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the authority predicate removed from the activation statement",
+      "from": "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
+      "to": "            WHERE id = $4::uuid",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 11 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:77",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:93",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:110",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:122",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:157",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:196",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:255",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:287",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:312",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:342"
+      ],
+      "failure_digest": "855a069a572cc03a78c0486661e1179fd47be77d6e9eeb54f438f3ce7daa38f7",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "ce450a64960da1d5541fd956252261cd0ab8eb7912b6ea0802417c17f2f2ccbd"
+    },
+    {
+      "id": "d6-a-insert-unconditional",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the insert made unconditional, permitting a partial transition",
+      "from": "            WHERE EXISTS (SELECT 1 FROM authority)\n              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+      "to": "            WHERE true",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 3 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:287",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:312"
+      ],
+      "failure_digest": "5b2c0f725630b6cd709ac2b8ea4c62e342c57230e0fc3c07b5c702345bb77fa7",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "5988b83a2f3252d898ce7e4b3e87348b46d22c952658f69302ab5f199a26cee3"
+    },
+    {
+      "id": "d6-a-supersede-unconditional",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the supersede made unconditional, so half the transition can commit on revoked authority",
+      "from": "              AND EXISTS (SELECT 1 FROM authority)\n            RETURNING 1",
+      "to": "            RETURNING 1",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264"
+      ],
+      "failure_digest": "dc4bbffb2b7f0caec7e57ee13bbcbbec04c9f04d8868a169799c655aa048cba4",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "218407602145967d44ce40c072547bf7b0fe157e367b94747206580c3e6da710"
+    },
+    {
+      "id": "d6-a-conjunction-to-disjunction",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the insert's conjunction weakened to a disjunction",
+      "from": "            WHERE EXISTS (SELECT 1 FROM authority)\n              AND ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+      "to": "            WHERE EXISTS (SELECT 1 FROM authority)\n              OR ($8::uuid IS NULL OR EXISTS (SELECT 1 FROM superseded))",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 2 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:287",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:312"
+      ],
+      "failure_digest": "124ddea0703b3efbf83544036e55ce31adbd07a0292c7f0ec9199b50a854659c",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "306fb9552374a308bdd96dbfd5b5a4a68e401562f3320dd33a6ebb25fe601971"
+    },
+    {
+      "id": "d6-a-state-predicate-omitted",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the expected-version predicate omitted from the supersede",
+      "from": "AND id = $8::uuid AND state = 'active'\n              AND state_version = $12::int",
+      "to": "AND id = $8::uuid AND state = 'active'",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 11 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:77",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:93",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:110",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:122",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:157",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:196",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:255",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:287",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:312",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:342"
+      ],
+      "failure_digest": "855a069a572cc03a78c0486661e1179fd47be77d6e9eeb54f438f3ce7daa38f7",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "eb23710c06647c80dc099f2b2b7eb1456995b9008a7a33f51a883b549bb4c937"
+    },
+    {
+      "id": "d6-a-wrong-organization",
+      "blocker": "D6",
+      "file": "app/contexts/identity_access/infrastructure/crawl_policy_store.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the predicate applied to the wrong row",
+      "from": "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
+      "to": "            WHERE id = $5::uuid AND authorization_epoch = $13::bigint",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 10 failures",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:77",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:93",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:110",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:122",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:157",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:196",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:255",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:312",
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:342"
+      ],
+      "failure_digest": "ddef2ff7ac54344cb8483526474601a75a9c419d56a9e71274db5eda5e306837",
+      "file_sha256": "13c90af10853c101f36bdb453858857808fe4880cc915806274745c40dfa5784",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "612f7aeec6ed054633eaa11e7718554c9afaa5fedd3fb0868b133e12dc8909a1"
+    },
+    {
+      "id": "d6-a-outcomes-collapsed",
+      "blocker": "D6",
+      "file": "app/workflows/wf005/handlers/activate_crawl_policy.rb",
+      "proof": "spec/acceptance/wf005_activate_crawl_policy_spec.rb",
+      "description": "the domain denial and the lost-serialization raise collapsed into one",
+      "from": "          return denied(d, \"crawl_policy_unauthorized\") unless applied[:authorized]\n          raise LostRace if current && applied[:superseded].zero?",
+      "to": "          raise LostRace if current && applied[:superseded].zero?",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "20 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_activate_crawl_policy_spec.rb:264"
+      ],
+      "failure_digest": "11cb1c84fbc4a3b233beb322789ed328b0fd4405704bee5223a4fa2bc6a49b6e",
+      "file_sha256": "bdc75b97d96dc2a91dfa4fc9fb0c8ca7446e811e6378610753420bbf20765c62",
+      "proof_sha256": "02853e157c94bed0a6896216e131b261414c9778c2d14b0352a29801becdbf19",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
+      "restored": true,
+      "binding_sha256": "5e7e662bc2f1afddfbb28bd196724a6f1ac2d2ddcbe47b0f29777d9e951503b7"
     },
     {
       "id": "f6-lookup-class-traced",
@@ -792,9 +1191,9 @@
       "failure_digest": "9ee82f8ca46adb0f33ecea671c45b2b379905fcf23e4db86c6319d02e9c81be1",
       "file_sha256": "5797e9b30031e1c479b68de2c604d2f4ea80f887a3c8854855240a43bece39c2",
       "proof_sha256": "12b176821d1926de59e3b2e56ef6eb5110dc3a74428762cfab77d0964979cfe7",
-      "commit": "278395cd7fe1770043ae86f316eb6e0ef69e389c",
+      "commit": "4ec3cb8b224488981a196ab7c0e318bc97f7d38c",
       "restored": true,
-      "binding_sha256": "9339321ddb6d9b0d46d60f648f1b50805b8f3ccb802f6c3b577ef6e84147e12d"
+      "binding_sha256": "67157755d0d280414cf8b9b5a711499143cde48fc962c1e4e07ed7db950a7baf"
     }
   ]
 }

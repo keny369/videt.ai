@@ -217,4 +217,140 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
       expect(audited).not_to be_empty
     end
   end
+
+  # AUTHORITY IS A CONJUNCT OF THE ACTIVATION STATEMENT (D6; supersedes PROOF 193 for this handler).
+  #
+  # The transition is two writes — supersede the prior active version, insert the new one — and the
+  # one-active-per-scope index makes a half-applied transition a corrupt scope. They are now data-
+  # modifying CTEs in ONE statement sharing ONE evaluation of the authority predicate, so PostgreSQL
+  # applies both or neither and a revocation landing between them is not expressible.
+  describe "write-level authority" do
+    def revoke!(org)
+      DbInspector.one("UPDATE organizations SET authorization_epoch = authorization_epoch + 1 " \
+                      "WHERE id = $1::uuid RETURNING authorization_epoch", [org])
+    end
+
+    def active_rows(org) = policies(org).select { |r| r["state"] == "active" }
+
+    # A REAL RACER: the revocation lands after the handler has taken its per-scope lock and before the
+    # activation statement runs — the interleaving the invariant exists for.
+    def revoke_during_wait(org)
+      fired = false
+      hook = Module.new do
+        define_method(:activate_version) do |row|
+          unless fired
+            fired = true
+            DbInspector.one("UPDATE organizations SET authorization_epoch = authorization_epoch + 1 " \
+                            "WHERE id = $1::uuid RETURNING authorization_epoch", [row[:organization_id]])
+          end
+          super(row)
+        end
+      end
+      IdentityAccess::Infrastructure::CrawlPolicyStore.prepend(hook)
+      yield
+    ensure
+      fired = true
+    end
+
+    it "PROOF 226 — authority current and state eligible: the version activates" do
+      g = bootstrap
+      result = activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                        bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 }))
+
+      expect(result.success?).to be(true)
+      expect(active_rows(g[:organization_id]).length).to eq(1)
+    end
+
+    it "PROOF 227 — revoked while the handler waits: NEITHER write applies" do
+      # THE PARTIAL-TRANSITION CASE, which is why this is one statement. If the supersede could commit
+      # while the insert was denied, the scope would be left with nothing active — a corrupt state no
+      # domain outcome describes.
+      g = bootstrap
+      first = activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                       bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 }))
+      expect(first.success?).to be(true)
+      before = policies(g[:organization_id]).map { |r| [r["id"], r["state"]] }.to_h
+
+      result = revoke_during_wait(g[:organization_id]) do
+        activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                 bounds: bounds("accepted_pages" => { "soft" => 4_000, "hard" => 5_000 }),
+                 expected_current: "crawl-policy-organization-v1")
+      end
+
+      expect(result).not_to be_success
+      after = policies(g[:organization_id]).map { |r| [r["id"], r["state"]] }.to_h
+      expect(after).to eq(before), "the activation partly applied: #{before.inspect} -> #{after.inspect}"
+      expect(active_rows(g[:organization_id]).length).to eq(1),
+             "the scope was left without exactly one active version"
+    end
+
+    it "PROOF 228 — the store refuses a stale epoch when invoked DIRECTLY by another caller" do
+      g = bootstrap
+      current = DbInspector.one("SELECT authorization_epoch FROM organizations WHERE id=$1::uuid",
+                                [g[:organization_id]])["authorization_epoch"].to_i
+      revoke!(g[:organization_id])
+
+      outcome = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authorization_epoch: current, project_id: nil,
+          scope: "organization", policy_version: "crawl-policy-organization-v9",
+          supersedes_id: nil, expected_state_version: nil,
+          activated_by_account_id: nil, normalized_bounds: gceil, content_sha256: "\x00" * 32
+        )
+      end
+
+      expect(outcome[:authorized]).to be(false)
+      expect(outcome[:inserted]).to eq(0)
+      expect(outcome[:superseded]).to eq(0)
+      expect(policies(g[:organization_id])).to be_empty
+    end
+
+    it "PROOF 229 — a lost serialized transition is raised, not reported as a denial" do
+      # The two zero-row cases are opposite events. Authority that moved is a domain denial; a prior
+      # version that would not supersede is corruption the handler must raise on. Collapsing them
+      # would swallow a lost race as a polite refusal.
+      g = bootstrap
+      expect(activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                      bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 })).success?).to be(true)
+      current = policies(g[:organization_id]).find { |r| r["state"] == "active" }
+
+      outcome = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        epoch = DbInspector.one("SELECT authorization_epoch FROM organizations WHERE id=$1::uuid",
+                                [g[:organization_id]])["authorization_epoch"].to_i
+        IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authorization_epoch: epoch, project_id: nil,
+          scope: "organization", policy_version: "crawl-policy-organization-v2",
+          supersedes_id: current["id"], expected_state_version: 9999,
+          activated_by_account_id: nil, normalized_bounds: gceil, content_sha256: "\x00" * 32
+        )
+      end
+
+      expect(outcome[:authorized]).to be(true), "authority was current; this is not a denial"
+      expect(outcome[:superseded]).to eq(0), "the stale version did not supersede"
+      expect(outcome[:inserted]).to eq(0), "and the insert did not apply without it"
+      expect(active_rows(g[:organization_id]).length).to eq(1), "the scope still has exactly one active"
+    end
+
+    it "PROOF 230 — a retry after a committed activation follows the idempotency contract" do
+      g = bootstrap
+      key = "acp-retry-#{SecureRandom.hex(4)}"
+      args = { session: g[:session_id], org: g[:organization_id], scope: "organization",
+               bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 }), key: key }
+
+      first = activate(**args)
+      second = activate(**args)
+
+      expect(first.success?).to be(true)
+      expect(second.success?).to be(true), "a retry of a committed activation must replay"
+      expect(policies(g[:organization_id]).length).to eq(1), "the retry activated a second version"
+    end
+  end
 end

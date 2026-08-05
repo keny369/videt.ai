@@ -265,48 +265,31 @@ RSpec.describe "WF-005 post-wait authority", type: :acceptance,
   end
 
   describe "the shape of the control itself" do
-    # A HANDLER THAT WAITS AND DOES NOT ASK, WITH THE REASON IT DOES NOT. `StartCrawl` is executed by
-    # the scheduled-action executor against a durable `crawl_dispatch` action, not by a person: there
-    # is no human authority in flight for a revocation to invalidate, which is the precondition
-    # :335's rule states ("re-check current human authority WHERE THE COMMAND DEPENDS ON ONE"). It
-    # re-reads the Crawl and the Organization under its lock, which is the part that does apply to it.
-    CLASSIFIED_WITHOUT_POST_WAIT = {
-      "app/workflows/wf005/handlers/start_crawl.rb" =>
-        "executed by the scheduled-action executor against a durable action, so no human authority " \
-        "is in flight; ADR-063's platform deferral covers a service-identity command, and the run " \
-        "state it does depend on is re-read under its own lock."
-    }.freeze
+    # PROOF 193 IS DELETED — ITS QUESTION NO LONGER EXISTS (D6).
+    #
+    # WHAT IT DID. It decided which handlers needed a post-wait authority check by matching each
+    # handler's SOURCE against `/lock_(organization|project|frontier|crawl)\b|pg_advisory_xact_lock/`
+    # and excusing the rest through a maintained `CLASSIFIED_WITHOUT_POST_WAIT` list. That is a
+    # lock-name enumeration plus a hand-kept completeness list: the two shapes this tranche has failed
+    # on six times, and the same shape that was removed from `AuthoritySentinel`'s handler discovery.
+    #
+    # WHY IT IS NOT REPLACED WITH A BETTER SCAN. The question "which handlers must remember to check
+    # authority after waiting" is DISSOLVED rather than answered. Each protected transition now
+    # evaluates current authority as a CONJUNCT OF ITS OWN WRITE — `CrawlStartStore#cancel`,
+    # `CrawlStore#insert_crawl`, `CrawlPolicyStore#activate_version` — so there is no handler-level
+    # check whose presence has to be audited, and deleting every Ruby recheck cannot produce an
+    # unauthorised transition. A handler added by a later tranche inherits the property from the write
+    # it uses, not from a list someone remembers to update.
+    #
+    # SUITE-WIDE COMPLETENESS IS `AuthoritySentinel`'s JOB and is derived from execution: across every
+    # example, a human-authorized WF-005 command that succeeds and writes must have evaluated
+    # `authority_current?` and presented an attestation. It discovers handlers from the directory and
+    # decides human-authorization by whether `CommandAuthorizer#authenticate` RAN.
+    #
+    # ONE PROPERTY PROOF 193 CARRIED IS REAL AND IS KEPT, as behaviour rather than as a classification.
 
-    it "PROOF 193 — every WF-005 handler that waits then acts asks the ONE post-wait owner" do
-      # THE COVERAGE ARGUMENT, MADE MECHANICALLY RATHER THAN BY ENUMERATION. R8-4 was not "someone
-      # forgot to test `ActivateCrawlPolicy`" — it was that nothing in the repository could say which
-      # handlers needed the control. A handler that takes a blocking advisory lock and then writes
-      # must consult `PostWaitDecision` or be classified with the reason it need not.
-      waiting = Dir[Rails.root.join("app/workflows/wf005/handlers/*.rb")].sort.select do |file|
-        File.read(file).match?(/lock_(organization|project|frontier|crawl)\b|pg_advisory_xact_lock/)
-      end
-      expect(waiting.length).to be >= 4
-
-      missing = waiting.filter_map do |file|
-        relative = Pathname(file).relative_path_from(Rails.root).to_s
-        next if File.read(file).include?("PostWaitDecision")
-        next if CLASSIFIED_WITHOUT_POST_WAIT.key?(relative)
-
-        relative
-      end
-      expect(missing).to be_empty, <<~MESSAGE
-        A WF-005 handler takes a blocking lock and neither consults Wf005::PostWaitDecision nor
-        records why it need not. :335 and SEC-REQ-004/005 require current authority to be re-read
-        after a wait a revocation can commit inside:
-        #{missing.join("\n")}
-      MESSAGE
-
-      # AND THE EXCLUSION MAY NOT ROT. A classified handler that has since grown a human-authorized
-      # command, or that no longer waits at all, is reclassified rather than left excused.
-      CLASSIFIED_WITHOUT_POST_WAIT.each_key do |relative|
-        expect(waiting.map { |f| Pathname(f).relative_path_from(Rails.root).to_s }).to include(relative)
-        expect(Rails.root.join(relative).read).not_to include("PostWaitDecision")
-      end
-    end
+    # The property that entry asserted in prose is now proved by BEHAVIOUR, in
+    # `spec/acceptance/wf005_queue_crawl_spec.rb` PROOF 193, where the real `crawl_dispatch` action
+    # QueueCrawl created is available to drive StartCrawl through its production path.
   end
 end

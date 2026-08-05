@@ -72,14 +72,29 @@ module IdentityAccess
         SQL
       end
 
+      # QUEUEING CARRIES ITS OWN AUTHORITY CHECK, IN THE WRITE.
+      #
+      # THE SAME GOVERNING PRINCIPLE AS THE CANCELLATION WRITE. `authority_current?` is, in full,
+      # "`organizations.authorization_epoch` equals the epoch the actor authenticated with" — ordinary
+      # row state — so it belongs IN the statement that depends on it rather than in a Ruby check
+      # standing next to it. There is then nothing to hoist, reorder, extract into a helper or arrange
+      # a Boolean around, and no list of which handlers must remember to look: PostgreSQL evaluates
+      # authority and the insertion together, at the instant of the write, which is necessarily after
+      # every lock the handler took to reach it.
+      #
+      # A ZERO ROW COUNT HERE MEANS EXACTLY ONE THING. Unlike the cancellation UPDATE, this statement
+      # carries no state or version predicate — a queued Crawl is new — so the only way it can insert
+      # nothing is that authority moved. The caller therefore needs no disambiguation, and none is
+      # invented.
       def insert_crawl(row)
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:kind], row[:requested_crawl_policy_id], row[:requested_crawl_policy_version],
           row[:requested_entitlement_policy_id], row[:requested_entitlement_policy_version],
-          row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest])
+          row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
+          row.fetch(:authorization_epoch)
         ]
-        exec(<<~SQL, params)
+        inserted = exec(<<~SQL, params).cmd_tuples
           INSERT INTO crawls
             (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
              parent_evaluation_id, parent_crawl_id, requested_crawl_policy_id, requested_crawl_policy_version,
@@ -87,10 +102,15 @@ module IdentityAccess
              entitlement_reservation_id, trigger_kind, triggered_by_account_id, queued_at, started_at,
              terminal_at, deadline_at, state, coverage_status, completion_reason, limit_counters,
              retry_generation, recovery_generation, recovery_of_id, idempotency_key_digest)
-          VALUES ($1::uuid,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6,
-                  NULL,NULL,$7::uuid,$8,$9::uuid,$10,NULL,NULL,$11,$12::uuid,$2::timestamptz,NULL,
-                  NULL,NULL,'queued',NULL,NULL,'{}'::jsonb,0,0,NULL,$13)
+          SELECT $1::uuid,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6,
+                 NULL,NULL,$7::uuid,$8,$9::uuid,$10,NULL,NULL,$11,$12::uuid,$2::timestamptz,NULL,
+                 NULL,NULL,'queued',NULL,NULL,'{}'::jsonb,0,0,NULL,$13
+          WHERE EXISTS (
+            SELECT 1 FROM organizations
+            WHERE id = $4::uuid AND authorization_epoch = $14::bigint
+          )
         SQL
+        { authorized: inserted.positive?, inserted: }
       end
 
       def insert_crawl_source(row)

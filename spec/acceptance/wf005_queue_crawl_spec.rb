@@ -425,4 +425,181 @@ RSpec.describe "WF-005 queue crawl", type: :acceptance,
     end
   end
 
+
+  # AUTHORITY IS A CONJUNCT OF THE QUEUE WRITE (D6; supersedes PROOF 193's classification for this
+  # handler).
+  #
+  # WHAT THIS REPLACED. PROOF 193 decided which handlers needed a post-wait authority check by
+  # matching source against a lock-name regex and excusing the rest through a maintained list. The
+  # property is now owned by the write: `insert_crawl` applies nothing unless the organization's
+  # `authorization_epoch` still equals the epoch the actor authenticated with. There is no handler to
+  # classify, because there is no handler-level check the safety depends on.
+  describe "write-level authority" do
+    def revoke!(g)
+      DbInspector.one("UPDATE organizations SET authorization_epoch = authorization_epoch + 1 " \
+                      "WHERE id = $1::uuid RETURNING authorization_epoch", [g[:organization_id]])
+    end
+
+    def crawls_for(g) = DbInspector.all("SELECT * FROM crawls WHERE organization_id = $1::uuid", [g[:organization_id]])
+
+    # A REAL RACER. A one-shot hook fires immediately before the store's insert and performs the
+    # revocation on its own connection — a revocation landing in the window between the handler's
+    # Ruby recheck and its write, which is the interleaving the invariant exists for. The mechanism
+    # under test then runs for real against the state the racer left.
+    def revoke_during_lock_wait(g)
+      fired = false
+      hook = Module.new do
+        define_method(:lock_project) do |*args|
+          result = super(*args)
+          unless fired
+            fired = true
+            DbInspector.one("UPDATE organizations SET authorization_epoch = authorization_epoch + 1 " \
+                            "WHERE id = $1::uuid RETURNING authorization_epoch", [args.first])
+          end
+          result
+        end
+      end
+      IdentityAccess::Infrastructure::CrawlStore.prepend(hook)
+      yield
+    ensure
+      fired = true
+    end
+
+    def revoke_just_before_write(g)
+      fired = false
+      hook = Module.new do
+        define_method(:insert_crawl) do |row|
+          unless fired
+            fired = true
+            DbInspector.one("UPDATE organizations SET authorization_epoch = authorization_epoch + 1 " \
+                            "WHERE id = $1::uuid RETURNING authorization_epoch", [g[:organization_id]])
+          end
+          super(row)
+        end
+      end
+      IdentityAccess::Infrastructure::CrawlStore.prepend(hook)
+      yield
+    ensure
+      fired = true
+    end
+
+    it "PROOF 221 — authority current and state eligible: the Crawl is queued" do
+      g = org_with_active_project
+
+      expect(queue_crawl(g).success?).to be(true)
+      expect(crawls_for(g).length).to eq(1)
+    end
+
+    it "PROOF 222 — a revocation BEFORE the command is not a stale epoch, and must not deny" do
+      # WORTH STATING BECAUSE THE FIRST VERSION OF THIS PROOF GOT IT WRONG. Revoking before the
+      # command runs does not produce a stale actor: the handler authenticates AFTER the revocation
+      # and therefore holds the NEW epoch, which is current. The invariant is about a revocation that
+      # lands between authentication and the write — PROOF 223 — not about any revocation at all. A
+      # proof that expected a denial here would have been asserting the wrong property and would have
+      # been satisfied by an over-broad predicate.
+      g = org_with_active_project
+      revoke!(g)
+
+      result = queue_crawl(g)
+
+      expect(result.success?).to be(true)
+      expect(crawls_for(g).length).to eq(1)
+    end
+
+    it "PROOF 223 — authority revoked WHILE THE HANDLER WAITS: nothing is queued after the wait" do
+      g = org_with_active_project
+
+      result = revoke_during_lock_wait(g) { queue_crawl(g) }
+
+      expect(result).not_to be_success
+      expect(result.reason_code).to eq("crawl_trigger_unauthorized")
+      expect(crawls_for(g)).to be_empty, "a Crawl was queued on authority revoked during the wait"
+      # Scoped to the crawl dispatch this command would have created — the fixture legitimately holds
+      # other scheduled actions, and a global count would assert something this proof is not about.
+      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE action_kind = 'crawl_dispatch'"))
+        .to be_empty, "a dispatch was scheduled for a Crawl that was never queued"
+    end
+
+    it "PROOF 223b — revoked AFTER the handler's own recheck: the WRITE is what refuses" do
+      # WHY THIS EXISTS SEPARATELY FROM PROOF 223, and it is the difference between proving the new
+      # invariant and proving the old one. PROOF 223's revocation lands during `lock_project`, which
+      # is BEFORE the handler's Ruby recheck — so that recheck denies and the write-level predicate is
+      # never reached. A mutation deleting the write's outcome check SURVIVED 223 for exactly that
+      # reason. Here the revocation lands between the recheck and the write, where only the statement
+      # itself can refuse it.
+      g = org_with_active_project
+
+      result = revoke_just_before_write(g) { queue_crawl(g) }
+
+      expect(result).not_to be_success
+      expect(result.reason_code).to eq("crawl_trigger_unauthorized")
+      expect(crawls_for(g)).to be_empty, "a Crawl was queued on authority the write should have refused"
+      expect(DbInspector.all("SELECT id FROM scheduled_actions WHERE action_kind = 'crawl_dispatch'"))
+        .to be_empty
+      expect(DbInspector.all("SELECT id FROM crawl_sources")).to be_empty,
+             "follow-on rows were written for a Crawl the write refused to create"
+    end
+
+    it "PROOF 224 — the store refuses a stale epoch when invoked DIRECTLY by another caller" do
+      # The invariant belongs to the write, so it holds for any production caller — not only for the
+      # handler this spec drives.
+      g = org_with_active_project
+      current = DbInspector.one("SELECT authorization_epoch FROM organizations WHERE id=$1::uuid",
+                                [g[:organization_id]])["authorization_epoch"].to_i
+      revoke!(g)
+
+      outcome = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        IdentityAccess::Infrastructure::CrawlStore.new(pg).insert_crawl(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authorization_epoch: current,
+          project_id: g[:project_id], kind: "root", requested_crawl_policy_id: nil,
+          requested_crawl_policy_version: nil, requested_entitlement_policy_id: SecureRandom.uuid_v7,
+          requested_entitlement_policy_version: "entitlement-interim-v1", trigger_kind: "manual",
+          triggered_by_account_id: nil, idempotency_key_digest: "\x00" * 32
+        )
+      end
+
+      expect(outcome[:authorized]).to be(false)
+      expect(outcome[:inserted]).to eq(0)
+      expect(crawls_for(g)).to be_empty
+    end
+
+    it "PROOF 193 — StartCrawl carries NO human authority, so :335 does not govern it" do
+      # WHAT THIS REPLACED. `PROOF 193` used to decide which handlers needed a post-wait authority
+      # check by matching source against a lock-name regex, excusing the rest through a maintained
+      # `CLASSIFIED_WITHOUT_POST_WAIT` list whose single entry asserted THIS fact in prose. The
+      # classification question is dissolved — every protected transition now carries authority as a
+      # conjunct of its own write — but the fact itself is real and is kept as behaviour: StartCrawl is
+      # executed by the scheduled-action executor against a durable action, with no Session, so there
+      # is no human authority in flight for a revocation to invalidate.
+      #
+      # It is observed through the same runtime signal `AuthoritySentinel` uses to decide the question,
+      # rather than by reading the handler's source.
+      authenticate = ExecutionProbe.calls("IdentityAccess::Authorization::CommandAuthorizer#authenticate").first
+      g = org_with_active_project
+      queued = queue_crawl(g)
+      expect(queued.success?).to be(true)
+
+      seen = ExecutionProbe.watch([authenticate]) { start_crawl(queued.payload[:crawl_id]) }
+
+      expect(seen).not_to have_evaluated(authenticate),
+                          "StartCrawl authenticated a Session; it would then be human-authorized and " \
+                          ":335 would govern it"
+    end
+
+    it "PROOF 225 — a retry after a committed queue follows the idempotency contract" do
+      g = org_with_active_project
+      key = "qc-retry-#{SecureRandom.hex(4)}"
+
+      first = queue_crawl(g, key: key)
+      second = queue_crawl(g, key: key)
+
+      expect(first.success?).to be(true)
+      expect(second.success?).to be(true), "a retry of a committed queue must replay, not fail"
+      expect(crawls_for(g).length).to eq(1), "the retry queued a second Crawl"
+    end
+  end
 end
