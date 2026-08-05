@@ -31,22 +31,95 @@ module ExecutionProbe
   Target = Struct.new(:owner, :name, :singleton) do
     def to_s = "#{owner}#{singleton ? '.' : '#'}#{name}"
 
-    # The class `TracePoint#defined_class` reports for this method: the singleton class for a class
-    # method, the defining class or module for an instance method.
-    def traced_class
-      klass = Object.const_get(owner)
-      singleton ? klass.singleton_class : Object.const_get(owner).instance_method(name).owner
+    def klass = Object.const_get(owner)
+
+    # The bound method object, whichever kind it is. `instance_method`/`method` both walk the
+    # ancestry, so an INHERITED method resolves to the ancestor that defines it and an ALIAS resolves
+    # to the body it names — which is what must be observed, since that is what `TracePoint` reports.
+    def reflect = singleton ? klass.method(name) : klass.instance_method(name)
+
+    # The class `TracePoint#defined_class` reports: the singleton class for a class method, the
+    # DEFINING class or module for an instance method — not the class it was looked up through.
+    def traced_class = singleton ? klass.singleton_class : reflect.owner
+
+    # WHAT KIND OF METHOD THIS IS, decided by the interpreter rather than inferred (R10-21).
+    #
+    # `TracePoint(:call)` fires for exactly the methods that have an INSTRUCTION SEQUENCE, so
+    # `RubyVM::InstructionSequence.of` is the discriminator — not `source_location`, which the round-11
+    # repair used and which is INCOMPLETE. Measured on Ruby 3.4.10:
+    #
+    #   attr_reader     source_location ["-e", 2]   iseq nil       <- watching it observes NOTHING
+    #   plain def       source_location ["-e", 2]   iseq present
+    #   define_method   source_location ["-e", 2]   iseq present   <- dynamic, and observable
+    #   Struct accessor source_location nil         iseq nil
+    #   C method        source_location nil         iseq nil
+    #
+    # `source_location` therefore refuses Struct accessors and ACCEPTS `attr_reader`, which is exactly
+    # the vacuity this repair exists to remove — a proof watching an `attr_reader` would have gone on
+    # observing nothing while every negative assertion passed. The self-test that found this is
+    # PROOF 206b; the round-11 patch is ported with its discriminator corrected rather than as-is.
+    def kind
+      method = reflect
+      return :ruby if RubyVM::InstructionSequence.of(method)
+      return :accessor if method.source_location # attr_* and friends: a location, but no body to trace
+
+      :c_defined
+    rescue TypeError, ArgumentError
+      :c_defined
+    end
+
+    # Identity of the BODY this target resolved to, so a later redefinition is detectable. A probe
+    # holding stale metadata would watch a class/method pair that no longer names the code under
+    # test and report "not evaluated" forever.
+    def fingerprint
+      method = reflect
+      [method.owner, method.source_location, method.arity]
+    rescue NameError
+      nil
     end
 
     def resolve!
-      klass = Object.const_get(owner)
       unless singleton ? klass.respond_to?(name, true) : klass.method_defined?(name) || klass.private_method_defined?(name)
         raise "#{self} does not resolve to a method"
       end
 
+      refuse_unobservable!
+      @resolved_fingerprint = fingerprint
       self
     rescue NameError => e
       raise "#{self} does not resolve: #{e.message}"
+    end
+
+    # RE-CHECKED AT OBSERVATION TIME. Resolution proves the target existed when the proof was
+    # written; this proves it is still the same body when the proof RUNS. `stub_const`, a monkey
+    # patch, a reopened class or a `prepend` between the two would otherwise leave the probe
+    # watching a body nobody calls, and every negative assertion on it would pass.
+    def assert_current!
+      return if @resolved_fingerprint.nil? || fingerprint == @resolved_fingerprint
+
+      raise "#{self} was redefined after this target was resolved (was #{@resolved_fingerprint.inspect}, " \
+            "now #{fingerprint.inspect}); the probe would be watching a body nothing calls"
+    end
+
+    # A TARGET THIS PROBE CANNOT SEE IS REFUSED AT CONSTRUCTION, NOT SILENTLY WATCHED (R10-21).
+    #
+    # Watching a C-defined method observes nothing, forever. Every `have_evaluated` on it fails and
+    # every `not_to have_evaluated` PASSES — so the probe certifies absence it never checked. The
+    # round-10 review found this by inspection; refusing the target makes it impossible rather than
+    # documented, and the message says which kind was refused and what to do instead.
+    def refuse_unobservable!
+      case kind
+      when :ruby then nil
+      when :accessor
+        raise "#{self} is a generated accessor (attr_* or similar). It reports a source location, so " \
+              "it LOOKS observable, but it carries no instruction sequence and TracePoint(:call) " \
+              "never fires for it — watching it would observe nothing while every negative assertion " \
+              "passed. Observe a Ruby method that calls it instead."
+      else
+        raise "#{self} is implemented in C, so TracePoint(:call) never fires for it. Watching it " \
+              "would observe nothing while every negative assertion passed. Observe a Ruby method " \
+              "that calls it instead."
+      end
     end
   end
 
@@ -79,6 +152,8 @@ module ExecutionProbe
   # formatting can make it unobservable.
   def watch(targets)
     counts = Hash.new(0)
+    # STALE METADATA IS REFUSED BEFORE THE BLOCK RUNS, not discovered afterwards as an empty result.
+    targets.each(&:assert_current!)
     wanted = targets.to_h { |t| [[t.traced_class, t.name], t.to_s] }
     trace = TracePoint.new(:call) do |tp|
       label = wanted[[tp.defined_class, tp.method_id]]
