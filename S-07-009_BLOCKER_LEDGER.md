@@ -153,3 +153,58 @@ S-07-009 is NOT ACCEPTED. No acceptance transition, merge, push or progression i
 S-07-010 and S-07-011 remain blocked, until every deterministic blocker above is closed with a
 production fix and a direct proof, an explicit contract amendment, or an owner-authorised
 unreachability finding — and no stability violation is live.
+
+---
+
+## D5 — CLOSED 2026-08-05. All six families ported, reproduced and independently verified.
+
+Each family was reproduced on this branch before porting, and each ported patch was adapted where
+the current tree invalidated it rather than applied as-is.
+
+| Family | Blockers | Reproduced here | Mutations |
+| --- | --- | --- | --- |
+| 6 ExecutionProbe refuses unobservable targets | R10-21 | a Struct accessor was accepted, called 5 times, `evaluated?` false, every negative assertion vacuous | 6 killed |
+| 1 Caller-bound invocation proofs | R10-17, R10-18 | the boundary inverted through `instant_for_transport` left 82 examples green including PROOF 185/186 | 6 killed |
+| 3 RowInstantGuard removed | R10-12/13/14/16 | `SELECT now()::timestamptz` returns `ftable = 0`; a computed value has no table identity to key on | 4 killed |
+| 2 WireTap removed | R10-7, R10-8 | `exec_prepared` published the statement NAME `"wt_repro"` as if it were SQL, across 14 redefined doors | 3 killed |
+| 4 AuthoritySentinel runtime discovery | R10-9, R10-11 | the regex covered 3 OF 6 handlers and a wrapped argument list defeats it; accounting on module ivars | 6 killed |
+| 5 Ledger verdict byte-binding | R10-5, R10-19 | a non-zero exit read as a kill; the gate compared a self-report against itself | 12 verifier examples |
+
+**TWO PORTED PATCHES WERE WRONG ON THIS TREE AND WERE CORRECTED, NOT APPLIED.** Family 6's
+discriminator used `source_location`, which `attr_reader` HAS while `TracePoint(:call)` still never
+fires for it — the most common accessor form in the language would have remained silently
+unobservable. It now uses `RubyVM::InstructionSequence.of`. Family 6's staleness check could not tell
+a redefinition from ordinary instrumentation and broke eight existing post-wait authority proofs; it
+is dropped, because `traced_class` is re-derived on every watch and stale metadata cannot arise.
+
+**THE MUTATION LEDGER IS REGENERATED, NOT EDITED.** `rake f1:mutations:regenerate` replays 33
+definitions held in `automation/lib/autonomous_build/s07_009_mutation_set.rb`: **33 killed, 0
+survived, 0 broken**, `app/` byte-clean after every apply and restore. One row was false on its first
+generation and the fix was the proof, not the expectation.
+
+## Proof-system audit, 2026-08-05
+
+Clean against: global state leakage (the probe holds none; the sentinels are thread-scoped where they
+account and process-scoped only where the question is about the run), cross-thread attribution,
+source-line proxies, C-defined vacuity, stale method metadata, self-reported mutation outcomes,
+identical-site misapplication, unbounded waits, forked test processes inheriting live resources,
+zero-example gate targets, and staged secrets or artifacts.
+
+**ONE RESIDUAL ENUMERATION IS OPEN AND IT BLOCKS ACCEPTANCE.**
+
+`spec/acceptance/wf005_post_wait_authority_spec.rb` PROOF 193 selects the handlers that must consult
+the post-wait owner by matching each file's source against
+`/lock_(organization|project|frontier|crawl)\b|pg_advisory_xact_lock/`, and excuses the rest through
+a maintained `CLASSIFIED_WITHOUT_POST_WAIT` list. That is a lock-name enumeration plus a manually
+maintained completeness list — two of the defect classes this tranche exists to remove, and the same
+shape as the handler regex family 4 has just replaced.
+
+D3 supersedes it FOR CANCELLATION ONLY: authority there is a conjunct of the write, so no Ruby
+arrangement can bypass it and no source scan is load-bearing. `QueueCrawl` and `ActivateCrawlPolicy`
+are NOT covered by that repair, and for those two the post-wait defence still rests on the regex and
+the list.
+
+**The remedy is the one D3 already demonstrated**: make current authority a conjunct of each
+protected write, which removes the need to identify which handlers must consult anything. Until that
+is done for both handlers, S-07-009 is not acceptable — the tranche would be accepted on a mechanism
+whose failure mode is the one it has failed on six times.
