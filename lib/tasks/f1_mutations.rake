@@ -44,7 +44,17 @@ namespace :f1 do
       end
 
       all_rows = rows + trigger_rows
-      AutonomousBuild::MutationHarness.verify_bindings!(all_rows, root:)
+      # The verifier needs a reader for the live trigger definition, or a trigger row's staleness
+      # cannot be checked — it used to be compared against its own recorded digest, which is no check
+      # at all. The harness already talks to PostgreSQL, so the reader is its own.
+      reader = lambda do |name, table|
+        AutonomousBuild::MutationHarness.send(
+          :pg_value, env.fetch("F1_DATABASE_NAME"), ENV.fetch("USER"),
+          "SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid " \
+          "WHERE t.tgname = '#{name}' AND c.relname = '#{table}' AND NOT t.tgisinternal"
+        )
+      end
+      AutonomousBuild::MutationHarness.verify_bindings!(all_rows, root:, trigger_definition: reader)
       File.write(out, JSON.pretty_generate({
         "generated_by" => "rake f1:mutations:regenerate (AutonomousBuild::MutationHarness)",
         "definitions" => "automation/lib/autonomous_build/s07_009_mutation_set.rb",

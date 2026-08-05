@@ -202,5 +202,22 @@ RSpec.describe "WF-005 cancellation authority", type: :acceptance,
                          "another transaction took the crawl row lock while the handler held it, so " \
                          "the authorized-but-unmoved branch IS reachable and needs a behavioural proof"
     end
+
+  # THE HANDLER'S CLASSIFICATION IS NOT PROVED BY A STUB, AND THE ATTEMPT IS RECORDED.
+  #
+  # The round-two contract lens found that collapsing `raise` into a domain denial survives every
+  # behavioural example, and it is right. I tried to close it by handing the handler a stubbed store
+  # returning each outcome shape — and `AuthoritySentinel` immediately raised on it, correctly: a
+  # handler whose guarded write has been replaced writes without the real authority path, so the
+  # suite-wide rule fires. The stub does not test the classification; it manufactures a violation.
+  #
+  # WHAT IS ACTUALLY TRUE HERE. PROOF 220 above establishes BY EXECUTION that the
+  # authorized-but-unmoved branch is unreachable through the handler while it holds the row lock —
+  # a second transaction cannot take that lock, proved with `FOR UPDATE NOWAIT`. The collapse
+  # mutation is therefore an EQUIVALENT MUTANT, and the honest record is the mutation ledger's
+  # `expectation: "equivalent"` carrying that unreachability proof as its justification, not a
+  # behavioural proof of a branch no production path can reach.
+  #
+  # The store's own reporting of the two cases IS proved, at PROOF 218, where the branch is reachable.
   end
 end

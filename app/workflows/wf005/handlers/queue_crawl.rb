@@ -131,11 +131,20 @@ module Workflows
 
           ids = %i[crawl execution audit event result decision idem].to_h { |k| [k, ctx.generate_id] }
 
-          # THE AUTHORITY TEST IS NOT HERE. It is a conjunct of the INSERT below, so a revocation that
-          # lands while this transaction was blocked on its locks is seen by PostgreSQL at the instant
-          # of the write. Deleting every Ruby check above would not make an unauthorised queue
-          # possible, which is the property that removes the need to identify which handlers must
-          # remember to look.
+          # THE POST-WAIT AUTHORITY TEST IS NOT HERE. It is a conjunct of the INSERT below, so a
+          # revocation landing while this transaction was blocked on its locks is seen by PostgreSQL
+          # in the same statement as the write. Deleting the Ruby RECHECK would not make a queue on
+          # revoked authority possible — that is the property that removes the need to identify which
+          # handlers must remember to re-read.
+          #
+          # IT IS NOT A CLAIM ABOUT EVERY CHECK ABOVE, AND AN EARLIER VERSION OF THIS COMMENT SAID IT
+          # WAS. The conjunct is, in full, `organizations.authorization_epoch = the epoch this actor
+          # authenticated with`. That detects a CHANGE in authority since authentication. It does not
+          # detect the ABSENCE of a capability: `decision.allowed?` above is the only thing that
+          # refuses an actor who never held `crawl.trigger`, and deleting it lets such an actor queue
+          # a Crawl that this write will happily insert. The three sibling statements of this
+          # invariant say "the Ruby recheck" for exactly that reason. FU-48 records the open question
+          # of whether the capability axis should gain a write-level counterpart of its own.
           queued = store.insert_crawl(
             id: ids[:crawl], now:, correlation_id: ctx.correlation_id, organization_id: org,
             authorization_epoch: actor.authorization_epoch,

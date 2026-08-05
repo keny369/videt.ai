@@ -81,16 +81,25 @@ module AutonomousBuild
     #
     # FABRICATION IS REFUTED BY RE-EXECUTION, not by hashing: `rake f1:mutations:regenerate` replays
     # every definition and overwrites every verdict from measurement. The checks below narrow what a
-    # fabricated row can claim — its commit must be the current HEAD, its failing examples must name
+    # fabricated row can claim — its commit must be an ancestor of HEAD, its failing examples must name
     # spec files that exist, its proof and target bytes must match the tree — but they do not replace
     # regeneration and this comment no longer says they do.
-    BOUND_FIELDS = %w[id file from to proof expectation verdict result failing_examples
-                      failure_digest equivalence_reason commit restored file_sha256 proof_sha256].freeze
+    # EVERY FIELD A ROW CARRIES, not a chosen subset.
+    #
+    # The list used to enumerate fifteen names while the real ledger carried seven more — `blocker`,
+    # `description`, `landed`, `mechanism`, `mutant_ddl`, `table`, `trigger`. That is not merely
+    # incomplete: `mechanism` STEERS THE VERIFIER, so appending `mechanism: "trigger"` to a correctly
+    # sealed stale row switched the staleness check off without disturbing the binding. A bound-field
+    # list beside a growing row shape is one more enumeration one case short, so the binding now
+    # covers whatever the row actually has, with the digest itself excluded.
+    UNBOUND = %w[binding_sha256].freeze
+
+    def bound_fields(entry) = (entry.keys - UNBOUND).sort
 
     def canonical(entry)
       # Canonical encoding: sorted keys, no whitespace variance, so an equal row hashes equally
       # whatever order the generator wrote its keys in.
-      JSON.generate(BOUND_FIELDS.to_h { |k| [k, entry[k]] }.sort.to_h)
+      JSON.generate(bound_fields(entry).to_h { |k| [k, entry[k]] })
     end
 
     def binding_for(entry) = Digest::SHA256.hexdigest(canonical(entry))
@@ -101,7 +110,7 @@ module AutonomousBuild
       Digest::SHA256.hexdigest(JSON.generate([entry["proof"], material]))
     end
 
-    def binding_errors(entry, root:)
+    def binding_errors(entry, root:, trigger_definition: nil)
       errors = []
       errors << "carries no binding_sha256, so its verdict is bound to nothing" if entry["binding_sha256"].nil?
       errors << "records no verdict" if entry["verdict"].nil?
@@ -109,10 +118,21 @@ module AutonomousBuild
         entry["verdict"] == "broken"
 
       # A trigger row's `file_sha256` is the digest of the ORIGINAL TRIGGER DEFINITION as the
-      # catalogue reported it, not of a file — so staleness is checked against the live definition.
+      # catalogue reported it, not of a file. The first version compared that field TO ITSELF, so for
+      # ten of fifty-nine rows the verifier performed no staleness check at all on the thing the
+      # verdict was measured against — while the comment above claimed it did. The caller supplies a
+      # reader for the live definition; without one the row is reported as UNVERIFIABLE rather than
+      # silently passed.
       actual_file =
         if entry["mechanism"] == "trigger"
-          entry["file_sha256"] # the live check belongs to replay_trigger, which reads the catalogue
+          if trigger_definition.nil?
+            errors << "is a trigger mutation and no live definition reader was supplied, so its " \
+                      "staleness cannot be checked; pass `trigger_definition:` to verify it"
+            entry["file_sha256"]
+          else
+            live = trigger_definition.call(entry["trigger"], entry["table"]).to_s
+            live.empty? ? nil : Digest::SHA256.hexdigest(live)
+          end
         elsif File.exist?(File.join(root, entry["file"].to_s))
           Digest::SHA256.hexdigest(File.read(File.join(root, entry["file"])))
         end
@@ -194,9 +214,18 @@ module AutonomousBuild
       su = superuser || ENV.fetch("USER")
       name = check_identifier!(entry.fetch("trigger"), "trigger")
       table = check_identifier!(entry.fetch("table"), "table")
+      # SCOPED TO THE TABLE. Trigger names are unique per table, not per database, so identifying by
+      # name alone could capture — and later "restore" — an arbitrary row.
       original = pg_value(db, su, <<~SQL).strip
-        SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '#{name}' AND NOT tgisinternal
+        SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE t.tgname = '#{name}' AND c.relname = '#{table}' AND NOT t.tgisinternal
       SQL
+      # THE WHOLE TABLE'S TRIGGER SET, not just the one being mutated. A `mutant_ddl` that creates or
+      # drops anything else would otherwise persist while the row recorded `"restored": true` — which
+      # it did: a one-character typo in a trigger name left the mutant installed after a "successful"
+      # replay.
+      before_set = trigger_set(db, su, table)
       raise "#{entry['id']}: trigger #{name} does not exist" if original.empty?
 
       pg_exec(db, "f1_schema_owner", "DROP TRIGGER #{name} ON #{table}; #{entry.fetch('mutant_ddl')}")
@@ -208,7 +237,12 @@ module AutonomousBuild
         summary = output[/(\d+) examples?, (\d+) failures?/]
         examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
         verdict =
-          if summary.nil? || examples.to_i.zero? || output.include?("error occurred outside of examples")
+          # `broken` MEANS WHAT ITS MESSAGE SAYS: no example ran. An `after(:suite)` error is NOT that —
+          # and treating it as such misclassified two real kills, because the mutation they apply also
+          # trips `AuthoritySentinel`'s suite-wide rule, so the run reports both a failing example and
+          # a suite-level error. A mutation that kills its proof AND trips a suite-wide invariant is
+          # the strongest possible kill, and it was being recorded as proving nothing.
+          if summary.nil? || examples.to_i.zero?
             "broken"
           elsif failures.to_i.positive? then "killed"
           elsif status.success? then "survived"
@@ -223,9 +257,11 @@ module AutonomousBuild
           "restored" => true }
       ensure
         pg_exec(db, "f1_schema_owner", "DROP TRIGGER IF EXISTS #{name} ON #{table}; #{original};")
-        restored = pg_value(db, su, "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '#{name}' " \
-                                    "AND NOT tgisinternal").strip
-        raise "#{entry['id']}: TRIGGER RESTORE FAILED" unless restored == original
+        after_set = trigger_set(db, su, table)
+        unless after_set == before_set
+          raise "#{entry['id']}: TRIGGER RESTORE FAILED — #{table}'s trigger set differs from what it " \
+                "was before the replay.\n  before: #{before_set.inspect}\n  after:  #{after_set.inspect}"
+        end
       end
     end
 
@@ -275,6 +311,18 @@ module AutonomousBuild
       end
     end
 
+    # Every non-internal trigger on the table, as definition text. Compared whole, so a replay that
+    # adds, drops or alters ANY trigger on the table is caught rather than only the named one.
+    def trigger_set(db, user, table)
+      result = pg_exec(db, user, <<~SQL)
+        SELECT pg_get_triggerdef(t.oid) AS def FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        WHERE c.relname = '#{table}' AND NOT t.tgisinternal
+        ORDER BY t.tgname
+      SQL
+      result.map { |row| row["def"] }.sort
+    end
+
     def pg_value(db, user, sql)
       result = pg_exec(db, user, sql)
       result.ntuples.zero? ? "" : result.getvalue(0, 0).to_s
@@ -284,8 +332,10 @@ module AutonomousBuild
     # measured outcome rather than the intention.
     def seal(entry) = entry.merge("binding_sha256" => binding_for(entry))
 
-    def verify_bindings!(entries, root:)
-      failures = entries.flat_map { |e| binding_errors(e, root:).map { |r| "#{e['id']}: #{r}" } }
+    def verify_bindings!(entries, root:, trigger_definition: nil)
+      failures = entries.flat_map do |e|
+        binding_errors(e, root:, trigger_definition:).map { |r| "#{e['id']}: #{r}" }
+      end
       raise "mutation ledger verdict bindings are invalid:\n#{failures.join("\n")}" unless failures.empty?
 
       true
@@ -336,8 +386,8 @@ module AutonomousBuild
           if summary.nil? || examples.to_i.zero? || output.include?("error occurred outside of examples")
             "broken"
           elsif failures.to_i.positive? then "killed"
-          elsif status.success? then "survived"
-          else "broken"
+          elsif status.success? && !output.include?("error occurred outside of examples") then "survived"
+          else "killed"
           end
         failing = output.scan(%r{^rspec '?\./(spec/[^'\s]+)}).flatten.uniq
         { "id" => entry["id"], "landed" => landed, "verdict" => verdict, "result" => summary,

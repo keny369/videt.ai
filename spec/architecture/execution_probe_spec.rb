@@ -260,6 +260,32 @@ RSpec.describe ExecutionProbe, type: :architecture do
         .to raise_error(/does not define/)
     end
 
+    it "PROOF 209m — validates the label shapes the recorder actually produces" do
+      # `block in Klass#method`, `block (2 levels) in ...` and `rescue in ...` are what
+      # `caller_locations#label` reports for a call issued inside a block or a rescue. The first
+      # version of the validator matched only the plain shape, so every one of these escaped it.
+      seen = described_class.watch([owner]) { CallerBound.new.gate }
+
+      expect { seen.evaluated_from?(owner, "block in CallerBound#no_such_method") }
+        .to raise_error(/does not define/)
+      expect { seen.evaluated_from?(owner, "block (2 levels) in TotallyMadeUp#x") }
+        .to raise_error(/not a defined constant/)
+      expect { seen.evaluated_from?(owner, "rescue in CallerBound#gate") }.not_to raise_error
+    end
+
+    it "PROOF 209n — refuses an AMBIGUOUS demodulized owner rather than guessing" do
+      # The fallback used to return an arbitrary module when two namespaces end in the same name,
+      # rejecting a legitimate site — intermittently, because ObjectSpace order is not deterministic.
+      stub_const("ProbeNsA", Module.new)
+      stub_const("ProbeNsB", Module.new)
+      ProbeNsA.const_set(:Collider, Class.new { def real_method = :ok })
+      ProbeNsB.const_set(:Collider, Class.new)
+      seen = described_class.watch([owner]) { CallerBound.new.gate }
+
+      expect { seen.evaluated_from?(owner, "Collider#real_method") }
+        .to raise_error(/is ambiguous/)
+    end
+
     it "PROOF 209k — a site match is a whole method identity, not a substring" do
       # `.from("CallerBound#gate")` was satisfied by `CallerBound#gate_two`.
       seen = described_class.watch([owner]) { CallerBound.new.gate_two }

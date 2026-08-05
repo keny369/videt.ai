@@ -12,7 +12,7 @@ frozen_path_changes: 2
 frozen_paths:
   - lib/f1/runtime_grants.rb
   - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2364
+suite_examples: 2365
 review_rounds: 9
 ```
 
@@ -330,19 +330,26 @@ careful edit.
 
 ## Verification
 
-Run from the repair tip on PostgreSQL 17 at `127.0.0.1:5433`:
+**THESE FIGURES ARE DERIVED, NOT RESTATED.** An earlier version of this table was maintained by hand
+beside a front matter the gates maintain mechanically, and it drifted: it carried `2248 examples`
+while the front matter said 2364, `137` for the architecture gate against a measured 221, and
+a mutation count and an equivalence claim against a ledger of 59 rows that contains neither —
+directing a reader to a justification that does not exist.
+That is R8-7's shape, and the limb written to catch it reached only the ACCEPTED tranche's report,
+never the one under review. `repository_truth_spec` now governs this table too.
 
-| Gate | Result |
+| Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2248 examples, 0 failures` |
-| `bundle exec rspec spec/architecture` | `137 examples, 0 failures, 1 pending` |
+| `bundle exec rspec` | `2365 examples, 0 failures` |
+| `bundle exec rspec spec/architecture` | `221 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
 | `bin/rails zeitwerk:check` | all is good |
 | `bundle exec bundle-audit check --update` | no vulnerabilities |
+| `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 38 mutations, all confirmed LANDED; 37 killed, 1 recorded equivalent with its reason |
+| mutation ledger | 59 mutations, 59 killed, 0 survived, 0 broken |
 
 Every gate passing remains verification, not acceptance.
 

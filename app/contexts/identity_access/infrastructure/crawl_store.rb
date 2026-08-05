@@ -79,12 +79,16 @@ module IdentityAccess
       # row state — so it belongs IN the statement that depends on it rather than in a Ruby check
       # standing next to it. There is then nothing to hoist, reorder, extract into a helper or arrange
       # a Boolean around, and no list of which handlers must remember to look: PostgreSQL evaluates
-      # authority and the insertion together, IN THE SAME STATEMENT as the write, after every lock
-      # taken in a PRIOR statement. Stated precisely because the looser form is false: a statement
-      # that blocks INSIDE ITSELF evaluates its predicate from the snapshot taken when it began, so a
-      # revocation committing during that block is not seen. No production interleaving reaches it —
-      # each handler holds its lock across the statement and is the only writer — but the reason the
-      # invariant holds is the lock discipline plus the statement, not the statement alone.
+      # authority and the insertion together, IN THE SAME STATEMENT as the write, with the authority read
+      # taking `FOR KEY SHARE` on the organization row.
+      #
+      # THE LOCK CLAUSE IS LOAD-BEARING. Without it the predicate comes from the snapshot the
+      # statement opened with, so a statement that BLOCKS INSIDE ITSELF — this one waits on the
+      # projects foreign-key check — would not see a revocation committing during that block, and the
+      # safety of the mechanism would rest on an unwritten enumeration of who else might hold a
+      # conflicting lock. `FOR KEY SHARE` makes an epoch advance conflict with this read, so it must
+      # either land before the statement (predicate fails) or after it (the write was authorised when
+      # it happened).
       #
       # A ZERO ROW COUNT HERE MEANS EXACTLY ONE THING. Unlike the cancellation UPDATE, this statement
       # carries no state or version predicate — a queued Crawl is new — so the only way it can insert
@@ -112,6 +116,7 @@ module IdentityAccess
           WHERE EXISTS (
             SELECT 1 FROM organizations
             WHERE id = $4::uuid AND authorization_epoch = $14::bigint
+            FOR KEY SHARE
           )
         SQL
         { authorized: inserted.positive?, inserted: }

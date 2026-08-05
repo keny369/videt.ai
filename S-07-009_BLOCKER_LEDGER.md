@@ -208,3 +208,39 @@ the list.
 protected write, which removes the need to identify which handlers must consult anything. Until that
 is done for both handlers, S-07-009 is not acceptable — the tranche would be accepted on a mechanism
 whose failure mode is the one it has failed on six times.
+
+---
+
+## D7 — OPEN. Fixing the write door falsified the sentinel's exemption premise.
+
+`AuthoritySentinel`'s rule is "a human-authorized WF-005 command that SUCCEEDS and WRITES must have
+evaluated `authority_current?` and presented an attestation". Its own header explains why replays
+need no special case:
+
+> A REPLAY IS CORRECTLY EXEMPT and is not special-cased: it returns the stored payload and WRITES
+> NOTHING, so it never satisfies the antecedent.
+
+**That premise was true only because the write door was blind.** The door's first form was anchored
+to the start of the statement, so CTE-shaped writes were invisible; its replacement wrote
+`UPDATE\s+\w` followed by `\b`, which matches only one-character table names, so EVERY update was
+invisible. With the door corrected to `WRITE_VERB`, a replay is observed writing its own execution
+record, satisfies the antecedent, and the rule fires:
+
+```
+Workflows::Wf005::Handlers::CancelCrawl SUCCEEDED and issued 1 write(s)
+  with authority_current? evaluated=false attestation_required=false
+```
+
+The command is correct: an idempotent replay returns the stored result and must NOT re-perform the
+transition, so it has nothing to re-read authority for. The RULE is now over-broad, because "wrote"
+was standing in for "committed a state transition" and only coincided with it while the door could
+not see updates.
+
+**This is a design decision, not a patch.** The candidate repair is to narrow the antecedent to a
+GOVERNED write — `GovernedWriteSentinel` already derives the governed tables from the trigger
+catalogue, so the rule would become "a human-authorized command that committed a governed fact must
+have re-read authority", which is what :335 actually says and needs no replay exemption. That is a
+change to the meaning of the tranche's central completeness mechanism and must be made deliberately,
+with its own proof and mutations, rather than folded into a repair cycle already three rounds deep.
+
+Recorded rather than rushed. S-07-009 is NOT acceptable while it stands.

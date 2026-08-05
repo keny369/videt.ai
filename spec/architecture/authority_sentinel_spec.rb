@@ -125,6 +125,39 @@ RSpec.describe AuthoritySentinel, type: :architecture do
     end
   end
 
+  describe "the write door" do
+    it "PROOF 232 — recognises the verbatim SQL of every protected write in the tranche" do
+      # DRIVEN AGAINST PRODUCTION SOURCE, not against a sample someone wrote here. Both previous
+      # forms of this pattern passed every hand-written case and missed the real statements: the
+      # anchored one missed CTE-shaped writes, and its replacement missed every UPDATE whose table
+      # name was longer than one character.
+      sources = {
+        "D3 cancellation" => "app/contexts/identity_access/infrastructure/crawl_start_store.rb",
+        "D6 queue insert" => "app/contexts/identity_access/infrastructure/crawl_store.rb",
+        "D6 policy activation" => "app/contexts/identity_access/infrastructure/crawl_policy_store.rb"
+      }
+      statements = sources.transform_values do |rel|
+        File.read(Rails.root.join(rel)).scan(/<<~SQL(.*?)^\s*SQL$/m).flatten
+            .select { |sql| sql.match?(/INSERT\s+INTO\s+\w|UPDATE\s+\w|DELETE\s+FROM\s+\w/i) }
+      end
+
+      statements.each do |label, sqls|
+        expect(sqls).not_to be_empty, "found no write statement in the #{label} store"
+        sqls.each do |sql|
+          expect(sql).to match(described_class::WRITE_VERB),
+                         "the write door does not recognise the #{label} statement:\n#{sql[0, 220]}"
+        end
+      end
+    end
+
+    it "PROOF 232b — does NOT count a read that merely mentions an updated column" do
+      # Non-vacuity from the other side: a pattern that matched everything would satisfy 232 while
+      # counting every SELECT as a write.
+      expect("SELECT updated_at FROM crawls WHERE id = $1").not_to match(described_class::WRITE_VERB)
+      expect("SELECT count(*) FROM crawl_policies").not_to match(described_class::WRITE_VERB)
+    end
+  end
+
   describe "non-vacuity" do
     it "REFUSES to report success from an empty census" do
       # The failure mode this forecloses is the worst kind: blinding the instrument makes the suite

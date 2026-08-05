@@ -28,6 +28,20 @@
 module AuthoritySentinel
   HANDLER_DIR = "app/workflows/wf005/handlers"
 
+  # A STATEMENT THAT WRITES, RECOGNISED WHEREVER THE VERB SITS.
+  #
+  # TWO DEFECTS, ONE AFTER THE OTHER, BOTH WORTH RECORDING. The first form was anchored to the start
+  # of the statement, so every CTE-shaped write was invisible — including the D3 cancellation
+  # (`WITH authority AS (...) UPDATE crawls ...`) and the D6 activation, the two writes this
+  # tranche's headline invariant is about. The replacement un-anchored it but wrote `UPDATE\s+\w`
+  # followed by `\b`: `\w` matches exactly ONE character, and the boundary then has to fall inside
+  # the table name, so it matched `UPDATE c` and nothing else. The door went from missing CTE writes
+  # to missing EVERY update, and the suite got greener as it got blinder — again.
+  #
+  # `PROOF 232` now drives this pattern against the verbatim SQL of all three protected writes read
+  # out of the production files, so a regex that stops matching them fails rather than quietening.
+  WRITE_VERB = /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b/i
+
   Violation = Struct.new(:handler, :evaluated_recheck, :attested, :writes, keyword_init: true) do
     def to_s
       "#{handler} SUCCEEDED and issued #{writes} write(s) with " \
@@ -109,7 +123,7 @@ module AuthoritySentinel
       # activation (`WITH authority, superseded, inserted`) are, so the two writes this tranche's
       # headline invariant is about were not counted as writes at all. A verb list anchored to the
       # start of the statement is a syntactic rule one form short.
-      return unless sql.match?(/\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)\b/i)
+      return unless sql.match?(WRITE_VERB)
 
       @observed_writes = observed_writes + 1
       return unless f[:depth].positive?

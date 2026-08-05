@@ -449,6 +449,39 @@ RSpec.describe "Repository truth", type: :model do
       YAML.safe_load(fenced)
     end
 
+    it "states no gate figure in prose that disagrees with its own evidence block or the ledger" do
+      # THE GAP THIS CLOSES. "Agrees with a MEASUREMENT of the suite" parses the ACCEPTED tranche's
+      # report; the record UNDER REVIEW was governed only for its front-matter `suite_examples`. Its
+      # prose Verification table therefore drifted to `2248 examples` while the front matter said
+      # 2364, to `137` for the architecture gate against a measured 221, and to "38 mutations … 1
+      # recorded equivalent" against a 59-row ledger with no equivalent entry — pointing a reader at
+      # an equivalence justification that does not exist. R8-7 was exactly this shape, and the
+      # mechanism written for it reached one report and not the other.
+      claimed = evidence_block(in_flight).fetch("suite_examples").to_i
+
+      in_flight.scan(/\|\s*`bundle exec rspec`\s*\|\s*`(\d+) examples/).flatten.each do |stated|
+        expect(stated.to_i).to eq(claimed),
+                               "the record's Verification table says #{stated} examples; its own " \
+                               "evidence block says #{claimed}"
+      end
+
+      # Any mutation count stated in prose must match the ledger the repository can replay.
+      ledger = JSON.parse(ROOT.join(LEDGER_PATH).read).fetch("mutations")
+      in_flight.scan(/(\d+) mutations?, (\d+) killed/).each do |total, killed|
+        expect(total.to_i).to eq(ledger.length),
+                              "the record states #{total} mutations; the ledger holds #{ledger.length}"
+        expect(killed.to_i).to eq(ledger.count { |m| m["verdict"] == "killed" }),
+                               "the record states #{killed} killed; the ledger records " \
+                               "#{ledger.count { |m| m['verdict'] == 'killed' }}"
+      end
+
+      # A record may not cite an equivalence the ledger does not contain.
+      if in_flight.match?(/recorded equivalent/)
+        expect(ledger.any? { |m| m["expectation"] == "equivalent" }).to be(true),
+               "the record cites a recorded equivalent; no ledger row claims equivalence"
+      end
+    end
+
     it "carries a machine-readable evidence block, and it is not optional" do
       evidence = evidence_block(in_flight)
 
@@ -505,7 +538,17 @@ RSpec.describe "Repository truth", type: :model do
       # AND EVERY VERDICT IS BOUND TO THE EVIDENCE IT CAME FROM (D5 family 5). Applicability proves a
       # row COULD be replayed here; the binding proves its verdict WAS measured here, against these
       # production bytes, this proof's bytes, this commit, with restoration verified.
-      expect { AutonomousBuild::MutationHarness.verify_bindings!(entries, root: ROOT.to_s) }
+      # THE LIVE TRIGGER DEFINITION IS SUPPLIED, so a trigger row's staleness is checked against the
+      # catalogue rather than against its own recorded digest.
+      reader = lambda do |name, table|
+        DbInspector.one(<<~SQL, [name.to_s, table.to_s])&.fetch("def", nil)
+          SELECT pg_get_triggerdef(t.oid) AS def FROM pg_trigger t
+          JOIN pg_class c ON c.oid = t.tgrelid
+          WHERE t.tgname = $1 AND c.relname = $2 AND NOT t.tgisinternal
+        SQL
+      end
+      expect { AutonomousBuild::MutationHarness.verify_bindings!(entries, root: ROOT.to_s,
+                                                                 trigger_definition: reader) }
         .not_to raise_error
 
       entries.each do |entry|

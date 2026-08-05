@@ -160,7 +160,11 @@ module ExecutionProbe
     # the site NAMES SOMETHING THAT EXISTS, which a typo, a rename and a fictional class all fail and
     # a legitimate negative passes.
     def assert_site_resolves!(site)
-      identity = site.split(":").last
+      # `caller_locations#label` reports several shapes, and the first version of this check matched
+      # only the plainest one — so `block in Klass#method`, `block (2 levels) in Klass#method` and
+      # `rescue in Klass#method`, which are exactly what the recorder produces, escaped validation
+      # entirely. The wrappers are stripped before the identity is read.
+      identity = site.split(":").last.sub(/\A(?:block(?: \(\d+ levels\))? in |rescue in )/, "")
       match = identity.match(/\A([A-Z][\w:]*)([#.])(\w+[?!=]?)\z/)
       return unless match
 
@@ -183,13 +187,32 @@ module ExecutionProbe
     end
 
     # `file:Klass#method` — the site matches when the METHOD IDENTITY is equal, not merely contained.
+    # RESOLUTION MUST BE UNAMBIGUOUS OR IT IS NOT RESOLUTION.
+    #
+    # The fallback used `ObjectSpace...find`, which returns an ARBITRARY module when two namespaces
+    # end in the same name — so a legitimate site could be rejected because the search happened to
+    # reach `OtherNamespace::Legit` before `RealNamespace::Legit`, and `ObjectSpace` order is not
+    # deterministic, making the failure intermittent. Names like `Base`, `Store`, `Result` and
+    # `Error` make that reachable in ordinary use.
+    #
+    # Every candidate is now collected. One match resolves; several mean the demodulized name does
+    # not identify a class, and the assertion must say so rather than guess.
     def resolve_owner(owner)
-      Object.const_get(owner)
+      return Object.const_get(owner)
     rescue NameError
-      ObjectSpace.each_object(Module).find do |mod|
-        name = mod.name
+      candidates = ObjectSpace.each_object(Module).select do |mod|
+        name = begin
+          mod.name
+        rescue StandardError
+          nil
+        end
         name && name.split("::").last == owner
       end
+      return candidates.first if candidates.length == 1
+      return nil if candidates.empty?
+
+      raise "#{owner.inspect} is ambiguous — #{candidates.map(&:name).sort.join(', ')} all end in it. " \
+            "Name the site with its full namespace so the assertion identifies one class."
     end
 
     def site_matches?(recorded, site)

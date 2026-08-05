@@ -77,6 +77,7 @@ module IdentityAccess
           WITH authority AS (
             SELECT 1 FROM organizations
             WHERE id = $4::uuid AND authorization_epoch = $13::bigint
+            FOR KEY SHARE
           ), superseded AS (
             UPDATE crawl_policies
             SET state = 'superseded', superseded_at = $2::timestamptz,

@@ -266,12 +266,16 @@ module IdentityAccess
       # is ORDINARY ROW STATE, so it can be a CONJUNCT OF THE WRITE rather than a Ruby statement
       # standing next to it. There is then nothing to hoist, reorder, extract into a helper,
       # short-circuit or arrange a Boolean around: the authority test and the state transition are one
-      # statement, evaluated by PostgreSQL IN THE SAME STATEMENT as the write, after every lock taken
-      # in a PRIOR statement. Stated precisely because the looser form is false: a statement that
-      # blocks INSIDE ITSELF evaluates its predicate from the snapshot taken when it began, so a
-      # revocation committing during that block is not seen. No production interleaving reaches it —
-      # this handler holds `lock_crawl` on the row across the statement and is the only writer — but
-      # the invariant rests on the lock discipline PLUS the statement, not on the statement alone.
+      # statement, and the authority read takes `FOR KEY SHARE` on the organization row.
+      #
+      # WHY THE LOCK CLAUSE IS THERE AND NOT JUST THE CONJUNCT. Without it the predicate is evaluated
+      # from the snapshot the statement opened with, so a statement that BLOCKS INSIDE ITSELF would
+      # not see a revocation committing during that block — and the safety of the whole mechanism
+      # would rest on an unwritten enumeration of which other transactions might hold a conflicting
+      # lock. That is the shape this tranche exists to remove. `FOR KEY SHARE` makes the read
+      # lock-based: an epoch advance must take a conflicting lock on the same row, so it either
+      # commits before this statement reads (and the predicate fails) or waits until after it (and
+      # the transition was authorised when it happened). The claim is then unconditional.
       # No transaction-header interpretation is involved, and no `xmax` or multixact decoding — the
       # invariant reads a column that means what it says.
       #
@@ -283,6 +287,7 @@ module IdentityAccess
           WITH authority AS (
             SELECT 1 FROM organizations
             WHERE id = $5::uuid AND authorization_epoch = $4::bigint
+            FOR KEY SHARE
           ), moved AS (
             UPDATE crawls
             SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
