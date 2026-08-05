@@ -585,6 +585,82 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
       expect(outcomes.last[:capability_authorized]).to be(true), "the control refused, so PROOF 265 is vacuous"
       expect(outcomes.last[:moved]).to eq(1)
     end
+
+    it "PROOF 266 — `WriteAuthority.for` carries the ratified READ-ONLY cell, not a permissive constant" do
+      # THE OTHER HALF OF CB-2, CLOSED FOR ONE COLUMN AND LEFT OPEN FOR THE NEXT. PROOF 265 binds the
+      # derivation of `allowed_roles`; nothing bound the derivation of `read_only_permitted`. Measured
+      # at round 19: replacing `READ_ONLY_CAPABILITIES.include?(capability)` with `true` left 68
+      # examples green across the battery, this file and the cancel handler. `authority_fixture.rb`
+      # carries its own copy of the same expression, so every battery case -- including round 18's
+      # read-only case -- proves what the STATEMENT does with a correct value and never that the
+      # correct value is derived. That is verbatim the reasoning PROOF 265 exists for.
+      #
+      # THE GRANT IS THE ACTOR'S OWN, AND READ-ONLY. `confers?` filters a read-only Assignment out of
+      # `decision.granting` upstream, so the decision is built here carrying it -- exactly the state a
+      # deleted or wrong `mode_permits?` produces, which is what the write-level counterpart exists to
+      # survive. Every other qual passes: same principal, same Organization, active, effective,
+      # unexpired, and `MarketingOperator` is inside `crawl.cancel`'s ratified cell. The mode cell is
+      # the only thing left that can refuse it.
+      ctx = running_crawl
+      org = ctx[:g][:organization_id]
+      account = DbInspector.one("SELECT account_id FROM sessions WHERE id = $1::uuid",
+                                [ctx[:g][:session_id]])["account_id"]
+      TenantSeeder.create_role_assignment(organization_id: org, account_id: account,
+                                          canonical_role: "MarketingOperator",
+                                          permission_mode: "read_only", persona: "executive_buyer")
+      read_only = DbInspector.one(<<~SQL, [org, account])
+        SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+        FROM role_assignments
+        WHERE organization_id = $1::uuid AND account_id = $2::uuid
+          AND status = 'active' AND permission_mode = 'read_only'
+      SQL
+      expect(read_only).not_to be_nil, "the read-only grant was not seeded, so this proof is vacuous"
+      expect(Platform::PermissionBaseline::READ_ONLY_CAPABILITIES).to be_empty,
+                                                                     "the ratified read-only set is no longer " \
+                                                                     "empty, so this proof must name a " \
+                                                                     "capability that set still excludes"
+
+      outcomes = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        auth = IdentityAccess::Authorization::CommandAuthorizer.new(
+          IdentityAccess::Infrastructure::AuthorizationStore.new(pg)
+        )
+        actor = auth.authenticate(session_id: ctx[:g][:session_id], now: start_now,
+                                  correlation_id: SecureRandom.uuid_v7)
+        real = auth.authorize(actor:, capability: "crawl.cancel", now: start_now)
+        expect(real).to be_allowed
+        expect(real.granting.map { |g| g["id"] })
+          .not_to include(read_only["id"]),
+                  "`confers?` admitted the read-only grant, so this proof would be about the Ruby " \
+                  "check rather than about the value the write is handed"
+
+        borrowed = IdentityAccess::Authorization::Decision.new(
+          allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
+          policy_snapshot_id: real.policy_snapshot_id,
+          role_assignment_versions: real.role_assignment_versions, granting_assignments: [read_only]
+        )
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        version = DbInspector.one("SELECT state_version FROM crawls WHERE id = $1::uuid",
+                                  [ctx[:crawl_id]])["state_version"].to_i
+        [store.cancel(ctx[:crawl_id], version, start_now,
+                      authority: IdentityAccess::Authorization::WriteAuthority.for(
+                        actor:, decision: borrowed, capability: "crawl.cancel"
+                      )),
+         store.cancel(ctx[:crawl_id], version, start_now,
+                      authority: IdentityAccess::Authorization::WriteAuthority.for(
+                        actor:, decision: real, capability: "crawl.cancel"
+                      ))]
+      end
+
+      expect(outcomes.first[:capability_authorized]).to be(false),
+                                                        "a read-only grant spent `crawl.cancel` through the " \
+                                                        "production builder, so the sixth column is not what " \
+                                                        "is derived"
+      expect(outcomes.first[:moved]).to eq(0)
+      expect(outcomes.last[:capability_authorized]).to be(true), "the control refused, so PROOF 266 is vacuous"
+      expect(outcomes.last[:moved]).to eq(1)
+    end
   end
 
   describe "the capability limb is lock-based too" do
