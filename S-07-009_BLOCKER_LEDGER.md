@@ -381,9 +381,9 @@ refuses an actor holding no authority BEFORE taking the lock other tenants queue
 
 **FOUND BY THE D7 MUTATIONS, NOT BY A REVIEW.** `b2e8cfb` recorded that "`broken` now means what it
 says, since treating any after(:suite) error as 'no example ran' misclassified two real kills" — and
-applied that correction to `MutationHarness.replay_trigger` ALONE. `replay`, which carries 79 of the
-82 file definitions, still classified any run containing `error occurred outside of examples` as
-`broken`.
+applied that correction to `MutationHarness.replay_trigger` ALONE. `replay`, which carries ALL 82 of
+the 92 definitions that are file mutations (`replay_trigger` carries the other 10), still classified
+any run containing `error occurred outside of examples` as `broken`.
 
 Measured on the first D7 regeneration: `d7-door-regex-restored` (13 examples, **7 failures**) and
 `d7-antecedent-dropped` (13 examples, **1 failure**) both trip `AuthoritySentinel`'s suite-wide rule
@@ -393,6 +393,15 @@ paths is this tranche's own defect class one level up, inside the machinery that
 
 Both paths now carry the same classification: `broken` means no example ran; a run with failures, or
 a run whose examples passed but which tripped a suite-wide invariant, is a KILL.
+
+**AND THAT CLOSURE WAS FALSE WHEN IT WAS WRITTEN. ROUND 15 MEASURED IT (R15-CONC-2).** The correction
+reached `replay` and NOT `replay_trigger`, which still ended `else "broken"` — the same one-of-two
+shape, one round later, in the same file. Neither copy had a test, which is why it survived a repair
+written to remove exactly this. **THE TWO COPIES ARE NOW ONE**: `MutationHarness.classify` is the
+single implementation both paths call, and `spec/automation/unit/mutation_harness_classification_spec.rb`
+proves all four outcomes including the case the copies disagreed on. No ledger verdict was wrong —
+all ten trigger definitions kill with failing examples, so the divergent branch was never reached —
+so this was a false RECORD and a latent asymmetry rather than a live proof-system defect.
 
 ---
 

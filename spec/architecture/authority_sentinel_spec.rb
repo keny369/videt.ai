@@ -8,12 +8,13 @@ require "rails_helper"
 # about the instrument: what it discovers, how it accounts, and whether it can go blind quietly.
 RSpec.describe AuthoritySentinel, type: :architecture do
   describe "discovery" do
-    it "covers EVERY WF-005 handler, derived from the directory rather than matched in source" do
-      # R10-9. The set was decided by matching each file's source against
-      # `/authenticate\(session_id:/`, which covered 3 of 6 handlers on this branch and which a merely
-      # reformatted call defeats. Discovery is now the directory, and human-authorization is decided
-      # per execution by whether `CommandAuthorizer#authenticate` RAN.
-      files = Dir[Rails.root.join(described_class::HANDLER_DIR, "*.rb")].sort
+    it "covers EVERY WF-005 handler, derived from the NAMESPACE rather than from a directory or source" do
+      # R10-9 replaced a source regex with a directory glob. Round 15 (A15-2) showed the glob is the
+      # same kind of mistake one level out: it was NON-RECURSIVE, so a handler one directory deeper
+      # was silently outside a rule whose whole point is that nothing escapes it. Discovery is now
+      # every class under `Workflows::Wf005::Handlers`, and this example checks it against the files
+      # on disk — recursively — so a handler that exists in either place and not the other fails.
+      files = Dir[Rails.root.join(described_class::HANDLER_DIR, "**", "*.rb")].sort
       expect(files.length).to be >= 5, "the handler directory scan found #{files.length} files"
 
       expected = files.map { |f| File.basename(f, ".rb").camelize }.sort
@@ -23,7 +24,6 @@ RSpec.describe AuthoritySentinel, type: :architecture do
 
     it "picks up a NEW production path without anyone updating a list" do
       # The owner's test of a derived mechanism: add a producer and see whether discovery finds it.
-      # The directory is re-read, so a handler added by a later tranche joins the rule by existing.
       new_file = Rails.root.join(described_class::HANDLER_DIR, "sentinel_discovery_probe.rb")
       File.write(new_file, <<~RUBY)
         module Workflows
@@ -46,6 +46,23 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       described_class.instance_variable_set(:@observed_handlers, nil)
       Workflows::Wf005::Handlers.send(:remove_const, :SentinelDiscoveryProbe) if
         Workflows::Wf005::Handlers.const_defined?(:SentinelDiscoveryProbe, false)
+    end
+
+    it "picks up a handler NESTED one namespace deeper, which the directory glob did not (A15-2)" do
+      # THE MEASURED ESCAPE. The same class placed in `handlers/admin/` was not discovered, so it
+      # authenticated a Session, committed a protected side effect, presented no attestation, and the
+      # run stayed green. Nesting is now irrelevant: being a class under the handler namespace is
+      # what joins the rule.
+      Workflows::Wf005::Handlers.const_set(:R15Nested, Module.new)
+      Workflows::Wf005::Handlers::R15Nested.const_set(:DiscoveryProbe, Class.new { def call(**) = nil })
+      described_class.instance_variable_set(:@observed_handlers, nil)
+
+      expect(described_class.observed_handlers.map(&:name))
+        .to include("Workflows::Wf005::Handlers::R15Nested::DiscoveryProbe")
+    ensure
+      Workflows::Wf005::Handlers.send(:remove_const, :R15Nested) if
+        Workflows::Wf005::Handlers.const_defined?(:R15Nested, false)
+      described_class.instance_variable_set(:@observed_handlers, nil)
     end
   end
 

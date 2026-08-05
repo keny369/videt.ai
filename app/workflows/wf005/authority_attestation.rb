@@ -34,8 +34,6 @@ module Workflows
       # one is a defect in the handler, not a decision about the caller.
       class Missing < Platform::InvariantViolation; end
 
-      attr_reader :authority, :transaction_id
-
       def initialize(authority:, transaction_id:, connection_id:)
         @authority = authority
         @transaction_id = transaction_id
@@ -43,10 +41,13 @@ module Workflows
         freeze
       end
 
-      def actor_account_id = @authority.account_id
-      def epoch = @authority.epoch
-      def capability = @authority.capability
-
+      # NO PUBLIC READERS. `attr_reader :authority, :transaction_id` and the three delegating readers
+      # `actor_account_id`, `epoch` and `capability` were added with FU-48 and asked by nothing —
+      # measured over the whole tree, including the specs (round-15 architecture finding A15-3). D1's
+      # rule governs: "a method nothing asks cannot be defended by any behavioural proof, because no
+      # behaviour depends on it — its body could be replaced by a constant and every example would
+      # still pass." Everything this object is for happens in `verify!`, against its own ivars: an
+      # attestation is a capability to commit, not a data structure to read fields off.
       # THE ONLY MINT. Re-reads current authority through the ratified checkpoint and returns an
       # attestation when it holds, or nil when it does not — so a handler branches on the nil exactly
       # as it branched on the old boolean, and the commit is what enforces the rest.

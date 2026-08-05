@@ -43,6 +43,13 @@ module AutonomousBuild
     DOOR_PROOF = "spec/architecture/protected_effect_door_spec.rb"
     LOCK_PROOF = "spec/acceptance/wf005_authority_lock_concurrency_spec.rb"
     CAPABILITY_PROOF = "spec/acceptance/wf005_capability_write_authority_spec.rb"
+    # ROUND 15
+    BATTERY_PROOF = "spec/acceptance/wf005_grant_battery_spec.rb"
+    LIFETIME_PROOF = "spec/acceptance/wf005_grant_lifetime_spec.rb"
+    ORDER_PROOF = "spec/acceptance/wf005_authority_lock_order_spec.rb"
+    CLASSIFY_PROOF = "spec/automation/unit/mutation_harness_classification_spec.rb"
+    REVOKE_HANDLER = "app/workflows/wf013/handlers/revoke_role_assignment.rb"
+    HARNESS = "automation/lib/autonomous_build/mutation_harness.rb"
 
     ENTRIES = [
       # ---- D1/D2: the dead question, and the ones nothing pinned -------------------------------
@@ -171,10 +178,14 @@ module AutonomousBuild
         to: "    rescue PG::Error\n      raise", expectation: "kill" },
 
       # ---- D5 family 4: runtime discovery and thread-local accounting ---------------------------
-      { id: "f4-discovery-narrowed", blocker: "R10-9", file: SENTINEL, proof: SENTINEL_PROOF,
-        description: "discovery narrowed back to a source-text match over one spelling",
-        from: "      @observed_handlers ||= Dir[Rails.root.join(HANDLER_DIR, \"*.rb\")].sort.filter_map { |f| constant_for(f) }",
-        to: "      @observed_handlers ||= Dir[Rails.root.join(HANDLER_DIR, \"*.rb\")].sort.filter_map { |f| constant_for(f) if File.read(f).match?(/authenticate\\(session_id:/) }",
+      # RE-POINTED IN ROUND 15. Discovery is no longer a directory glob to narrow — it is a namespace
+      # walk (A15-2) — so the mutation is the narrowing that walk admits: stop recursing, which is
+      # exactly the escape the glob had.
+      { id: "f4-discovery-narrowed", blocker: "R10-9, A15-2", file: SENTINEL, proof: SENTINEL_PROOF,
+        description: "discovery stops recursing into nested namespaces, so a handler one module " \
+                     "deeper is silently outside the rule",
+        from: "        elsif value.is_a?(Module) then handlers_under(value)\n",
+        to: "        elsif value.is_a?(Module) then []\n",
         expectation: "kill" },
       { id: "f4-accounting-global", blocker: "R10-11", file: SENTINEL, proof: SENTINEL_PROOF,
         description: "accounting returned to process-global state, so threads corrupt each other",
@@ -367,7 +378,11 @@ module AutonomousBuild
       { id: "d7-cancel-capability-always-true", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the capability CTE made unconditionally true, so the grant is never read at all",
         from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n            FOR SHARE OF ra\n",
-        to: "            SELECT 1\n", expectation: "kill" },
+        # EVERY PARAMETER STAYS BOUND (A15-4): `SELECT 1` alone orphans $6-$10 and the statement dies
+        # of `IndeterminateDatatype` before the write is ever attempted, so the kill said nothing
+        # about whether the grant is read. This form is unconditionally true AND well-typed.
+        to: "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n",
+        expectation: "kill" },
       { id: "d7-cancel-grant-version-unbound", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the grant's state version stops being bound, so a decision taken against a " \
                      "different version of the Assignment still authorizes the write",
@@ -439,7 +454,13 @@ module AutonomousBuild
       { id: "d7-a-scope-role-unbound", blocker: "FU-48", file: POLICY_STORE, proof: CAPABILITY_PROOF,
         description: "the scope rule stops being a predicate of the activation, so a MarketingOperator " \
                      "grant authorizes an ORGANIZATION-scope policy — the round-two security finding",
-        from: "              AND ($18::text IS NULL OR ra.canonical_role = $18::text)\n", to: "",
+        # THE PARAMETER STAYS REFERENCED (round-15 architecture observation A15-4). Deleting the line
+        # outright orphaned `$18`, so PostgreSQL refused the statement with `IndeterminateDatatype`
+        # and the mutation died on a TYPING error rather than on the semantics it names — a kill that
+        # proves the statement still parses, not that the scope rule is enforced. The vacuous form
+        # below keeps every parameter bound and is refused by PROOF 258 for the right reason.
+        from: "              AND ($18::text IS NULL OR ra.canonical_role = $18::text)\n",
+        to: "              AND ($18::text IS NULL OR $18::text IS NOT NULL)\n",
         expectation: "kill" },
       # BOUND TO THE PROOF THAT ACTUALLY REACHES THE HANDLER'S COMMIT. The first binding named the
       # capability proof, which drives this store DIRECTLY and supplies its own `required_role`, so no
@@ -469,7 +490,57 @@ module AutonomousBuild
       { id: "f6-lookup-class-traced", blocker: "R10-21", file: PROBE, proof: PROBE_PROOF,
         description: "traced_class reports the lookup class, not the defining class",
         from: "    def traced_class = singleton ? klass.singleton_class : reflect.owner",
-        to: "    def traced_class = singleton ? klass.singleton_class : klass", expectation: "kill" }
+        to: "    def traced_class = singleton ? klass.singleton_class : klass", expectation: "kill" },
+
+      # ---- ROUND 15: one mutation for every repair this round made ------------------------------
+      #
+      # NOT ONE PER CONJUNCT PER WRITE. The battery proves all seven properties at all three writes by
+      # construction, so enumerating twenty-one mutations would restate that structure rather than
+      # test it. Recorded here is one representative per FAMILY the round repaired, plus one for each
+      # production fix, so every new proof is shown to be capable of failing.
+      { id: "r15-queue-grant-status-unbound", blocker: "A15-1", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the QUEUE write stops requiring the granting Assignment to be active — one of " \
+                     "the ten conjuncts the architecture lens deleted with the whole suite green",
+        from: "              AND ra.status = 'active'\n", to: "              AND ra.status IS NOT NULL\n",
+        expectation: "kill" },
+      { id: "r15-policy-grant-version-unbound", blocker: "A15-1", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the POLICY write stops binding the grant's state version, so a decision taken " \
+                     "against another version of the Assignment still authorizes the activation",
+        from: "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+        to: "              ON g.id = ra.id\n", expectation: "kill" },
+      { id: "r15-queue-grant-expiry-unbound", blocker: "A15-1", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the QUEUE write stops checking that the grant has not expired",
+        from: "              AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)\n", to: "",
+        expectation: "kill" },
+      { id: "r15-queue-capability-lock-removed", blocker: "A15-1", file: CRAWL_STORE, proof: LOCK_PROOF,
+        description: "the QUEUE write reads its grants without `FOR SHARE`, so a revocation can land " \
+                     "while the statement is blocked mid-flight",
+        from: "            FOR SHARE OF ra\n", to: "\n", expectation: "kill" },
+      { id: "r15-policy-capability-lock-removed", blocker: "A15-1", file: POLICY_STORE, proof: LOCK_PROOF,
+        description: "the POLICY write reads its grants without `FOR SHARE`",
+        from: "            FOR SHARE OF ra\n", to: "\n", expectation: "kill" },
+      { id: "r15-queue-pre-wait-instant", blocker: "R15-SEC-1", file: QUEUE_HANDLER, proof: LIFETIME_PROOF,
+        description: "QueueCrawl goes back to writing with the instant it entered with, so a grant " \
+                     "that expired during the lock wait still queues a Crawl",
+        from: "          d = d.merge(now: post_wait.now)\n", to: "", expectation: "kill" },
+      { id: "r15-policy-pre-wait-instant", blocker: "R15-SEC-1", file: POLICY_HANDLER, proof: LIFETIME_PROOF,
+        description: "ActivateCrawlPolicy goes back to writing with its pre-wait instant",
+        from: "          d = d.merge(now: post_wait.now)\n", to: "", expectation: "kill" },
+      { id: "r15-revoke-order-reversed", blocker: "R15-CONC-1", file: REVOKE_HANDLER, proof: ORDER_PROOF,
+        description: "RevokeRoleAssignment writes the grant before advancing the epoch, restoring the " \
+                     "lock-order cycle that deadlocks against every protected WF-005 write",
+        from: "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n" \
+              "          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n" \
+              "                                         reason, epoch + 1).to_i.zero?\n",
+        to: "          raise LostRace if store.revoke(command.role_assignment_id, row[\"state_version\"].to_i, now,\n" \
+            "                                         reason, epoch + 1).to_i.zero?\n" \
+            "          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?\n",
+        expectation: "kill" },
+      { id: "r15-classify-suite-error-broken", blocker: "R15-CONC-2", file: HARNESS, proof: CLASSIFY_PROOF,
+        description: "the one classifier goes back to calling a run that tripped a suite-wide " \
+                     "invariant `broken`, which is what the two copies disagreed about",
+        from: "      return \"survived\" if status.success? && !output.include?(SUITE_LEVEL_ERROR)",
+        to: "      return \"survived\" if status.success?", expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
     # D4's mutations act on a TRIGGER DEFINITION rather than on a file, and they are now REPLAYED,

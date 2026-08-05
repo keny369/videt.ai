@@ -62,6 +62,32 @@ RSpec.describe "WF-005 authority lock strength", type: :acceptance,
     end
   end
 
+  # The capability limb's counterpart to `attempt_revocation`: the statement a real revocation issues
+  # against the grant itself. A non-key UPDATE, so it takes `FOR NO KEY UPDATE` and must conflict with
+  # the `FOR SHARE OF ra` the guarded statement holds.
+  def attempt_grant_revocation(org)
+    revoker = tagged_connection("d7_grant_revoker")
+    begin
+      revoker.exec("BEGIN")
+      revoker.exec("SET lock_timeout = '#{LOCK_TIMEOUT}'")
+      begin
+        revoker.exec_params(<<~SQL, [org])
+          UPDATE role_assignments SET status = 'revoked', state_version = state_version + 1,
+                 updated_at = now(), terminated_at = now(),
+                 transition_reason_code = 'role_assignment_revoked'
+          WHERE organization_id = $1::uuid AND status = 'active'
+        SQL
+        revoker.exec("COMMIT")
+        :committed
+      rescue PG::LockNotAvailable, PG::QueryCanceled
+        revoker.exec("ROLLBACK")
+        :blocked
+      end
+    ensure
+      revoker.close
+    end
+  end
+
   # ---- the lock matrix, on the real row and the real statement -----------------
 
   describe "PROOF 239 — which reader lock actually conflicts with a revocation" do
@@ -137,7 +163,11 @@ RSpec.describe "WF-005 authority lock strength", type: :acceptance,
     #
     # NOTHING SLEEPS TO ESTABLISH ORDER. The harness polls `pg_blocking_pids` until the command's own
     # backend is observably waiting behind the blocker, and the revocation is attempted only then.
-    def under_midflight_block(org:, blocker_sql:, blocker_params:, &operation)
+    # `attempt:` names WHICH authority mutation is tried inside the window. It defaults to the epoch
+    # advance; the capability limb is driven with a grant revocation, because a lock that conflicts
+    # with one and not the other would leave half the predicate stale (round-15 architecture finding
+    # A15-1: `FOR SHARE OF ra` could be deleted from the queue and policy writes with the suite green).
+    def under_midflight_block(org:, blocker_sql:, blocker_params:, attempt: :attempt_revocation, &operation)
       blocker = tagged_connection("d7_blocker")
       blocker.exec("BEGIN")
       blocker.exec_params(blocker_sql, blocker_params)
@@ -153,7 +183,7 @@ RSpec.describe "WF-005 authority lock strength", type: :acceptance,
         end
         # STILL BLOCKED AT THE MOMENT THE REVOCATION IS ATTEMPTED, not merely at some point earlier.
         expect(waiters_behind(blocker_pid)).to be >= 1
-        revocation = attempt_revocation(org)
+        revocation = send(attempt, org)
       ensure
         begin
           blocker.exec("ROLLBACK")
@@ -277,6 +307,74 @@ RSpec.describe "WF-005 authority lock strength", type: :acceptance,
 
       expect(revocation).to eq(:blocked)
       expect(epoch_of(org)).to eq(before)
+      expect(outcome[:authorized]).to be(true)
+      expect(outcome[:superseded]).to eq(1)
+      expect(outcome[:inserted]).to eq(1)
+    end
+
+    it "PROOF 252b — a GRANT revocation cannot land while the QUEUE insert is blocked" do
+      # `FOR SHARE OF ra` at this write had no proof of its own: deleting it left the whole suite
+      # green, because every predicate proof reads a grant that is not moving. PROOF 252 established
+      # this property for the cancellation alone.
+      g = queueable_org
+      org = g[:organization_id]
+      authority = AuthorityFixture.for_session(g[:session_id], capability: "crawl.trigger")
+
+      outcome, revocation = under_midflight_block(
+        org:, blocker_sql: "SELECT id FROM projects WHERE id = $1::uuid FOR UPDATE",
+        blocker_params: [g[:project_id]], attempt: :attempt_grant_revocation
+      ) do
+        Platform::UnitOfWork.run do |conn|
+          pg = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlStore.new(pg)
+          pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)", [org, SecureRandom.uuid_v7])
+          store.insert_crawl(
+            id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+            organization_id: org, authority:, project_id: g[:project_id], kind: "root",
+            requested_crawl_policy_id: nil, requested_crawl_policy_version: nil,
+            requested_entitlement_policy_id: SecureRandom.uuid_v7,
+            requested_entitlement_policy_version: "entitlement-interim-v1",
+            trigger_kind: "manual", triggered_by_account_id: nil, idempotency_key_digest: "\x00" * 32
+          )
+        end
+      end
+
+      expect(revocation).to eq(:blocked),
+                            "the grant revocation committed while the queue insert was in flight; the " \
+                            "capability read is not lock-based at this write"
+      expect(outcome[:authorized]).to be(true)
+      expect(outcome[:inserted]).to eq(1)
+    end
+
+    it "PROOF 252c — a GRANT revocation cannot land while the POLICY activation is blocked" do
+      g = bootstrap
+      org = g[:organization_id]
+      expect(activate_policy(g).success?).to be(true)
+      current = DbInspector.one("SELECT id, state_version FROM crawl_policies " \
+                                "WHERE organization_id = $1::uuid AND state = 'active'", [org])
+      authority = AuthorityFixture.for_session(g[:session_id], capability: "policy.crawl.manage")
+
+      outcome, revocation = under_midflight_block(
+        org:, blocker_sql: "SELECT id FROM crawl_policies WHERE id = $1::uuid FOR UPDATE",
+        blocker_params: [current["id"]], attempt: :attempt_grant_revocation
+      ) do
+        Platform::UnitOfWork.run do |conn|
+          pg = conn.raw_connection
+          store = IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg)
+          pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)", [org, SecureRandom.uuid_v7])
+          store.activate_version(
+            id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+            organization_id: org, authority:, project_id: nil, scope: "organization",
+            policy_version: "crawl-policy-organization-v2", supersedes_id: current["id"],
+            expected_state_version: current["state_version"].to_i,
+            activated_by_account_id: authority.account_id,
+            normalized_bounds: Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING, content_sha256: "\x00" * 32
+          )
+        end
+      end
+
+      expect(revocation).to eq(:blocked),
+                            "the grant revocation committed while the policy activation was in flight"
       expect(outcome[:authorized]).to be(true)
       expect(outcome[:superseded]).to eq(1)
       expect(outcome[:inserted]).to eq(1)

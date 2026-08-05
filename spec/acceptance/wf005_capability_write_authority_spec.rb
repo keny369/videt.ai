@@ -406,6 +406,56 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
       expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
                              [g[:organization_id]])).to be_empty
     end
+
+    it "PROOF 257b — a MIS-SCOPED actor is denied before the lock too, not merely refused at the write" do
+      # WHAT THIS CLOSES (round-15 contract finding R15-CTR-1). PROOF 255/256/257 all drive an actor
+      # holding NO authority at all, so they exercise only the FIRST operand of
+      # `unless decision.allowed? && authorized_for_scope?(command.scope, decision)`. The scope
+      # operand — the ratified `:732`/`:738` rule, and the very limb FU-48 exists to enforce — had no
+      # proof of its own: deleting it left 1136 acceptance examples green, because the WRITE still
+      # refuses, so the OUTCOME alone cannot tell the two apart.
+      #
+      # `PRULE-039`/SEC-REQ-005 supplies the property that can: a check performed AFTER a side effect
+      # is a bypass regardless of its arithmetic. A MarketingOperator asking for an ORGANIZATION-scope
+      # activation must be refused BEFORE this command takes the per-Organization lock that every
+      # other policy command in the tenant queues behind. The bounds are deliberately VALID and
+      # NARROWING, so nothing upstream can refuse this command for any other reason: with the operand
+      # deleted, the handler proceeds, takes the lock, and this example fails on the lock rather than
+      # on the reason code.
+      g = bootstrap
+      lock = ExecutionProbe.calls("IdentityAccess::Infrastructure::CrawlPolicyStore#lock_organization").first
+      operator = TenantSeeder.seed_authorized_admin(organization_id: g[:organization_id],
+                                                    canonical_role: "MarketingOperator",
+                                                    with_policy: false, issued_at: fixed_now - 300)
+      ceiling = Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
+      bounds = ceiling.to_h { |d, v| [d, v.dup] }
+
+      result = nil
+      seen = ExecutionProbe.watch([lock]) do
+        result = Workflows::Wf005::Handlers::ActivateCrawlPolicy.new.call(
+          command: Workflows::Wf005::Commands::ActivateCrawlPolicy.new(
+            command_id: SecureRandom.uuid_v7, idempotency_key: "acp-#{SecureRandom.hex(6)}",
+            schema_version: "1.0", session_id: operator[:session_id],
+            organization_id: g[:organization_id], scope: "organization", project_id: nil,
+            expected_current_policy_version: nil,
+            expected_parent_policy_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+            expected_global_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+            proposed_bounds: bounds, requested_at_utc: act_now
+          ), request_context: act_ctx
+        )
+      end
+
+      expect(result).not_to be_success
+      expect(result.reason_code).to eq("crawl_policy_unauthorized"),
+                                    "a mis-scoped actor was refused for a reason other than authority: " \
+                                    "#{result.reason_code}"
+      expect(seen).not_to have_evaluated(lock),
+                          "the mis-scoped actor reached the per-Organization lock before being refused; " \
+                          ":329 requires F1-AUTH-403 with NO product side effect, and PRULE-039 makes a " \
+                          "check performed after one a bypass whatever its arithmetic"
+      expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
+                             [g[:organization_id]])).to be_empty
+    end
   end
 
   describe "the attestation carries the same authority the write does" do

@@ -39,8 +39,10 @@ require_relative "protected_effect_door"
 # what it does rather than by being named. A denial is outside it because it is not a success. Both
 # are proved, not asserted: `spec/architecture/protected_effect_door_spec.rb`.
 #
-# THE HANDLER SET IS DERIVED FROM THE SOURCE, not listed here: a WF-005 handler is human-authorized
-# when it authenticates a Session. A handler added later joins this rule by being what it is.
+# THE HANDLER SET IS DERIVED FROM THE NAMESPACE, not listed here and not read off a directory: every
+# class under `Workflows::Wf005::Handlers` is observed, however deeply nested and whichever ancestry
+# exposes `call`. Human-authorization is then decided per execution, by whether the command
+# authenticated a Session. A handler added later joins this rule by being what it is.
 module AuthoritySentinel
   HANDLER_DIR = "app/workflows/wf005/handlers"
 
@@ -71,15 +73,35 @@ module AuthoritySentinel
     # `CommandAuthorizer#authenticate` RAN during it. That is the act the rule is actually about —
     # this command acted on a person's Session rather than on a durable action the platform minted —
     # it is observed at the CALLEE, and no spelling at the call site changes whether the callee ran.
+    # A HANDLER JOINS THIS RULE BY BEING ONE, NOT BY WHERE ITS FILE SITS (round-15 architecture
+    # finding A15-2).
+    #
+    # WHAT WAS OPEN. The set came from `Dir[app/workflows/wf005/handlers/*.rb]` — a NON-RECURSIVE
+    # glob — plus a `File.basename.camelize` constant derivation. Measured: the same handler class
+    # placed one directory deeper (`handlers/admin/`) was NOT discovered, so it authenticated a
+    # Session, committed a protected side effect, re-read no authority, presented no attestation, and
+    # the run was GREEN. The instrument also prepended into the INSTANCE ancestry alone, so a handler
+    # exposing `def self.call` was never observed either. Both escapes are silent and both make the
+    # suite greener, which is the direction nothing notices.
+    #
+    # THE SET IS NOW THE NAMESPACE, WALKED. Every class under `Workflows::Wf005::Handlers`, however
+    # deeply nested, whatever its file is named and wherever it lives. Eager loading is what makes the
+    # walk complete rather than dependent on what earlier examples happened to autoload.
     def observed_handlers
-      @observed_handlers ||= Dir[Rails.root.join(HANDLER_DIR, "*.rb")].sort.filter_map { |f| constant_for(f) }
+      @observed_handlers ||= begin
+        Rails.application.eager_load!
+        handlers_under(Workflows::Wf005::Handlers).uniq.sort_by(&:name)
+      end
     end
 
-    def constant_for(file)
-      name = File.basename(file, ".rb").camelize
-      Workflows::Wf005::Handlers.const_get(name)
-    rescue NameError
-      nil
+    def handlers_under(namespace)
+      namespace.constants.flat_map do |name|
+        value = namespace.const_get(name)
+        if value.is_a?(Class) then [value]
+        elsif value.is_a?(Module) then handlers_under(value)
+        else []
+        end
+      end
     end
 
     def arm!
@@ -93,7 +115,13 @@ module AuthoritySentinel
       # check below now covers the human predicate for exactly that reason.
       IdentityAccess::Authorization::CommandAuthorizer.prepend(AuthenticationObserver)
       Workflows::Wf005::AuthorityAttestation.singleton_class.prepend(AttestationObserver)
-      observed_handlers.each { |handler| handler.prepend(CommandObserver) }
+      # BOTH ANCESTRIES. `#call` and `def self.call` are both ways to be the entry point, and this
+      # instrument used to see only the first — measured, a handler exposing the second ran entirely
+      # unobserved (A15-2). Prepending to both costs nothing when a handler has only one.
+      observed_handlers.each do |handler|
+        handler.prepend(CommandObserver)
+        handler.singleton_class.prepend(CommandObserver)
+      end
       @armed = true
     end
 
@@ -299,9 +327,12 @@ module AuthoritySentinel
     end
   end
 
+  # PREPENDED INTO BOTH ANCESTRIES, so `#call` and `def self.call` are both observed. `self` is the
+  # instance in the first case and the class itself in the second; the frame is labelled with the
+  # class either way.
   module CommandObserver
     def call(...)
-      AuthoritySentinel.around_command(self.class) { super }
+      AuthoritySentinel.around_command(is_a?(Class) ? self : self.class) { super }
     end
   end
 

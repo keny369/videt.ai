@@ -29,6 +29,11 @@ module AutonomousBuild
   # proof, and restores from a CONTENT SNAPSHOT rather than from git — because during a repair the
   # tree is legitimately dirty, and `git checkout` would silently discard the repair being proved.
   module MutationHarness
+    # RSpec's own words for "something raised outside every example" — an `after(:suite)` hook, most
+    # often a suite-wide invariant firing. Named once because two copies of this string is how the
+    # two replay paths came to disagree.
+    SUITE_LEVEL_ERROR = "error occurred outside of examples"
+
     module_function
 
     def load(path) = JSON.parse(File.read(path)).fetch("mutations")
@@ -236,18 +241,7 @@ module AutonomousBuild
                                          *entry.fetch("proof").split(/\s+/), chdir: root)
         summary = output[/(\d+) examples?, (\d+) failures?/]
         examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
-        verdict =
-          # `broken` MEANS WHAT ITS MESSAGE SAYS: no example ran. An `after(:suite)` error is NOT that —
-          # and treating it as such misclassified two real kills, because the mutation they apply also
-          # trips `AuthoritySentinel`'s suite-wide rule, so the run reports both a failing example and
-          # a suite-level error. A mutation that kills its proof AND trips a suite-wide invariant is
-          # the strongest possible kill, and it was being recorded as proving nothing.
-          if summary.nil? || examples.to_i.zero?
-            "broken"
-          elsif failures.to_i.positive? then "killed"
-          elsif status.success? then "survived"
-          else "broken"
-          end
+        verdict = classify(summary:, examples:, failures:, status:, output:)
         { "id" => entry["id"], "landed" => landed, "verdict" => verdict, "result" => summary,
           "failing_examples" => output.scan(%r{^rspec '?\./(spec/[^'\s]+)}).flatten.uniq,
           "failure_digest" => failure_digest(output),
@@ -275,6 +269,37 @@ module AutonomousBuild
     #
     # It now captures the failing example identities, the exception classes and messages, and the
     # assertion text RSpec prints under each header — so two different failures cannot collide.
+    # THE OUTCOME OF ONE REPLAY, CLASSIFIED ONCE FOR BOTH PATHS (round-15 concurrency finding
+    # R15-CONC-2).
+    #
+    # THERE USED TO BE TWO COPIES AND THEY DISAGREED. D7 recorded that "both paths now carry the same
+    # classification"; they did not. The correction reached `replay` and left `replay_trigger`
+    # returning `broken` for a run whose examples passed and which tripped a suite-wide invariant —
+    # the same defect the correction was written to remove, in the machinery that measures it, on the
+    # path carrying the ten trigger definitions. A repair applied to one of two copies is this
+    # tranche's own failure mode one level up, so the copies are gone rather than reconciled.
+    #
+    # THE RULES, AND WHY EACH IS WHAT IT IS.
+    #
+    #   * NO EXAMPLE RAN is `broken`, and only that. A mutation that makes the file unparseable, or
+    #     aborts the run before anything executes, proved NOTHING; recording it as `killed` is how a
+    #     proof system credits itself for a defect it never detected. `verify_bindings!` treats
+    #     `broken` as a ledger error, so this outcome fails the gate rather than passing quietly.
+    #   * A FAILING EXAMPLE is a kill.
+    #   * AN `after(:suite)` ERROR IS NOT "no example ran". A mutation whose examples pass but which
+    #     trips a suite-wide invariant — `AuthoritySentinel`'s rule, say — has been detected by the
+    #     strongest instrument in the repository, and both `d7-door-regex-restored` and
+    #     `d7-antecedent-dropped` do exactly that in addition to failing their proof. It is a KILL,
+    #     and treating a clean exit with a suite-level error as `survived` would be worse still: a
+    #     false survivor.
+    def classify(summary:, examples:, failures:, status:, output:)
+      return "broken" if summary.nil? || examples.to_i.zero?
+      return "killed" if failures.to_i.positive?
+      return "survived" if status.success? && !output.include?(SUITE_LEVEL_ERROR)
+
+      "killed"
+    end
+
     def failure_digest(output)
       material = output.scan(/^\s*\d+\)\s+.+$/) +
                  output.scan(/^\s*[A-Z]\w*(?:::\w+)*(?:Error|Exception|Violation):.*$/) +
@@ -379,24 +404,7 @@ module AutonomousBuild
                                          chdir: root)
         summary = output[/(\d+) examples?, (\d+) failures?/]
         examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
-        # A NON-ZERO EXIT IS NOT A KILL. A mutation that makes the file unparseable, or aborts the run
-        # before any example executes, exits non-zero having proved NOTHING — recording that as
-        # `killed` is how a proof system credits itself for a defect it never detected.
-        #
-        # AND AN `after(:suite)` ERROR IS NOT "NO EXAMPLE RAN" (D7). The round-two repair established
-        # exactly this and applied it to `replay_trigger` ALONE, leaving the file path — which carries
-        # 79 of the 89 definitions — still treating an outside error as `broken`. Measured here: both
-        # `d7-door-regex-restored` (13 examples, 7 failures) and `d7-antecedent-dropped` (13 examples,
-        # 1 failure) trip `AuthoritySentinel`'s suite-wide rule as well as failing their proof, which
-        # is the STRONGEST possible kill, and both were recorded as proving nothing. A repair applied
-        # to one of two paths is the enumeration defect one level up.
-        verdict =
-          if summary.nil? || examples.to_i.zero?
-            "broken"
-          elsif failures.to_i.positive? then "killed"
-          elsif status.success? && !output.include?("error occurred outside of examples") then "survived"
-          else "killed"
-          end
+        verdict = classify(summary:, examples:, failures:, status:, output:)
         failing = output.scan(%r{^rspec '?\./(spec/[^'\s]+)}).flatten.uniq
         { "id" => entry["id"], "landed" => landed, "verdict" => verdict, "result" => summary,
           "failing_examples" => failing,

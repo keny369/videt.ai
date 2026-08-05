@@ -44,10 +44,19 @@ require "json"
 # processed, and a denial and a replay write them exactly as a transition does. The set is read from
 # `pg_trigger` on first use and never listed here.
 #
-# THAT DERIVATION IS CHECKED AGAINST AN INDEPENDENT ONE, not trusted. `AuthoritySentinel` asserts over
-# the whole suite that every relation a REFUSED human-authorized WF-005 command writes is classified
-# INCIDENTAL — a behavioural derivation of the ledger that shares no mechanism with the catalogue one.
-# Two derivations that must agree is what replaces the list.
+# THAT DERIVATION IS CHECKED AGAINST AN INDEPENDENT PROPERTY, not trusted — and this comment used to
+# claim a check that does not exist (round-15 contract finding R15-CTR-3). It said `AuthoritySentinel`
+# asserts over the whole suite that every relation a REFUSED human-authorized command writes is
+# classified INCIDENTAL, "two derivations that must agree". No such limb was ever written, and it
+# could not be: a refusal reaches the write and the statement's PLAN still modifies the guarded
+# relation, so the census cannot tell a refused protected write from a committed one by planning.
+#
+# WHAT IS ACTUALLY CHECKED, AND IT IS ONE PROPERTY RATHER THAN A SECOND DERIVATION. `governed` comes
+# from `pg_trigger`; `AuthoritySentinel.assert_observed!` reads `pg_attribute` and fails the run if any
+# relation a WF-005 command wrote carries a `state` lifecycle and NO PostgreSQL guard. That catches the
+# dangerous direction — a product aggregate silently classified as command evidence — for every
+# relation whose lifecycle is spelled `state`, which includes both relations this tranche is about.
+# It does not catch a lifecycle spelled otherwise; that limit is recorded rather than papered over.
 module ProtectedEffectDoor
   # PostgreSQL's own class for "this is not an optimizable statement". A utility statement (`BEGIN`,
   # `SET`, `SAVEPOINT`, DDL) cannot be planned and fails here; it also carries no `ModifyTable`, so
@@ -132,15 +141,25 @@ module ProtectedEffectDoor
             found << Effect.new(operation: node["Operation"], relation: t["Relation Name"]) if t["Relation Name"]
           end
         end
+        # `Plans` is the only child key PostgreSQL's JSON EXPLAIN emits: InitPlans and SubPlans are
+        # members of it, distinguished by `Parent Relationship`. A `Subplans` traversal was here and
+        # was dead code that read as coverage (round-15 schema observation).
         Array(node["Plans"]).each { |child| walk.call(child) }
-        Array(node["Subplans"]).each { |child| walk.call(child) }
       end
       Array(plan).each { |entry| walk.call(entry["Plan"]) }
       found.uniq { |e| [e.operation, e.relation] }
     end
 
     # Relations PostgreSQL enforces its own rules over: the product facts. Read from the catalogue,
-    # never listed. Memoized per process; the catalogue does not move under a run.
+    # never listed.
+    #
+    # MEMOIZED PER PROCESS, AND THE CATALOGUE *CAN* MOVE UNDER A RUN — this comment used to say it
+    # could not (round-15 schema observation). Six specs install non-internal triggers on public
+    # tables while the suite runs, and `protected_effect_door_spec.rb` deliberately resets this memo.
+    # The movement is strictly ADDITIVE — a test trigger only adds a relation to the governed set — so
+    # the antecedent becomes easier to satisfy and the failure mode is a louder run, never a quieter
+    # one. Recorded rather than papered over, because the memo is load-bearing and its justification
+    # was false.
     def governed_relations
       @governed_relations ||= mutex.synchronize do
         Thread.current[:protected_effect_door_classifying] = true
