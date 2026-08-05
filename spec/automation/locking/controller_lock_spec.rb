@@ -20,6 +20,37 @@ RSpec.describe AutonomousBuild::ControllerLock do
 
   def lock_path = File.join(@dir, "nested", "controller.lock")
 
+# A CHILD PROCESS THAT SHARES NOTHING. `fork` was used here first and it was WRONG in a way worth
+# recording: forking the RSpec process duplicates every open file descriptor, including the Rails
+# connection pool's PostgreSQL sockets. SIGKILLing that child left the parent's connections
+# unusable, and the full suite went from green to 389 failures while these files passed in
+# isolation. `spawn` starts a fresh interpreter that has never seen Rails, so the only thing under
+# test is the lock and the state file — which is all these examples were ever about.
+def spawn_holder(script)
+  read, write = IO.pipe
+  pid = Process.spawn(RbConfig.ruby, "-I", File.expand_path("../../../automation/lib", __dir__),
+                      "-e", script, out: write, err: File::NULL)
+  write.close
+  [pid, read]
+end
+
+# Bounded, and it says what it was waiting for rather than timing out silently.
+def await(reader, want, seconds: 10.0)
+  deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+  line = nil
+  while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+    ready = IO.select([reader], nil, nil, 0.1)
+    next unless ready
+
+    line = reader.gets&.chomp
+    break
+  end
+  raise "the child never reported #{want.inspect} (got #{line.inspect})" unless line == want
+
+  line
+end
+
+
   it "grants the lock to one holder and records who holds it" do
     lock = described_class.new(lock_path)
     lock.acquire
@@ -56,16 +87,14 @@ RSpec.describe AutonomousBuild::ControllerLock do
     # and that is the property the controller depends on after a crash — asserting it against a
     # stubbed holder would prove nothing about the kernel.
     path = lock_path
-    reader, writer = IO.pipe
-    pid = fork do
-      reader.close
-      AutonomousBuild::ControllerLock.new(path).acquire
-      writer.puts("held")
-      writer.flush
-      sleep 30
-    end
-    writer.close
-    expect(reader.gets(chomp: true)).to eq("held"), "the child never took the lock"
+    pid, reader = spawn_holder(<<~RUBY)
+      require "autonomous_build"
+      require "autonomous_build/controller_lock"
+      AutonomousBuild::ControllerLock.new(#{path.inspect}).acquire
+      $stdout.puts("held"); $stdout.flush
+      sleep 60
+    RUBY
+    await(reader, "held")
 
     # While it lives, we are locked out.
     expect { described_class.new(path).acquire }.to raise_error(AutonomousBuild::LockError)

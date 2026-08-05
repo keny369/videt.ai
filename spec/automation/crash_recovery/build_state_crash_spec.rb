@@ -28,6 +28,37 @@ RSpec.describe "controller crash recovery" do
   def state_path = File.join(@dir, "BUILD_STATE.json")
   def lock_path = File.join(@dir, "controller.lock")
 
+# A CHILD PROCESS THAT SHARES NOTHING. `fork` was used here first and it was WRONG in a way worth
+# recording: forking the RSpec process duplicates every open file descriptor, including the Rails
+# connection pool's PostgreSQL sockets. SIGKILLing that child left the parent's connections
+# unusable, and the full suite went from green to 389 failures while these files passed in
+# isolation. `spawn` starts a fresh interpreter that has never seen Rails, so the only thing under
+# test is the lock and the state file — which is all these examples were ever about.
+def spawn_holder(script)
+  read, write = IO.pipe
+  pid = Process.spawn(RbConfig.ruby, "-I", File.expand_path("../../../automation/lib", __dir__),
+                      "-e", script, out: write, err: File::NULL)
+  write.close
+  [pid, read]
+end
+
+# Bounded, and it says what it was waiting for rather than timing out silently.
+def await(reader, want, seconds: 10.0)
+  deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+  line = nil
+  while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+    ready = IO.select([reader], nil, nil, 0.1)
+    next unless ready
+
+    line = reader.gets&.chomp
+    break
+  end
+  raise "the child never reported #{want.inspect} (got #{line.inspect})" unless line == want
+
+  line
+end
+
+
   # A minimally valid document, built from the class's OWN required-key list rather than a literal
   # copied here — a hand-written seed would drift the first time the schema gains a key.
   def seed_data
@@ -52,18 +83,14 @@ RSpec.describe "controller crash recovery" do
   # A child that writes the state repeatedly and is killed mid-flight. Whichever instant the kill
   # lands on, a reader must find a complete, parseable document.
   def crash_during_writes
-    reader, writer = IO.pipe
-    pid = fork do
-      reader.close
-      state = AutonomousBuild::BuildState.load(state_path)
-      writer.puts("ready")
-      writer.flush
-      loop do
-        200.times { |i| state.update("attempt_number" => i) }
-      end
-    end
-    writer.close
-    reader.gets
+    pid, reader = spawn_holder(<<~RUBY)
+      require "autonomous_build"
+      require "autonomous_build/build_state"
+      state = AutonomousBuild::BuildState.load(#{state_path.inspect})
+      $stdout.puts("ready"); $stdout.flush
+      loop { 200.times { |i| state.update("attempt_number" => i) } }
+    RUBY
+    await(reader, "ready")
     sleep 0.15 # let it get into the write loop; the kill must land mid-flight, not before it starts
     Process.kill("KILL", pid)
     Process.wait(pid)
@@ -101,16 +128,14 @@ RSpec.describe "controller crash recovery" do
     # NO DUPLICATE OWNERSHIP AND NO PERMANENT STALL. Exactly one holder at a time while the crashed
     # process lives, and exactly one successful reclaim after it dies.
     path = lock_path
-    reader, writer = IO.pipe
-    pid = fork do
-      reader.close
-      AutonomousBuild::ControllerLock.new(path).acquire
-      writer.puts("held")
-      writer.flush
-      sleep 30
-    end
-    writer.close
-    expect(reader.gets(chomp: true)).to eq("held")
+    pid, reader = spawn_holder(<<~RUBY)
+      require "autonomous_build"
+      require "autonomous_build/controller_lock"
+      AutonomousBuild::ControllerLock.new(#{path.inspect}).acquire
+      $stdout.puts("held"); $stdout.flush
+      sleep 60
+    RUBY
+    await(reader, "held")
 
     expect { AutonomousBuild::ControllerLock.new(path).acquire }
       .to raise_error(AutonomousBuild::LockError), "two controllers held the lock at once"
