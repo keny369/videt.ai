@@ -256,6 +256,41 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
       expect(send(spec.fetch(:untouched), env)).to be(true)
     end
 
+    it "refuses a READ-ONLY grant whose capability the baseline does not survive read-only (round-18 CB-1)" do
+      # THE SIXTH COLUMN. `CAPABILITIES` is keyed by `canonical_role` alone, so the role predicate
+      # admits a Read-Only Executive Buyer whose ratified cell at `:147` reads `deny` — measured, that
+      # tuple cancelled a running Crawl through the write. `permission_mode` is NOT NULL with a
+      # two-value CHECK, so the statement can bind it, and `READ_ONLY_CAPABILITIES` is the ratified
+      # list of what survives read-only (empty for everything this build materializes).
+      #
+      # THE GRANT IS SEEDED READ-ONLY RATHER THAN MOVED. `f1_role_assignments_lifecycle_guard` freezes
+      # `permission_mode` after insert, which is itself the reason this axis cannot be reached by
+      # moving a row underneath a decision: the only way a read-only grant reaches a write is by being
+      # one, which is exactly what a deleted `mode_permits?` upstream would let through.
+      account = TenantSeeder.create_account(organization_id: env[:org],
+                                            issuer_key: "https://id.example/oidc",
+                                            subject: "ro-#{SecureRandom.hex(6)}")
+      TenantSeeder.create_role_assignment(organization_id: env[:org], account_id: account,
+                                          canonical_role: "MarketingOperator",
+                                          permission_mode: "read_only", persona: "executive_buyer")
+      grant = DbInspector.one(<<~SQL, [env[:org], account])
+        SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+        FROM role_assignments WHERE organization_id = $1::uuid AND account_id = $2::uuid
+      SQL
+      expect(grant).not_to be_nil, "the read-only grant was not seeded, so this case is vacuous"
+      read_only = AuthorityFixture.build(organization_id: env[:org], account_id: account,
+                                         capability: spec.fetch(:capability), grants: [grant])
+
+      outcome = drive(spec, env, read_only)
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a read-only grant spent a capability the ratified table " \
+                                                 "denies it"
+      expect(spec.fetch(:applied).call(outcome)).to eq(0)
+      expect(send(spec.fetch(:untouched), env)).to be(true)
+    end
+
     it "COMMITS when the grant is exactly the one the decision relied on, so the battery is not vacuous" do
       outcome = drive(spec, env, authority)
 

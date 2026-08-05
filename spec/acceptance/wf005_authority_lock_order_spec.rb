@@ -322,8 +322,17 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
 
     it "PROOF 262b — DecideRoleAssignment is exempt BY CONSTRUCTION, and the LOCK is what is measured" do
       # WHY IT CANNOT FORM THE CYCLE. Its target is a PENDING Assignment, and every protected write's
-      # capability CTE applies `ra.status = 'active'` at the scan, strictly below `LockRows` — so the
-      # row is filtered out before any lock is asked for. No concurrent protected write can be holding
+      # capability CTE excludes such a row at the scan, strictly below `LockRows`, by TWO independent
+      # quals: `ra.status = 'active'`, and `ra.effective_at IS NOT NULL` — which CHECK
+      # `role_assignment_pending_is_not_effective` makes NULL for a pending row BY CONSTRUCTION. So the
+      # row is filtered out before any lock is asked for, and it takes the removal of BOTH to change
+      # that (measured: either alone still excludes it; both together make this example fail). Each
+      # limb is separately bound by the battery, so this proof binds the CONSEQUENCE — the row is not
+      # locked — rather than restating either qual.
+      #
+      # THE GRANT'S ROLE MUST BE ONE THE CAPABILITY'S CELL ADMITS (round-18 finding R18-SEC-3). With a
+      # `SecurityOperator` grant the capability conjunct excluded the row on its own, so the example
+      # passed no matter what the pending-row limbs did. No concurrent protected write can be holding
       # the row this handler is about to write, whatever order it takes.
       #
       # ROUND 17 REJECTED THE FIRST VERSION OF THIS PROOF AND WAS RIGHT TO. It asserted
@@ -343,7 +352,7 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
         command: Workflows::Wf013::Commands::RequestRoleAssignment.new(
           command_id: SecureRandom.uuid_v7, idempotency_key: "lo-p-#{SecureRandom.hex(6)}",
           schema_version: "1.0", session_id: g[:session_id], account_id: account,
-          canonical_role: "SecurityOperator", permission_mode: "standard", persona: nil,
+          canonical_role: "OrganizationAdmin", permission_mode: "standard", persona: nil,
           scope_sha256: Digest::SHA256.digest("scope:organization"), expires_at: act_now + 86_400,
           expected_authorization_epoch: epoch_of(g[:organization_id]), reason: nil,
           requested_at_utc: act_now
@@ -370,6 +379,72 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
                                                      "the control did not block on an ACTIVE grant either, so " \
                                                      "this example would pass against a statement that locks " \
                                                      "nothing and proves nothing about pending rows"
+    end
+
+    it "PROOF 262d — the probe can report the OTHER answer, so a green PROOF 262 is a measurement" do
+      # THE CONTROL THE INSTRUMENT ITSELF LACKED (round-17 architecture observation O-1). Blinding the
+      # probe's predicate to a constant left every example in this file green — including with BOTH
+      # production handlers reverted to the cycle-forming order. A reader that cannot report the wrong
+      # answer is not reading anything, and PROOF 262 is only a measurement if this passes.
+      #
+      # The reversed order is driven through the REAL store methods on one connection, so what the
+      # probe observes is a genuine transaction that took the grant row first.
+      g = bootstrap
+      grant = revocable_grant(g)
+      # THE CONNECTION IS CLOSED INSIDE THE MEASURED BLOCK. `measure_first_lock`'s cleanup needs
+      # ACCESS EXCLUSIVE on `role_assignments` to drop its trigger, and a second connection still
+      # holding that relation — even an already-committed one that has not been closed — deadlocks
+      # against it. The probe is an instrument; it must not fight itself.
+      first = measure_first_lock do
+        conn = tagged_connection("lock_order_reverse")
+        begin
+          steps = revocation_steps(conn, g[:organization_id], grant)
+          conn.exec("BEGIN")
+          steps.fetch(:role_assignments).call
+          steps.fetch(:organizations).call
+          conn.exec("COMMIT")
+        ensure
+          begin
+            conn.exec("ROLLBACK")
+          rescue PG::Error
+            nil
+          end
+          conn.close
+        end
+      end
+
+      expect(first).to eq(:role_assignments),
+                       "the probe reported #{first} for a transaction that demonstrably took the grant " \
+                       "row first, so it cannot distinguish the two orders and PROOF 262 measures nothing"
+    end
+
+    it "PROOF 262c — and DecideRoleAssignment only ever writes a PENDING row, measured at the store" do
+      # THE SECOND PREMISE. PROOF 262b establishes that a protected write never locks a pending row;
+      # the exemption also needs that this handler never writes a NON-pending one.
+      #
+      # ROUND 18 REJECTED THE FIRST VERSION AND WAS RIGHT TO. It read the store's SOURCE with
+      # `source_location` and asserted the text `status = 'pending'` appeared in it — so deleting the
+      # guard from the SQL and leaving the words in a Ruby comment left it green. This tranche's own
+      # rule is that no source scan is load-bearing; the guard is now driven.
+      g = bootstrap
+      grant = revocable_grant(g)
+      # ITS OWN CONNECTION, NOT THE INSPECTOR'S. `DbInspector.connection` is the one the probe runs its
+      # DDL on; taking row locks on `role_assignments` through it deadlocks against the next
+      # `DROP TRIGGER` (round-18: measured, 3 of 10 examples).
+      conn = tagged_connection("lock_order_guard_probe")
+      store = IdentityAccess::Infrastructure::RoleAssignmentStore.new(conn)
+      version = grant["state_version"].to_i
+
+      # The seeded grant is ACTIVE, so both transitions must refuse it: they are for pending rows.
+      expect(store.activate(grant["id"], version, act_now, nil, epoch_of(g[:organization_id]) + 1, []).to_i)
+        .to eq(0), "RoleAssignmentStore#activate wrote a non-pending row, so DecideRoleAssignment can " \
+                   "hold a row a concurrent protected write may also hold"
+      expect(store.reject(grant["id"], version, act_now, "no", epoch_of(g[:organization_id])).to_i)
+        .to eq(0), "RoleAssignmentStore#reject wrote a non-pending row"
+      expect(DbInspector.one("SELECT status FROM role_assignments WHERE id = $1::uuid",
+                             [grant["id"]])["status"]).to eq("active")
+    ensure
+      conn&.close
     end
 
     it "PROOF 262d — the probe can report the OTHER answer, so a green PROOF 262 is a measurement" do

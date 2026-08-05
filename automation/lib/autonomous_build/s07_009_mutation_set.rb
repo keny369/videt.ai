@@ -52,6 +52,7 @@ module AutonomousBuild
     ORDER_PROOF_FILE = "spec/support/lock_order_probe.rb"
     CLASSIFY_PROOF = "spec/automation/unit/mutation_harness_classification_spec.rb"
     REVOKE_HANDLER = "app/workflows/wf013/handlers/revoke_role_assignment.rb"
+    ROLE_ASSIGNMENT_STORE = "app/contexts/identity_access/infrastructure/role_assignment_store.rb"
     EXPIRE_HANDLER = "app/workflows/wf013/handlers/expire_role_assignment.rb"
     HARNESS = "automation/lib/autonomous_build/mutation_harness.rb"
 
@@ -398,10 +399,10 @@ module AutonomousBuild
         expectation: "kill" },
       { id: "d7-cancel-capability-always-true", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the capability CTE made unconditionally true, so the grant is never read at all",
-        from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n              -- THE CAPABILITY ITSELF, AS A PREDICATE (round-17 finding R17-SEC-1). The rest of\n              -- this CTE asks whether the carried grant is still LIVE; without this line it never\n              -- asked what the grant CONFERS, so a role the ratified baseline denies satisfied it.\n              -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is\n              -- the baseline CARRIED, not a second copy of the six-step algorithm.\n              AND ra.canonical_role = ANY ($11::text[])\n            FOR SHARE OF ra\n",
+        from: "            SELECT 1 FROM role_assignments ra\n            JOIN unnest($6::uuid[], $7::bigint[], $8::text[]) AS g(id, state_version, scope_hex)\n              ON g.id = ra.id AND g.state_version = ra.state_version\n             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n              AND ra.status = 'active'\n              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $3::timestamptz\n              AND (ra.expires_at IS NULL OR $3::timestamptz < ra.expires_at)\n              -- THE SCOPE RULE, AS A PREDICATE RATHER THAN AS A RUBY OPERAND (FU-48).\n              AND ($10::text IS NULL OR ra.canonical_role = $10::text)\n              -- THE CAPABILITY ITSELF, AS A PREDICATE (round-17 finding R17-SEC-1). The rest of\n              -- this CTE asks whether the carried grant is still LIVE; without this line it never\n              -- asked what the grant CONFERS, so a role the ratified baseline denies satisfied it.\n              -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is\n              -- the baseline CARRIED, not a second copy of the six-step algorithm.\n              AND ra.canonical_role = ANY ($11::text[])\n              -- THE SIXTH COLUMN, WHICH `CAPABILITIES` CANNOT EXPRESS (round-18 finding CB-1). A\n              -- Read-Only Executive Buyer carries a `canonical_role` that IS in the cell above, and\n              -- the ratified table denies it this capability; measured, it cancelled a running Crawl.\n              AND ($12::boolean OR ra.permission_mode <> 'read_only')\n            FOR SHARE OF ra\n",
         # EVERY PARAMETER STAYS BOUND (A15-4): `SELECT 1` alone orphans the authority parameters and
         # the statement dies of `IndeterminateDatatype` before the write is attempted.
-        to: "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n              AND $11::text[] IS NOT NULL\n",
+        to: "            SELECT 1 WHERE $6::uuid[] IS NOT NULL AND $7::bigint[] IS NOT NULL\n              AND $8::text[] IS NOT NULL AND $5::uuid IS NOT NULL AND $9::uuid IS NOT NULL\n              AND ($10::text IS NULL OR $10::text IS NOT NULL) AND $3::timestamptz IS NOT NULL\n              AND $11::text[] IS NOT NULL AND ($12::boolean OR $12::boolean IS NOT NULL)\n",
         expectation: "kill" },
       { id: "d7-cancel-grant-version-unbound", blocker: "FU-48", file: STORE, proof: CAPABILITY_PROOF,
         description: "the grant's state version stops being bound, so a decision taken against a " \
@@ -578,6 +579,35 @@ module AutonomousBuild
         # THE PARAMETER STAYS BOUND (A15-4/A17-1): deleting the line outright orphans it and the
         # statement dies of `IndeterminateDatatype` before the write is attempted.
         to: "              AND ($19::text[] IS NULL OR $19::text[] IS NOT NULL)\n",
+        expectation: "kill" },
+      # ---- ROUND 18 ----------------------------------------------------------------------------
+      { id: "r18-queue-mode-unbound", blocker: "R18-CB-1", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the QUEUE write stops binding the sixth column, so a read-only grant spends a " \
+                     "capability the ratified table denies it",
+        from: "              AND ($21::boolean OR ra.permission_mode <> 'read_only')\n",
+        to: "              AND ($21::boolean OR $21::boolean IS NOT NULL)\n", expectation: "kill" },
+      { id: "r18-cancel-mode-unbound", blocker: "R18-CB-1", file: STORE, proof: BATTERY_PROOF,
+        description: "the CANCELLATION write stops binding the sixth column — the irreversible one, " \
+                     "and the one a Read-Only Executive Buyer was measured to reach",
+        from: "              AND ($12::boolean OR ra.permission_mode <> 'read_only')\n",
+        to: "              AND ($12::boolean OR $12::boolean IS NOT NULL)\n", expectation: "kill" },
+      { id: "r18-policy-mode-unbound", blocker: "R18-CB-1", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the POLICY write stops binding the sixth column",
+        from: "              AND ($20::boolean OR ra.permission_mode <> 'read_only')\n",
+        to: "              AND ($20::boolean OR $20::boolean IS NOT NULL)\n", expectation: "kill" },
+      { id: "r18-cell-derivation-unioned", blocker: "R18-CB-2", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "the cell derivation replaced by a union of every capability's roles — R17-SEC-1 " \
+                     "reinstated one layer up, in the Ruby half no battery case could bind",
+        from: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),\n",
+        to: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.values.flatten.uniq,\n",
+        expectation: "kill" },
+      { id: "r18-decide-guard-widened", blocker: "R18-CB-4", file: ROLE_ASSIGNMENT_STORE,
+        proof: ORDER_PROOF,
+        description: "`activate` stops restricting itself to a pending row, which ends " \
+                     "DecideRoleAssignment's exemption — the premise PROOF 262c binds",
+        from: "ation_epoch = $5, protected_permission_allowlist = $6::jsonb,\n              state_version = state_version + 1, updated_at = $3::timestamptz\n          WHERE id = $1::uuid AND status = 'pending' AND state_version = $2\n",
+        to: "ation_epoch = $5, protected_permission_allowlist = $6::jsonb,\n              state_version = state_version + 1, updated_at = $3::timestamptz\n          WHERE id = $1::uuid AND state_version = $2\n",
         expectation: "kill" },
       { id: "r17-probe-blinded", blocker: "R17-ARCH-O1", file: ORDER_PROOF_FILE, proof: ORDER_PROOF,
         description: "the lock-order probe's predicate replaced by a constant, so the instrument that " \

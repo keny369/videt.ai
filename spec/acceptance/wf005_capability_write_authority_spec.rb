@@ -540,6 +540,53 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
     end
   end
 
+  describe "the cell the write is handed is the one the ratified baseline names" do
+    it "PROOF 265 — `WriteAuthority.for` carries THIS capability's cell, not a union of every cell" do
+      # THE HALF THE BATTERY CANNOT BIND (round-18 finding CB-2). Every battery case supplies
+      # `allowed_roles` explicitly or through the fixture, so all of them prove what the STATEMENT does
+      # with a cell — none proves that the right cell is derived. Measured: replacing the derivation
+      # with `CAPABILITIES.values.flatten.uniq` — R17-SEC-1 reinstated one layer up, in Ruby — left 50
+      # examples green.
+      #
+      # So this drives the store with an authority built by `WriteAuthority.for` itself, for a
+      # capability whose ratified cell EXCLUDES the actor's role. The actor is a real
+      # OrganizationAdmin with a real allowed decision; only the capability differs, and the write must
+      # refuse. A union cell would admit it.
+      ctx = running_crawl
+      version = DbInspector.one("SELECT state_version FROM crawls WHERE id = $1::uuid",
+                                [ctx[:crawl_id]])["state_version"].to_i
+
+      outcomes = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        auth_store = IdentityAccess::Infrastructure::AuthorizationStore.new(pg)
+        auth = IdentityAccess::Authorization::CommandAuthorizer.new(auth_store)
+        actor = auth.authenticate(session_id: ctx[:g][:session_id], now: start_now,
+                                  correlation_id: SecureRandom.uuid_v7)
+        decision = auth.authorize(actor:, capability: "crawl.cancel", now: start_now)
+        expect(decision).to be_allowed
+        expect(Platform::PermissionBaseline::CAPABILITIES.fetch("invitation.approve"))
+          .not_to include("OrganizationAdmin"),
+                  "the foil capability's cell admits this actor's role, so the proof is vacuous"
+
+        store = IdentityAccess::Infrastructure::CrawlStartStore.new(pg)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        foil = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:,
+                                                                 capability: "invitation.approve")
+        real = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:,
+                                                                 capability: "crawl.cancel")
+        [store.cancel(ctx[:crawl_id], version, start_now, authority: foil),
+         store.cancel(ctx[:crawl_id], version, start_now, authority: real)]
+      end
+
+      expect(outcomes.first[:capability_authorized]).to be(false),
+                                                        "the write accepted a cell that does not name this " \
+                                                        "capability, so the derivation is not what is carried"
+      expect(outcomes.first[:moved]).to eq(0)
+      expect(outcomes.last[:capability_authorized]).to be(true), "the control refused, so PROOF 265 is vacuous"
+      expect(outcomes.last[:moved]).to eq(1)
+    end
+  end
+
   describe "the capability limb is lock-based too" do
     it "PROOF 252 — a grant revocation cannot land while the guarded statement is blocked mid-flight" do
       # THE SAME PROPERTY THE EPOCH LIMB HAS, AND FOR THE SAME REASON. Revoking a Role Assignment is a

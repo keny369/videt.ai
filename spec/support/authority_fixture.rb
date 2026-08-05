@@ -29,6 +29,7 @@ module AuthorityFixture
     IdentityAccess::Authorization::WriteAuthority.new(
       organization_id:, account_id:, capability:, required_role:,
       allowed_roles: allowed_roles || Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
+      read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),
       epoch: epoch || current_epoch(organization_id),
       grant_ids: (grants || active_grants(organization_id, account_id)).map { |g| g["id"] },
       grant_versions: (grants || active_grants(organization_id, account_id)).map { |g| g["state_version"].to_i },

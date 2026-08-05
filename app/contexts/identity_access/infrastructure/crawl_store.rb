@@ -113,7 +113,8 @@ module IdentityAccess
           row[:requested_entitlement_policy_id], row[:requested_entitlement_policy_version],
           row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
           authority.epoch, authority.uuid_array, authority.bigint_array, authority.text_array,
-          authority.account_id, authority.required_role, authority.allowed_roles_array
+          authority.account_id, authority.required_role, authority.allowed_roles_array,
+          authority.read_only_permitted
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
@@ -137,6 +138,10 @@ module IdentityAccess
               -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is
               -- the baseline CARRIED, not a second copy of the six-step algorithm.
               AND ra.canonical_role = ANY ($20::text[])
+              -- THE SIXTH COLUMN, WHICH `CAPABILITIES` CANNOT EXPRESS (round-18 finding CB-1). A
+              -- Read-Only Executive Buyer carries a `canonical_role` that IS in the cell above, and
+              -- the ratified table denies it this capability; measured, it cancelled a running Crawl.
+              AND ($21::boolean OR ra.permission_mode <> 'read_only')
             FOR SHARE OF ra
           ), inserted AS (
             INSERT INTO crawls

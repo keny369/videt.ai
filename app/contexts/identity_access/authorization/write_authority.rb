@@ -38,7 +38,7 @@ module IdentityAccess
     # EVERY VALUE COMES FROM THE AUTHENTICATED ACTOR AND ITS OWN DECISION, never from caller input.
     WriteAuthority = Data.define(:organization_id, :account_id, :capability, :epoch,
                                  :grant_ids, :grant_versions, :grant_scopes, :required_role,
-                                 :allowed_roles) do
+                                 :allowed_roles, :read_only_permitted) do
       # `scope_hex` is NULL for an Organization-scope Assignment. It is normalised to the empty
       # string on both sides rather than carried as a NULL, because a NULL never equals a NULL and a
       # scope comparison that is silently never true is a conjunct that does nothing — the same shape
@@ -72,6 +72,20 @@ module IdentityAccess
       # safe, and only by the accident that `SCOPE_ROLE`'s roles happen to be inside its capability's
       # cell.
       #
+      # AND THE SIXTH COLUMN TOO (round-18 finding CB-1). `CAPABILITIES` is keyed by
+      # `canonical_role` ALONE — `permission_baseline.rb` says so in as many words: "THE SIXTH COLUMN
+      # OF THE SAME ROW, WHICH `CAPABILITIES` CANNOT EXPRESS". `confers?` is three conjuncts and the
+      # first repair bound one. Measured: a Read-Only Executive Buyer — `MarketingOperator` +
+      # `read_only` + `executive_buyer`, the tuple whose cell at `:147` reads `deny` — carries a
+      # `canonical_role` that IS in the cell, so it satisfied the role predicate and IRREVERSIBLY
+      # CANCELLED A RUNNING CRAWL. R17-SEC-1's shape, one column over, inside the repair for it.
+      #
+      # `read_only_permitted` is the sixth column carried the same way: `READ_ONLY_CAPABILITIES` is
+      # the ratified list of capabilities a read-only Assignment may still spend, and it is EMPTY BY
+      # TRANSCRIPTION for everything this build materializes. The statement binds
+      # `($n::boolean OR ra.permission_mode <> 'read_only')`, so a read-only grant confers nothing
+      # unless the baseline says that capability survives read-only.
+      #
       # WHY THIS IS THE BASELINE CELL AND NOT A SECOND COPY OF THE ALGORITHM. ADR-132 ruled out
       # re-deriving the six-step algorithm in SQL, and this does not: `CAPABILITIES` is IMMUTABLE FOR
       # THE LIFE OF A DEPLOY, read ONCE in Ruby, and handed to the statement as a value — exactly the
@@ -82,6 +96,7 @@ module IdentityAccess
         new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,
             epoch: actor.authorization_epoch, required_role:,
             allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
+            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),
             grant_ids: grants.map { |g| g["id"] },
             grant_versions: grants.map { |g| g["state_version"].to_i },
             grant_scopes: grants.map { |g| g["scope_hex"] || NO_SCOPE })
@@ -104,6 +119,7 @@ module IdentityAccess
           other.organization_id == organization_id && other.epoch == epoch &&
           other.capability == capability && other.grant_ids == grant_ids &&
           other.required_role == required_role && other.allowed_roles == allowed_roles &&
+          other.read_only_permitted == read_only_permitted &&
           other.grant_versions == grant_versions && other.grant_scopes == grant_scopes
       end
 

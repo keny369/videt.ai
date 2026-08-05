@@ -2496,3 +2496,95 @@ still a substring the measured thing controls. FU-50 to FU-53 are unchanged.
 
 S-07-009 remains NOT ACCEPTED. The round-17 repairs make a new candidate, and no round has yet
 returned PASS on the state it reviewed.
+
+---
+
+# ROUND 13 — the round-17 repaired candidate `b2e8cfb..53b0c39`, records `2183758`
+
+Round run: 2026-08-06, full ADR-026 five-lens form, same five isolated environments. The seventeenth
+five-lens round. Its purpose was the one production change round 17 made — the capability cell at the
+write — which no lens had reviewed.
+
+**VERDICT: FAIL. Three of five lenses. Nine confirmed-blocking findings, and again NO live bypass:
+every one is a limb of the write-level counterpart that is unproved, absent, or measured wrong.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | CB-1, CB-2, CB-3, CB-4 |
+| Security / tenant-isolation | FAIL | R18-SEC-1, R18-SEC-2 (= CB-1), R18-SEC-3 |
+| Schema / migration-safety | FAIL | S-R18-1, S-R18-4 |
+| Concurrency / atomicity / idempotency | PASS_WITH_OBSERVATIONS | none |
+| Architecture / scope / test-quality | (did not return within the window) | — |
+
+## The findings
+
+**CB-1 / R18-SEC-2 — THE SIXTH COLUMN.** `CAPABILITIES` is keyed by `canonical_role` alone, and
+`permission_baseline.rb` says so in its own words: "THE SIXTH COLUMN OF THE SAME ROW, WHICH
+`CAPABILITIES` CANNOT EXPRESS". `confers?` is three conjuncts and round 17 bound one. A Read-Only
+Executive Buyer — `MarketingOperator` + `read_only` + `executive_buyer`, the tuple whose ratified cell
+reads `deny` — carries a role that IS in the cell, so it satisfied the new predicate and, driven
+through the store, **irreversibly cancelled a running Crawl**; through the real handler with the one
+Ruby line deleted, the same. Not a live bypass, and the same shape as R17-SEC-1 one column over.
+
+**CB-2 / R18-SEC-1 — THE CELL WAS BOUND INTO THE STATEMENT AND NOT INTO THE VALUE.** Three mutations
+bound the three SQL conjuncts; nothing bound the derivation that decides WHICH cell is sent. Replacing
+it with a union of every capability's roles — R17-SEC-1 reinstated one layer up — left 50 examples
+green, and the security lens drove a `TechnicalImplementer` grant to an irreversible cancellation
+through the production builder.
+
+**R18-SEC-3 / CB-4 / O-1 — TWO PROOFS MEASURED THE WRONG THING.** PROOF 262b used a pending
+`SecurityOperator` grant, which the capability cell excluded on its own, so the example passed whatever
+the pending-row limbs did. PROOF 262c read the store's SOURCE for `status = 'pending'` and stayed green
+when the guard was deleted from the SQL and the words left in a comment — a source scan, which this
+tranche's own rule forbids.
+
+**S-R18-1 — THE CLEANUP DROPPED THE TABLE AND LEFT THE TRIGGER THAT WRITES TO IT.** Round 17 removed
+the `raise` and kept the drop order, so a contended `DROP TRIGGER` was skipped while the uncontended
+`DROP TABLE` ran, leaving a `BEFORE UPDATE` trigger on `role_assignments` whose body inserts into a
+table that no longer exists — every later grant write failing with `relation "f1_test_lock_order" does
+not exist`. Round 16's comment had claimed the ordering meant the trigger "can never outlive its
+table"; with the raise gone it guaranteed the opposite.
+
+**S-R18-4 — THE FIRST STATEMENT OF THE CLEANUP HAD NO RESCUE**, so a failure there masked the
+example's real failure, recorded no residue, leaked all three objects, and the suite-end check passed.
+The bootstrap gate cannot see it: it builds a fresh database and compares that.
+
+**CB-3 — ROUND 17 HAD SEVEN FINDINGS AND THREE RECORDS SAID SIX**, the third consecutive round with a
+false finding count in its own record.
+
+## The repair
+
+The sixth column is carried the same way the role cell is: `read_only_permitted` from the ratified
+`READ_ONLY_CAPABILITIES`, bound as `($n::boolean OR ra.permission_mode <> 'read_only')` at all three
+writes, with a battery case that SEEDS a read-only grant (the guard makes `permission_mode` immutable,
+which is itself why this axis cannot be reached by moving a row) and three mutations. PROOF 265 binds
+the derivation by building the authority through `WriteAuthority.for` for a capability whose cell
+excludes the actor's role and requiring refusal, with a must-succeed control. PROOF 262b now uses a
+role the cell admits, so the pending-row limbs are what it measures; PROOF 262c drives the store
+instead of reading it. The cleanup drops the table only if the trigger went, its `SET` is inside a
+rescue, and the residue check reads the CATALOGUE rather than remembering failed statements — which
+also removes its false positives.
+
+## What the round confirmed sound
+
+The concurrency lens found the new predicate re-reads an IMMUTABLE column (`canonical_role` is frozen
+by the lifecycle guard), so no transaction can move it under the statement in either direction, and
+measured that the predicate strictly SHRINKS the lock footprint — a grant whose role is outside the
+cell is no longer share-locked, which can only remove edges from the wait-for graph. It re-ran every
+proof file five times from identical bytes with no verdict change.
+
+The schema lens established the plan shape is unchanged at 1 to 5,000 carried grants, the new qual is
+applied strictly below `LockRows` in all four forced plan shapes, generic-plan caching does not apply
+(`exec_params` on the unnamed statement always plans with values), and all three `$n` are the highest
+placeholder with a Ruby operand — no orphan. It matched the live database to `db/structure.sql` on all
+nine fingerprint dimensions and confirmed all ten trigger ledger rows bind to the live catalogue.
+
+The security lens confirmed round 17's exploit is repaired at all three writes, that near-miss role
+strings (case, whitespace) are refused, that an empty cell refuses everything rather than admitting
+everything, that all nine `WriteAuthority` members are compared by `same_principal?`, and that all
+eight legitimate actor/capability/scope combinations the baseline admits still commit — including
+project-scope activation by a MarketingOperator, which no existing proof covered.
+
+## Stop
+
+S-07-009 remains NOT ACCEPTED.

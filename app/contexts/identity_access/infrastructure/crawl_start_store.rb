@@ -298,7 +298,8 @@ module IdentityAccess
       def cancel(id, expected_version, now, authority:)
         params = [id, expected_version, iso(now), authority.epoch, authority.organization_id,
                   authority.uuid_array, authority.bigint_array, authority.text_array,
-                  authority.account_id, authority.required_role, authority.allowed_roles_array]
+                  authority.account_id, authority.required_role, authority.allowed_roles_array,
+                  authority.read_only_permitted]
         row = exec(<<~SQL, params).first
           WITH epoch_authority AS (
             SELECT 1 FROM organizations
@@ -321,6 +322,10 @@ module IdentityAccess
               -- The cell is immutable for the life of a deploy and is read once in Ruby, so this is
               -- the baseline CARRIED, not a second copy of the six-step algorithm.
               AND ra.canonical_role = ANY ($11::text[])
+              -- THE SIXTH COLUMN, WHICH `CAPABILITIES` CANNOT EXPRESS (round-18 finding CB-1). A
+              -- Read-Only Executive Buyer carries a `canonical_role` that IS in the cell above, and
+              -- the ratified table denies it this capability; measured, it cancelled a running Crawl.
+              AND ($12::boolean OR ra.permission_mode <> 'read_only')
             FOR SHARE OF ra
           ), moved AS (
             UPDATE crawls
