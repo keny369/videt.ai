@@ -429,23 +429,35 @@ module Wf005CrawlChain
   # decision instant that must move while a lock is held, so the elapsed time has to be real and has
   # to be measured by the same clock the production code consults.
   def wait_out_frontier(ctx, seconds, &operation)
-    frontier_key = RaceHarness.key_for("crawl-frontier:#{ctx[:crawl_id]}")
+    wait_out_lock("crawl-frontier:#{ctx[:crawl_id]}", seconds, &operation)
+  end
+
+  # THE SAME PROPERTY, FOR WHICHEVER ADVISORY KEY THE HANDLER UNDER TEST ACTUALLY WAITS ON.
+  #
+  # `wait_out_frontier` was written for `CancelCrawl` and named after the one key that handler takes.
+  # `QueueCrawl` waits on `crawl-queue:<org>:<project>` and `ActivateCrawlPolicy` on
+  # `crawl-policy:<org>`, so a post-wait property expressible against only one of the three is a
+  # property proved for one handler and ASSUMED for the other two — which is exactly what round 15
+  # found, twice. The key is a parameter so no proof has to reimplement this machinery to reach a
+  # different handler.
+  def wait_out_lock(key_name, seconds, &operation)
+    key = RaceHarness.key_for(key_name)
     controller = RaceHarness.open_connection
     op = nil
     result = nil
 
     begin
-      controller.exec_params("SELECT pg_advisory_lock($1)", [frontier_key])
+      controller.exec_params("SELECT pg_advisory_lock($1)", [key])
       op = RaceHarness.spawn_operation(operation)
-      RaceHarness.wait_until("the operation blocked on crawl-frontier:#{ctx[:crawl_id]}") do
-        RaceHarness.blocked_on(frontier_key) >= 1
+      RaceHarness.wait_until("the operation blocked on #{key_name}") do
+        RaceHarness.blocked_on(key) >= 1
       end
       from = db_clock
-      RaceHarness.wait_until("PostgreSQL reported #{seconds}s elapsed with the frontier lock held") do
+      RaceHarness.wait_until("PostgreSQL reported #{seconds}s elapsed with #{key_name} held") do
         db_clock - from > seconds
       end
       # Still queued on the intended lock at the moment of release, not merely at some point earlier.
-      expect(RaceHarness.blocked_on(frontier_key)).to be >= 1
+      expect(RaceHarness.blocked_on(key)).to be >= 1
     ensure
       controller.exec_params("SELECT pg_advisory_unlock_all()")
       result = op&.value

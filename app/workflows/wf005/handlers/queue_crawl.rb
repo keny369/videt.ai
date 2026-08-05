@@ -107,9 +107,23 @@ module Workflows
           # an observed ungranted waiter and watching this command commit anyway. The platform-wide
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
-          attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                               .authority_attestation(auth_store: d[:auth_store], actor:,
-                                                                      decision: d[:decision], capability: CAPABILITY)
+          # THE DECISION INSTANT IS ADOPTED, NOT ONLY CONSTRUCTED (round-15 security finding
+          # R15-SEC-1). This handler built a `PostWaitDecision`, used it to mint the attestation, and
+          # then wrote with the instant it ENTERED with — so the write's grant-lifetime conjunct
+          # (`ra.effective_at <= $now`, `$now < ra.expires_at`) was evaluated against a clock reading
+          # taken BEFORE this unbounded wait. A Role Assignment that expired while the transaction sat
+          # on `crawl-queue:<org>:<project>` still conferred, and no other limb can see that: an
+          # unprocessed expiry advances no authorization epoch, so `authority_current?` has nothing to
+          # compare. Reproduced through this handler at PROOF 259.
+          #
+          # `PostWaitDecision`'s own rule 2 already required this — "take its decision instant from
+          # database time, not from the value it entered with" — and rule 5, "write nothing derived
+          # from the pre-wait snapshot". `CancelCrawl` obeys both with exactly this line; this handler
+          # and `ActivateCrawlPolicy` obeyed neither, which is why the property held in one of three.
+          post_wait = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
+          d = d.merge(now: post_wait.now)
+          attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:,
+                                                        decision: d[:decision], capability: CAPABILITY)
           if attestation.nil?
             return deny(**denial_args(d), resource_id: command.project_id,
                         outward: "crawl_trigger_unauthorized", internal: "crawl_trigger_unauthorized")

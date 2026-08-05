@@ -100,10 +100,18 @@ module Workflows
           # an observed ungranted waiter and watching this command commit anyway. The platform-wide
           # deferral recorded at ADR-063/S-06-006 continues to cover handlers that authorize and act
           # with NO wait between the two; this is not one of them.
-          attestation = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
-                                               .authority_attestation(auth_store: d[:auth_store], actor:,
-                                                                      decision: d[:decision], capability: CAPABILITY,
-                                                                      required_role: SCOPE_ROLE[command.scope])
+          # THE DECISION INSTANT IS ADOPTED, NOT ONLY CONSTRUCTED (round-15 security finding
+          # R15-SEC-1). See `QueueCrawl` for the full reasoning: this handler built a
+          # `PostWaitDecision` and then wrote with the instant it entered with, so the write's
+          # grant-lifetime conjunct judged the Assignment at a clock reading taken BEFORE an unbounded
+          # wait on `crawl-policy:<org>`. An Assignment that expired during that wait still activated
+          # an immutable Organization-scope policy, which ":732 affects queued work immediately and
+          # running work at the next checkpoint". Reproduced through this handler at PROOF 260.
+          post_wait = Wf005::PostWaitDecision.new(d[:pg], entered_with: d[:now])
+          d = d.merge(now: post_wait.now)
+          attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:,
+                                                        decision: d[:decision], capability: CAPABILITY,
+                                                        required_role: SCOPE_ROLE[command.scope])
           if attestation.nil?
             return deny(**denial_args(d), resource_id: scope_resource(command),
                         outward: "crawl_policy_unauthorized", internal: "crawl_policy_unauthorized")
