@@ -4346,3 +4346,116 @@ not, and the next round should look there first.
 Authority And Precedence:
 S-07-009 repair authority under the overnight instruction. Allocated the next unused number after
 ADR-135.
+
+## ADR-137: Round 19 — The Evidence System Reviewed Itself, And Three Of Its Claims Were False
+
+Date: 2026-08-06
+Status: Accepted
+Scope: S-07-009. Candidate `b2e8cfb..dd78732`, reviewed at `fcc80c0`.
+
+Context:
+
+The nineteenth ADR-026 five-lens round, run in five isolated worktrees against five isolated
+databases. Its brief was the one limb three consecutive rounds had each found unbound: the THIRD
+conjunct of `CommandAuthorizer#confers?`, the protected-grant gate, and any remaining limb of the
+ratified `:314` row the protected writes do not carry.
+
+**VERDICT: FAIL. One of five lenses. Four confirmed-blocking findings, all in range, and for the
+first time in this tranche's history NONE of them is in the product — all four are in the EVIDENCE.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R19-CTR-1, R19-CTR-2, R19-CTR-3, R19-CTR-4 |
+| Security / tenant-isolation | PASS in range | none in range; R19-SEC-2 is out of range |
+| Concurrency / atomicity | PASS_WITH_OBSERVATIONS | none |
+| Schema / migration-safety | PASS | none |
+| Architecture / scope / test-quality | PASS | none |
+
+Decision:
+
+**THE PROTECTED-GRANT CONJUNCT IS VACUOUS, AND THE QUESTION IS CLOSED.** All five lenses rebuilt the
+evidence independently from the ratified text. Three reasons hold, any ONE of which is sufficient:
+
+1. `:333` — "This enumeration is the authority for which grants are protected" — names none of
+   `crawl.trigger`, `crawl.cancel`, `policy.crawl.manage`, and neither `:147` nor `:173` contains
+   protected wording, so `:335`'s converse rule does not pull them in. `PROTECTED` has 15 keys and
+   none of the three, so `confers?:130` short-circuits before the allowlist and bootstrap limbs.
+2. `WriteAuthority.for` is reachable from exactly three call sites, all carrying those three
+   capabilities. The handlers that DO spend protected capabilities — WF-013 `role.manage`,
+   `invitation.approve` — use no `WriteAuthority` write at all. No consumer can present a protected
+   capability to a protected write.
+3. `f1_role_assignments_lifecycle_guard` makes `protected_permission_allowlist` and
+   `bootstrap_admin_exception` IMMUTABLE for an active grant. Neither can go stale under a running
+   command, which is precisely the criterion ADR-132 uses to decide what belongs in the statement.
+
+Measured, not asserted: replacing the entire gate with `true` leaves the WF-005 battery at 115
+examples / 0 failures while WF-013 fails three. The mutation is load-bearing — just never for these
+capabilities.
+
+The remaining limbs of `:314` were enumerated field by field against the three CTEs. Every liveness
+qual `effective_role_assignments` applies is carried at all three writes. The Ruby-only limbs are the
+Access Policy (step 2), Account status and Organization status; the first cannot change because
+`one_active_access_policy_per_org` is a partial unique index and the runtime role holds only
+`SELECT, INSERT` with a single writer at genesis, the second because the only two `UPDATE accounts`
+statements set `status = 'active'`, and the third advances the epoch, which IS bound. **There is no
+liveness limb the decision evaluates that the write does not carry.**
+
+**THE FOUR BLOCKERS, AND WHAT THEY HAVE IN COMMON.** Each is a record or a proof asserting a property
+the repository does not have.
+
+**R19-CTR-1 — A PROOF ROUND 18 RECORDED AS REPLACED WAS ONLY DUPLICATED BESIDE.** `dd78732` is 78
+insertions and 3 deletions and its it-block diff is additions only. `wf005_authority_lock_order_spec`
+carried PROOF 262c twice — the round-18 driven version AND the round-17 source-scan version that
+round 18 rejected — and PROOF 262d twice, byte for byte. Applying round 18's own named defeat (guard
+out of the `WHERE`, words left in a comment) failed the driven proof at `:421` and left the rejected
+one GREEN at `:487`. Three records state it had been replaced. Repaired by deletion; independently
+found by two lenses (R19-CTR-1, R19-CONC-7).
+
+**R19-CTR-2 — THE PRINCIPAL CONJUNCT WAS BOUND BY NOTHING, AND FU-50'S BASIS IS REFUTED.** FU-50
+recorded that the battery makes the three CTE copies provably agree because "any drift fails seven
+cases at the drifting write". Replacing `ra.account_id = $n::uuid` with a same-arity tautology left
+all 27 battery examples green, and across the whole suite the only reaction was
+`repository_truth_spec`'s byte-digest staleness check — which fires identically for a COMMENT-ONLY
+edit. Nothing in 2464 examples could tell the deletion of an authorization qual from a comment. Every
+existing case moves the GRANT; none asked whose grant it is. Repaired with one shared-example case
+that fails at exactly the drifting write, verified independently at all three.
+
+**R19-CTR-3 and R19-CTR-4 — RECORDS CLAIMING PROPERTIES THE REPOSITORY DOES NOT HAVE.** The
+completion report's header described round 17 while the pinned candidate was round 18's, omitted
+ADR-136, and its Identity table pinned a FIVE-ROUND-STALE candidate and repair authority — the same
+R8-7 shape, in the same table, because `repository_truth_spec` reads the candidate only from the
+`f1-evidence` block. And the report claimed the ledger verifier "requires each row's commit to be
+HEAD"; it requires ancestry, `MutationHarness` says so in its own comment, and no row's commit was
+HEAD while the gate passed.
+
+**R19-SEC-3, TAKEN THOUGH THE LENS GRADED IT NON-BLOCKING.** The `read_only_permitted` DERIVATION was
+unbound: replacing it with `true` survived 68 examples, because `authority_fixture.rb` carries its own
+copy of the same expression. This is round 18's CB-2 one column over, and CB-2 was confirmed blocking
+with no live bypass either. PROOF 266 drives the production builder with a real read-only grant and
+fails on the exploit assertion when the derivation is mutated.
+
+Consequences:
+
+Ledger regenerated at the repair head: 114 definitions, 114 killed, 0 survived, 0 broken. The two new
+definitions — `r19-read-only-derivation-constant` and `r19-account-qual-unbound` — both kill, and the
+two rows whose `failing_examples` named the deleted duplicates now correctly name one line each.
+
+**THIS DOES NOT ACCEPT S-07-009.** Nineteen rounds, none returning PASS on the state it reviewed. The
+round-19 repairs make a NEW candidate that no lens has reviewed, and the tranche's own history is that
+each repair round has produced findings in the round that followed. A twentieth round is required.
+
+**WHAT ROUND 19 CHANGES ABOUT THE OUTLOOK.** For the first time no lens found a product defect in
+range, four of five lenses returned PASS, and the limb that failed three consecutive rounds is closed
+by three independent arguments rather than by another repair. The findings have moved from the
+authorization semantics into the evidence system that measures them.
+
+**CARRIED EXPOSURE CLOSED.** BUILD_STATE recorded the lock-order probe's deliberately unbounded setup
+as live exposure. It is bounded: `PgTestConnection` sets `statement_timeout = 15s`, measured at 17.28s
+to `PG::QueryCanceled` with a complete residue report. It degrades to a failing example, never a hang,
+and is not a stability violation.
+
+Authority And Precedence:
+S-07-009 repair authority. R19-SEC-2 is expressly NOT taken under it and is recorded as FU-54 for an
+owner decision, following the precedent of the round-2 `:442` violation ("it needs a follow-up of its
+own and an owner decision; this review opens neither") and of ADR-131. Allocated the next unused
+number after ADR-136.

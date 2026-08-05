@@ -1,9 +1,17 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-17 repair is complete under ADR-135; this report is not an acceptance record.**
+**Acceptance status: NOT ACCEPTED. The round-19 repair is complete under ADR-137; this report is not an acceptance record.**
 
-**SEVENTEEN full ADR-026 five-lens rounds have reviewed this tranche and all seventeen returned FAIL.**
-Thirteen of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
+**NINETEEN full ADR-026 five-lens rounds have reviewed this tranche and all nineteen returned FAIL.**
+
+A NOTE ON THE ROUND NUMBERS, because two records counted differently and round 19 found it (R19-CTR-3).
+`S-07-009_ACCEPTANCE_REVIEW.md` numbers its own SECTIONS (its last is ROUND 14), while `BUILD_STATE`
+and this header number FIVE-LENS ROUNDS INCLUDING the ones never written into that record. The two
+sequences are offset and neither was wrong; what was wrong was prose that used one number while
+citing the other's content. The five-lens count is authoritative here and the section number is always
+given beside it.
+
+Fifteen of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
 unmerged `repair/s07-009-r10@68c1d52`, and two more — run at `f801245` and `abf5390` — were integrated
 through the repair commits `0b90938` and `b2e8cfb` and the D-numbered sections of
 `S-07-009_BLOCKER_LEDGER.md` without ever being written into the review record. The `review_rounds`
@@ -11,18 +19,26 @@ figure below counts the sections of that file, which is what its gate measures; 
 generalised it to "rounds that have reviewed this tranche", and that was wrong (round-15 finding
 R15-CTR-2, out of range but corrected here rather than carried).
 
-The latest round — round 17, this record's ROUND 12 — found SIX confirmed-blocking findings and **no production defect**: one live capability gap that the Ruby layer still closed (the write never received the
-capability at all), one proof that did not measure what its ADR said it measured, a third mutation killing on a
-typing error, and three records that were wrong. Round 15 found EIGHT, two of them live production defects, and
-round 16 found five, all of them evidence. Every one is repaired; the dispositions are ADR-133, ADR-134 and
-ADR-135.
+The latest round — round 19, this record's ROUND 14 — found FOUR confirmed-blocking findings, all
+in-range and all in the EVIDENCE rather than in the product: a proof that round 18 recorded as
+replaced and had only been duplicated beside, and which stayed green against the very defeat it was
+rejected for; the principal conjunct of all three protected writes, which no battery case bound and
+which survived being replaced by a tautology; and two records claiming properties the repository does
+not have. Four of five lenses returned PASS and **no lens found a live bypass through any WF-005
+capability**. The round also reproduced, three times independently, a live authorization defect that
+is PRE-EXISTING AND OUTSIDE THE CANDIDATE RANGE (R19-SEC-2, recorded as FU-54): it blocks nothing in
+S-07-009 and is an owner decision, not a repair this review may take.
+
+Round 18 — this record's ROUND 13 — found NINE, all evidence, none a live bypass. Round 17 found SIX,
+round 16 five, and round 15 EIGHT of which two were live production defects. Every one is repaired;
+the dispositions are ADR-133, ADR-134, ADR-135, ADR-136 and ADR-137.
 
 ```f1-evidence
-candidate_range: b2e8cfb..dd78732
+candidate_range: b2e8cfb..dc9fd25
 frozen_path_changes: 0
 frozen_paths: []
-suite_examples: 2464
-review_rounds: 13
+suite_examples: 2466
+review_rounds: 14
 ```
 
 The block above exists because round 9's frozen-path gate NEVER EXECUTED: it read prose with a regex
@@ -109,9 +125,10 @@ comes from that window.
 | | |
 | --- | --- |
 | Block | S-07-009, BUILD_PLAN `Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl` |
-| **Repair candidate** | **`7f043a2..6fda00d`, PINNED** — never `..HEAD` |
+| **Repair candidate** | **`b2e8cfb..dc9fd25`, PINNED** — never `..HEAD`. This row read `7f043a2..6fda00d` with authority ADR-124 until round 19 (finding R19-CTR-3): five rounds stale, while the `f1-evidence` block below carried the current range. `repository_truth_spec` reads the candidate ONLY from that block, so this row was unchecked — the same R8-7 shape the round-8 review recorded for this same table. |
+| Round-18 reviewed candidate | `b2e8cfb..dd78732`, records `fcc80c0` (FAIL, four blockers; findings in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 14) |
 | Round-8 reviewed candidate | `7f043a2..e1f5bab`, governance `5dadf7f` (FAIL, nine blockers; findings in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 8) |
-| Repair authority | ADR-124; ADR-122's isolation invariant remains in force and is extended to Redis |
+| Repair authority | ADR-137 (round 19); ADR-122's isolation invariant remains in force and is extended to Redis |
 | Depends on | S-07-007, S-07-008, S-07-012 — all accepted |
 | Blocks | S-07-010 and S-07-011 while S-07-009 remains unaccepted |
 
@@ -394,7 +411,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 
 | Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2464 examples, 0 failures` |
+| `bundle exec rspec` | `2466 examples, 0 failures` |
 | `bundle exec rspec spec/architecture` | `242 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
@@ -403,7 +420,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 112 mutations, 112 killed, 0 survived, 0 broken |
+| mutation ledger | 114 mutations, 114 killed, 0 survived, 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -538,7 +555,7 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**112 mutations, 112 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+**114 mutations, 114 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
 replayed, sealed and verified by the same machinery rather than copied in as literals.
 
 Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the
@@ -549,7 +566,16 @@ WHAT THE BINDING DOES NOT DO, stated after the architecture lens refuted the str
 is public and the binding is a plain digest of the row's own fields, so it detects a row that was
 EDITED, TRANSPLANTED or left STALE — but not one fabricated whole and sealed correctly. Only
 re-execution refutes that, which is what regeneration is for. The verifier additionally requires each
-row's commit to be HEAD and each failing example to name a spec file that exists.
+row's commit to be AN ANCESTOR OF HEAD — reachability, not equality — and each failing example to
+name a spec file that exists.
+
+This sentence read "requires each row's commit to be HEAD" until round 19 (finding R19-CTR-4), and
+that was never what the verifier did. `MutationHarness` runs `git merge-base --is-ancestor`, and its
+own comment says so in as many words: "THE COMMIT RECORDS PROVENANCE AND MUST BE REACHABLE — not
+equal to HEAD … Requiring equality was unsatisfiable." `mutation_ledger_binding_spec.rb` asserts
+ancestry too. Measured when the finding was raised: all 112 rows carried `21837581`, HEAD was
+`fcc80c0b`, so NO row's commit was HEAD — and the gate passed, as it should have. The record claimed
+a stronger property than the repository has, which is the R8-7 class this tranche keeps producing.
 
 | id | blocker | mechanism | verdict |
 | --- | --- | --- | --- |

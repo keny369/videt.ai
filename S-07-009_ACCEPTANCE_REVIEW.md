@@ -2588,3 +2588,119 @@ project-scope activation by a MarketingOperator, which no existing proof covered
 ## Stop
 
 S-07-009 remains NOT ACCEPTED.
+
+---
+
+# ROUND 14 — the round-18 repaired candidate `b2e8cfb..dd78732`, records `fcc80c0`
+
+Round run: 2026-08-06, full ADR-026 five-lens form, five isolated worktrees and five isolated
+databases. The NINETEENTH five-lens round. Its brief was the limb three consecutive rounds had each
+found unbound: the THIRD conjunct of `confers?` — the protected-grant gate — and any remaining limb of
+the ratified `:314` row the protected writes do not carry.
+
+**VERDICT: FAIL. One of five lenses. Four confirmed-blocking findings, all in range — and for the
+first time in this tranche, NONE of them is in the product. All four are in the evidence.**
+
+| Lens | Verdict | Confirmed blocking |
+| --- | --- | --- |
+| Contract-correctness | FAIL | R19-CTR-1, R19-CTR-2, R19-CTR-3, R19-CTR-4 |
+| Security / tenant-isolation | PASS in range | none in range; R19-SEC-2 out of range |
+| Concurrency / atomicity / idempotency | PASS_WITH_OBSERVATIONS | none |
+| Schema / migration-safety | PASS | none |
+| Architecture / scope / test-quality | PASS | none |
+
+## The question the round was called to settle, and its answer
+
+**The protected-grant conjunct is VACUOUS for all three S-07-009 capabilities. The question is closed.**
+All five lenses rebuilt the evidence from the ratified text independently. Three reasons hold, any one
+sufficient: `:333` names none of the three capabilities and neither `:147` nor `:173` carries protected
+wording, so `confers?:130` short-circuits; `WriteAuthority.for` has exactly three call sites and no
+consumer can present a protected capability to a protected write; and the lifecycle guard makes both
+unbound limbs immutable for an active grant, which is ADR-132's own criterion for what belongs in the
+statement. Deleting the entire gate leaves the WF-005 battery at 115/0 while WF-013 fails three — the
+mutation is load-bearing, just never here.
+
+The architecture lens verified the protected-write SET with the planner rather than a regex: 391
+statements planned, exactly six modify `crawls`/`crawl_policies`, the three human-authorized ones all
+carry `WriteAuthority`, and the three service ones (`start`, `fail`, `terminalize`) have no human path
+— neither caller ever calls `authenticate`.
+
+## Confirmed blockers
+
+**R19-CTR-1 — THE PROOF ROUND 18 SAID IT REPLACED WAS ONLY ADDED BESIDE.** `dd78732` is 78 insertions
+and 3 deletions, additions only in its it-blocks. The file carried PROOF 262c twice — round 18's driven
+version and the round-17 source-scan it rejected — and PROOF 262d twice, byte for byte. Round 18's own
+named defeat failed `:421` and left `:487` GREEN. Found independently by the contract and concurrency
+lenses.
+
+**R19-CTR-2 — FU-50'S RECORDED BASIS IS FALSE.** Replacing `ra.account_id` with a same-arity tautology
+left all 27 battery examples green; the only reaction in 2464 was a byte-digest staleness check that
+fires identically for a comment-only edit. Every existing case moves the grant; none asked whose grant
+it is.
+
+**R19-CTR-3 — THE REPORT DESCRIBED THE WRONG ROUND** and its Identity table pinned a five-round-stale
+candidate and repair authority, unchecked because `repository_truth_spec` reads the candidate only from
+the `f1-evidence` block. **R19-CTR-4 — THE REPORT CLAIMED THE LEDGER VERIFIER REQUIRES `commit == HEAD`;**
+it requires ancestry, and no row's commit was HEAD while the gate passed.
+
+## A LIVE AUTHORIZATION DEFECT, REPRODUCED THREE TIMES, PRE-EXISTING AND OUTSIDE THE RANGE
+
+**R19-SEC-2.** `PROTECTED` omits three permissions `:333` names. One is reachable: `:175` makes
+BillingOperator the only role whose `policy.entitlement.manage` cell reads `allow`, so a BillingOperator
+grant CONTAINS protected authority — but `protected_role?("BillingOperator")` is `false`, so
+`request_role_assignment.rb:61` classes the request non-protected and `grant_authority.rb:52`'s
+`invitation_approval_required` refusal never fires. Driven through the real handler by two lenses
+independently, with controls:
+
+    RequestRoleAssignment(BillingOperator) -> success=true
+    landed: status=active  expires_at=nil  approval_due_at=nil  approvals=0  allowlist=[]
+    CONTROL RequestRoleAssignment(SecurityOperator) -> success=false  reason=role_expiry_required
+
+A single OrganizationAdmin lands an immediately-active, never-expiring grant carrying protected
+authority, where `:333`/`:314`/`:316` require 24-hour approval by a DISTINCT SecurityOperator and a
+mandatory expiry no later than 30 days. `permission_baseline_transcription_spec` checks `CAPABILITIES`
+against `:135` in two dimensions and has NO check of `PROTECTED` against `:333` at all.
+
+**IT DOES NOT BLOCK S-07-009** — pre-existing, outside `b2e8cfb..dd78732`, and it makes no crawl
+capability protected, so H1 stands. **THIS REVIEW DOES NOT REPAIR IT.** AUTONOMY_POLICY's repair
+authority ends "not permission to work on another tranche's backlog, nor to repair defects that are not
+blocking a mandatory gate", every gate passes, and the fix would change the behaviour of accepted WF-013
+work. Recorded as FU-54 for an owner decision, following the round-2 `:442` precedent.
+
+## What the round confirmed sound
+
+The concurrency lens measured the lock order at all three writes from BOTH ends using `pg_blocking_pids`
+rather than reading SQL, and found no path taking them the other way. It verified `REORDERED_HANDLERS` is
+complete not by code reading but by installing a global `BEFORE UPDATE OR DELETE` detector on
+`role_assignments` and running the entire 1187-example acceptance corpus under it: no production path
+updates an ACTIVE grant row without having written `organizations` first, other than the two the map
+names. It re-established that `FOR SHARE` blocks the epoch advance where `FOR KEY SHARE` let it commit
+straight through, and demonstrated the TOCTOU window is genuinely closed — deleting both lock clauses and
+re-running the same race inserts a Crawl on authority a committed revocation had already removed.
+
+The schema lens showed both CTEs are MATERIALIZED and their `LockRows` nodes execute, so neither can be
+optimised away; matched the live database to `db/structure.sql` on all nine fingerprint dimensions; and
+found every edge out of a terminal Crawl refused, including `DELETE`, `TRUNCATE`, trigger disabling and
+`session_replication_role`, none of which the runtime role can reach.
+
+The security lens confirmed no `:314` limb is evaluated in Ruby and unbound at the write, and that
+`effective_role_assignments`' missing `organization_id` predicate is safe only because of FORCE RLS with
+no BYPASSRLS — recorded so a future `SECURITY DEFINER` path cannot silently make it cross-tenant.
+
+## Carried non-blocking observations
+
+R19-SEC-4 / R19-SCHEMA-1 (FU-53): `cancel`'s `UPDATE` carries no `organization_id` predicate and both
+authority limbs returned authorized against a foreign-tenant crawl; only RLS stopped it. Unreachable from
+any built handler. R19-ARCH-1: `write_observer_spec` does not exercise the production hook it names —
+gutting it leaves that file 10/0 while the mandatory suite fails 7/7 — and `GovernedWriteSentinel` has no
+suite-end non-vacuity check. R19-SCHEMA-2/3 (FU-51): the `ProtectedEffectDoor` 42601 branch swallows
+`TRUNCATE`/`COPY`/`CALL`/`DO` as "no write" and is blind to DML inside `SECURITY DEFINER` plpgsql, which
+has a live call site. R19-CONC-6: `RaceHarness.open_connection` uses a bare `PG.connect`, so
+`statement_timeout = 0`. R19-CONC-1: PROOF 264 drives one of the three writes.
+
+## Stop
+
+S-07-009 remains NOT ACCEPTED. The round-19 repairs make a new candidate no lens has reviewed, and this
+tranche's history is that every repair round produced findings in the round after it. A twentieth round
+is required. What changed: four of five lenses returned PASS, no lens found a product defect in range,
+and the limb that failed three consecutive rounds is closed by argument rather than by another repair.

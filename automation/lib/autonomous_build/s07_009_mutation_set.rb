@@ -602,6 +602,19 @@ module AutonomousBuild
         from: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),\n",
         to: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.values.flatten.uniq,\n",
         expectation: "kill" },
+      { id: "r19-read-only-derivation-constant", blocker: "R19-SEC-3", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "the SIXTH COLUMN's derivation replaced by a permissive constant — CB-2's other " \
+                     "half, closed for `allowed_roles` at round 18 and left open here",
+        from: "            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        to: "            read_only_permitted: true,\n",
+        expectation: "kill" },
+      { id: "r19-account-qual-unbound", blocker: "R19-CTR-2", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the queue write stops asking whose grant it is — the principal conjunct no " \
+                     "battery case bound before round 19",
+        from: "            WHERE ra.organization_id = $4::uuid AND ra.account_id = $18::uuid\n",
+        to: "            WHERE ra.organization_id = $4::uuid AND $18::uuid IS NOT NULL\n",
+        expectation: "kill" },
       { id: "r18-decide-guard-widened", blocker: "R18-CB-4", file: ROLE_ASSIGNMENT_STORE,
         proof: ORDER_PROOF,
         description: "`activate` stops restricting itself to a pending row, which ends " \
