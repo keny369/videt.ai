@@ -12,7 +12,7 @@ frozen_path_changes: 2
 frozen_paths:
   - lib/f1/runtime_grants.rb
   - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2323
+suite_examples: 2335
 review_rounds: 9
 ```
 
@@ -55,20 +55,20 @@ Every entry is verified replayable from the repository by `AutonomousBuild::Muta
 
 | Mutation | Blocker | Result |
 | --- | --- | --- |
-| `r10-authority-supersede-axis` | R9-3 | killed, 15 examples, 15 failures |
-| `r10-authority-queue-policy-axis` | R9-3 | killed, 43 examples, 43 failures |
-| `r10-authority-cancel-state-axis` | R9-3 | killed, 17 examples, 16 failures |
-| `r10-attestation-not-required` | R9-3 | killed, 9 examples, 8 failures |
-| `r10-handler-translate-removed` | R9-1 | killed, 7 examples, 7 failures |
-| `r10-checkpoint-translate-removed` | R9-1 | killed, 33 examples, 32 failures |
-| `r10-pass-translate-removed` | R9-1 | killed, 7 examples, 7 failures |
-| `r10-deadline-boundary-weakened` | R9-7 | killed, 10 examples, 3 failures |
-| `r10-deadline-indirection` | R9-7 | killed, 9 examples, 8 failures |
-| `r10-outbound-unbounded` | :442 | killed, 9 examples, 6 failures |
-| `r10-request-bound-not-equality` | :442 | killed, 9 examples, 1 failure |
-| `r10-refusal-swallowable` | :442 | killed, 9 examples, 2 failures |
-| `r10-entitlement-commit-boundary` | FU-44 | killed, 11 examples, 1 failure |
-| `r10-entitlement-prestart-boundary` | FU-44 | killed, 19 examples, 1 failure |
+| r10-authority-supersede-axis (superseded; see the regenerated ledger) | R9-3 | killed, 15 examples, 15 failures |
+| r10-authority-queue-policy-axis (superseded; see the regenerated ledger) | R9-3 | killed, 43 examples, 43 failures |
+| r10-authority-cancel-state-axis (superseded; see the regenerated ledger) | R9-3 | killed, 17 examples, 16 failures |
+| r10-attestation-not-required (superseded; see the regenerated ledger) | R9-3 | killed, 9 examples, 8 failures |
+| r10-handler-translate-removed (superseded; see the regenerated ledger) | R9-1 | killed, 7 examples, 7 failures |
+| r10-checkpoint-translate-removed (superseded; see the regenerated ledger) | R9-1 | killed, 33 examples, 32 failures |
+| r10-pass-translate-removed (superseded; see the regenerated ledger) | R9-1 | killed, 7 examples, 7 failures |
+| r10-deadline-boundary-weakened (superseded; see the regenerated ledger) | R9-7 | killed, 10 examples, 3 failures |
+| r10-deadline-indirection (superseded; see the regenerated ledger) | R9-7 | killed, 9 examples, 8 failures |
+| r10-outbound-unbounded (superseded; see the regenerated ledger) | :442 | killed, 9 examples, 6 failures |
+| r10-request-bound-not-equality (superseded; see the regenerated ledger) | :442 | killed, 9 examples, 1 failure |
+| r10-refusal-swallowable (superseded; see the regenerated ledger) | :442 | killed, 9 examples, 2 failures |
+| r10-entitlement-commit-boundary (superseded; see the regenerated ledger) | FU-44 | killed, 11 examples, 1 failure |
+| r10-entitlement-prestart-boundary (superseded; see the regenerated ledger) | FU-44 | killed, 19 examples, 1 failure |
 
 
 ### The proof-system audit
@@ -470,3 +470,61 @@ already names.
 **Stop here. Do not commission the round-9 review from this repair-author context. Do not accept
 S-07-009. Do not proceed to S-07-010 or S-07-011 on this unaccepted dependency without a new owner
 instruction.**
+
+
+## Mutation ledger, regenerated mechanically
+
+`specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by
+`rake f1:mutations:regenerate` from definitions held in
+`automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited by hand.
+
+**33 mutations, 33 killed, 0 survived, 0 broken**, plus
+4 trigger-level mutations recorded separately because they act on a
+PostgreSQL trigger definition rather than on a file.
+
+Each row is SEALED: its `binding_sha256` covers the patch bytes, the target file's bytes, the target
+path, the proof command, the bytes of every proof file, the failing example identities, a digest of
+the failure reasons, the equivalence justification where one is claimed, the commit, and whether
+restoration was verified. A row whose recomputed binding differs from the one it carries is stale,
+transplanted or fabricated, and `MutationHarness.verify_bindings!` rejects all three.
+
+ONE ROW WAS FALSE ON ITS FIRST GENERATION AND THE FIX WAS THE PROOF, NOT THE EXPECTATION.
+`d3-lock-removed` was bound to the cancel spec alone and SURVIVED: the absence of `lock_frontier` is
+not observable from a single command, only from two racing it. The entry now names the concurrency
+specs that actually reject it.
+
+| id | blocker | verdict |
+| --- | --- | --- |
+| d2-beyond-constant | D2/R10-3 | killed |
+| d2-not-after-unclamped | D2/R10-3 | killed |
+| d2-at-weakened | D2/R10-3 | killed |
+| d2-none-incomplete | D2/R10-4 | killed |
+| d1-dead-method-returns | D1 | killed |
+| d3-conjunct-removed | D3/R10-10 | killed |
+| d3-epoch-inequality | D3/R10-10 | killed |
+| d3-authority-always-true | D3/R10-10 | killed |
+| d3-wrong-organization | D3/R10-10 | killed |
+| d3-authorized-independent | D3/R10-10 | killed |
+| d3-denial-swallowed | D3/R10-10 | killed |
+| d3-branches-reversed | D3/R10-10 | killed |
+| d3-self-authorizing-epoch | D3/R10-10 | killed |
+| d3-lock-removed | D3/R10-10 | killed |
+| f1-admission-inverted | R10-17 | killed |
+| f1-driver-reimplemented | R9-7 | killed |
+| f1-bounded-respelled | :442 | killed |
+| f1-gate-delegates | R10-17 | killed |
+| f1-caller-binding-dropped | R10-17 | killed |
+| f1-thread-identity-dropped | R10-17 | killed |
+| f3-rebuilt-via-local | R10-16 | killed |
+| f3-rebuilt-via-container | R10-16 | killed |
+| f3-rebuilt-via-block-pass | R10-16 | killed |
+| f2-census-door-removed | R10-7 | killed |
+| f2-refusals-unobserved | R10-7 | killed |
+| f4-discovery-narrowed | R10-9 | killed |
+| f4-accounting-global | R10-11 | killed |
+| f4-empty-census-accepted | R10-9 | killed |
+| f4-frame-not-restored | R10-11 | killed |
+| f6-source-location-discriminator | R10-21 | killed |
+| f6-refusal-removed | R10-21 | killed |
+| f6-kind-forced-ruby | R10-21 | killed |
+| f6-lookup-class-traced | R10-21 | killed |

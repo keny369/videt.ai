@@ -502,6 +502,12 @@ RSpec.describe "Repository truth", type: :model do
       expect { AutonomousBuild::MutationHarness.verify_applicable!(entries, root: ROOT.to_s) }
         .not_to raise_error
 
+      # AND EVERY VERDICT IS BOUND TO THE EVIDENCE IT CAME FROM (D5 family 5). Applicability proves a
+      # row COULD be replayed here; the binding proves its verdict WAS measured here, against these
+      # production bytes, this proof's bytes, this commit, with restoration verified.
+      expect { AutonomousBuild::MutationHarness.verify_bindings!(entries, root: ROOT.to_s) }
+        .not_to raise_error
+
       entries.each do |entry|
         expect(entry["expectation"]).to be_in(%w[kill equivalent])
         expect(entry["verdict"]).to eq(entry["expectation"] == "kill" ? "killed" : "survived"),
