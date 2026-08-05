@@ -7,12 +7,10 @@ Nine full ADR-026 five-lens rounds have reviewed this tranche and all nine retur
 later in the other three: **it replaced three enumerations with three narrower enumerations.**
 
 ```f1-evidence
-candidate_range: 7f043a2..6d00aa1
-frozen_path_changes: 2
-frozen_paths:
-  - lib/f1/runtime_grants.rb
-  - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2365
+candidate_range: b2e8cfb..ea8ef8d
+frozen_path_changes: 0
+frozen_paths: []
+suite_examples: 2407
 review_rounds: 9
 ```
 
@@ -379,8 +377,8 @@ never the one under review. `repository_truth_spec` now governs this table too.
 
 | Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2365 examples, 0 failures` |
-| `bundle exec rspec spec/architecture` | `221 examples, 0 failures, 1 pending` |
+| `bundle exec rspec` | `2407 examples, 0 failures` |
+| `bundle exec rspec spec/architecture` | `238 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
 | `bin/rails zeitwerk:check` | all is good |
@@ -388,7 +386,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 59 mutations, 59 killed, 0 survived, 0 broken |
+| mutation ledger | 92 mutations, 92 killed, 0 survived, 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -523,7 +521,7 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**59 mutations, 59 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+**92 mutations, 92 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
 replayed, sealed and verified by the same machinery rather than copied in as literals.
 
 Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the
@@ -550,7 +548,7 @@ row's commit to be HEAD and each failing example to name a spec file that exists
 | `d3-authorized-independent` | D3/R10-10 | file | killed |
 | `d3-denial-swallowed` | D3/R10-10 | file | killed |
 | `d3-branches-reversed` | D3/R10-10 | file | killed |
-| `d3-self-authorizing-epoch` | D3/R10-10 | file | killed |
+| `d3-write-carries-another-capability` | D3/R10-10, FU-48 | file | killed |
 | `d3-lock-removed` | D3/R10-10 | file | killed |
 | `f1-admission-inverted` | R10-17 | file | killed |
 | `f1-driver-reimplemented` | R9-7 | file | killed |
@@ -586,6 +584,39 @@ row's commit to be HEAD and each failing example to name a spec file that exists
 | `d6-a-ledger-before-guard` | D6 | file | killed |
 | `f4-human-door-removed` | R10-9 | file | killed |
 | `d6-a-outcomes-collapsed` | D6 | file | killed |
+| `d7-door-regex-restored` | D7 | file | killed |
+| `d7-door-anchored` | D7 | file | killed |
+| `d7-door-hook-removed` | D7 | file | killed |
+| `d7-door-unknown-read-as-empty` | D7 | file | killed |
+| `d7-classification-all-governed` | D7 | file | killed |
+| `d7-classification-none-governed` | D7 | file | killed |
+| `d7-classification-not-derived` | D7 | file | killed |
+| `d7-census-not-recorded` | D7 | file | killed |
+| `d7-antecedent-any-write` | D7 | file | killed |
+| `d7-antecedent-dropped` | D7 | file | killed |
+| `d7-cancel-lock-key-share` | D7 | file | killed |
+| `d7-cancel-lock-removed` | D7 | file | killed |
+| `d7-queue-lock-key-share` | D7 | file | killed |
+| `d7-policy-lock-key-share` | D7 | file | killed |
+| `d7-capability-lock-removed` | D7, FU-48 | file | killed |
+| `d7-cancel-capability-conjunct-removed` | FU-48 | file | killed |
+| `d7-cancel-capability-always-true` | FU-48 | file | killed |
+| `d7-cancel-grant-version-unbound` | FU-48 | file | killed |
+| `d7-cancel-grant-scope-unbound` | FU-48, FU-2 | file | killed |
+| `d7-cancel-grant-status-unbound` | FU-48 | file | killed |
+| `d7-queue-capability-conjunct-removed` | FU-48 | file | killed |
+| `d7-policy-capability-conjunct-removed` | FU-48 | file | killed |
+| `d7-attestation-mints-for-denial` | FU-48 | file | killed |
+| `d7-attestation-mints-without-grant` | FU-48 | file | killed |
+| `d7-attestation-authority-unbound` | FU-48 | file | killed |
+| `d7-write-authority-ignores-capability` | FU-48 | file | killed |
+| `d7-q-authorize-check-deleted` | D7, FU-48 | file | killed |
+| `d7-c-authorize-check-deleted` | D7, FU-48 | file | killed |
+| `d7-a-authorize-check-deleted` | D7, FU-48 | file | killed |
+| `d7-a-scope-role-unbound` | FU-48 | file | killed |
+| `d7-a-scope-role-not-carried` | FU-48 | file | killed |
+| `d7-a-scope-map-widened` | FU-48 | file | killed |
+| `d7-replay-not-idempotent` | D7 | file | killed |
 | `f6-lookup-class-traced` | R10-21 | file | killed |
 | `d4-when-or-to-and` | D4/R10-15 | trigger | killed |
 | `d4-when-false` | D4/R10-15 | trigger | killed |
