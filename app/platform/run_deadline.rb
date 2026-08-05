@@ -20,10 +20,18 @@ module Platform
   #   * `not_after(instant)`   — the clamp a scheduler needs, where :442 permits an action due
   #     exactly AT the deadline as the last honest opportunity.
   #
-  # It carries no `<`, no `<=`, no `>`, no `>=` and no way to hand out the raw instant, so a caller
-  # cannot compare it, cannot extract something to compare, and cannot reimplement the boundary
-  # behind however many helpers — there is no second implementation to write. `RowInstantGuard`
-  # enforces the same rule on the value the connection returns, so the two halves agree.
+  # WHAT THIS OBJECT DOES AND DOES NOT CLAIM, corrected. An earlier version of this comment said it
+  # "carries no `<`, no `<=`, no `>`, no `>=` and no way to hand out the raw instant, so ... there is
+  # no second implementation to write". That was FALSE four ways — `beyond?`, `at?` and `not_after`
+  # all compare, and `instant_for_transport` hands out the raw instant — and the round-10 review
+  # inverted :442's boundary through that very accessor with the whole suite green.
+  #
+  # The claim is narrowed to what is true: this is the ONE OWNER of :442's comparison, and every gate
+  # is proved BY CALLER-BOUND INVOCATION to consult it as part of its own execution
+  # (`spec/acceptance/wf005_deadline_gates_spec.rb`). It is not claimed that no reimplementation can
+  # be written — that is a claim about every expression anyone could spell, and six rounds of trying
+  # to enumerate them failed. It is claimed, and proved, that a gate which reimplements the boundary
+  # does not invoke this owner and is caught there.
   class RunDeadline
     NONE = Object.new.tap do |none|
       def none.expired?(**) = false

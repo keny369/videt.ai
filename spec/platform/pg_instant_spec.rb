@@ -127,16 +127,24 @@ RSpec.describe Platform::PgInstant, type: :model do
     # list of three "different question" comparisons. The review defeated the scan with ONE METHOD
     # INDIRECTION and then inverted the boundary at a line the same candidate had written.
     #
-    # A DEADLINE IS NO LONGER AN INSTANT ANYONE CAN COMPARE. `Platform::RunDeadline` answers :442's
-    # questions — `expired?`, `remaining_seconds`, `not_after`, `beyond?`, `at?` — and exposes no
-    # comparison operator and no way to obtain the raw value except one named
-    # `instant_for_transport`, which exists solely to hand a plain instant to FROZEN F-04. So the
-    # classification list is empty, and the rule below is no longer a text scan hoping to notice a
-    # second implementation: there is nothing to implement one FROM.
+    # `RowInstantGuard` IS DELETED, NOT EXTENDED (D5 family 3; R10-12, R10-13, R10-14, R10-16).
     #
-    # `RowInstantGuard` enforces the same rule on the value the connection returns, so a caller that
-    # reaches for `crawl["deadline_at"]` to rebuild a comparison — behind any number of helpers —
-    # raises at runtime rather than passing a scan.
+    # IT COULD NOT CARRY ITS CLAIM, and the reason is structural rather than a missing case. The guard
+    # wrapped `timestamptz` values whose `PG::Result#ftable` named a crawl table, so the taint was a
+    # property of THE SQL TEXT rather than of the value. Measured on this branch:
+    #
+    #   SELECT now()::timestamptz AS t   ->  ftable = 0, value arrives as a plain String
+    #
+    # `ftable` is 0 for ANY value produced by an expression, a cast, an aggregate or a UNION, so such
+    # a value HAS NO TABLE IDENTITY TO KEY ON. No extension of the derivation reaches it. The guard
+    # also excluded a WF-005 crawl table, was defeated by a column alias, and hooked one of ten
+    # `PG::Result` accessors — but those are symptoms; the shape was wrong.
+    #
+    # WHAT CARRIES THE CLAIM INSTEAD is `spec/acceptance/wf005_deadline_gates_spec.rb`, which proves
+    # BY CALLER-BOUND INVOCATION that each :442 gate consulted `RunDeadline#expired?` as part of its
+    # own execution. A caller that reaches for `crawl["deadline_at"]` to rebuild the comparison —
+    # behind any number of helpers, aliases, containers or spellings — does not invoke the owner FROM
+    # THAT GATE and fails there. That is an observation of what ran, not of what was written.
     CLASSIFIED_DEADLINE_COMPARISONS = {}.freeze
 
     # PROOF 185 AND 186 ARE DELETED, NOT WIDENED (D5 family 1, R10-18).
