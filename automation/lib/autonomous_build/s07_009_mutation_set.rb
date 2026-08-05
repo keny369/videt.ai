@@ -582,7 +582,7 @@ module AutonomousBuild
       { id: "r17-probe-blinded", blocker: "R17-ARCH-O1", file: ORDER_PROOF_FILE, proof: ORDER_PROOF,
         description: "the lock-order probe's predicate replaced by a constant, so the instrument that " \
                      "reads the production order can no longer report the other answer",
-        from: "        SELECT EXISTS (\n          SELECT 1 FROM pg_locks\n          WHERE pid = pg_backend_pid() AND relation = 'organizations'::regclass\n            AND mode = 'RowExclusiveLock' AND granted\n        );\n",
+        from: "        SELECT EXISTS (\n          SELECT 1 FROM organizations o\n          WHERE o.xmin = pg_current_xact_id()::text::xid\n        );\n",
         to: "        SELECT true;\n", expectation: "kill" },
       { id: "r17-singleton-observer-removed", blocker: "R17-ARCH-O4", file: SENTINEL, proof: SENTINEL_PROOF,
         description: "the sentinel stops observing the singleton ancestry, so a handler exposing " \
