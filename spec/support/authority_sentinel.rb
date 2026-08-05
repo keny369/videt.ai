@@ -67,12 +67,13 @@ module AuthoritySentinel
     def arm!
       return if armed?
 
-      @depth = 0
-      @writes = 0
-      @evaluated = false
-      @attested = false
       PG::Connection.prepend(WriteObserver)
       IdentityAccess::Authorization::CommandAuthorizer.singleton_class.prepend(RecheckObserver)
+      # THE HUMAN DOOR. Without this line `note_authentication` is never called, `f[:human]` is never
+      # true, and `judge` returns at its first guard for EVERY command — the sentinel evaluates its
+      # rule zero times while reporting no violations. It was missing, and the whole-suite emptiness
+      # check below now covers the human predicate for exactly that reason.
+      IdentityAccess::Authorization::CommandAuthorizer.prepend(AuthenticationObserver)
       Workflows::Wf005::AuthorityAttestation.singleton_class.prepend(AttestationObserver)
       observed_handlers.each { |handler| handler.prepend(CommandObserver) }
       @armed = true
@@ -91,10 +92,24 @@ module AuthoritySentinel
     # anything at all across the run", which is a property of the run rather than of a thread.
     def observed_commands = (@observed_commands ||= 0)
     def observed_writes = (@observed_writes ||= 0)
+    # Commands judged HUMAN-AUTHORIZED. Counted separately because a sentinel that observes commands
+    # and writes but never recognises a human one has an antecedent nothing satisfies, so its rule is
+    # never evaluated and its silence means nothing.
+    def observed_human_commands = (@observed_human_commands ||= 0)
+    # WHICH HANDLERS ACTUALLY RAN. The rule is derived from EXECUTION, so a handler no example drives
+    # is invisible to it by construction — a new handler could wait, write and never re-read authority
+    # and this instrument would say nothing, which is exactly what PROOF 193's static census used to
+    # catch. Requiring every discovered handler to have executed closes that without enumerating one.
+    def executed_handlers = (@executed_handlers ||= Set.new)
 
     def note_write(sql)
       f = frame
-      return unless sql.match?(/\A\s*(INSERT|UPDATE|DELETE)\b/i)
+      # NOT ANCHORED, AND THAT IS THE POINT. The anchored form missed every CTE-shaped write — which
+      # is exactly what the D3 cancellation (`WITH authority AS (...) UPDATE crawls ...`) and the D6
+      # activation (`WITH authority, superseded, inserted`) are, so the two writes this tranche's
+      # headline invariant is about were not counted as writes at all. A verb list anchored to the
+      # start of the statement is a syntactic rule one form short.
+      return unless sql.match?(/\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM)\b/i)
 
       @observed_writes = observed_writes + 1
       return unless f[:depth].positive?
@@ -104,7 +119,11 @@ module AuthoritySentinel
 
     def note_authentication
       f = frame
-      f[:human] = true if f[:depth].positive?
+      return unless f[:depth].positive?
+      return if f[:human]
+
+      f[:human] = true
+      @observed_human_commands = observed_human_commands + 1
     end
 
     def note_recheck
@@ -122,6 +141,7 @@ module AuthoritySentinel
       f = frame
       outer = f.dup
       @observed_commands = observed_commands + 1
+      executed_handlers << handler.name
       f.merge!(depth: f[:depth] + 1, writes: 0, evaluated: false, attested: false, human: false)
       result = yield
       judge(handler, result, f)
@@ -133,7 +153,21 @@ module AuthoritySentinel
     # AN EMPTY CENSUS IS NOT SUCCESS, and this is callable so it can be proved directly rather than
     # only observed at suite end. Blinding the instrument makes the suite GREENER — a sentinel that
     # observes nothing records no violations — so a blind run must FAIL rather than quieten.
-    def assert_observed!(commands: observed_commands, writes: observed_writes)
+    def assert_observed!(commands: observed_commands, writes: observed_writes,
+                         human: observed_human_commands,
+                         undriven: observed_handlers.map(&:name) - executed_handlers.to_a)
+      if human.zero?
+        raise "AuthoritySentinel judged ZERO commands human-authorized across the entire suite; its " \
+              "antecedent is never satisfied, `judge` returns at its first guard every time, and its " \
+              "'no violations' result means nothing. The `AuthenticationObserver` door was missing " \
+              "once and this is the check that would have said so."
+      end
+      unless undriven.empty?
+        raise "#{undriven.length} WF-005 handler(s) were never executed by any example, so this " \
+              "instrument — which derives its rule from EXECUTION — cannot have judged them: " \
+              "#{undriven.join(', ')}. A handler that waits, writes and never re-reads authority " \
+              "would be invisible here, which is the obligation PROOF 193's static census carried."
+      end
       if commands.zero?
         raise "AuthoritySentinel observed ZERO WF-005 command executions across the entire suite; " \
               "its handler discovery is blind and its 'no violations' result means nothing"

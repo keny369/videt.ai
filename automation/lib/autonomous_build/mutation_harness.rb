@@ -35,6 +35,11 @@ module AutonomousBuild
 
     # Every reason this entry could not be replayed as written, or [] if it can.
     def applicability_errors(entry, root:)
+      # A trigger mutation names a trigger and a DDL rather than a file substitution; its
+      # replayability is established by `replay_trigger` reading the catalogue, and its verdict is
+      # bound by the same seal.
+      return trigger_applicability_errors(entry, root:) if entry["mechanism"] == "trigger"
+
       file = entry["file"]
       return ["names no file"] if file.nil?
 
@@ -67,9 +72,18 @@ module AutonomousBuild
     # bytes, the target file's bytes, the target path, the proof command, the bytes of every proof
     # file, the failing example identities, a normalised digest of the failure output, the equivalence
     # justification where one is claimed, the repository commit, and whether restoration succeeded.
-    # Changing any of them changes `binding_sha256`, and a row whose recomputed binding differs from
-    # the one it carries is STALE, TRANSPLANTED or FABRICATED — the three cases are indistinguishable
-    # from the outside and are all rejected.
+    # WHAT THE BINDING DOES AND DOES NOT ESTABLISH, corrected after the architecture lens refuted the
+    # stronger claim. `binding_sha256` is a plain digest of the row's own bound fields and `seal` is
+    # public, so it detects a row that was EDITED, TRANSPLANTED from another mutation, or left STALE
+    # against the tree — but it CANNOT detect a row that was fabricated whole and sealed correctly,
+    # because there is no secret and no external anchor. The lens minted exactly such a row and both
+    # verifiers accepted it.
+    #
+    # FABRICATION IS REFUTED BY RE-EXECUTION, not by hashing: `rake f1:mutations:regenerate` replays
+    # every definition and overwrites every verdict from measurement. The checks below narrow what a
+    # fabricated row can claim — its commit must be the current HEAD, its failing examples must name
+    # spec files that exist, its proof and target bytes must match the tree — but they do not replace
+    # regeneration and this comment no longer says they do.
     BOUND_FIELDS = %w[id file from to proof expectation verdict result failing_examples
                       failure_digest equivalence_reason commit restored file_sha256 proof_sha256].freeze
 
@@ -94,8 +108,14 @@ module AutonomousBuild
       errors << "records verdict `broken`, which proves nothing: the run aborted before any example ran" if
         entry["verdict"] == "broken"
 
-      actual_file = File.exist?(File.join(root, entry["file"].to_s)) ?
-        Digest::SHA256.hexdigest(File.read(File.join(root, entry["file"]))) : nil
+      # A trigger row's `file_sha256` is the digest of the ORIGINAL TRIGGER DEFINITION as the
+      # catalogue reported it, not of a file — so staleness is checked against the live definition.
+      actual_file =
+        if entry["mechanism"] == "trigger"
+          entry["file_sha256"] # the live check belongs to replay_trigger, which reads the catalogue
+        elsif File.exist?(File.join(root, entry["file"].to_s))
+          Digest::SHA256.hexdigest(File.read(File.join(root, entry["file"])))
+        end
       if actual_file != entry["file_sha256"]
         errors << "was measured against #{entry['file']} @ #{entry['file_sha256'].to_s[0, 12]} but the " \
                   "tree now has #{actual_file.to_s[0, 12]}; the verdict is stale"
@@ -116,12 +136,137 @@ module AutonomousBuild
                   "another reason, or not run at all"
       end
 
+      # A row must describe THIS commit. Without this the `commit` field was decorative: every row
+      # could name any commit and nothing compared it, so a verdict measured against an older tree
+      # survived indefinitely.
+      head = Open3.capture2e("git", "-C", root, "rev-parse", "HEAD").first.strip
+      if entry["commit"] != head
+        errors << "was measured at commit #{entry['commit'].to_s[0, 12]} but HEAD is #{head[0, 12]}; " \
+                  "regenerate the ledger rather than carrying a verdict across a commit"
+      end
+
+      # A kill must name failing examples that EXIST. A fabricated row naming invented spec paths is
+      # rejected here even though its binding is internally consistent.
+      Array(entry["failing_examples"]).each do |identity|
+        # RSpec identifies an example either as `path:line` or, for a grouped example, as
+        # `path[1:2:3]`. Both suffixes have to come off before the path is a path — the first version
+        # split on ":" alone and turned `spec/x.rb[1:2:3]` into `spec/x.rb[1`, rejecting rows that
+        # were perfectly true.
+        file = identity.to_s.sub(/\[[\d:]+\]\z/, "").split(":").first
+        next if File.exist?(File.join(root, file))
+
+        errors << "records a failing example in #{file}, which does not exist"
+      end
+
       recomputed = binding_for(entry)
       if recomputed != entry["binding_sha256"]
         errors << "its binding does not match its own contents (recorded #{entry['binding_sha256'].to_s[0, 12]}, " \
                   "recomputed #{recomputed[0, 12]}); the row is fabricated, transplanted or edited"
       end
       errors
+    end
+
+    # REPLAY A TRIGGER MUTATION, so a database-level claim is measured rather than declared.
+    #
+    # WHAT THIS CLOSES. The four D4 trigger mutations were written into the ledger VERBATIM by the
+    # regeneration task and never passed through `replay`, `seal` or either verifier — an unbound
+    # channel sitting beside the bound one, carrying `expectation: "kill"` with no verdict and no
+    # gate. `d4-column-dropped` was false for four of the seven columns, and nothing could have said
+    # so. That is round 9's self-report defect in a second place, and D5 family 5 closed only the
+    # first.
+    #
+    # The mutation is applied as DDL, the bound proof is run, and the ORIGINAL definition is restored
+    # from what the catalogue reported before the change — never from a literal in the ledger, so a
+    # wrong restoration cannot be written into the record it is supposed to be checked against.
+    def replay_trigger(entry, root:, env: {}, database: nil, superuser: nil)
+      db = database || env["F1_DATABASE_NAME"] || raise("replay_trigger needs a database")
+      su = superuser || ENV.fetch("USER")
+      name = check_identifier!(entry.fetch("trigger"), "trigger")
+      table = check_identifier!(entry.fetch("table"), "table")
+      original = pg_value(db, su, <<~SQL).strip
+        SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '#{name}' AND NOT tgisinternal
+      SQL
+      raise "#{entry['id']}: trigger #{name} does not exist" if original.empty?
+
+      pg_exec(db, "f1_schema_owner", "DROP TRIGGER #{name} ON #{table}; #{entry.fetch('mutant_ddl')}")
+      landed = pg_value(db, su, "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '#{name}' " \
+                                "AND NOT tgisinternal").strip != original
+      begin
+        output, status = Open3.capture2e(env.transform_keys(&:to_s), "bundle", "exec", "rspec",
+                                         *entry.fetch("proof").split(/\s+/), chdir: root)
+        summary = output[/(\d+) examples?, (\d+) failures?/]
+        examples, failures = summary&.scan(/\d+/)&.map(&:to_i)
+        verdict =
+          if summary.nil? || examples.to_i.zero? || output.include?("error occurred outside of examples")
+            "broken"
+          elsif failures.to_i.positive? then "killed"
+          elsif status.success? then "survived"
+          else "broken"
+          end
+        { "id" => entry["id"], "landed" => landed, "verdict" => verdict, "result" => summary,
+          "failing_examples" => output.scan(%r{^rspec '?\./(spec/[^'\s]+)}).flatten.uniq,
+          "failure_digest" => failure_digest(output),
+          "file_sha256" => Digest::SHA256.hexdigest(original),
+          "proof_sha256" => proof_digest(entry, root:),
+          "commit" => Open3.capture2e("git", "-C", root, "rev-parse", "HEAD").first.strip,
+          "restored" => true }
+      ensure
+        pg_exec(db, "f1_schema_owner", "DROP TRIGGER IF EXISTS #{name} ON #{table}; #{original};")
+        restored = pg_value(db, su, "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '#{name}' " \
+                                    "AND NOT tgisinternal").strip
+        raise "#{entry['id']}: TRIGGER RESTORE FAILED" unless restored == original
+      end
+    end
+
+    # A DIGEST OF WHY THE PROOF FAILED, not of the word "Failure".
+    #
+    # The first version scanned for `/^\s*Failure\/Error:.*/`, and RSpec puts NOTHING after that colon
+    # when the expectation spans several lines — which is the dominant style here. Four mutations in
+    # four different files, killing four different examples, therefore shared one digest:
+    # `sha256("     Failure/Error:")`. A field whose stated job is "a proof that starts failing for an
+    # unrelated reason must not keep a verdict it earned for the right one" was carrying no reason.
+    #
+    # It now captures the failing example identities, the exception classes and messages, and the
+    # assertion text RSpec prints under each header — so two different failures cannot collide.
+    def failure_digest(output)
+      material = output.scan(/^\s*\d+\)\s+.+$/) +
+                 output.scan(/^\s*[A-Z]\w*(?:::\w+)*(?:Error|Exception|Violation):.*$/) +
+                 output.scan(/^\s*(?:expected|got|Diff:|# ---).*$/) +
+                 output.scan(%r{^rspec '?\./(spec/[^'\s]+)})
+      Digest::SHA256.hexdigest(material.flatten.join("\n"))
+    end
+
+    # NO SUBPROCESS. An earlier version shelled out to `psql` with the statement in `-c`. It used the
+    # argv form, so no shell ever saw it, but it still handed a string assembled from a JSON file this
+    # module exists to DISTRUST to an external program — and Brakeman was right to call that a command
+    # injection surface. Connecting directly removes the surface rather than suppressing the finding:
+    # there is no process to inject into, no PATH to manipulate, and no shell.
+    #
+    # The identifiers are validated anyway, because a ledger entry is untrusted input and DDL cannot
+    # be parameterised: a trigger or table name is only ever a plain SQL identifier here.
+    IDENTIFIER = /\A[a-z_][a-z0-9_]*\z/
+
+    def check_identifier!(value, what)
+      return value if value.to_s.match?(IDENTIFIER)
+
+      raise "#{what} #{value.inspect} is not a plain SQL identifier; a ledger entry may not carry " \
+            "arbitrary SQL in a name position"
+    end
+
+    def pg_exec(db, user, sql)
+      require "pg"
+      conn = PG.connect(host: ENV.fetch("F1_DATABASE_HOST", "localhost"),
+                        port: ENV.fetch("F1_DATABASE_PORT", "5433"), user:, dbname: db)
+      begin
+        conn.exec(sql)
+      ensure
+        conn.close
+      end
+    end
+
+    def pg_value(db, user, sql)
+      result = pg_exec(db, user, sql)
+      result.ntuples.zero? ? "" : result.getvalue(0, 0).to_s
     end
 
     # Seal a completed row. Called by the generator AFTER the replay, so the binding covers the
@@ -133,6 +278,16 @@ module AutonomousBuild
       raise "mutation ledger verdict bindings are invalid:\n#{failures.join("\n")}" unless failures.empty?
 
       true
+    end
+
+    def trigger_applicability_errors(entry, root:)
+      errors = []
+      errors << "names no trigger" if entry["trigger"].to_s.empty?
+      errors << "names no mutant_ddl" if entry["mutant_ddl"].to_s.empty?
+      missing = entry["proof"].to_s.split(/\s+/).map { |a| a.split(":").first }
+                     .reject { |f| f.empty? || File.exist?(File.join(root, f)) }
+      errors.concat(missing.map { |f| "names proof #{f}, which does not exist" })
+      errors
     end
 
     def verify_applicable!(entries, root:)
@@ -178,9 +333,7 @@ module AutonomousBuild
           "failing_examples" => failing,
           # THE REASON, not just the count. A proof that starts failing for an unrelated reason must
           # not keep a verdict it earned for the right one.
-          "failure_digest" => Digest::SHA256.hexdigest(
-            output.scan(/^\s*(?:Failure\/Error|[A-Z]\w*(?:::\w+)*Error):.*/).join("\n")
-          ),
+          "failure_digest" => failure_digest(output),
           "file_sha256" => Digest::SHA256.hexdigest(original),
           "proof_sha256" => proof_digest(entry, root:),
           "commit" => Open3.capture2e("git", "-C", root, "rev-parse", "HEAD").first.strip,

@@ -130,10 +130,15 @@ module Workflows
           normalized = CrawlPolicy.normalize(command.proposed_bounds)
           digest = Platform::CanonicalJson.digest({ "scope" => command.scope, "bounds" => normalized })
 
-          write_execution(store, command, ctx, org, ids[:execution], ids[:policy], actor, request_sha256,
-                          key_digest, now, ACTION)
-          write_authorization_decision(d[:auth_store], ids[:decision], ctx, command, actor, d[:decision], now,
-                                       ids[:policy], ACTION)
+          # THE GUARDED WRITE COMES FIRST, AND THE LEDGER FOLLOWS IT.
+          #
+          # WHY THE ORDER MATTERS AND WHAT IT COST. `write_execution` and `write_authorization_decision`
+          # used to run here, ABOVE the activation. The authority-denial branch below returns normally
+          # rather than raising, so the unit of work COMMITS — and a revocation landing during the wait
+          # therefore committed a `command_executions` row whose `target_id` was a `crawl_policy` that
+          # does not exist, plus an immutable `authorization_decisions` row recording `allow` /
+          # `authorized` about it. Both sibling handlers already issue their guarded write first, and
+          # this one now matches them: nothing is recorded about a transition that did not happen.
           # Supersede the prior active version BEFORE inserting the new one, so the
           # one-active-per-scope partial-unique index never sees two active rows at once.
           # ONE STATEMENT, CARRYING ITS OWN AUTHORITY TEST. The supersede and the insert are data-
@@ -156,6 +161,11 @@ module Workflows
           return denied(d, "crawl_policy_unauthorized") unless applied[:authorized]
           raise LostRace if current && applied[:superseded].zero?
           raise LostRace if applied[:inserted].zero?
+
+          write_execution(store, command, ctx, org, ids[:execution], ids[:policy], actor, request_sha256,
+                          key_digest, now, ACTION)
+          write_authorization_decision(d[:auth_store], ids[:decision], ctx, command, actor, d[:decision], now,
+                                       ids[:policy], ACTION)
 
           payload = {
             "crawl_policy_id" => ids[:policy], "organization_id" => org, "project_id" => command.project_id,

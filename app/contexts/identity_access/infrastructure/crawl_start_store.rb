@@ -266,9 +266,14 @@ module IdentityAccess
       # is ORDINARY ROW STATE, so it can be a CONJUNCT OF THE WRITE rather than a Ruby statement
       # standing next to it. There is then nothing to hoist, reorder, extract into a helper,
       # short-circuit or arrange a Boolean around: the authority test and the state transition are one
-      # statement, evaluated by PostgreSQL at the instant of the write, which is necessarily after
-      # every lock the handler took to get here. No transaction-header interpretation is involved, and
-      # no `xmax` or multixact decoding — the invariant reads a column that means what it says.
+      # statement, evaluated by PostgreSQL IN THE SAME STATEMENT as the write, after every lock taken
+      # in a PRIOR statement. Stated precisely because the looser form is false: a statement that
+      # blocks INSIDE ITSELF evaluates its predicate from the snapshot taken when it began, so a
+      # revocation committing during that block is not seen. No production interleaving reaches it —
+      # this handler holds `lock_crawl` on the row across the statement and is the only writer — but
+      # the invariant rests on the lock discipline PLUS the statement, not on the statement alone.
+      # No transaction-header interpretation is involved, and no `xmax` or multixact decoding — the
+      # invariant reads a column that means what it says.
       #
       # THE TWO ZERO-ROW CASES ARE DISTINGUISHED, because they are opposite kinds of event. Authority
       # that moved is a DOMAIN DENIAL the caller must report; a lost serialized transition is

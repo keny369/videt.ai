@@ -99,7 +99,15 @@ RSpec.describe ExecutionProbe, type: :architecture do
       stub_const("ProbeLegacy", subject_class)
       unchecked = described_class::Target.new("ProbeLegacy", :value, false) # deliberately NOT resolved
 
-      seen = described_class.watch([unchecked]) { 5.times { ProbeLegacy.new(1).value } }
+      # Observed WITHOUT `watch`, because `watch` now refuses an unobservable target at observation
+      # time as well as at construction — which is itself the repair for a redefinition escape. The
+      # old form is reconstructed directly so the demonstration still shows what it showed.
+      counts = Hash.new(0)
+      trace = TracePoint.new(:call) do |tp|
+        counts["ProbeLegacy#value"] += 1 if tp.defined_class == ProbeLegacy && tp.method_id == :value
+      end
+      trace.enable { 5.times { ProbeLegacy.new(1).value } }
+      seen = described_class::Observation.new(counts)
 
       expect(seen.evaluated?(unchecked)).to be(false), "the old form saw nothing, as recorded"
       # ...and that false is indistinguishable from a control that genuinely did not run, which is
@@ -163,6 +171,7 @@ RSpec.describe ExecutionProbe, type: :architecture do
       def self.owner_control = :consulted
       def gate = CallerBound.owner_control          # the caller under test
       def sibling = CallerBound.owner_control       # a different production path
+      def gate_two = CallerBound.owner_control      # a name the substring match used to collide with
       def reimplemented = :consulted                # the inversion: same answer, owner never called
     end
 
@@ -238,6 +247,35 @@ RSpec.describe ExecutionProbe, type: :architecture do
       seen = described_class.watch([owner]) { CallerBound.new.reimplemented }
 
       expect(seen).not_to have_evaluated(owner)
+    end
+
+    it "PROOF 209j — a caller-bound assertion naming a site that resolves to nothing RAISES" do
+      # Every negative caller-bound assertion naming a typo, a renamed method or a fictional class
+      # used to pass vacuously — inside the mechanism built to stop vacuity.
+      seen = described_class.watch([owner]) { CallerBound.new.gate }
+
+      expect { seen.evaluated_from?(owner, "TotallyMadeUpClass#nonsense") }
+        .to raise_error(/not a defined constant/)
+      expect { seen.evaluated_from?(owner, "CallerBound#no_such_method") }
+        .to raise_error(/does not define/)
+    end
+
+    it "PROOF 209k — a site match is a whole method identity, not a substring" do
+      # `.from("CallerBound#gate")` was satisfied by `CallerBound#gate_two`.
+      seen = described_class.watch([owner]) { CallerBound.new.gate_two }
+
+      expect(seen).to have_evaluated(owner).from("CallerBound#gate_two")
+      expect(seen.evaluated_from?(owner, "CallerBound#gate")).to be(false)
+    end
+
+    it "PROOF 209l — a target REDEFINED into an unobservable accessor is refused at watch time" do
+      klass = Class.new { def shifting = :ruby }
+      stub_const("ProbeShifting", klass)
+      target = described_class.calls("ProbeShifting#shifting").first
+      klass.class_eval { undef_method(:shifting); attr_reader :shifting }
+
+      expect { described_class.watch([target]) { ProbeShifting.new.shifting } }
+        .to raise_error(/generated accessor/)
     end
 
     it "PROOF 209i — THE OLD FORM WOULD HAVE PASSED every one of the cases above" do

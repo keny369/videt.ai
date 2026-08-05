@@ -19,7 +19,7 @@ RSpec.describe AutonomousBuild::MutationHarness, type: :architecture do
       "proof" => proof, "expectation" => "kill", "verdict" => "killed",
       "result" => "5 examples, 1 failure", "failing_examples" => ["spec/platform/run_deadline_spec.rb:1"],
       "failure_digest" => "d" * 64, "equivalence_reason" => nil,
-      "commit" => "0" * 40, "restored" => true,
+      "commit" => `git -C #{LEDGER_ROOT} rev-parse HEAD`.strip, "restored" => true,
       "file_sha256" => Digest::SHA256.hexdigest(File.read(File.join(LEDGER_ROOT, file))),
       "proof_sha256" => described_class.proof_digest({ "proof" => proof }, root: LEDGER_ROOT)
     }.merge(overrides)
@@ -30,10 +30,30 @@ RSpec.describe AutonomousBuild::MutationHarness, type: :architecture do
     expect { described_class.verify_bindings!([truthful_row], root: LEDGER_ROOT) }.not_to raise_error
   end
 
-  it "rejects a FABRICATED verdict — a row sealed over different contents than it carries" do
+  it "rejects a row EDITED after sealing" do
+    # Named precisely. This is post-seal editing, which the binding does detect — it is NOT the same
+    # as fabrication, and the previous name for this example overclaimed.
     forged = truthful_row.merge("verdict" => "killed", "failing_examples" => ["spec/made_up_spec.rb:1"])
     expect { described_class.verify_bindings!([forged], root: LEDGER_ROOT) }
       .to raise_error(/fabricated, transplanted or edited/)
+  end
+
+  it "rejects a correctly sealed row whose failing examples do not exist" do
+    # WHAT THE ARCHITECTURE LENS DEMONSTRATED: `seal` is public and the binding is a plain digest of
+    # the row's own contents, so a row fabricated WHOLE and sealed correctly passed both verifiers.
+    # The binding cannot refute that — only re-execution can. These checks narrow what such a row may
+    # claim, and the harness comment no longer claims more than it does.
+    fabricated = described_class.seal(truthful_row.tap { |r| r.delete("binding_sha256") }
+                                      .merge("failing_examples" => ["spec/never_existed_spec.rb:1"]))
+    expect { described_class.verify_bindings!([fabricated], root: LEDGER_ROOT) }
+      .to raise_error(/which does not exist/)
+  end
+
+  it "rejects a correctly sealed row measured at a different commit" do
+    stale_commit = described_class.seal(truthful_row.tap { |r| r.delete("binding_sha256") }
+                                        .merge("commit" => "0" * 40))
+    expect { described_class.verify_bindings!([stale_commit], root: LEDGER_ROOT) }
+      .to raise_error(/but HEAD is/)
   end
 
   it "rejects a STALE verdict — the production file has changed since it was measured" do

@@ -83,6 +83,19 @@ module IdentityAccess
                 state_version = state_version + 1, updated_at = $2::timestamptz
             WHERE $8::uuid IS NOT NULL AND id = $8::uuid AND state = 'active'
               AND state_version = $12::int
+              -- THE SUPERSEDED ROW MUST BELONG TO THE SCOPE BEING ACTIVATED.
+              --
+              -- Without these three predicates the CTE matched on `id` alone, so a `supersedes_id`
+              -- naming another scope's active version superseded THAT scope and activated this one,
+              -- reporting {authorized: true, superseded: 1, inserted: 1} — a fully successful
+              -- transition by every signal the caller has, leaving the other scope with ZERO active
+              -- versions. `f1_crawl_policies_guard` makes a superseded row terminal, so the emptied
+              -- scope cannot be restored, only re-activated. RLS barred the cross-TENANT case; nothing
+              -- barred the cross-SCOPE one, and the store must hold its own contract rather than
+              -- depend on the one caller that happens to derive the id correctly.
+              AND organization_id = $4::uuid
+              AND scope = $6
+              AND project_id IS NOT DISTINCT FROM $5::uuid
               AND EXISTS (SELECT 1 FROM authority)
             RETURNING 1
           ), inserted AS (

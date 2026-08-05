@@ -79,8 +79,12 @@ module IdentityAccess
       # row state — so it belongs IN the statement that depends on it rather than in a Ruby check
       # standing next to it. There is then nothing to hoist, reorder, extract into a helper or arrange
       # a Boolean around, and no list of which handlers must remember to look: PostgreSQL evaluates
-      # authority and the insertion together, at the instant of the write, which is necessarily after
-      # every lock the handler took to reach it.
+      # authority and the insertion together, IN THE SAME STATEMENT as the write, after every lock
+      # taken in a PRIOR statement. Stated precisely because the looser form is false: a statement
+      # that blocks INSIDE ITSELF evaluates its predicate from the snapshot taken when it began, so a
+      # revocation committing during that block is not seen. No production interleaving reaches it —
+      # each handler holds its lock across the statement and is the only writer — but the reason the
+      # invariant holds is the lock discipline plus the statement, not the statement alone.
       #
       # A ZERO ROW COUNT HERE MEANS EXACTLY ONE THING. Unlike the cancellation UPDATE, this statement
       # carries no state or version predicate — a queued Crawl is new — so the only way it can insert

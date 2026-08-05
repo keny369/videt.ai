@@ -33,19 +33,29 @@ namespace :f1 do
         row
       end
 
-      AutonomousBuild::MutationHarness.verify_bindings!(rows, root:)
+      # TRIGGER MUTATIONS ARE REPLAYED TOO, and sealed and verified with the same machinery. They
+      # used to be copied into the ledger as literals, which is the unbound channel the architecture
+      # and schema lenses both found.
+      trigger_rows = AutonomousBuild::S07009MutationSet::TRIGGER_MUTATIONS.map do |entry|
+        outcome = AutonomousBuild::MutationHarness.replay_trigger(entry, root:, env:)
+        row = AutonomousBuild::MutationHarness.seal(entry.merge(outcome))
+        warn format("%-34s landed=%-5s %-9s %s", row["id"], row["landed"], row["verdict"], row["result"])
+        row
+      end
+
+      all_rows = rows + trigger_rows
+      AutonomousBuild::MutationHarness.verify_bindings!(all_rows, root:)
       File.write(out, JSON.pretty_generate({
         "generated_by" => "rake f1:mutations:regenerate (AutonomousBuild::MutationHarness)",
         "definitions" => "automation/lib/autonomous_build/s07_009_mutation_set.rb",
         "binding" => "each row's binding_sha256 covers the patch, target bytes, proof bytes, outcome " \
                      "and commit; see MutationHarness::BOUND_FIELDS",
-        "trigger_mutations" => AutonomousBuild::S07009MutationSet::TRIGGER_MUTATIONS,
-        "mutations" => rows
+        "mutations" => all_rows
       }) + "\n")
-      killed = rows.count { |r| r["verdict"] == "killed" }
-      warn "\nwrote #{out}: #{killed}/#{rows.length} killed, " \
-           "#{rows.count { |r| r['verdict'] == 'survived' }} survived, " \
-           "#{rows.count { |r| r['verdict'] == 'broken' }} broken"
+      killed = all_rows.count { |r| r["verdict"] == "killed" }
+      warn "\nwrote #{out}: #{killed}/#{all_rows.length} killed, " \
+           "#{all_rows.count { |r| r['verdict'] == 'survived' }} survived, " \
+           "#{all_rows.count { |r| r['verdict'] == 'broken' }} broken"
     end
   end
 end

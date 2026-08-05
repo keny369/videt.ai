@@ -126,6 +126,20 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
   # `f1_crawl_host_gates_guard` requires every UPDATE to advance `state_version` and `updated_at`, so
   # an update that omits them is refused by THAT guard and never reaches the closure. A proof that
   # tripped the wrong guard would report a refusal it did not cause.
+  # The columns the closure's UPDATE limb actually names, read from the catalogue. Used only to ASK
+  # what the trigger says — never to decide what it ought to say.
+  def closure_when_columns
+    definition = DbInspector.one(<<~SQL, [CLOSURE_FUNCTION])["def"]
+      SELECT pg_get_triggerdef(t.oid) AS def
+      FROM pg_trigger t
+      JOIN pg_class c ON c.oid = t.tgrelid
+      JOIN pg_proc pr ON pr.oid = t.tgfoid
+      WHERE NOT t.tgisinternal AND pr.proname = $1 AND c.relname = 'crawl_host_gates'
+        AND (t.tgtype & 16) <> 0
+    SQL
+    definition.scan(/new\.(\w+) IS DISTINCT FROM/).flatten.uniq
+  end
+
   def gate_update(assignment)
     "UPDATE crawl_host_gates SET #{assignment}, state_version = state_version + 1, " \
       "updated_at = now() WHERE id = $1::uuid"
@@ -254,15 +268,12 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
 
     # THE GATE IS DRIVEN TO `in_progress` FIRST, AND THAT IS NOT A FIXTURE SHORTCUT.
     #
-    # `crawl_host_gates` carries guards STRONGER than the closure: `f1_crawl_host_gates_sitemap_guard`
-    # raises `crawl_host_gate_sitemap_decision_frozen` and the robots limb of
-    # `f1_crawl_host_gates_guard` raises `crawl_host_gate_robots_decision_frozen` once each decision is
-    # terminal, whatever the crawl's state. A column driven from a terminal gate is therefore refused
-    # by THAT rule and proves nothing about this one — which is exactly the mistake the first version
-    # of this proof made, reporting refusals it had not caused. Every write below is issued against a
-    # gate whose own guards still permit it, using the same transitions production uses, so the CRAWL's
-    # terminality is the only thing left that can refuse it. PROOF 157/live drives every one of them on
-    # a live run and requires it to COMMIT.
+    # `crawl_host_gates` carries guards STRONGER than the closure: the sitemap guard raises
+    # `crawl_host_gate_sitemap_decision_frozen` and the robots limb of `f1_crawl_host_gates_guard`
+    # raises `crawl_host_gate_robots_decision_frozen` once each decision is terminal, whatever the
+    # crawl's state. A column driven from a terminal gate is refused by THAT rule and proves nothing
+    # about this one. Every write below is issued against a gate whose own guards still permit it, so
+    # the CRAWL's terminality is the only thing left that can refuse it.
     def advance_gate_to_in_progress(gate)
       conn.exec_params(<<~SQL, [gate])
         UPDATE crawl_host_gates
@@ -273,42 +284,40 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
       SQL
     end
 
-    # Each of these changes EXACTLY ONE governed column and is legal from `in_progress`.
+    # EACH WRITE CHANGES EXACTLY ONE GOVERNED COLUMN.
+    #
+    # WHY THIS MATTERS AND WHAT IT REPLACED. The previous version drove two of these as "coherent
+    # groups", and each group carried a THIRD governed column that masked the columns the group was
+    # named for. The schema lens dropped `sitemap_state`, `sitemap_terminal_at`, `robots_state` and
+    # `robots_terminal_at` from the trigger's WHEN clause ONE AT A TIME and the whole suite stayed
+    # green — and two of those drops admit a real post-terminal production write, including the exact
+    # `sitemap_state` case R10-15 named. Isolation is the property that makes a per-column proof mean
+    # what its name says.
+    #
+    # THE STATE COLUMNS ARE ISOLATED BY WALKING BACK, not forward. Both guards permit
+    # `in_progress -> pending`, and pending requires the claim columns to be NULL — and the claim
+    # columns are NOT governed, so clearing them adds nothing to what the trigger sees.
     ISOLATED_WRITES = {
+      "sitemap_state" => "sitemap_state = 'pending', sitemap_claim_token = NULL, " \
+                         "sitemap_attempt_started_at = NULL",
       "sitemap_outcome_reason" => "sitemap_outcome_reason = 'sitemap_unavailable'",
       "sitemap_limit_reasons" => %q(sitemap_limit_reasons = '["depth_cap"]'::jsonb),
+      "robots_state" => "robots_state = 'pending'",
       "robots_terminal_reason" => "robots_terminal_reason = 'robots_fetch_failed'"
     }.freeze
 
-    # THE REMAINING FOUR CANNOT BE ISOLATED, and the reason is a real contract rather than a limitation
-    # of this file. `crawl_host_gates_sitemap_terminal_shape` makes `sitemap_terminal_at` non-null
-    # exactly when the sitemap decision is terminal, and `crawl_host_gates_robots_terminal_shape` does
-    # the same for robots — so a decision and its instant must move together, and the sitemap decision
-    # additionally requires its reason. They are driven as the coherent groups the schema demands, and
-    # are labelled as groups so nobody later reads them as isolated writes.
-    GROUPED_WRITES = {
-      "sitemap_state + sitemap_terminal_at" =>
-        "sitemap_state = 'absent', sitemap_outcome_reason = 'no_sitemap', sitemap_terminal_at = now()",
-      "robots_state + robots_terminal_at" =>
-        "robots_state = 'no_restrictions', robots_terminal_at = now()"
-    }.freeze
-
+    # `sitemap_terminal_at` AND `robots_terminal_at` CANNOT BE ISOLATED, AND THE SCHEMA IS WHY.
+    # `crawl_host_gates_sitemap_terminal_shape` and `crawl_host_gates_robots_terminal_shape` make each
+    # instant non-null EXACTLY when its decision is terminal, so the instant and the state must move
+    # together — there is no legal write that changes the instant alone. They are covered instead by
+    # PROOF 157/shape below, which derives the binding from those constraints rather than asserting it.
     UNGOVERNED_PACING_WRITES = {
       "next_allowed_start_at" => "next_allowed_start_at = now() + interval '30 seconds'",
       "recent_start_instants" => "recent_start_instants = ARRAY[now()]"
     }.freeze
 
-    ISOLATED_WRITES.merge(GROUPED_WRITES).each do |label, assignment|
-      it "PROOF 157/#{label} — a post-terminal write to #{label} is REFUSED BY THE DATABASE" do
-        # WHY THIS REPLACED A TEXT ASSERTION (R10-15 / ledger D4). The previous PROOF 157 read
-        # `pg_get_triggerdef` and asserted that seven column NAMES appeared in it. Replacing `OR` with
-        # `AND` in the WHEN clause keeps every one of those names present while making the limb
-        # UNFIREABLE — so the proof passed, 248 examples stayed green, and a post-terminal
-        # `sitemap_state` write was ACCEPTED under the mutant and REFUSED at HEAD. It asserted the
-        # presence of names in text; the contract is about WHEN THE TRIGGER FIRES.
-        #
-        # One example per column or coherent group, because a single example looping over them reports
-        # the first failure and hides the rest — and the round-7 gap was three columns nobody noticed.
+    ISOLATED_WRITES.each do |column, assignment|
+      it "PROOF 157/#{column} — a post-terminal write to #{column} ALONE is REFUSED BY THE DATABASE" do
         f = fixture
         gate = insert_host_gate(f)
         advance_gate_to_in_progress(gate)
@@ -323,8 +332,6 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
 
     UNGOVERNED_PACING_WRITES.each do |column, assignment|
       it "PROOF 157/#{column} — pacing stays writable after terminal, so the limb is not blanket" do
-        # NON-VACUITY. A closure that refused every UPDATE would satisfy every example above while
-        # breaking the host rate window for the next run.
         f = fixture
         gate = insert_host_gate(f)
         advance_gate_to_in_progress(gate)
@@ -335,42 +342,65 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
     end
 
     it "PROOF 157/live — every governed write COMMITS while the run is live, so terminality is what refuses" do
-      # THE OTHER HALF OF NON-VACUITY, and what makes the refusals above mean anything: each write is
-      # accepted by the gate's own guards and every shape constraint on a live run. Without this, a
-      # write that was merely malformed would look exactly like a write the closure refused — which is
-      # the mistake the first version of this proof actually made.
-      ISOLATED_WRITES.merge(GROUPED_WRITES).each do |label, assignment|
+      ISOLATED_WRITES.each do |column, assignment|
         f = fixture
         gate = insert_host_gate(f)
         advance_gate_to_in_progress(gate)
 
         as_runtime(org) do |pg|
           expect { pg.exec_params(gate_update(assignment), [gate]) }
-            .not_to raise_error, "#{label}'s write is not legal on a live run, so its refusal after " \
+            .not_to raise_error, "#{column}'s write is not legal on a live run, so its refusal after " \
                                  "terminalisation would prove nothing about the closure"
         end
       end
     end
 
-    it "PROOF 157/coverage — every column the closure governs is exercised by the examples above" do
-      # THE SET IS DERIVED FROM THE TRIGGER, NOT FROM THIS FILE. If a later change adds a column to the
-      # WHEN clause and no example drives it, this fails — which is the hole the round-7 review found
-      # by hand and the round-10 review found again.
-      definition = DbInspector.one(<<~SQL, [CLOSURE_FUNCTION])["def"]
-        SELECT pg_get_triggerdef(t.oid) AS def
-        FROM pg_trigger t
-        JOIN pg_class c ON c.oid = t.tgrelid
-        JOIN pg_proc pr ON pr.oid = t.tgfoid
-        WHERE NOT t.tgisinternal AND pr.proname = $1 AND c.relname = 'crawl_host_gates'
-          AND (t.tgtype & 16) <> 0
+    it "PROOF 157/shape — a governed state column drags its terminal instant into the closure" do
+      # THE TWO COLUMNS BEHAVIOUR CANNOT ISOLATE, COVERED FROM AN INDEPENDENT AUTHORITY.
+      #
+      # The previous coverage example derived its required set FROM THE TRIGGER — `governed =
+      # definition.scan(/new\.(\w+) IS DISTINCT FROM/)` — so shrinking the WHEN clause shrank the
+      # requirement and every single-column drop stayed green. It guarded addition only.
+      #
+      # This derives the requirement from the SCHEMA instead. A CHECK constraint of the form
+      # `(<state> = ANY (...)) = (<instant> IS NOT NULL)` says the instant exists exactly when the
+      # decision is terminal — so if the state is governed, a post-terminal write to the instant is a
+      # write to the same decision and must be governed too. Dropping either instant from the WHEN
+      # clause now fails here, and nothing about this reads the trigger to decide what it should say.
+      pairs = DbInspector.all(<<~SQL).filter_map do |row|
+        SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conrelid = 'crawl_host_gates'::regclass AND contype = 'c'
       SQL
-      governed = definition.scan(/new\.(\w+) IS DISTINCT FROM/).flatten.uniq
-      exercised = (ISOLATED_WRITES.merge(GROUPED_WRITES).values.join(" ").scan(/(\w+) =/).flatten).uniq
+        m = row["def"].match(/\((\w+) = ANY \(ARRAY\[[^\]]*\]\)\) = \((\w+) IS NOT NULL\)/)
+        m && [m[1], m[2]]
+      end
+      expect(pairs).not_to be_empty, "no terminal-shape constraint parsed; the derivation is broken"
 
-      expect(governed).not_to be_empty, "the WHEN clause parse found no governed columns"
-      expect(governed - exercised).to be_empty,
-                                      "the closure governs #{(governed - exercised).join(', ')}, which no " \
-                                      "example above drives"
+      governed = closure_when_columns
+      pairs.each do |state_column, instant_column|
+        next unless governed.include?(state_column)
+
+        expect(governed).to include(instant_column),
+                            "#{state_column} is closed after terminal but #{instant_column} is not, " \
+                            "and #{instant_column} exists exactly when #{state_column} is terminal — " \
+                            "so a post-terminal write can move the decision's instant unrefused"
+      end
+    end
+
+    it "PROOF 157/reads — every gate column the terminal selection READS is closed" do
+      # THE SECOND INDEPENDENT AUTHORITY: the consumer. `CrawlStartStore#terminal_facts` computes the
+      # frozen coverage record from these columns, so a post-terminal write to any of them can
+      # contradict a record that is already final. Derived by parsing the production SQL, not by
+      # reading the trigger.
+      sql = File.read(Rails.root.join("app/contexts/identity_access/infrastructure/crawl_start_store.rb"))
+      body = sql[sql.index("def terminal_facts")..]
+      read = body[0, body.index("\n      end")].scan(/\bg\.(\w+)/).flatten.uniq
+      expect(read).not_to be_empty, "the terminal_facts parse found no gate columns"
+
+      missing = read - closure_when_columns - %w[crawl_id organization_id id]
+      expect(missing).to be_empty,
+                         "terminal selection reads #{missing.join(', ')} from crawl_host_gates, and " \
+                         "the closure does not govern them; a late write can contradict a frozen record"
     end
 
     it "PROOF 157b — the UPDATE trigger exists on the row, AFTER rather than BEFORE" do

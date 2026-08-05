@@ -87,6 +87,44 @@ RSpec.describe AuthoritySentinel, type: :architecture do
     end
   end
 
+  describe "the human door" do
+    it "is INSTALLED, so the sentinel's antecedent can be satisfied at all" do
+      # THE BLOCKER THIS CLOSES. `AuthenticationObserver` was defined and never prepended, so
+      # `note_authentication` was only ever called from inside its own dead module, `f[:human]` was
+      # never true, and `judge` returned at its first guard for every command that has ever run. The
+      # sentinel evaluated its rule ZERO times while reporting no violations — and the suite went
+      # green precisely because the instrument was blind.
+      described_class.arm!
+
+      expect(IdentityAccess::Authorization::CommandAuthorizer.ancestors)
+        .to include(AuthoritySentinel::AuthenticationObserver),
+            "the human-authorization door is not installed; the sentinel cannot judge anything"
+    end
+
+    it "judges a command human-authorized when authenticate RUNS inside it" do
+      # Observed at the callee, so no call-site spelling changes the answer.
+      judged = nil
+      handler = Struct.new(:name).new("ProbeHandler")
+      described_class.around_command(handler) do
+        described_class.note_authentication
+        judged = described_class.frame[:human]
+        nil
+      end
+
+      expect(judged).to be(true)
+    end
+
+    it "does NOT judge a platform-minted command human-authorized" do
+      # A `crawl_fetch_due` delivery carries no Session, so :335 does not govern it. If this were
+      # true for everything the rule would fire on service commands it does not cover.
+      judged = nil
+      handler = Struct.new(:name).new("ProbeServiceHandler")
+      described_class.around_command(handler) { judged = described_class.frame[:human]; nil }
+
+      expect(judged).to be(false)
+    end
+  end
+
   describe "non-vacuity" do
     it "REFUSES to report success from an empty census" do
       # The failure mode this forecloses is the worst kind: blinding the instrument makes the suite
@@ -95,11 +133,29 @@ RSpec.describe AuthoritySentinel, type: :architecture do
       # DRIVEN DIRECTLY, so this does not depend on what other files ran first. An earlier version
       # asserted the live counters and was order-dependent — which is itself one of the defects this
       # family exists to remove.
-      expect { described_class.assert_observed!(commands: 0, writes: 5) }
+      expect { described_class.assert_observed!(commands: 0, writes: 5, human: 5, undriven: []) }
         .to raise_error(/observed ZERO WF-005 command executions/)
-      expect { described_class.assert_observed!(commands: 5, writes: 0) }
+      expect { described_class.assert_observed!(commands: 5, writes: 0, human: 5, undriven: []) }
         .to raise_error(/observed ZERO writes/)
-      expect { described_class.assert_observed!(commands: 5, writes: 5) }.not_to raise_error
+      # AND THE ONE THAT WAS MISSING: commands and writes observed, but the antecedent never satisfied.
+      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 0, undriven: []) }
+        .to raise_error(/judged ZERO commands human-authorized/)
+      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5, undriven: []) }.not_to raise_error
+    end
+
+    it "REFUSES to report success while any discovered handler was never executed" do
+      # THE GAP A STATIC CENSUS USED TO COVER. This instrument derives its rule from EXECUTION, so a
+      # handler no example drives is invisible to it by construction — a new handler could wait, write
+      # and never re-read authority and nothing would notice. PROOF 193's directory census caught that
+      # and was deleted; this replaces the obligation without enumerating anything, because both sides
+      # are derived: the handlers from the directory, the executions from the run.
+      expect(described_class.observed_handlers).not_to be_empty
+
+      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5,
+                                                undriven: ["Workflows::Wf005::Handlers::Unproved"]) }
+        .to raise_error(/never executed by any example/)
+      expect { described_class.assert_observed!(commands: 5, writes: 5, human: 5, undriven: []) }
+        .not_to raise_error
     end
   end
 end

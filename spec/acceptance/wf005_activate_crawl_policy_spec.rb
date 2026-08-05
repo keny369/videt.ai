@@ -270,6 +270,19 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
                        bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 }))
       expect(first.success?).to be(true)
       before = policies(g[:organization_id]).map { |r| [r["id"], r["state"]] }.to_h
+      def orphan_executions(org)
+        # A `command_executions` row naming a `crawl_policy` that does not exist. The denial's own
+        # row legitimately names the scope resource (the organization or project), so those are not
+        # orphans — the defect is a row pointing at a POLICY id for a policy that was never created.
+        DbInspector.all(<<~SQL, [org]).map { |r| r["target_id"] }
+          SELECT e.target_id FROM command_executions e
+          WHERE e.organization_id = $1::uuid AND e.target_id IS NOT NULL
+            AND e.target_id <> $1::uuid
+            AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = e.target_id)
+            AND NOT EXISTS (SELECT 1 FROM crawl_policies p WHERE p.id = e.target_id)
+        SQL
+      end
+      orphans_before = orphan_executions(g[:organization_id])
 
       result = revoke_during_wait(g[:organization_id]) do
         activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
@@ -282,6 +295,15 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
       expect(after).to eq(before), "the activation partly applied: #{before.inspect} -> #{after.inspect}"
       expect(active_rows(g[:organization_id]).length).to eq(1),
              "the scope was left without exactly one active version"
+
+      # AND THE DURABLE SECURITY LEDGER RECORDS NOTHING ABOUT A TRANSITION THAT DID NOT HAPPEN.
+      # The ledger writes used to precede the guarded write, and this branch returns rather than
+      # raising, so a revocation during the wait committed a `command_executions` row pointing at a
+      # `crawl_policy` id that does not exist and an immutable `authorization_decisions` row recording
+      # `allow`/`authorized` about it.
+      expect(orphan_executions(g[:organization_id]) - orphans_before).to be_empty,
+             "the refused activation committed a command_execution naming a crawl_policy that was " \
+             "never created; the durable security ledger records a transition that did not happen"
     end
 
     it "PROOF 228 — the store refuses a stale epoch when invoked DIRECTLY by another caller" do
@@ -337,6 +359,44 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
       expect(outcome[:superseded]).to eq(0), "the stale version did not supersede"
       expect(outcome[:inserted]).to eq(0), "and the insert did not apply without it"
       expect(active_rows(g[:organization_id]).length).to eq(1), "the scope still has exactly one active"
+    end
+
+    it "PROOF 231 — a supersedes_id from ANOTHER SCOPE supersedes nothing" do
+      # THE CORRUPTION PATH THE CONCURRENCY LENS FOUND. The supersede CTE matched on `id` alone, so a
+      # `supersedes_id` naming another scope's active version superseded THAT scope while activating
+      # this one — reporting {authorized: true, superseded: 1, inserted: 1}, a fully successful
+      # transition by every signal the caller has, and leaving the other scope with ZERO active
+      # versions. `f1_crawl_policies_guard` makes a superseded row terminal, so it cannot be restored.
+      #
+      # RLS barred the cross-TENANT case; nothing barred the cross-SCOPE one. The store must hold its
+      # own contract rather than depend on the single caller that happens to derive the id correctly —
+      # which is the whole point of moving the invariant into the write.
+      g = bootstrap
+      expect(activate(session: g[:session_id], org: g[:organization_id], scope: "organization",
+                      bounds: bounds("accepted_pages" => { "soft" => 5_000, "hard" => 6_000 })).success?).to be(true)
+      org_active = policies(g[:organization_id]).find { |r| r["state"] == "active" }
+
+      outcome = Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                       [g[:organization_id], SecureRandom.uuid_v7])
+        epoch = DbInspector.one("SELECT authorization_epoch FROM organizations WHERE id=$1::uuid",
+                                [g[:organization_id]])["authorization_epoch"].to_i
+        IdentityAccess::Infrastructure::CrawlPolicyStore.new(pg).activate_version(
+          id: SecureRandom.uuid_v7, now: act_now, correlation_id: SecureRandom.uuid_v7,
+          organization_id: g[:organization_id], authorization_epoch: epoch,
+          project_id: g[:project_id], scope: "project",
+          policy_version: "crawl-policy-project-v1",
+          supersedes_id: org_active["id"], expected_state_version: org_active["state_version"].to_i,
+          activated_by_account_id: nil, normalized_bounds: gceil, content_sha256: "\x00" * 32
+        )
+      end
+
+      expect(outcome[:superseded]).to eq(0), "another scope's active version was superseded"
+      expect(outcome[:inserted]).to eq(0), "the insert applied without its supersede"
+      still_active = policies(g[:organization_id]).select { |r| r["state"] == "active" }
+      expect(still_active.map { |r| r["scope"] }).to eq(["organization"]),
+             "the organization scope was left without an active version"
     end
 
     it "PROOF 230 — a retry after a committed activation follows the idempotency contract" do

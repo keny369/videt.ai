@@ -131,8 +131,8 @@ module AutonomousBuild
         to: "    true", expectation: "kill" },
       { id: "f1-thread-identity-dropped", blocker: "R10-17", file: PROBE, proof: PROBE_PROOF,
         description: "thread identity dropped, so another thread's invocation satisfies the proof",
-        from: "      invocations(target).any? { |i| i[:site].include?(site) && i[:thread] == thread.object_id }",
-        to: "      invocations(target).any? { |i| i[:site].include?(site) }", expectation: "kill" },
+        from: "      invocations(target).any? { |i| site_matches?(i[:site], site) && i[:thread] == thread.object_id }",
+        to: "      invocations(target).any? { |i| site_matches?(i[:site], site) }", expectation: "kill" },
 
       # ---- D5 family 3: RowInstantGuard's claim, re-based ---------------------------------------
       { id: "f3-rebuilt-via-local", blocker: "R10-16", file: ADMISSION, proof: GATES_PROOF,
@@ -243,6 +243,16 @@ module AutonomousBuild
         description: "the predicate applied to the wrong row",
         from: "            WHERE id = $4::uuid AND authorization_epoch = $13::bigint",
         to: "            WHERE id = $5::uuid AND authorization_epoch = $13::bigint", expectation: "kill" },
+      { id: "d6-a-ledger-before-guard", blocker: "D6", file: POLICY_HANDLER, proof: POLICY_PROOF,
+        description: "the durable ledger writes hoisted above the guarded write, so a refused " \
+                     "activation commits a command_execution naming a policy never created",
+        from: "          write_execution(store, command, ctx, org, ids[:execution], ids[:policy], actor, request_sha256,\n                          key_digest, now, ACTION)\n          write_authorization_decision(d[:auth_store], ids[:decision], ctx, command, actor, d[:decision], now,\n                                       ids[:policy], ACTION)\n",
+        to: "", expectation: "kill" },
+      { id: "f4-human-door-removed", blocker: "R10-9", file: SENTINEL, proof: SENTINEL_PROOF,
+        description: "AuthoritySentinel's human-authorization door removed, so its antecedent is " \
+                     "never satisfied and judge returns at its first guard for every command",
+        from: "      IdentityAccess::Authorization::CommandAuthorizer.prepend(AuthenticationObserver)\n",
+        to: "", expectation: "kill" },
       { id: "d6-a-outcomes-collapsed", blocker: "D6", file: POLICY_HANDLER, proof: POLICY_PROOF,
         description: "the domain denial and the lost-serialization raise collapsed into one",
         from: "          return denied(d, \"crawl_policy_unauthorized\") unless applied[:authorized]\n          raise LostRace if current && applied[:superseded].zero?",
@@ -254,21 +264,68 @@ module AutonomousBuild
         to: "    def traced_class = singleton ? klass.singleton_class : klass", expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
-    # D4's mutations act on a trigger definition rather than a file. Recorded so the set is complete.
+    # D4's mutations act on a TRIGGER DEFINITION rather than on a file, and they are now REPLAYED,
+    # SEALED AND VERIFIED like every other row.
+    #
+    # WHAT THIS CLOSES. They were written into the ledger verbatim by the regeneration task and never
+    # passed through `replay`, `seal` or either verifier — an unbound channel beside the bound one,
+    # carrying `expectation: "kill"` with no verdict and no gate. The single generic
+    # `d4-column-dropped` entry was FALSE for four of the seven columns and nothing could say so.
+    # Each column now has its own entry, and `MutationHarness.replay_trigger` applies the DDL, runs
+    # the bound proof, restores from what the catalogue reported, and verifies the restoration.
+    CLOSURE_PROOF = "spec/persistence/crawl_terminal_fact_closure_spec.rb"
+
     TRIGGER_MUTATIONS = [
-      { "id" => "d4-when-or-to-and", "blocker" => "D4/R10-15", "mechanism" => "trigger",
-        "description" => "the WHEN clause's OR replaced by AND, keeping every column name while " \
-                         "making the limb unfireable — the exact mutant the old text proof could not see",
-        "proof" => "spec/persistence/crawl_terminal_fact_closure_spec.rb", "expectation" => "kill" },
-      { "id" => "d4-column-dropped", "blocker" => "D4/R10-15", "mechanism" => "trigger",
-        "description" => "one column dropped from the WHEN clause",
-        "proof" => "spec/persistence/crawl_terminal_fact_closure_spec.rb", "expectation" => "kill" },
-      { "id" => "d4-when-false", "blocker" => "D4/R10-15", "mechanism" => "trigger",
-        "description" => "the WHEN clause made unconditionally false",
-        "proof" => "spec/persistence/crawl_terminal_fact_closure_spec.rb", "expectation" => "kill" },
-      { "id" => "d4-when-true", "blocker" => "D4/R10-15", "mechanism" => "trigger",
-        "description" => "the WHEN clause made unconditionally true, refusing pacing writes too",
-        "proof" => "spec/persistence/crawl_terminal_fact_closure_spec.rb", "expectation" => "kill" }
-    ].freeze
+      { id: "d4-when-or-to-and", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "the WHEN clause OR replaced by AND, keeping every column name while making the limb unfireable",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) AND (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) AND (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) AND (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) AND (new.robots_state IS DISTINCT FROM old.robots_state) AND (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) AND (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-when-false", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "the WHEN clause made unconditionally false",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN (false) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-when-true", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "the WHEN clause removed entirely, refusing pacing writes too",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-sitemap_state", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "sitemap_state dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-sitemap_outcome_reason", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "sitemap_outcome_reason dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-sitemap_terminal_at", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "sitemap_terminal_at dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-sitemap_limit_reasons", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "sitemap_limit_reasons dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-robots_state", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "robots_state dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-robots_terminal_reason", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "robots_terminal_reason dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_at IS DISTINCT FROM old.robots_terminal_at)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+      { id: "d4-drop-robots_terminal_at", blocker: "D4/R10-15", mechanism: "trigger",
+        trigger: "crawl_host_gates_terminal_outcome_closure", table: "crawl_host_gates",
+        description: "robots_terminal_at dropped from the WHEN clause; a post-terminal write to it goes unrefused",
+        mutant_ddl: "CREATE TRIGGER crawl_host_gates_terminal_outcome_closure AFTER UPDATE ON public.crawl_host_gates FOR EACH ROW WHEN ((new.sitemap_state IS DISTINCT FROM old.sitemap_state) OR (new.sitemap_outcome_reason IS DISTINCT FROM old.sitemap_outcome_reason) OR (new.sitemap_terminal_at IS DISTINCT FROM old.sitemap_terminal_at) OR (new.sitemap_limit_reasons IS DISTINCT FROM old.sitemap_limit_reasons) OR (new.robots_state IS DISTINCT FROM old.robots_state) OR (new.robots_terminal_reason IS DISTINCT FROM old.robots_terminal_reason)) EXECUTE FUNCTION f1_crawl_child_fact_closed()",
+        proof: CLOSURE_PROOF, expectation: "kill" },
+    ].map { |e| e.transform_keys(&:to_s) }.freeze
   end
 end

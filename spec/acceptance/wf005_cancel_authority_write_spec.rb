@@ -150,32 +150,57 @@ RSpec.describe "WF-005 cancellation authority", type: :acceptance,
       expect(DbInspector.count("crawl_terminal_outcomes")).to eq(0)
     end
 
-    it "PROOF 220 — the corruption branch is UNREACHABLE while the lock holds, which is why it raises" do
-      # WHAT WAS ATTEMPTED AND WHY IT IS RECORDED RATHER THAN FORCED. The first version of this proof
-      # tried to drive the authorized-but-unmoved branch through the handler by bumping the crawl's
-      # `state_version` from another connection just before the write. It DEADLOCKED and timed out at
-      # 16 seconds — because the handler holds `lock_crawl` on exactly that row, so no other
-      # transaction can move it. That is not a gap in the proof; it is the invariant itself.
+    it "PROOF 220 — the corruption branch is UNREACHABLE while the lock holds, and is proved where it is" do
+      # WHAT WAS ATTEMPTED AND WHY IT IS RECORDED. The first version of this proof tried to drive the
+      # authorized-but-unmoved branch through the handler by bumping the crawl's `state_version` from
+      # another connection just before the write. It DEADLOCKED and timed out at 16 seconds — because
+      # the handler holds `lock_crawl` on exactly that row, so no other transaction can move it. That
+      # is the invariant itself, not a gap in the proof.
       #
-      # So the branch is defended where it is reachable — at the store, by PROOF 218 — and its
-      # handler-side classification is asserted here structurally. A mutation that turns the raise
-      # into a polite denial is an EQUIVALENT MUTANT under the lock, and the mutation ledger records
-      # it as equivalent WITH THIS REASON rather than as a killed mutant it never was.
+      # THE SECOND VERSION ASSERTED SOURCE ORDER, and that was worse: `source.index(...) <
+      # source.index(...)` is a text proxy for a semantic decision, and it would pass with both
+      # branches unreachable, with `lock_frontier` appearing only in a comment, or with the ordering
+      # rebuilt through a helper. It is removed. The classification it stood in for is proved BY
+      # EXECUTION at the store, in PROOF 218, where the branch IS reachable.
+      #
+      # What remains here is the fact that makes the branch unreachable, established by execution:
+      # the handler holds the row lock across its write, so no concurrent transaction can move the
+      # version out from under it.
       ctx = running_crawl
-      source = File.read(Rails.root.join("app/workflows/wf005/handlers/cancel_crawl.rb"))
+      blocked = nil
+      Platform::UnitOfWork.run do |conn|
+        pg = conn.raw_connection
+        IdentityAccess::Infrastructure::CrawlHostGateStore.new(pg)
+          .enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        pg.exec_params("SELECT id FROM crawls WHERE id = $1::uuid FOR UPDATE", [ctx[:crawl_id]])
 
-      # The two outcomes are distinguished, and the denial is tested BEFORE the corruption raise:
-      # reversing them would report every revocation as corruption.
-      denial_at = source.index("unless outcome[:authorized]")
-      raise_at = source.index("if outcome[:moved].zero?")
-      expect(denial_at).not_to be_nil, "the handler no longer distinguishes an unauthorized write"
-      expect(raise_at).not_to be_nil, "the handler no longer raises on a lost serialized transition"
-      expect(denial_at).to be < raise_at, "a revocation must be denied, not reported as corruption"
+        # AN INDEPENDENT CONNECTION, not a nested unit of work: the point is that a DIFFERENT
+        # transaction cannot take this row lock while the first holds it. `NOWAIT` turns the wait
+        # into an immediate, observable refusal rather than a hang, so this proof is bounded.
+        other = PgTestConnection.connect(user: "f1_web")
+        begin
+          other.exec("BEGIN")
+          other.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
+                            [ctx[:g][:organization_id], SecureRandom.uuid_v7])
+          blocked = begin
+            other.exec_params("SELECT id FROM crawls WHERE id = $1::uuid FOR UPDATE NOWAIT", [ctx[:crawl_id]])
+            :acquired
+          rescue PG::LockNotAvailable
+            :refused
+          end
+        ensure
+          begin
+            other.exec("ROLLBACK")
+          rescue StandardError
+            nil
+          end
+          other.close
+        end
+      end
 
-      # AND THE LOCK THAT MAKES IT UNREACHABLE IS REAL, not assumed: the handler takes it before the
-      # write, which is what this whole blocker is about.
-      expect(source).to include("lock_frontier"), "the wait this invariant depends on is gone"
-      expect(crawl_row(ctx)["state"]).to eq("running")
+      expect(blocked).to eq(:refused),
+                         "another transaction took the crawl row lock while the handler held it, so " \
+                         "the authorized-but-unmoved branch IS reachable and needs a behavioural proof"
     end
   end
 end

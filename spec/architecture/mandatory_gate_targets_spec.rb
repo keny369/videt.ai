@@ -20,10 +20,20 @@ require "yaml"
 RSpec.describe "mandatory verification gate targets", type: :architecture do
   MANIFEST = YAML.load_file(Rails.root.join("specification/automation/VERIFICATION_MANIFEST.yml")).freeze
 
+  # EVERY MANDATORY CHECK, WHEREVER IT SITS IN THE DOCUMENT.
+  #
+  # The first version collected only entries nested under a `"checks"` key, which left the six under
+  # `check_sets.always_required` — `repository_cleanliness`, `complete_test_suite`, `brakeman`,
+  # `packwerk`, `bundler_audit`, `zeitwerk` — ungoverned. Two of them were pointed at a nonexistent
+  # binary and a nonexistent spec path and this gate still reported 14 examples, 0 failures. That is
+  # FU-45's own defect class reproduced inside the gate written to close FU-45.
+  #
+  # A check is now anything that DECLARES ITSELF ONE: a Hash carrying an `id`, a `command` and
+  # `mandatory`. Nothing about where it lives in the tree decides whether it is examined.
   def self.mandatory_checks(node, found = [])
     case node
     when Hash
-      node["checks"]&.each { |c| found << c if c.is_a?(Hash) && c["mandatory"] && c["command"] }
+      found << node if node["id"] && node["command"] && node["mandatory"]
       node.each_value { |v| mandatory_checks(v, found) }
     when Array then node.each { |v| mandatory_checks(v, found) }
     end
@@ -31,9 +41,33 @@ RSpec.describe "mandatory verification gate targets", type: :architecture do
   end
 
   CHECKS = mandatory_checks(MANIFEST).freeze
+  # Every id the document marks mandatory, derived by walking the same tree for the flag alone — an
+  # independent count of what SHOULD be governed, so a walker that misses a nesting shape is caught.
+  def self.all_mandatory_ids(node, found = [])
+    case node
+    when Hash
+      found << node["id"] if node["id"] && node["mandatory"]
+      node.each_value { |v| all_mandatory_ids(v, found) }
+    when Array then node.each { |v| all_mandatory_ids(v, found) }
+    end
+    found.compact.uniq
+  end
+  MANDATORY_IDS = all_mandatory_ids(MANIFEST).freeze
 
   it "declares mandatory checks at all, so this gate is not vacuous" do
-    expect(CHECKS.length).to be >= 10, "the manifest parse found #{CHECKS.length} mandatory checks"
+    # THE FLOOR IS DERIVED FROM THE DOCUMENT, not written here: every mandatory entry the manifest
+    # declares must be in the set this gate examines. A floor of "at least ten" let six go missing.
+    declared = File.read(Rails.root.join("specification/automation/VERIFICATION_MANIFEST.yml"))
+                   .scan(/^\s*- id: (\S+)/).flatten
+    mandatory_ids = CHECKS.map { |c| c["id"] }
+    ungoverned = declared.reject do |id|
+      entry = MANIFEST.to_s
+      mandatory_ids.include?(id) || !entry.include?("id: #{id}")
+    end.reject { |id| mandatory_ids.include?(id) }
+    optional = ungoverned.reject { |id| MANDATORY_IDS.include?(id) }
+    expect(ungoverned - optional).to be_empty,
+                                     "mandatory checks this gate never examines: #{(ungoverned - optional).join(', ')}"
+    expect(CHECKS.length).to be >= 15, "the manifest parse found only #{CHECKS.length} mandatory checks"
   end
 
   CHECKS.each do |check|

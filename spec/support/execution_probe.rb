@@ -137,8 +137,63 @@ module ExecutionProbe
     def sites(target) = invocations(target).map { |i| i[:site] }
 
     # Did THIS caller, on THIS thread, invoke the target during the block?
+    # THE SITE MUST RESOLVE, AND IT MUST MATCH EXACTLY.
+    #
+    # TWO DEFECTS THIS CLOSES, both found by attacking the instrument rather than using it. The match
+    # was `String#include?`, so `.from("X#gate")` was satisfied by `X#gate_two` — a substring
+    # collision inside the very mechanism built to stop "somewhere" satisfying "here". And nothing
+    # checked that the named site resolved to anything, so every NEGATIVE assertion naming a typo, a
+    # renamed method or a fictional class passed vacuously.
+    #
+    # The site is now compared as a whole method identity, and a site that names no method this target
+    # was ever invoked from — in a run where it WAS invoked — raises rather than answering false.
     def evaluated_from?(target, site, thread: Thread.current)
-      invocations(target).any? { |i| i[:site].include?(site) && i[:thread] == thread.object_id }
+      assert_site_resolves!(site)
+      invocations(target).any? { |i| site_matches?(i[:site], site) && i[:thread] == thread.object_id }
+    end
+
+    # THE NAMED SITE MUST BE A REAL METHOD.
+    #
+    # WHY NOT "a site nothing invoked": a legitimate negative assertion — the gate under test did NOT
+    # consult the owner — is indistinguishable from a typo by that test, and treating it as an error
+    # would break every proof that asserts a caller did nothing. The resolvable question is whether
+    # the site NAMES SOMETHING THAT EXISTS, which a typo, a rename and a fictional class all fail and
+    # a legitimate negative passes.
+    def assert_site_resolves!(site)
+      identity = site.split(":").last
+      match = identity.match(/\A([A-Z][\w:]*)([#.])(\w+[?!=]?)\z/)
+      return unless match
+
+      owner, kind, name = match.captures
+      # `caller_locations#label` reports the DEMODULIZED class, so `Workflows::Wf005::Admission`
+      # arrives as `Admission`. Resolution therefore tries the bare constant first and then searches
+      # loaded modules for one whose demodulized name matches — otherwise every namespaced production
+      # site would be reported as a typo.
+      klass = resolve_owner(owner)
+      if klass.nil?
+        raise "#{site.inspect} names #{owner}, which is not a defined constant; a caller-bound " \
+              "assertion naming a site that does not exist passes vacuously"
+      end
+      exists = kind == "." ? klass.respond_to?(name, true) : klass.method_defined?(name) ||
+                                                             klass.private_method_defined?(name)
+      return if exists
+
+      raise "#{site.inspect} names #{name}, which #{owner} does not define; a caller-bound assertion " \
+            "naming a site that does not exist passes vacuously"
+    end
+
+    # `file:Klass#method` — the site matches when the METHOD IDENTITY is equal, not merely contained.
+    def resolve_owner(owner)
+      Object.const_get(owner)
+    rescue NameError
+      ObjectSpace.each_object(Module).find do |mod|
+        name = mod.name
+        name && name.split("::").last == owner
+      end
+    end
+
+    def site_matches?(recorded, site)
+      recorded.split(":").last == site || recorded == site
     end
     def to_s = @counts.empty? ? "(nothing observed)" : @counts.map { |k, v| "#{k}=#{v}" }.join(" ")
     def inspect = "#<ExecutionProbe::Observation #{self}>"
@@ -165,6 +220,10 @@ module ExecutionProbe
   def watch(targets)
     counts = Hash.new(0)
     invocations = Hash.new { |h, k| h[k] = [] }
+    # RE-CHECKED AT OBSERVATION TIME, NOT ONLY AT CONSTRUCTION. A target resolved as a Ruby method and
+    # then REDEFINED as an `attr_reader` observes nothing while every negative assertion passes — the
+    # exact R10-21 vacuity, restored by redefinition. Construction-time refusal alone cannot see it.
+    targets.each(&:refuse_unobservable!)
     wanted = targets.to_h { |t| [[t.traced_class, t.name], t.to_s] }
     trace = TracePoint.new(:call) do |tp|
       label = wanted[[tp.defined_class, tp.method_id]]

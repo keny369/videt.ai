@@ -12,7 +12,7 @@ frozen_path_changes: 2
 frozen_paths:
   - lib/f1/runtime_grants.rb
   - spec/architecture/wf005_time_single_surface_spec.rb
-suite_examples: 2346
+suite_examples: 2363
 review_rounds: 9
 ```
 
@@ -474,57 +474,80 @@ instruction.**
 
 ## Mutation ledger, regenerated mechanically
 
-`specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by
-`rake f1:mutations:regenerate` from definitions held in
-`automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited by hand.
+`specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
+from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**33 mutations, 33 killed, 0 survived, 0 broken**, plus
-4 trigger-level mutations recorded separately because they act on a
-PostgreSQL trigger definition rather than on a file.
+**59 mutations, 59 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+replayed, sealed and verified by the same machinery rather than copied in as literals.
 
-Each row is SEALED: its `binding_sha256` covers the patch bytes, the target file's bytes, the target
-path, the proof command, the bytes of every proof file, the failing example identities, a digest of
-the failure reasons, the equivalence justification where one is claimed, the commit, and whether
-restoration was verified. A row whose recomputed binding differs from the one it carries is stale,
-transplanted or fabricated, and `MutationHarness.verify_bindings!` rejects all three.
+Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the
+bytes of every proof file, the failing example identities, a digest of the failure reasons, the
+equivalence justification, the commit and verified restoration.
 
-ONE ROW WAS FALSE ON ITS FIRST GENERATION AND THE FIX WAS THE PROOF, NOT THE EXPECTATION.
-`d3-lock-removed` was bound to the cancel spec alone and SURVIVED: the absence of `lock_frontier` is
-not observable from a single command, only from two racing it. The entry now names the concurrency
-specs that actually reject it.
+WHAT THE BINDING DOES NOT DO, stated after the architecture lens refuted the stronger claim: `seal`
+is public and the binding is a plain digest of the row's own fields, so it detects a row that was
+EDITED, TRANSPLANTED or left STALE — but not one fabricated whole and sealed correctly. Only
+re-execution refutes that, which is what regeneration is for. The verifier additionally requires each
+row's commit to be HEAD and each failing example to name a spec file that exists.
 
-| id | blocker | verdict |
-| --- | --- | --- |
-| d2-beyond-constant | D2/R10-3 | killed |
-| d2-not-after-unclamped | D2/R10-3 | killed |
-| d2-at-weakened | D2/R10-3 | killed |
-| d2-none-incomplete | D2/R10-4 | killed |
-| d1-dead-method-returns | D1 | killed |
-| d3-conjunct-removed | D3/R10-10 | killed |
-| d3-epoch-inequality | D3/R10-10 | killed |
-| d3-authority-always-true | D3/R10-10 | killed |
-| d3-wrong-organization | D3/R10-10 | killed |
-| d3-authorized-independent | D3/R10-10 | killed |
-| d3-denial-swallowed | D3/R10-10 | killed |
-| d3-branches-reversed | D3/R10-10 | killed |
-| d3-self-authorizing-epoch | D3/R10-10 | killed |
-| d3-lock-removed | D3/R10-10 | killed |
-| f1-admission-inverted | R10-17 | killed |
-| f1-driver-reimplemented | R9-7 | killed |
-| f1-bounded-respelled | :442 | killed |
-| f1-gate-delegates | R10-17 | killed |
-| f1-caller-binding-dropped | R10-17 | killed |
-| f1-thread-identity-dropped | R10-17 | killed |
-| f3-rebuilt-via-local | R10-16 | killed |
-| f3-rebuilt-via-container | R10-16 | killed |
-| f3-rebuilt-via-block-pass | R10-16 | killed |
-| f2-census-door-removed | R10-7 | killed |
-| f2-refusals-unobserved | R10-7 | killed |
-| f4-discovery-narrowed | R10-9 | killed |
-| f4-accounting-global | R10-11 | killed |
-| f4-empty-census-accepted | R10-9 | killed |
-| f4-frame-not-restored | R10-11 | killed |
-| f6-source-location-discriminator | R10-21 | killed |
-| f6-refusal-removed | R10-21 | killed |
-| f6-kind-forced-ruby | R10-21 | killed |
-| f6-lookup-class-traced | R10-21 | killed |
+| id | blocker | mechanism | verdict |
+| --- | --- | --- | --- |
+| `d2-beyond-constant` | D2/R10-3 | file | killed |
+| `d2-not-after-unclamped` | D2/R10-3 | file | killed |
+| `d2-at-weakened` | D2/R10-3 | file | killed |
+| `d2-none-incomplete` | D2/R10-4 | file | killed |
+| `d1-dead-method-returns` | D1 | file | killed |
+| `d3-conjunct-removed` | D3/R10-10 | file | killed |
+| `d3-epoch-inequality` | D3/R10-10 | file | killed |
+| `d3-authority-always-true` | D3/R10-10 | file | killed |
+| `d3-wrong-organization` | D3/R10-10 | file | killed |
+| `d3-authorized-independent` | D3/R10-10 | file | killed |
+| `d3-denial-swallowed` | D3/R10-10 | file | killed |
+| `d3-branches-reversed` | D3/R10-10 | file | killed |
+| `d3-self-authorizing-epoch` | D3/R10-10 | file | killed |
+| `d3-lock-removed` | D3/R10-10 | file | killed |
+| `f1-admission-inverted` | R10-17 | file | killed |
+| `f1-driver-reimplemented` | R9-7 | file | killed |
+| `f1-bounded-respelled` | :442 | file | killed |
+| `f1-gate-delegates` | R10-17 | file | killed |
+| `f1-caller-binding-dropped` | R10-17 | file | killed |
+| `f1-thread-identity-dropped` | R10-17 | file | killed |
+| `f3-rebuilt-via-local` | R10-16 | file | killed |
+| `f3-rebuilt-via-container` | R10-16 | file | killed |
+| `f3-rebuilt-via-block-pass` | R10-16 | file | killed |
+| `f2-census-door-removed` | R10-7 | file | killed |
+| `f2-refusals-unobserved` | R10-7 | file | killed |
+| `f4-discovery-narrowed` | R10-9 | file | killed |
+| `f4-accounting-global` | R10-11 | file | killed |
+| `f4-empty-census-accepted` | R10-9 | file | killed |
+| `f4-frame-not-restored` | R10-11 | file | killed |
+| `f6-source-location-discriminator` | R10-21 | file | killed |
+| `f6-refusal-removed` | R10-21 | file | killed |
+| `f6-kind-forced-ruby` | R10-21 | file | killed |
+| `d6-q-predicate-removed` | D6 | file | killed |
+| `d6-q-predicate-inverted` | D6 | file | killed |
+| `d6-q-wrong-epoch-column` | D6 | file | killed |
+| `d6-q-wrong-row` | D6 | file | killed |
+| `d6-q-stale-captured-epoch` | D6 | file | killed |
+| `d6-q-handler-accepts-unauthorized` | D6 | file | killed |
+| `d6-q-ruby-recheck-deleted` | D6 | file | killed |
+| `d6-a-predicate-removed` | D6 | file | killed |
+| `d6-a-insert-unconditional` | D6 | file | killed |
+| `d6-a-supersede-unconditional` | D6 | file | killed |
+| `d6-a-conjunction-to-disjunction` | D6 | file | killed |
+| `d6-a-state-predicate-omitted` | D6 | file | killed |
+| `d6-a-wrong-organization` | D6 | file | killed |
+| `d6-a-ledger-before-guard` | D6 | file | killed |
+| `f4-human-door-removed` | R10-9 | file | killed |
+| `d6-a-outcomes-collapsed` | D6 | file | killed |
+| `f6-lookup-class-traced` | R10-21 | file | killed |
+| `d4-when-or-to-and` | D4/R10-15 | trigger | killed |
+| `d4-when-false` | D4/R10-15 | trigger | killed |
+| `d4-when-true` | D4/R10-15 | trigger | killed |
+| `d4-drop-sitemap_state` | D4/R10-15 | trigger | killed |
+| `d4-drop-sitemap_outcome_reason` | D4/R10-15 | trigger | killed |
+| `d4-drop-sitemap_terminal_at` | D4/R10-15 | trigger | killed |
+| `d4-drop-sitemap_limit_reasons` | D4/R10-15 | trigger | killed |
+| `d4-drop-robots_state` | D4/R10-15 | trigger | killed |
+| `d4-drop-robots_terminal_reason` | D4/R10-15 | trigger | killed |
+| `d4-drop-robots_terminal_at` | D4/R10-15 | trigger | killed |
