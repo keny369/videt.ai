@@ -4280,3 +4280,69 @@ reviewed.
 Authority And Precedence:
 S-07-009 repair authority under the overnight instruction. Corrects ADR-134 decisions 3 and 6 and its
 ruled-out section, in place, with forward references. Allocated the next unused number after ADR-134.
+
+## ADR-136: Round 18 — The Same Ratified Row, One Column Over
+
+Date: 2026-08-06
+Status: Accepted
+Owner authority: the overnight autonomous-build instruction.
+Scope: S-07-009. `main` untouched; no merge; no push; no acceptance claimed.
+
+Context:
+
+Round 18 existed to review the one production change round 17 made — the capability cell at the
+protected write — which no lens had seen. Three of five lenses returned FAIL with nine confirmed
+findings and **no live bypass**. The concurrency lens returned PASS_WITH_OBSERVATIONS and established
+that the new predicate re-reads an IMMUTABLE column, so nothing can move it under the statement, and
+that it strictly shrinks the lock footprint.
+
+**THE FINDING IS THE SAME SHAPE AS ROUND 17'S, ONE COLUMN OVER.** `Platform::PermissionBaseline::CAPABILITIES`
+is keyed by `canonical_role` ALONE — the module says so in its own words, "THE SIXTH COLUMN OF THE SAME
+ROW, WHICH `CAPABILITIES` CANNOT EXPRESS" — and `confers?` is three conjuncts. Round 17 bound one. A
+Read-Only Executive Buyer, the `(MarketingOperator, read_only, executive_buyer)` tuple whose ratified
+cell reads `deny`, carries a role that IS in the cell: at the store it irreversibly cancelled a running
+Crawl, and through the real handler with the single Ruby line at `command_authorizer.rb` deleted it did
+the same.
+
+Decision:
+
+1. **THE SIXTH COLUMN IS CARRIED.** `read_only_permitted` comes from the ratified
+   `READ_ONLY_CAPABILITIES`, and all three writes bind
+   `($n::boolean OR ra.permission_mode <> 'read_only')`. The battery gains a case that SEEDS a
+   read-only grant — the lifecycle guard freezes `permission_mode`, which is why this axis cannot be
+   reached by moving a row underneath a decision — at every write, bound by three mutations.
+2. **THE DERIVATION IS BOUND.** The cell was bound into the statement and not into the value:
+   replacing `CAPABILITIES.fetch(capability)` with a union of every cell restored round 17's exploit
+   with 50 examples green. PROOF 265 drives the production builder for a capability whose cell
+   excludes the actor's role and requires refusal, with a must-succeed control;
+   `r18-cell-derivation-unioned` binds it.
+3. **TWO PROOFS MEASURED SOMETHING ELSE.** PROOF 262b used a pending `SecurityOperator` grant, which
+   the capability cell excluded on its own; it now uses a role the cell admits, and BOTH excluding
+   limbs must go before it fails. PROOF 262c read the store's SOURCE and stayed green when the guard
+   was deleted from the SQL and the words left in a comment; it now drives the store.
+4. **THE CLEANUP DROPPED THE TABLE AND LEFT THE TRIGGER THAT WRITES TO IT.** The table goes only if
+   the trigger went; the `SET lock_timeout` is inside a rescue (outside it, a failure there masked the
+   example, recorded no residue and leaked all three objects while the suite-end check passed); and
+   the residue check READS THE CATALOGUE, which also removes its false positives and its blindness to
+   a leak from an earlier process.
+
+What was ruled out, and why:
+
+**BOUNDING THE PROBE'S SETUP.** Round 18 measured it waiting 43.6s against an ordinary reader, so a
+`lock_timeout` looked obviously right. Measured: the bounded acquisition turns that wait into a genuine
+DEADLOCK against this file's own concurrency probes — seven failures instead of one. A wait that
+resolves beats a cycle that aborts. The bound stays off and the exposure is recorded rather than traded
+for a worse one.
+
+Consequences:
+
+Every protected write now refuses a grant whose role the ratified baseline does not admit **and** one
+held in a permission mode the baseline does not let spend that capability, independently of any Ruby
+check. Two conjuncts of `confers?` are now at the write; the third — the protected-grant gate — is
+not, and the next round should look there first.
+
+**THIS DOES NOT ACCEPT S-07-009.** Seventeen rounds, none returning PASS on the state it reviewed.
+
+Authority And Precedence:
+S-07-009 repair authority under the overnight instruction. Allocated the next unused number after
+ADR-135.
