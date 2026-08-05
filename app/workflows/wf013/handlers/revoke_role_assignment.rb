@@ -174,12 +174,24 @@ module Workflows
           write_authorization_decision(auth_store, ids[:decision], ctx, command, actor, decision, now,
                                        command.role_assignment_id, ACTION)
 
-          raise LostRace if store.revoke(command.role_assignment_id, row["state_version"].to_i, now,
-                                         reason, epoch + 1).to_i.zero?
           # ":936 Every accepted effective-access mutation increments that epoch
           # once" — in this same transaction, so authority cannot outlive the
           # commit that removed it.
+          #
+          # THE EPOCH ADVANCE COMES FIRST, AND THE ORDER IS THE POINT (round-15 concurrency finding
+          # R15-CONC-1). Since FU-48 every WF-005 protected write locks `organizations` and THEN
+          # `role_assignments`, both inside one statement. This transaction locked them the other way
+          # round, so revoking the grant a concurrent Crawl command was spending closed a CYCLE:
+          # PostgreSQL aborted one side with SQLSTATE 40P01, nothing on either path rescued it, and
+          # WHICH side died was the deadlock detector's choice — either a customer command raising
+          # `PG::TRDeadlockDetected` instead of returning the `Platform::CommandResult` ADR-103
+          # guarantees, or this revocation failing to land while reporting an error. Both outcomes
+          # were measured, 28 times. Both writes stay in this transaction, both keep their guards and
+          # both still raise `LostRace` on zero rows: only which row this transaction holds first
+          # changes. PROOF 262/263.
           raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?
+          raise LostRace if store.revoke(command.role_assignment_id, row["state_version"].to_i, now,
+                                         reason, epoch + 1).to_i.zero?
 
           payload = { "role_assignment_id" => command.role_assignment_id, "organization_id" => org,
                       "account_id" => row["account_id"], "status" => "revoked",

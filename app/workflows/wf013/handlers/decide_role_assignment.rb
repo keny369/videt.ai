@@ -196,11 +196,17 @@ module Workflows
         # becomes effective, and frozen from then on.
         def activate(store:, pg:, org:, row:, command:, ctx:, now:, epoch:, allowlist:)
           expires_at = row["expires_at"] && to_time(row["expires_at"])
+          # THE EPOCH ADVANCE COMES FIRST — one lock order for the two authority rows, everywhere
+          # (round-15 concurrency finding R15-CONC-1; see `RevokeRoleAssignment`). This path
+          # activates a PENDING grant, which no concurrent WF-005 statement can be holding — its
+          # capability CTE requires `status = 'active'`, so the row is filtered out of that
+          # statement's snapshot before any lock is asked for, and this handler cannot form the cycle
+          # today. It takes the same order anyway: the property is "one order for these two rows",
+          # and an exception maintained per handler is the enumeration this tranche exists to remove.
+          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?
           changed = store.activate(command.role_assignment_id, row["state_version"].to_i, now,
                                    expires_at, epoch + 1, allowlist)
           raise LostRace if changed.to_i.zero?
-
-          raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?
           return nil if expires_at.nil?
 
           RoleAssignmentExpirySchedule.schedule(

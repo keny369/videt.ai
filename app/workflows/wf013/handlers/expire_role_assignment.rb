@@ -124,8 +124,13 @@ module Workflows
           new_version = row["state_version"].to_i + 1
 
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
-          raise LostRace if store.expire(command.role_assignment_id, row["state_version"].to_i, now).to_i.zero?
+          # THE EPOCH ADVANCE COMES FIRST — one lock order for the two authority rows, everywhere
+          # (round-15 concurrency finding R15-CONC-1; see `RevokeRoleAssignment` for the cycle this
+          # closes). A timed expiry is the same shape as a revocation: it takes an active grant's row
+          # and then the Organization's, which is the reverse of the order every WF-005 protected
+          # write takes them in.
           raise LostRace if store.advance_authorization_epoch(org, epoch, now).to_i.zero?
+          raise LostRace if store.expire(command.role_assignment_id, row["state_version"].to_i, now).to_i.zero?
 
           payload = { "role_assignment_id" => command.role_assignment_id, "organization_id" => org,
                       "account_id" => row["account_id"], "status" => "expired",
