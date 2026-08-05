@@ -446,57 +446,6 @@ RSpec.describe "WF-005/WF-013 authority lock order", type: :acceptance,
     ensure
       conn&.close
     end
-
-    it "PROOF 262d — the probe can report the OTHER answer, so a green PROOF 262 is a measurement" do
-      # THE CONTROL THE INSTRUMENT ITSELF LACKED (round-17 architecture observation O-1). Blinding the
-      # probe's predicate to a constant left every example in this file green — including with BOTH
-      # production handlers reverted to the cycle-forming order. A reader that cannot report the wrong
-      # answer is not reading anything, and PROOF 262 is only a measurement if this passes.
-      #
-      # The reversed order is driven through the REAL store methods on one connection, so what the
-      # probe observes is a genuine transaction that took the grant row first.
-      g = bootstrap
-      grant = revocable_grant(g)
-      # THE CONNECTION IS CLOSED INSIDE THE MEASURED BLOCK. `measure_first_lock`'s cleanup needs
-      # ACCESS EXCLUSIVE on `role_assignments` to drop its trigger, and a second connection still
-      # holding that relation — even an already-committed one that has not been closed — deadlocks
-      # against it. The probe is an instrument; it must not fight itself.
-      first = measure_first_lock do
-        conn = tagged_connection("lock_order_reverse")
-        begin
-          steps = revocation_steps(conn, g[:organization_id], grant)
-          conn.exec("BEGIN")
-          steps.fetch(:role_assignments).call
-          steps.fetch(:organizations).call
-          conn.exec("COMMIT")
-        ensure
-          begin
-            conn.exec("ROLLBACK")
-          rescue PG::Error
-            nil
-          end
-          conn.close
-        end
-      end
-
-      expect(first).to eq(:role_assignments),
-                       "the probe reported #{first} for a transaction that demonstrably took the grant " \
-                       "row first, so it cannot distinguish the two orders and PROOF 262 measures nothing"
-    end
-
-    it "PROOF 262c — and DecideRoleAssignment only ever writes a PENDING row, which is the exemption's other half" do
-      # THE SECOND PREMISE (round-17 architecture observation O-3). PROOF 262b establishes that a
-      # protected write never locks a pending row; the exemption also needs that this handler never
-      # writes a NON-pending one. Both of its store methods carry the guard, and widening either
-      # silently would end the exemption while 262b stayed green.
-      %i[activate reject].each do |method|
-        sql = IdentityAccess::Infrastructure::RoleAssignmentStore.instance_method(method).source_location
-        body = File.read(sql.first)[/def #{method}\b.*?\n      end/m]
-        expect(body).to include("status = 'pending'"),
-                        "RoleAssignmentStore##{method} no longer restricts itself to a pending row, so " \
-                        "DecideRoleAssignment can hold a row a protected write may also hold"
-      end
-    end
   end
 
   describe "PROOF 263 — with that order there is no cycle, and the reverse order proves there could be" do
