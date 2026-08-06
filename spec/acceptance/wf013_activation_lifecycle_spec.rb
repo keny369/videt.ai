@@ -246,7 +246,20 @@ RSpec.describe "WF-013 invitation activation lifecycle", type: :acceptance,
 
   describe "invariants once activation is the only way in" do
     it "gives every active Invitation exactly one timer at its own expiry instant" do
-      3.times { |i| create(key: "inv-#{i}", role: %w[MarketingOperator TechnicalImplementer BillingOperator][i]) }
+      # THE ROLES ARE DERIVED, BECAUSE THE FIXTURE USED TO ASSUME THEM (FU-54).
+      #
+      # This example seeded `MarketingOperator`, `TechnicalImplementer` and `BillingOperator` and
+      # asserted three timers. When `:333`'s protected-grant enumeration was transcribed in full,
+      # BillingOperator became a PROTECTED role, its Invitation correctly went to approval instead
+      # of activating, and this example failed on the count — not because the invariant broke, but
+      # because the fixture had hard-coded a classification it does not own. Only a directly
+      # activatable Invitation gets an activation timer, so the population is derived from the
+      # ratified enumeration and the expected count derived with it.
+      roles = RatifiedPermissionBaseline.canonical_role_columns -
+              RatifiedPermissionBaseline.protected_canonical_roles
+      expect(roles.size).to be >= 2, "fewer than two non-protected canonical roles remain, so this " \
+                                     "invariant is no longer exercised across roles"
+      roles.each_with_index { |role, i| create(key: "inv-#{i}", role:) }
 
       mismatched = DbInspector.all(<<~SQL)
         SELECT i.id FROM invitations i
@@ -257,7 +270,7 @@ RSpec.describe "WF-013 invitation activation lifecycle", type: :acceptance,
                  AND a.due_at = i.expires_at) <> 1
       SQL
       expect(mismatched).to be_empty
-      expect(actions.size).to eq(3)
+      expect(actions.size).to eq(roles.size)
     end
 
     it "points every timer at exactly one Invitation in its own Organization" do

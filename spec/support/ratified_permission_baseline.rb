@@ -74,6 +74,52 @@ module RatifiedPermissionBaseline
     canonical_role_columns.select { |role| row[role_columns.index(role)] == "deny" }
   end
 
+  # THE RATIFIED PROTECTED-GRANT ENUMERATION (`:333`), which `:335` calls "the authority for which
+  # grants are protected" (FU-54).
+  #
+  # It is one sentence of prose ending "are protected.", and every permission it names is backticked
+  # — including the `organization.close` arm, which it names as "a SecurityOperator `organization.close`
+  # approval grant". So the enumeration is the backticked tokens of that sentence, and nothing else in
+  # the document is read for it.
+  def protected_permissions
+    @protected_permissions ||= begin
+      sentence = Rails.root.join(DOC).read[/Grants containing (.*?) are protected\./m, 1]
+      raise "the :333 protected-grant enumeration was not found in #{DOC}" if sentence.nil?
+
+      names = sentence.scan(/`([a-z][a-z._]*)`/).flatten.uniq
+      raise "the :333 enumeration parsed to #{names.length} permissions" if names.length < 15
+
+      names
+    end
+  end
+
+  # `:333` NAMES ONE ARM OF ONE ROW RATHER THAN THE WHOLE ROW, AND SAYS SO IN WORDS.
+  #
+  # "A SecurityOperator `organization.close` grant authorizes only closure approval or rejection; the
+  # OrganizationAdmin baseline cell permitting a closure request for the actor's own Organization is
+  # not a protected grant and is unchanged." Every other named permission takes its whole non-deny
+  # row. The exception is recorded here, as data, so that ADDING one is a visible act — the shape
+  # `permission_baseline_transcription_spec.rb`'s `deferred_cells` already establishes.
+  def protected_role_exceptions
+    { "organization.close" => %w[OrganizationAdmin] }.freeze
+  end
+
+  # The roles each ratified protected permission is protected FOR: every canonical role whose `:135`
+  # cell is not `deny`, minus the recorded exception above. This is the derivation
+  # `Platform::PermissionBaseline::PROTECTED` must equal.
+  def protected_transcription
+    protected_permissions.to_h do |permission|
+      allowed = canonical_role_columns.reject { |role| cell(permission, role) == "deny" }
+      [permission, allowed - protected_role_exceptions.fetch(permission, [])]
+    end
+  end
+
+  # Every canonical role that holds at least one ratified protected permission — the population a
+  # protected-grant refusal must cover.
+  def protected_canonical_roles
+    protected_transcription.values.flatten.uniq.sort
+  end
+
   def parse
     section = Rails.root.join(DOC).read.split(/^### /).find { |s| s.start_with?("Permission Baseline") }
     raise "the Permission Baseline section was not found in #{DOC}" if section.nil?

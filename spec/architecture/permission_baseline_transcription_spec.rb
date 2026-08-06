@@ -144,4 +144,47 @@ RSpec.describe "Permission Baseline transcription", type: :model do
       expect(Platform::PermissionBaseline.mode_permits?(capability, "standard")).to be(true)
     end
   end
+
+  # Dimension 3 — `PROTECTED` AGAINST `:333`, THE DIMENSION THAT DID NOT EXIST (FU-54 / R19-SEC-2).
+  #
+  # Dimensions 1 and 2 check `CAPABILITIES` against `:135`. `PROTECTED` is a transcription of a
+  # DIFFERENT ratified statement — `:333`, which `:335` calls "the authority for which grants are
+  # protected" — and nothing compared the two. It was THREE ENTRIES SHORT, deleting a ratified entry
+  # left the entire suite green, and one omission was a live defect: BillingOperator's only protected
+  # permission is `policy.entitlement.manage`, so omitting it made `protected_role?("BillingOperator")`
+  # false and let a lone OrganizationAdmin mint an immediately-active never-expiring grant carrying
+  # protected authority.
+  #
+  # The subject is DERIVED from the document, not restated beside it, so a permission added to or
+  # removed from `:333` fails here rather than being found by a reviewer several rounds later.
+  it "transcribes the ratified `:333` protected-grant enumeration exactly, and nothing more" do
+    ratified = RatifiedPermissionBaseline.protected_transcription
+
+    expect(ratified.keys.length).to be >= 18, "the :333 enumeration parsed to #{ratified.keys.length} " \
+                                              "permissions, so this check is not reading it"
+    expect(Platform::PermissionBaseline::PROTECTED).to eq(ratified),
+                                                       "`PROTECTED` disagrees with :333 + :135; missing " \
+                                                       "#{(ratified.keys - Platform::PermissionBaseline::PROTECTED.keys).inspect}, " \
+                                                       "extra #{(Platform::PermissionBaseline::PROTECTED.keys - ratified.keys).inspect}"
+  end
+
+  # The `:333` exception list is itself checked, exactly as `deferred_cells` is for dimension 1: it
+  # may not silently outlive the sentence that authorises it, and it may not quietly suppress an arm
+  # the document never excepted.
+  it "records a protected-role exception only where `:333` states one in words" do
+    RatifiedPermissionBaseline.protected_role_exceptions.each do |permission, roles|
+      expect(RatifiedPermissionBaseline.protected_permissions).to include(permission)
+      roles.each do |role|
+        expect(RatifiedPermissionBaseline.cell(permission, role)).not_to eq("deny"),
+                                                                        "#{permission}/#{role} is excepted from " \
+                                                                        "the protected transcription, but its " \
+                                                                        "ratified cell already denies it"
+      end
+    end
+
+    # The one exception the document states, quoted so the check fails if the sentence is amended.
+    doc = Rails.root.join("specification/volume-i/WORKFLOW_SPECIFICATIONS.md").read
+    expect(doc).to include("the OrganizationAdmin baseline cell permitting a closure request for the " \
+                           "actor's own Organization is not a protected grant")
+  end
 end

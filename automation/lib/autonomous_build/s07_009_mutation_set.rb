@@ -57,6 +57,10 @@ module AutonomousBuild
     HARNESS = "automation/lib/autonomous_build/mutation_harness.rb"
     # ROUND 20 / FU-63
     AUTHORIZER = "app/contexts/identity_access/authorization/command_authorizer.rb"
+    # FU-54
+    BASELINE = "app/platform/permission_baseline.rb"
+    TRANSCRIPTION_PROOF = "spec/architecture/permission_baseline_transcription_spec.rb " \
+                          "spec/acceptance/wf013_protected_enumeration_spec.rb"
 
     ENTRIES = [
       # ---- D1/D2: the dead question, and the ones nothing pinned -------------------------------
@@ -872,7 +876,36 @@ module AutonomousBuild
       { id: "r20-policy-status-weakened", blocker: "R20-5/FU-63", file: POLICY_STORE, proof: BATTERY_PROOF,
         description: "the same weakening at the policy activation",
         from: "              AND ra.status = 'active'\n",
-        to: "              AND ra.status <> 'pending'\n", expectation: "kill" }
+        to: "              AND ra.status <> 'pending'\n", expectation: "kill" },
+
+      # ---- FU-54: the ratified `:333` enumeration, which nothing checked ------------------------
+      #
+      # `PROTECTED` is a transcription of `:333` and was THREE ENTRIES SHORT. Round 20 measured that
+      # deleting a ratified entry left the full suite at 2472/0 — there was no third transcription
+      # dimension, so the map answered to nothing. One omission was a LIVE DEFECT: BillingOperator's
+      # only protected permission is `policy.entitlement.manage`, so omitting it made
+      # `protected_role?("BillingOperator")` false, `RequestRoleAssignment` took the DIRECT grant path,
+      # and a lone OrganizationAdmin minted an immediately-active never-expiring grant carrying
+      # protected authority. Each mutation below restores one shape of that gap.
+      { id: "fu54-protected-entitlement-entry-deleted", blocker: "FU-54/R19-SEC-2", file: BASELINE,
+        proof: TRANSCRIPTION_PROOF,
+        description: "the `policy.entitlement.manage` entry deleted — the exact omission that made " \
+                     "BillingOperator unprotected and its grant directly mintable by one admin",
+        from: "      \"policy.entitlement.manage\" => %w[BillingOperator].freeze,\n", to: "",
+        expectation: "kill" },
+      { id: "fu54-protected-close-arm-widened", blocker: "FU-54/R19-SEC-2", file: BASELINE,
+        proof: TRANSCRIPTION_PROOF,
+        description: "`organization.close` widened to its OrganizationAdmin arm, which `:333` " \
+                     "excludes in words — the exception must be the document's, not the reader's",
+        from: "      \"organization.close\" => %w[SecurityOperator].freeze,\n",
+        to: "      \"organization.close\" => %w[OrganizationAdmin SecurityOperator].freeze,\n",
+        expectation: "kill" },
+      { id: "fu54-protected-investigation-entry-deleted", blocker: "FU-54/R19-SEC-2", file: BASELINE,
+        proof: TRANSCRIPTION_PROOF,
+        description: "the `security.investigation.approve` entry deleted — an under-grant in the " \
+                     "fail-closed direction, and still a divergence from the ratified authority",
+        from: "      \"security.investigation.approve\" => %w[SecurityOperator].freeze,\n", to: "",
+        expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
     # D4's mutations act on a TRIGGER DEFINITION rather than on a file, and they are now REPLAYED,

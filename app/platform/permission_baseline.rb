@@ -141,6 +141,36 @@ module Platform
     # preview"): which protected permissions does a grant of this canonical role
     # contain? A permission is in a role's preview when the enumeration names it
     # AND the baseline cell for that role is not `deny`.
+    #
+    # IT WAS THREE SHORT, AND ONE OF THE THREE WAS A LIVE DEFECT (FU-54 / R19-SEC-2).
+    # `:333` names EIGHTEEN and this map carried FIFTEEN. The transcription check
+    # compared `CAPABILITIES` against `:135` in two dimensions and had NO third
+    # dimension for `PROTECTED` against `:333`, so nothing could see the gap —
+    # deleting a ratified entry left the whole suite green.
+    #
+    #   `security.investigation.approve` (:185, SecurityOperator "protected explicit
+    #   grant") and the SecurityOperator `organization.close` arm (:139, "protected
+    #   approval only") were UNDER-GRANTS IN THE FAIL-CLOSED DIRECTION: SecurityOperator
+    #   is already protected through other keys, so `protected_role?` was unaffected and
+    #   only the exactness of :240's preview was wrong.
+    #
+    #   `policy.entitlement.manage` WAS NOT. `:175` makes BillingOperator the ONLY role
+    #   whose cell for it reads `allow`, and BillingOperator appears in no other entry,
+    #   so `protected_role?("BillingOperator")` was FALSE. `RequestRoleAssignment` therefore
+    #   classed such a request non-protected and took the DIRECT grant path, and a lone
+    #   OrganizationAdmin minted an immediately-active, never-expiring grant carrying
+    #   protected authority — against :333's "approval within 24 hours by a SecurityOperator
+    #   other than the requester", :316's mandatory expiry, and :140's confinement of an
+    #   OrganizationAdmin's `role.manage` cell to "non-protected tenant grants".
+    #
+    # `organization.close` CARRIES ONLY ITS SecurityOperator ARM, because :333 says so in
+    # words: "A SecurityOperator `organization.close` grant authorizes only closure approval
+    # or rejection; the OrganizationAdmin baseline cell permitting a closure request for the
+    # actor's own Organization is not a protected grant and is unchanged." Every other entry
+    # takes its whole non-deny row. That single exception is recorded as data in
+    # `spec/support/ratified_permission_baseline.rb` rather than as a judgement here, so the
+    # transcription check derives this map from the document and adding a second exception is
+    # a visible act.
     PROTECTED = {
       "account.delete" => %w[OrganizationAdmin SecurityOperator].freeze,
       "account.revoke" => %w[OrganizationAdmin SecurityOperator].freeze,
@@ -152,10 +182,13 @@ module Platform
       "invitation.approve" => %w[SecurityOperator].freeze,
       "issue.adjudicate" => %w[SecurityOperator].freeze,
       "legal_hold.manage" => %w[SecurityOperator].freeze,
+      "organization.close" => %w[SecurityOperator].freeze,
       "policy.access.manage" => %w[OrganizationAdmin SecurityOperator].freeze,
+      "policy.entitlement.manage" => %w[BillingOperator].freeze,
       "policy.export.manage" => %w[OrganizationAdmin SecurityOperator].freeze,
       "role.manage" => %w[OrganizationAdmin SecurityOperator].freeze,
       "security.investigate" => %w[SecurityOperator].freeze,
+      "security.investigation.approve" => %w[SecurityOperator].freeze,
       "support.session.approve" => %w[SecurityOperator].freeze
     }.freeze
 
