@@ -55,6 +55,8 @@ module AutonomousBuild
     ROLE_ASSIGNMENT_STORE = "app/contexts/identity_access/infrastructure/role_assignment_store.rb"
     EXPIRE_HANDLER = "app/workflows/wf013/handlers/expire_role_assignment.rb"
     HARNESS = "automation/lib/autonomous_build/mutation_harness.rb"
+    # ROUND 20 / FU-63
+    AUTHORIZER = "app/contexts/identity_access/authorization/command_authorizer.rb"
 
     ENTRIES = [
       # ---- D1/D2: the dead question, and the ones nothing pinned -------------------------------
@@ -682,7 +684,181 @@ module AutonomousBuild
         description: "the one classifier goes back to calling a run that tripped a suite-wide " \
                      "invariant `broken`, which is what the two copies disagreed about",
         from: "      return \"survived\" if status.success? && !output.include?(SUITE_LEVEL_ERROR)",
-        to: "      return \"survived\" if status.success?", expectation: "kill" }
+        to: "      return \"survived\" if status.success?", expectation: "kill" },
+
+      # ---- ROUND 20 / FU-63: the conjuncts proved at ONE CONFIGURATION and assumed at the rest ----
+      #
+      # Round 20 ran 78 narrowly-scoped, arity-preserving mutations, 48 survived, and 5 were confirmed
+      # against the FULL 1191-example acceptance corpus. None was a reachable product defect — 12
+      # probes against the real stores and handlers passed at HEAD — and every one was an EVIDENCE
+      # gap of a single shape: a control bound at the one value somebody wrote a case for. The six
+      # structural repairs FU-63 records are what these measure.
+
+      # R20-1 — GRANT IDENTITY, BOUND BY NOTHING AT ANY OF THE THREE WRITES. Unbinding it at the queue
+      # write left the battery at 36 examples / 0 failures, and driven at the store it QUEUED A CRAWL
+      # ON A REVOKED GRANT. The round-19 foreign-account case does not reach identity: its grant
+      # differs in VERSION and SCOPE as well as in principal. What binds it is a COLLISION — a carried
+      # id naming a revoked Assignment while a live sibling of the same principal sits at the same
+      # version and the same scope.
+      { id: "r20-cancel-grant-identity-unbound", blocker: "R20-1/FU-63", file: STORE, proof: BATTERY_PROOF,
+        description: "the cancellation stops joining the carried grant id to the row it re-reads, so " \
+                     "any live grant of the principal satisfies a tuple naming a revoked one",
+        from: "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+        to: "              ON g.id IS NOT NULL AND g.state_version = ra.state_version\n",
+        expectation: "kill" },
+      { id: "r20-queue-grant-identity-unbound", blocker: "R20-1/FU-63", file: CRAWL_STORE,
+        proof: BATTERY_PROOF,
+        description: "the queue insert stops joining the carried grant id — the instance round 20 " \
+                     "drove at the store, which queued a Crawl on a revoked grant",
+        from: "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+        to: "              ON g.id IS NOT NULL AND g.state_version = ra.state_version\n",
+        expectation: "kill" },
+      { id: "r20-policy-grant-identity-unbound", blocker: "R20-1/FU-63", file: POLICY_STORE,
+        proof: BATTERY_PROOF,
+        description: "the policy activation stops joining the carried grant id",
+        from: "              ON g.id = ra.id AND g.state_version = ra.state_version\n",
+        to: "              ON g.id IS NOT NULL AND g.state_version = ra.state_version\n",
+        expectation: "kill" },
+
+      # R20-2 — THE `WriteAuthority.for` DERIVATIONS, BOUND ONLY AGAINST THE TWO ROLES AND THE ONE
+      # MODE-TUPLE THE BATTERY SEEDED. All three survived the full corpus.
+      { id: "r20-roles-derivation-widened-by-security-operator", blocker: "R20-2/FU-63",
+        file: WRITE_AUTHORITY, proof: BATTERY_PROOF,
+        description: "the cell widened by `SecurityOperator`, a role `:147` denies outright — driven, " \
+                     "it CANCELS A CRAWL; invisible while the battery's only denied role was " \
+                     "TechnicalImplementer",
+        from: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),\n",
+        to: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability) | [\"SecurityOperator\"],\n",
+        expectation: "kill" },
+      { id: "r20-read-only-derivation-from-required-role", blocker: "R20-2/FU-63",
+        file: WRITE_AUTHORITY, proof: BATTERY_PROOF,
+        description: "the SIXTH COLUMN derived as `!required_role.nil?` — FALSE at every configuration " \
+                     "that existed and TRUE on the one production path carrying a scope rule, so a " \
+                     "READ-ONLY EXECUTIVE BUYER ACTIVATES AN IMMUTABLE PROJECT-SCOPE CRAWL POLICY",
+        from: "            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        to: "            read_only_permitted: !required_role.nil?,\n",
+        expectation: "kill" },
+      { id: "r20-required-role-dropped-for-project-scope", blocker: "R20-2/FU-63",
+        file: WRITE_AUTHORITY, proof: BATTERY_PROOF,
+        description: "the ratified scope rule dropped for PROJECT scope ALONE, which no driver in " \
+                     "twenty rounds had ever passed",
+        from: "        new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,\n" \
+              "            epoch: actor.authorization_epoch, required_role:,\n",
+        to: "        new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,\n" \
+            "            epoch: actor.authorization_epoch, required_role: (required_role == \"MarketingOperator\" ? nil : required_role),\n",
+        expectation: "kill" },
+      { id: "r20-policy-scope-rule-conjunct-unbound", blocker: "R20-2/FU-63", file: POLICY_STORE,
+        proof: BATTERY_PROOF,
+        description: "the scope rule stops being a conjunct of the policy write, so a grant holding " \
+                     "the other scope's role activates this scope's immutable policy",
+        from: "              AND ($18::text IS NULL OR ra.canonical_role = $18::text)\n",
+        to: "              AND ($18::text IS NULL OR $18::text IS NOT NULL)\n",
+        expectation: "kill" },
+
+      # R20-3 — `same_principal?` COMPARES TEN MEMBERS AND PROOF 251 BOUND ONE. Nine comparisons could
+      # be deleted with the corpus green. The repair drives `require!` over `WriteAuthority.members`,
+      # so each of the nine is measured here and a member added later is covered by construction.
+      { id: "r20-same-principal-account-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the ACCOUNT, so one actor's attestation is " \
+                     "accepted at another actor's write",
+        from: "        other.is_a?(self.class) && other.account_id == account_id &&\n",
+        to: "        other.is_a?(self.class) &&\n", expectation: "kill" },
+      { id: "r20-same-principal-organization-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the ORGANIZATION",
+        from: "          other.organization_id == organization_id && other.epoch == epoch &&\n",
+        to: "          other.epoch == epoch &&\n", expectation: "kill" },
+      { id: "r20-same-principal-epoch-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the EPOCH, so an attestation minted before an " \
+                     "authority change is accepted after it",
+        from: "other.organization_id == organization_id && other.epoch == epoch &&",
+        to: "other.organization_id == organization_id &&", expectation: "kill" },
+      { id: "r20-same-principal-grant-ids-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the GRANT SET the decision relied on",
+        from: "          other.capability == capability && other.grant_ids == grant_ids &&\n",
+        to: "          other.capability == capability &&\n", expectation: "kill" },
+      { id: "r20-same-principal-required-role-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the SCOPE RULE, so an Organization-scope " \
+                     "attestation is accepted at a Project-scope write",
+        from: "          other.required_role == required_role && other.allowed_roles == allowed_roles &&\n",
+        to: "          other.allowed_roles == allowed_roles &&\n", expectation: "kill" },
+      { id: "r20-same-principal-allowed-roles-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the ratified CELL carried to the write",
+        from: "other.required_role == required_role && other.allowed_roles == allowed_roles &&",
+        to: "other.required_role == required_role &&", expectation: "kill" },
+      { id: "r20-same-principal-read-only-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the SIXTH COLUMN carried to the write",
+        from: "          other.read_only_permitted == read_only_permitted &&\n", to: "",
+        expectation: "kill" },
+      { id: "r20-same-principal-grant-versions-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the grant STATE VERSIONS",
+        from: "          other.grant_versions == grant_versions && other.grant_scopes == grant_scopes\n",
+        to: "          other.grant_scopes == grant_scopes\n", expectation: "kill" },
+      { id: "r20-same-principal-grant-scopes-unbound", blocker: "R20-3/FU-63", file: WRITE_AUTHORITY,
+        proof: CAPABILITY_PROOF,
+        description: "`same_principal?` stops comparing the grant SCOPES",
+        from: "other.grant_versions == grant_versions && other.grant_scopes == grant_scopes",
+        to: "other.grant_versions == grant_versions", expectation: "kill" },
+
+      # R20-4 — "REFUSED BEFORE THE LOCK", PROVED ONLY FOR AN ACTOR HOLDING NOTHING. Every driver of
+      # PROOF 255/256/257 was an Account with NO Assignment, which `decision.allowed?` refuses
+      # whatever the baseline cell says — so the cell conjunct of `confers?` did no work in any of
+      # them. With it neutralised, a TechnicalImplementer TAKES THE BLOCKING LOCK before being
+      # refused at the write, and PRULE-039 / SEC-REQ-005 makes a check performed after that side
+      # effect a bypass whatever its arithmetic. The outcome is identical either way, which is
+      # exactly why only an INVOCATION observation can tell them apart.
+      { id: "r20-confers-baseline-cell-neutralised", blocker: "R20-4/FU-63", file: AUTHORIZER,
+        proof: CAPABILITY_PROOF,
+        description: "`confers?` stops consulting the ratified role cell, so a denied role passes the " \
+                     "handler's pre-lock check and reaches the lock before the write refuses it",
+        from: "        return false unless Platform::PermissionBaseline.permits?(capability, [assignment[\"canonical_role\"]])\n",
+        to: "", expectation: "kill" },
+
+      # R20-5 — THE STATUS CONJUNCT, AND THE ONE SURVIVOR THAT IS GENUINELY EQUIVALENT.
+      #
+      # `ra.status = 'active'` was bound against `revoked` alone, so a mutation ADMITTING `pending`
+      # survived at all three writes. It survives here too, and the classification is EQUIVALENT
+      # rather than unbound — recorded with its reason rather than papered over with a case that
+      # cannot represent production. The weakening mutation below it is the one that is genuinely
+      # discriminating, and it is killed.
+      { id: "r20-cancel-status-admits-pending", blocker: "R20-5/FU-63", file: STORE, proof: BATTERY_PROOF,
+        description: "the status conjunct widened to admit `pending` — the round-20 survivor, kept in " \
+                     "the ledger with its equivalence stated rather than removed",
+        from: "              AND ra.status = 'active'\n",
+        to: "              AND ra.status IN ('active', 'pending')\n",
+        expectation: "equivalent",
+        equivalence_reason: "A `pending` Role Assignment CANNOT BE EFFECTIVE: the table's CHECK " \
+                            "`role_assignment_pending_is_not_effective` is `status <> 'pending' OR " \
+                            "effective_at IS NULL`, and the same CTE requires `ra.effective_at IS NOT " \
+                            "NULL AND ra.effective_at <= now`. So no row the database can hold is " \
+                            "admitted by this widening, and the mutation cannot change the outcome of " \
+                            "any execution — it is equivalent, not unbound. This is measured, not " \
+                            "asserted: the battery's status sweep drives EVERY value the status CHECK " \
+                            "admits, at every protected write, and `wf005_grant_battery_spec.rb` " \
+                            "asserts the pending CHECK still exists, so if that constraint is ever " \
+                            "dropped the equivalence fails loudly instead of ageing into a false " \
+                            "record. ADR-133's R15-CONC-1 deadlock-freedom exemption rests on the " \
+                            "same filter and is driven by the same sweep." },
+      { id: "r20-cancel-status-weakened", blocker: "R20-5/FU-63", file: STORE, proof: BATTERY_PROOF,
+        description: "the status conjunct weakened to `<> 'pending'`, which admits a REVOKED, REJECTED " \
+                     "or EXPIRED grant — the discriminating half of R20-5",
+        from: "              AND ra.status = 'active'\n",
+        to: "              AND ra.status <> 'pending'\n", expectation: "kill" },
+      { id: "r20-queue-status-weakened", blocker: "R20-5/FU-63", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the same weakening at the queue insert",
+        from: "              AND ra.status = 'active'\n",
+        to: "              AND ra.status <> 'pending'\n", expectation: "kill" },
+      { id: "r20-policy-status-weakened", blocker: "R20-5/FU-63", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the same weakening at the policy activation",
+        from: "              AND ra.status = 'active'\n",
+        to: "              AND ra.status <> 'pending'\n", expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
     # D4's mutations act on a TRIGGER DEFINITION rather than on a file, and they are now REPLAYED,

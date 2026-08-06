@@ -325,86 +325,121 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
                                          with_policy: false, issued_at: fixed_now - 300)[:session_id]
     end
 
-    it "PROOF 255 — QueueCrawl denies without taking the per-Project lock" do
+    # EVERY UNAUTHORIZED SHAPE, NOT ONLY THE EMPTIEST ONE (FU-63 part 5, closing R20-4).
+    #
+    # WHAT WAS OPEN. All three proofs below drove `unauthorized_session` — an Account with NO
+    # Assignment at all. That actor is refused by `decision.allowed?` whatever the baseline cell
+    # says, so the cell conjunct of `confers?` was doing no work in any of them. Measured at round
+    # 20: with the baseline-cell conjunct neutralised, A TECHNICALIMPLEMENTER TAKES THE LOCK before
+    # being refused — the run still ends refused, so the OUTCOME cannot tell the two apart, and
+    # PRULE-039 / SEC-REQ-005 is explicit that a check performed after a side effect is a bypass
+    # whatever its arithmetic. Taking a lock other tenants' commands queue behind IS that side
+    # effect.
+    #
+    # THE DENIED ROLES ARE DERIVED FROM `:135`, not chosen: every canonical role whose cell for the
+    # capability under test reads `deny`. Each is a REAL, ACTIVE, EFFECTIVE Assignment, so
+    # everything except the cell admits it.
+    def denied_role_sessions(org, capability)
+      RatifiedPermissionBaseline.denied_roles(capability).map do |role|
+        expect(Platform::PermissionBaseline::CAPABILITIES.fetch(capability)).not_to include(role)
+        [role, TenantSeeder.seed_authorized_admin(organization_id: org, canonical_role: role,
+                                                  with_policy: false, issued_at: fixed_now - 300)[:session_id]]
+      end
+    end
+
+    # The actor shapes one proof drives: the empty one, then one per denied role.
+    def unauthorized_shapes(org, capability)
+      shapes = [["holding no Assignment at all", unauthorized_session(org)]] +
+               denied_role_sessions(org, capability).map { |role, session| ["held as #{role}", session] }
+      expect(shapes.size).to be >= 2, "no denied role was derived, so this proof is the old one-shape proof"
+      shapes
+    end
+
+    it "PROOF 255 — QueueCrawl denies without taking the per-Project lock, for EVERY unauthorized shape" do
       g = queueable_org
       lock = ExecutionProbe.calls("IdentityAccess::Infrastructure::CrawlStore#lock_project").first
-      session = unauthorized_session(g[:organization_id])
 
-      result = nil
-      seen = ExecutionProbe.watch([lock]) do
-        result = Workflows::Wf005::Handlers::QueueCrawl.new.call(
-          command: Workflows::Wf005::Commands::QueueCrawl.new(
-            command_id: SecureRandom.uuid_v7, idempotency_key: "qc-#{SecureRandom.hex(6)}",
-            schema_version: "1.0", session_id: session, organization_id: g[:organization_id],
-            project_id: g[:project_id], requested_at_utc: act_now
-          ), request_context: act_ctx
-        )
+      unauthorized_shapes(g[:organization_id], "crawl.trigger").each do |shape, session|
+        result = nil
+        seen = ExecutionProbe.watch([lock]) do
+          result = Workflows::Wf005::Handlers::QueueCrawl.new.call(
+            command: Workflows::Wf005::Commands::QueueCrawl.new(
+              command_id: SecureRandom.uuid_v7, idempotency_key: "qc-#{SecureRandom.hex(6)}",
+              schema_version: "1.0", session_id: session, organization_id: g[:organization_id],
+              project_id: g[:project_id], requested_at_utc: act_now
+            ), request_context: act_ctx
+          )
+        end
+
+        expect(result).not_to be_success, "an actor #{shape} queued a Crawl"
+        expect(result.reason_code).to eq("crawl_trigger_unauthorized")
+        expect(seen).not_to have_evaluated(lock),
+                            "the handler took its blocking lock for an actor #{shape}"
+        expect(DbInspector.all("SELECT id FROM crawls WHERE organization_id = $1::uuid",
+                               [g[:organization_id]])).to be_empty
       end
-
-      expect(result).not_to be_success
-      expect(result.reason_code).to eq("crawl_trigger_unauthorized")
-      expect(seen).not_to have_evaluated(lock),
-                          "the handler took its blocking lock for an actor holding no authority"
-      expect(DbInspector.all("SELECT id FROM crawls WHERE organization_id = $1::uuid",
-                             [g[:organization_id]])).to be_empty
     end
 
-    it "PROOF 256 — CancelCrawl denies without taking the frontier lock" do
+    it "PROOF 256 — CancelCrawl denies without taking the frontier lock, for EVERY unauthorized shape" do
       ctx = running_crawl
       lock = ExecutionProbe.calls("IdentityAccess::Infrastructure::CrawlFrontierStore#lock_frontier").first
-      session = unauthorized_session(ctx[:g][:organization_id])
-      version = DbInspector.one("SELECT state_version FROM crawls WHERE id = $1::uuid",
-                                [ctx[:crawl_id]])["state_version"].to_i
 
-      result = nil
-      seen = ExecutionProbe.watch([lock]) do
-        result = Workflows::Wf005::Handlers::CancelCrawl.new.call(
-          command: Workflows::Wf005::Commands::CancelCrawl.new(
-            command_id: SecureRandom.uuid_v7, idempotency_key: "cx-#{SecureRandom.hex(6)}",
-            schema_version: "1.0", session_id: session, organization_id: ctx[:g][:organization_id],
-            project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
-            expected_state_version: version, requested_at_utc: start_now
-          ),
-          request_context: Platform::RequestContext.for_actor(
-            clock: Platform::Clock.fixed(start_now), ids: Platform::Ids.system,
-            correlation_id: SecureRandom.uuid_v7
+      unauthorized_shapes(ctx[:g][:organization_id], "crawl.cancel").each do |shape, session|
+        version = DbInspector.one("SELECT state_version FROM crawls WHERE id = $1::uuid",
+                                  [ctx[:crawl_id]])["state_version"].to_i
+        result = nil
+        seen = ExecutionProbe.watch([lock]) do
+          result = Workflows::Wf005::Handlers::CancelCrawl.new.call(
+            command: Workflows::Wf005::Commands::CancelCrawl.new(
+              command_id: SecureRandom.uuid_v7, idempotency_key: "cx-#{SecureRandom.hex(6)}",
+              schema_version: "1.0", session_id: session, organization_id: ctx[:g][:organization_id],
+              project_id: ctx[:g][:project_id], crawl_id: ctx[:crawl_id],
+              expected_state_version: version, requested_at_utc: start_now
+            ),
+            request_context: Platform::RequestContext.for_actor(
+              clock: Platform::Clock.fixed(start_now), ids: Platform::Ids.system,
+              correlation_id: SecureRandom.uuid_v7
+            )
           )
-        )
-      end
+        end
 
-      expect(result).not_to be_success
-      expect(result.reason_code).to eq("crawl_cancel_unauthorized")
-      expect(seen).not_to have_evaluated(lock)
-      expect(crawl_state(ctx)).to eq("running")
+        expect(result).not_to be_success, "an actor #{shape} cancelled a running Crawl"
+        expect(result.reason_code).to eq("crawl_cancel_unauthorized")
+        expect(seen).not_to have_evaluated(lock),
+                            "the handler took its blocking lock for an actor #{shape}"
+        expect(crawl_state(ctx)).to eq("running")
+      end
     end
 
-    it "PROOF 257 — ActivateCrawlPolicy denies without taking the per-Organization lock" do
+    it "PROOF 257 — ActivateCrawlPolicy denies without taking the per-Organization lock, for EVERY shape" do
       g = bootstrap
       lock = ExecutionProbe.calls("IdentityAccess::Infrastructure::CrawlPolicyStore#lock_organization").first
-      session = unauthorized_session(g[:organization_id])
       ceiling = Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
       bounds = ceiling.to_h { |d, v| [d, v.dup] }
       bounds["accepted_pages"] = bounds["accepted_pages"].merge("soft" => 5_000, "hard" => 6_000)
 
-      result = nil
-      seen = ExecutionProbe.watch([lock]) do
-        result = Workflows::Wf005::Handlers::ActivateCrawlPolicy.new.call(
-          command: Workflows::Wf005::Commands::ActivateCrawlPolicy.new(
-            command_id: SecureRandom.uuid_v7, idempotency_key: "acp-#{SecureRandom.hex(6)}",
-            schema_version: "1.0", session_id: session, organization_id: g[:organization_id],
-            scope: "organization", project_id: nil, expected_current_policy_version: nil,
-            expected_parent_policy_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
-            expected_global_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
-            proposed_bounds: bounds, requested_at_utc: act_now
-          ), request_context: act_ctx
-        )
-      end
+      unauthorized_shapes(g[:organization_id], "policy.crawl.manage").each do |shape, session|
+        result = nil
+        seen = ExecutionProbe.watch([lock]) do
+          result = Workflows::Wf005::Handlers::ActivateCrawlPolicy.new.call(
+            command: Workflows::Wf005::Commands::ActivateCrawlPolicy.new(
+              command_id: SecureRandom.uuid_v7, idempotency_key: "acp-#{SecureRandom.hex(6)}",
+              schema_version: "1.0", session_id: session, organization_id: g[:organization_id],
+              scope: "organization", project_id: nil, expected_current_policy_version: nil,
+              expected_parent_policy_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+              expected_global_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+              proposed_bounds: bounds, requested_at_utc: act_now
+            ), request_context: act_ctx
+          )
+        end
 
-      expect(result).not_to be_success
-      expect(result.reason_code).to eq("crawl_policy_unauthorized")
-      expect(seen).not_to have_evaluated(lock)
-      expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
-                             [g[:organization_id]])).to be_empty
+        expect(result).not_to be_success, "an actor #{shape} activated a crawl policy"
+        expect(result.reason_code).to eq("crawl_policy_unauthorized")
+        expect(seen).not_to have_evaluated(lock),
+                            "the handler took its blocking lock for an actor #{shape}"
+        expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
+                               [g[:organization_id]])).to be_empty
+      end
     end
 
     it "PROOF 257b — a MIS-SCOPED actor is denied before the lock too, not merely refused at the write" do
@@ -453,6 +488,48 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
                           "the mis-scoped actor reached the per-Organization lock before being refused; " \
                           ":329 requires F1-AUTH-403 with NO product side effect, and PRULE-039 makes a " \
                           "check performed after one a bypass whatever its arithmetic"
+      expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
+                             [g[:organization_id]])).to be_empty
+    end
+
+    it "PROOF 257c — and the SAME property at PROJECT scope, which had it at neither layer (FU-63)" do
+      # THE OTHER HALF OF THE SCOPE RULE. PROOF 257b drives an actor mis-scoped for ORGANIZATION
+      # scope. `SCOPE_ROLE` has exactly two entries, and the Project one was driven by no proof of
+      # this property at all — the same "proved at one configuration, assumed at the other" shape
+      # R20-2 found at the write, one layer up in the handler. The existing reason-code case
+      # ("denies an OrganizationAdmin at Project scope") asserts the OUTCOME; PRULE-039 is about
+      # WHERE the refusal happens, and only this observes that.
+      #
+      # The actor is the bootstrapped OrganizationAdmin, which `:173` admits at Organization scope
+      # and denies at Project scope, and the bounds are valid and narrowing so nothing else can
+      # refuse the command first.
+      g = bootstrap
+      lock = ExecutionProbe.calls("IdentityAccess::Infrastructure::CrawlPolicyStore#lock_organization").first
+      ceiling = Workflows::Wf005::CrawlPolicy::GLOBAL_CEILING
+      bounds = ceiling.to_h { |d, v| [d, v.dup] }
+
+      result = nil
+      seen = ExecutionProbe.watch([lock]) do
+        result = Workflows::Wf005::Handlers::ActivateCrawlPolicy.new.call(
+          command: Workflows::Wf005::Commands::ActivateCrawlPolicy.new(
+            command_id: SecureRandom.uuid_v7, idempotency_key: "acp-#{SecureRandom.hex(6)}",
+            schema_version: "1.0", session_id: g[:session_id],
+            organization_id: g[:organization_id], scope: "project", project_id: g[:project_id],
+            expected_current_policy_version: nil,
+            expected_parent_policy_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+            expected_global_version: Workflows::Wf005::CrawlPolicy::GLOBAL_VERSION,
+            proposed_bounds: bounds, requested_at_utc: act_now
+          ), request_context: act_ctx
+        )
+      end
+
+      expect(result).not_to be_success
+      expect(result.reason_code).to eq("crawl_policy_unauthorized"),
+                                    "an OrganizationAdmin was refused at Project scope for a reason other " \
+                                    "than authority: #{result.reason_code}"
+      expect(seen).not_to have_evaluated(lock),
+                          "the Project-scope mis-scoped actor reached the per-Organization lock before " \
+                          "being refused"
       expect(DbInspector.all("SELECT id FROM crawl_policies WHERE organization_id = $1::uuid",
                              [g[:organization_id]])).to be_empty
     end
@@ -536,6 +613,84 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
         expect do
           Workflows::Wf005::AuthorityAttestation.require!(attestation, connection: pg, authority: other)
         end.to raise_error(Workflows::Wf005::AuthorityAttestation::Missing, /different actor, epoch, capability/)
+      end
+    end
+
+    # EVERY MEMBER, BY CONSTRUCTION (FU-63 part 4, closing R20-3).
+    #
+    # WHAT WAS OPEN. `WriteAuthority#same_principal?` compares TEN members, and PROOF 251 above binds
+    # exactly ONE of them — `capability`. Measured at round 20: nine of the ten comparisons could be
+    # deleted with the acceptance corpus green. The comparison is what stops one command's
+    # attestation being presented at another command's write, so nine tenths of it was asserted by
+    # nothing.
+    #
+    # WHY THIS IS NOT NINE MORE HAND-WRITTEN EXAMPLES. A tenth member added to the `Data.define`
+    # would be born unbound, and the eleventh after it, and this tranche's whole subject is a control
+    # proved at the instances somebody remembered. So the example DERIVES its subject from
+    # `WriteAuthority.members`: every member is perturbed in turn, and a member added tomorrow is
+    # covered the day it is added or fails here as unperturbable.
+    #
+    # THE PERTURBATION IS PER-MEMBER AND TYPE-DIRECTED, and `expect(mutated).not_to eq(original)`
+    # is asserted first — a perturbation that silently produced the same value would make its case
+    # vacuously green, which is the exact shape of the defects this file records.
+    describe "the attestation is bound to EVERY member of the authority it names" do
+      def perturb(authority, member)
+        value = authority.public_send(member)
+        replacement =
+          case member
+          when :capability then (Platform::PermissionBaseline::CAPABILITIES.keys - [value]).first
+          when :required_role then value.nil? ? "OrganizationAdmin" : nil
+          when :read_only_permitted then !value
+          when :epoch then value.to_i + 1
+          when :organization_id, :account_id then SecureRandom.uuid_v7
+          when :grant_ids then value.empty? ? [SecureRandom.uuid_v7] : [SecureRandom.uuid_v7, *value]
+          when :grant_versions then value.map { |v| v.to_i + 1 }.then { |v| v.empty? ? [1] : v }
+          when :grant_scopes then value.map { "ff" * 32 }.then { |v| v.empty? ? ["ff" * 32] : v }
+          when :allowed_roles then Platform::PermissionBaseline::CAPABILITIES.values.flatten.uniq - value
+          else raise "no perturbation is defined for the new member #{member.inspect}"
+          end
+        authority.with(member => replacement)
+      end
+
+      it "refuses a write whose authority differs from the attestation in ANY ONE member" do
+        members = IdentityAccess::Authorization::WriteAuthority.members
+        expect(members.size).to be >= 10, "members shrank; a comparison may have been dropped with it"
+
+        ctx = running_crawl
+        Platform::UnitOfWork.run do |conn|
+          pg = conn.raw_connection
+          auth_store = IdentityAccess::Infrastructure::AuthorizationStore.new(pg)
+          auth = IdentityAccess::Authorization::CommandAuthorizer.new(auth_store)
+          actor = auth.authenticate(session_id: ctx[:g][:session_id], now: start_now,
+                                    correlation_id: SecureRandom.uuid_v7)
+          decision = auth.authorize(actor:, capability: "crawl.cancel", now: start_now)
+          attestation = Workflows::Wf005::AuthorityAttestation.attest(
+            pg, auth_store:, actor:, decision:, capability: "crawl.cancel"
+          )
+          expect(attestation).not_to be_nil
+
+          authority = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:,
+                                                                        capability: "crawl.cancel")
+
+          # NON-VACUITY FIRST: the unperturbed authority must be accepted, or every case below
+          # would pass because `require!` refuses everything.
+          expect(Workflows::Wf005::AuthorityAttestation.require!(attestation, connection: pg,
+                                                                              authority:)).to be(true)
+
+          members.each do |member|
+            mutated = perturb(authority, member)
+            expect(mutated.public_send(member)).not_to eq(authority.public_send(member)),
+                                                       "the perturbation of #{member} did not change it, " \
+                                                       "so this member is not really being driven"
+
+            expect do
+              Workflows::Wf005::AuthorityAttestation.require!(attestation, connection: pg,
+                                                                           authority: mutated)
+            end.to raise_error(Workflows::Wf005::AuthorityAttestation::Missing),
+                   "an attestation was accepted at a write whose authority differs in #{member}: " \
+                   "`same_principal?` does not compare it"
+          end
+        end
       end
     end
   end

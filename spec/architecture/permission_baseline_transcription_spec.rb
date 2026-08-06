@@ -28,34 +28,15 @@ RSpec.describe "Permission Baseline transcription", type: :model do
   # green alone, failing in the suite, and green-or-not by load order. That is the defect
   # R3-9's repair called out in as many words ("a proof must not depend on which files RSpec
   # loaded first"), so these are methods.
-  def doc_text = Rails.root.join("specification/volume-i/WORKFLOW_SPECIFICATIONS.md").read
+  #
+  # THE PARSE LIVES IN `RatifiedPermissionBaseline` (FU-63 part 1). It used to live here, and the
+  # write battery now derives its NEGATIVE ROLE POPULATION from the same table — every canonical
+  # role whose cell reads `deny` — rather than hand-picking one role. Two readers of one document
+  # must not be two parsers of it: a second copy is the defect class R20-2 found, where the
+  # round-19 repair's own copies of two derivations were bound by nothing.
+  def role_columns = RatifiedPermissionBaseline.role_columns
 
-  # The column headings, in order, of the § Permission Baseline table.
-  def role_columns
-    ["OrganizationAdmin", "MarketingOperator", "TechnicalImplementer", "SecurityOperator",
-     "BillingOperator", "Read-Only Executive Buyer", "Service Identity"].freeze
-  end
-
-  # Every row of the table as { capability => [cell, ...] }. A row names one or more
-  # backticked capabilities in its first cell and shares its cells between them, which is
-  # how `crawl.trigger`, `crawl.cancel` come to be one row.
-  def baseline_rows
-    section = doc_text.split(/^### /).find { |s| s.start_with?("Permission Baseline") }
-    raise "the Permission Baseline section was not found" if section.nil?
-
-    rows = section.lines.select { |l| l.start_with?("| `") }
-    raise "the Permission Baseline table parsed to no rows" if rows.empty?
-
-    rows.each_with_object({}) do |line, acc|
-      cells = line.split("|").map(&:strip)[1..]
-      next if cells.nil? || cells.size < role_columns.size + 1
-
-      capabilities = cells[0].scan(/`([a-z][a-z._]*)`/).flatten
-      capabilities.each { |capability| acc[capability] = cells[1, role_columns.size] }
-    end
-  end
-
-  let(:rows) { baseline_rows }
+  let(:rows) { RatifiedPermissionBaseline.rows }
   let(:materialized) { Platform::PermissionBaseline::CAPABILITIES.keys }
 
   # The guard on the parser itself. A regex that silently matched nothing would make every
@@ -65,6 +46,26 @@ RSpec.describe "Permission Baseline transcription", type: :model do
     expect(rows.size).to be >= 20
     expect(rows["crawl.cancel"]).to eq(["allow", "allow", "deny", "deny", "deny", "deny", "scheduler only"])
     expect(materialized - rows.keys).to be_empty
+  end
+
+  # THE DERIVED NEGATIVE POPULATION IS NON-EMPTY AND IS REALLY A COMPLEMENT (FU-63 part 1). The
+  # battery drives one refusal case per denied role, so a `denied_roles` that silently returned
+  # `[]` would delete that whole dimension of the battery while leaving it green. This asserts the
+  # derivation against the transcription it is the complement of: a canonical role is in exactly one
+  # of the two sets, for every materialized capability.
+  it "derives each capability's DENIED canonical roles as the exact complement of its allowed cell" do
+    materialized.each do |capability|
+      denied = RatifiedPermissionBaseline.denied_roles(capability)
+      allowed = Platform::PermissionBaseline::CAPABILITIES.fetch(capability)
+      deferred = deferred_cells.fetch(capability, {}).keys
+
+      expect(denied).not_to be_empty, "#{capability}: no canonical role is denied, so the battery's " \
+                                      "negative population would be empty"
+      expect(denied & allowed).to be_empty, "#{capability}: a role is both allowed and denied"
+      expect((denied + allowed + deferred).sort)
+        .to eq(RatifiedPermissionBaseline.canonical_role_columns.sort),
+            "#{capability}: allowed + denied + deferred is not every canonical role column"
+    end
   end
 
   # A ratified non-deny cell that is deliberately NOT transcribed, because the mechanism the
