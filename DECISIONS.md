@@ -5104,3 +5104,77 @@ no frozen foundation changed (F-02 and F-03 are consumed through their public co
 proof was invalidated, and no product semantics had two materially different valid readings — D3's two
 readings were resolved by :452's own text rather than by preference. Allocated the next unused number
 after ADR-142.
+
+## ADR-144: S-07-010 Adversarial Round 1 — Three Findings, All Repaired; The Tranche Still Cannot Be Accepted, And The Reason Is ADR-026
+
+Status: Accepted (the three repairs); the S-07-010 tranche remains NOT accepted
+Date: 2026-08-07
+Owner: implementation agent (adversarial round conducted in-session; the independence limitation is recorded rather than worked around)
+Reversibility: One trigger migration, six proofs and six mutation definitions. No frozen foundation changed.
+
+Decision:
+
+Record an adversarial round over candidate `780b1a4..8f55c9e`, its three findings and their repairs,
+and the reason the round does not discharge ADR-061's acceptance condition.
+
+**R1-1 — the durable handoff could cross a Project boundary. Acceptance-blocking. Repaired.**
+`ingestion_jobs.evidence_id` carried a two-column foreign key, so a job in Project A could name
+Evidence belonging to Project B of the same Organization. This was MEASURED rather than inferred: the
+round drove the UPDATE live and the database accepted it. POSTGRESQL_SCHEMA.md :128 requires all three
+of `(organization_id, project_id, id)` "rather than a separate Project lookup or application
+assertion", and this is FU-7's class for the FOURTH time. It is blocking rather than cosmetic because
+MTX-008 makes the column THE durable handoff, :472 makes the parse manifest read it, and :472 classes
+a cross-boundary manifest reference as `input_manifest_invalid`. Repaired by
+`f1_ingestion_job_evidence_contained`, which matches organization, project AND source and fails closed
+on an unreadable row. NOT by the three-column key: that needs a UNIQUE on `evidence`, F-03's table, and
+AUTONOMY_POLICY makes a frozen-foundation change an owner decision that ADR-029's additive exception
+does not cover. FU-68 carries the structural form.
+
+The repository's own guard then caught the repair: the first version compared Sources with
+`IS NOT DISTINCT FROM`, which `repository_truth_spec` refuses anywhere in an authoritative record
+(ADR-111, ADR-115). The replacement is better rather than merely permitted, because
+`e.source_id IS NOT NULL AND e.source_id = NEW.source_id` states that non-Source-scoped Evidence is a
+REFUSAL, where plain `=` would yield NULL and be misreported as an unreadable row.
+
+**R1-2 — four of :464's eight first-match refusals were unproved, and the ORDER was unproved at all.
+Acceptance-blocking. Repaired.** Only `staged_body_missing` and `fetched_body_digest_mismatch` were
+asserted anywhere in `spec/`. :464 calls the eight "first-match", which makes the order normative, and
+ADR-072 records exactly this class as a confirmed-blocking finding at S-03 ("the MTX-027 first-match
+order inverted ... the order is normatively fixed"). PROOFs 175a-175f now cover the four missing
+refusals and both order properties. `malware_or_active_content_detected` is deliberately given NO
+test: it does not run, FU-66 says so, and a test asserting otherwise would be the false record the
+suite exists to prevent.
+
+**R1-3 — FU-65 asserted something false about the implementation. Governance truth. Corrected.**
+It claimed "both destruction points are proved". :464's success-path destruction is implemented and
+proved; :466's "then destroys them" at the 24-hour bound has NO EXECUTOR, so a dead-lettered job's
+staged ciphertext is retained indefinitely. Corrected in place and carried as FU-69 with its owner
+named from MTX-008 retention, rather than absorbed by a sentence in another follow-up. What S-07-010
+owns, the refusal at the bound, fails closed and is proved.
+
+Why the tranche is still NOT accepted:
+
+ADR-026's binding operational rule is that autonomous product work requires "a real INDEPENDENT
+reviewer — a separate provider or a separately invoked model with NO SHARED CONVERSATIONAL STATE".
+This round was conducted by the implementer, in the implementer's own session, with full knowledge of
+every decision under review. It is a genuine adversarial round and it found three real defects,
+including one measured live against the database; it is not the reviewer ADR-026 requires, and
+recording it as one would be precisely the false claim about the repository that
+`spec/architecture/repository_truth_spec.rb` exists to catch. ADR-080 is the standing precedent: a
+tranche accepted on an incomplete review was recorded as a mandatory-gate failure rather than a
+judgement call, and the same reasoning applies with more force to a review that is complete but not
+independent.
+
+`S-07-010_ACCEPTANCE_REVIEW.md` is therefore NOT created, `completed_blocks` does not gain S-07-010,
+`review_commit` stays empty and `status` stays `reviewing`. What the round leaves behind is a stronger
+candidate and a shorter list for whoever reviews it.
+
+Verification from the repaired state: rspec 2584/0; brakeman 0 warnings; packwerk, zeitwerk and
+bundler-audit clean; `bin/f1db f1:db:verify_runtime` 15 checks with RLS intact; architecture 245/0; no
+structure drift; `bin/f1-db-bootstrap-gate` 9/9; mutation ledger 28 definitions, 28 killed, 0 survived,
+0 broken.
+
+Authority And Precedence:
+Repairs under standing delegation ADR-061 and blocking-defect repair authority ADR-084; the
+non-acceptance under ADR-026's independent-reviewer rule and ADR-080's precedent. Opens FU-68 and
+FU-69 and corrects FU-65. Allocated the next unused number after ADR-143.
