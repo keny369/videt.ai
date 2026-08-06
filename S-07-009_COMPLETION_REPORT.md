@@ -45,7 +45,7 @@ round 16 five, and round 15 EIGHT of which two were live production defects. Eve
 the dispositions are ADR-133, ADR-134, ADR-135, ADR-136 and ADR-137.
 
 ```f1-evidence
-candidate_range: b2e8cfb..5bacbbb
+candidate_range: b2e8cfb..d8f8c5e
 frozen_path_changes: 0
 frozen_paths: []
 suite_examples: 2507
@@ -432,7 +432,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 140 mutations, 139 killed, 1 survived (recorded equivalent), 0 broken |
+| mutation ledger | 141 mutations, 140 killed, 1 survived (recorded equivalent), 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -567,7 +567,7 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**140 mutations, 139 killed, 1 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+**141 mutations, 140 killed, 1 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
 replayed, sealed and verified by the same machinery rather than copied in as literals. The single
 survivor is `r20-cancel-status-admits-pending`, the one **recorded equivalent** in the set: admitting
 `pending` at the write cannot change the outcome of any execution, because
