@@ -5047,7 +5047,8 @@ unchanged: `(ingestion_job_id, attempt_number)` under its `ON CONFLICT`. Unlike 
 `ingestion_job` IS a member of the entity-type vocabulary API_CONTRACTS.md declares closed, so FU-17's
 divergence does not extend to this kind.
 
-Two defects were found by the tranche's own acceptance chain and repaired rather than worked around:
+Three defects were found by the tranche's own acceptance chain and its self-review, and repaired
+rather than worked around:
 
 **(a) The lifecycle guard evaluated the edge set on EVERY update**, so `succeeded -> succeeded` was an
 illegal transition — and :464's own next sentence, "deletes the separate staging reference", is an
@@ -5056,7 +5057,21 @@ would let a writer consume a `state_version` for a transition that did not happe
 worker's compare-and-set for no reason. A state-preserving update is admitted and separately forbidden
 from advancing the version.
 
-**(b) `spec/architecture/repository_truth_spec.rb` hardcoded two S-07-009 artefacts** — the mutation
+**(b) A CONTENDED delivery stranded its job for ever.** `ScheduledActions::Worker#run_handler`
+SETTLES every result that is not a confirmed lease loss, so a delivery that found a live
+`ingestion_attempts` lease correctly reported `ingestion_attempt_contended` and ENDED ITS OWN ACTION.
+If the incumbent then died, the job sat `running` behind a lease that would lapse with nothing pending
+to notice it — permanently, because :466's retry is only ever minted by a settle that never happens and
+`running_work_sweep_due` has no registered handler. Any worker crash whose action is re-dispatched
+inside the 300-second attempt lease reaches it. The repair is a SUCCESSOR rather than a longer lease or
+a new sweep kind: one `ingestion_attempt_due` at the incumbent's own lease boundary, read from the
+committed attempt row so two contended deliveries compute one action identity — the rule ADR-089
+established for :444's retry instant, applied to the same class of race. It cannot spin, and the reason
+is the state machine rather than a counter: by that instant the job is either settled (the successor
+gets `ingestion_job_not_runnable` and mints nothing) or its lease has expired (the successor reclaims
+it and applies :466).
+
+**(c) `spec/architecture/repository_truth_spec.rb` hardcoded two S-07-009 artefacts** — the mutation
 ledger and the acceptance-review record — inside a block titled "the record of THE TRANCHE CURRENTLY
 UNDER REVIEW", while every sibling check derives its subject from `current_tranche`. That is the exact
 defect :191 already corrected for `report_path`. It was not cosmetic: the ledger binds each verdict to
@@ -5065,9 +5080,9 @@ the ACCEPTED ledger stale and the gate reports a defect in a record nobody is re
 derived, both skip when the tranche has no such record, and `f1:mutations:regenerate` takes a `SET`
 from a closed registry so a second tranche can regenerate its own ledger at all.
 
-Verification from the candidate state: rspec 2574/0; brakeman 0 warnings; packwerk and zeitwerk clean;
+Verification from the candidate state: rspec 2575/0; brakeman 0 warnings; packwerk and zeitwerk clean;
 `bin/f1db f1:db:verify_runtime` 15 checks with RLS intact; architecture 245/0; structure file matches
-the current schema; mutation ledger 21 definitions, 21 killed, 0 survived, 0 broken.
+the current schema; mutation ledger 22 definitions, 22 killed, 0 survived, 0 broken.
 
 Consequences:
 
@@ -5075,7 +5090,7 @@ Consequences:
 objective verification suite PLUS the independent ADR-026 five-lens review the acceptance mechanism,
 and only the first half has run. What this ADR records is that the implementation is complete against
 the governing text, every mandatory gate is green, and an adversarial self-review against :460-466,
-:452, MTX-008 and MTX-030 found and repaired the two defects above.
+:452, MTX-008 and MTX-030 found and repaired the three defects above.
 
 Three follow-ups are opened: FU-65 (the `stored_objects` migration for staged bodies), FU-66
 (:464's `malware_or_active_content_detected` check is not performed — there is no scanning provider and
