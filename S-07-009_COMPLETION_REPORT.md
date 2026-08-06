@@ -1,6 +1,9 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The FU-63 repair is complete under ADR-139; this report is not an acceptance record.**
+**Acceptance status: ACCEPTED (ADR-142, 2026-08-06).** FU-63's six-part structural repair is complete
+under ADR-139, the constrained ADR-080 review found no demonstrated release blocker, and the owner's
+acceptance condition is met. The range also carries two changes the owner directed separately and which
+are not S-07-009 work: FU-54 (ADR-140) and FU-43 (ADR-141).
 
 **EIGHTEEN full ADR-026 five-lens rounds have reviewed this tranche and all eighteen returned FAIL.**
 
@@ -208,7 +211,7 @@ controlled, idempotent `pending` / `crawl_terminal` result. A refused late claim
 
 ### :450's antecedents (R6-4)
 
-`CompleteCrawl#resolve_pending_sitemaps` is removed. It satisfied only the consequent of :450's sentence
+The `resolve_pending_sitemaps` method on the CompleteCrawl handler is removed; `Workflows::Wf005::Handlers::CompleteCrawl#call` is what remains. It satisfied only the consequent of :450's sentence
 and wrote `sitemap_unavailable` for gates the run never attempted, and the proof that pinned it used
 allow-all robots with no declared sitemap and no default fetch. The COVERAGE answer it reached was correct
 and is kept, stated directly as :458's not-evaluated limb: `TerminalSelection::Facts` gains
@@ -693,3 +696,43 @@ a stronger property than the repository has, which is the R8-7 class this tranch
 | `d4-drop-robots_state` | D4/R10-15 | trigger | killed |
 | `d4-drop-robots_terminal_reason` | D4/R10-15 | trigger | killed |
 | `d4-drop-robots_terminal_at` | D4/R10-15 | trigger | killed |
+
+## Accepted path partition
+
+The acceptance is BY PATH over a COMMIT RANGE (ADR-083). Every file the range
+`b2e8cfb..4c1d0a1` touches falls under one of the declared paths below, and the excluded set is
+EMPTY — measured, not claimed. `spec/architecture/repository_truth_spec.rb` derives this check from
+`acceptance_evidence.block` and fails if the partition does not recompose.
+
+- `DECISIONS.md`
+- `S-07-009_ACCEPTANCE_REVIEW.md`
+- `S-07-009_BLOCKER_LEDGER.md`
+- `S-07-009_COMPLETION_REPORT.md`
+- `app/contexts/identity_access/authorization/write_authority.rb`
+- `app/contexts/identity_access/infrastructure/`
+- `app/platform/outbound.rb`
+- `app/platform/outbound/`
+- `app/platform/permission_baseline.rb`
+- `app/platform/scheduled_actions/lease.rb`
+- `app/workflows/wf005/`
+- `app/workflows/wf013/handlers/`
+- `automation/lib/autonomous_build/`
+- `spec/acceptance/`
+- `spec/architecture/`
+- `spec/automation/unit/mutation_harness_classification_spec.rb`
+- `spec/platform/outbound/total_deadline_spec.rb`
+- `spec/support/`
+- `specification/automation/BUILD_STATE.json`
+- `specification/automation/S-07-009_MUTATION_LEDGER.json`
+- `specification/foundations/FOUNDATION-001_OUTBOUND_TRANSPORT.md`
+
+THIS RANGE IS THE REVIEWED CANDIDATE, NOT THE WHOLE OF S-07-009's HISTORY. The tranche ran to eighteen recorded five-lens rounds plus the round-20 pass; the earlier repairs were integrated through prior commits and are recorded in S-07-009_ACCEPTANCE_REVIEW.md and S-07-009_BLOCKER_LEDGER.md. `b2e8cfb..HEAD` is the candidate BUILD_STATE pinned, the range the owner scoped the ADR-080 review to, and the range that review actually covered. It also carries two changes the owner directed separately and which are NOT S-07-009 work: FU-54 (3b95628, the ratified `:333` protected-grant enumeration, ADR-140) and FU-43 (0b8925f, F-01's ratified total-deadline evolution, ADR-141). Both are declared here because they fall inside the range; each has its own ADR and its own commit.
+
+### Identifiers this range accepts
+
+The capability conjuncts FU-63 bound are carried by
+`IdentityAccess::Authorization::WriteAuthority#same_principal?` and derived by
+`IdentityAccess::Authorization::WriteAuthority.for`; the attestation that demands them is
+`Workflows::Wf005::AuthorityAttestation#verify!`. FU-54's transcription is read by
+`Platform::PermissionBaseline#protected_permission_preview`, and FU-43's subordinate ceiling by
+`Platform::Outbound::RequestPolicy#effective_timeout_s`.

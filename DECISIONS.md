@@ -4886,3 +4886,93 @@ Owner decision of 2026-08-06, which ratifies the frozen-contract evolution, requ
 deadline as the authoritative correction for FU-43, and explicitly declines the lower-redirect
 mitigation and any documentation of the overrun as accepted behaviour. `FOUNDATION-001` property 6a
 records the evolution in the contract itself. Allocated the next unused number after ADR-140.
+
+---
+
+## ADR-142: S-07-009 Is Accepted
+
+Date: 2026-08-06
+Status: Accepted
+Scope: Acceptance of the S-07-009 tranche. Also records the constrained ADR-080 review that
+authorises it, and the one finding that review made.
+
+Context:
+
+S-07-009 returned NOT ACCEPTED eighteen recorded five-lens rounds running, plus the round-20 pass
+that opened FU-63. Round 20 found no reachable product defect on any axis — twelve probes against the
+real stores and handlers passed at HEAD, and a 63,000-tuple differential across the five deciders
+found only `required_role` (by design) and FU-58 (latent). **Every blocker was in the evidence.**
+
+FU-63's six-part structural repair is complete (ADR-139) and its own defect-focused review closed
+three further gaps in it. The owner then directed two changes outside the tranche: FU-54's ratified
+protected-grant enumeration (ADR-140) and FU-43's total request deadline, F-01's ratified
+frozen-contract evolution (ADR-141).
+
+The owner authorised acceptance conditional on ONE independent, defect-focused review, constrained to
+FU-63's repair, the newly added production-shaped configurations, the mutation classifications and
+claimed equivalence, the independent binding of every security-relevant conjunct, and FU-54 as a
+separate behavioural change — with an explicit instruction not to reopen the twenty-round history.
+
+Decision:
+
+**S-07-009 IS ACCEPTED.** The review found no demonstrated release blocker.
+
+**IT FOUND ONE REAL DEFECT, AND IT WAS REPAIRED RATHER THAN CARRIED.** Building the
+conjunct-by-site coverage matrix the ledger implies — rather than reading the ledger — showed that
+FU-63 had made the BATTERY run every case at every write while the LEDGER still measured four
+conjuncts at ONE write and assumed the copies: `g.scope_hex` and `ra.effective_at` at the
+cancellation alone, `ra.expires_at` at everything but the policy write, and the scope-rule cell blank
+at the queue. That is this tranche's signature shape one level up. Five new mutations closed it and
+ALL FIVE DIE, so the battery's cases did discriminate at every site and now that is measured. The
+sixth cell is recorded as EQUIVALENT with its premise: no production caller of the queue insert sends
+a `required_role`, and the row states what would have to change for that to stop being true.
+
+**WHAT THE REVIEW CONFIRMED.** Every one of round 20's five confirmed survivors now dies. The two
+surviving mutations in the ledger are both recorded equivalences whose premises are asserted
+executably — the `role_assignment_pending_is_not_effective` CHECK, and `SCOPE_ROLE`'s totality
+against `valid_scope_shape?`. The derived populations that cannot drift are the denied ROLES (from
+the ratified document) and `same_principal?`'s members (from the `Data` class); `WRITES` remains a
+hand-maintained list and FU-61 remains open, which this record states rather than papers over.
+
+**FU-54, VERIFIED AGAINST THE OWNER'S FIVE QUESTIONS.** The implementation is derived from `:333` +
+`:135` and gated by a third transcription dimension. Approval and expiry are enforced: every ratified
+protected role lands `pending` with a 24-hour approval deadline, no `effective_at` and an empty
+allowlist, with a non-protected control that still lands `active`. NOTHING IS RETROACTIVE — none of
+the three newly protected permissions is materialized in `CAPABILITIES`, so no live authorization
+decision changes. An Organization without a SecurityOperator fails safely and visibly: the request is
+pending, confers nothing, and expires unapproved. There is no authorization deadlock and no
+impossible bootstrap state — WF-001 genesis is untouched, and a BillingOperator confers NOTHING
+materialized in this build because `policy.entitlement.manage` belongs to the unbuilt CAP-024 / S-22.
+
+**ONE CONSEQUENCE IS RECORDED AS FU-64 RATHER THAN LEFT IN PROSE.** Making BillingOperator protected
+also routes its REVOCATION through `role_protected_authority_required`, so an existing BillingOperator
+Assignment now needs a SecurityOperator to revoke — and no Organization can obtain one until the
+security-bootstrap service is built (`decide_role_assignment.rb:111` refuses the first SecurityOperator
+by design, pre-existing and unchanged here). It blocks nothing today because the role confers nothing
+materialized. It MUST be resolved before S-22 materializes `policy.entitlement.manage`.
+
+Evidence:
+
+Candidate `b2e8cfb..4c1d0a1`, 52 files, every one under a declared path and the excluded set EMPTY.
+rspec 2522/0; architecture 245/0 with 1 pending; brakeman 0; packwerk clean; zeitwerk ok;
+bundler-audit clean; controller unit 39/0, integration 20/0, policy 21/0, crash_recovery 5/0,
+locking 5/0, end_to_end 10/0; verify_runtime 15 checks with RLS intact; no structure drift;
+`bin/f1-db-bootstrap-gate` 9/9; mutation ledger 155 definitions, 153 killed, 2 recorded equivalent,
+0 broken.
+
+Consequences:
+
+`completed_blocks` gains S-07-009. `current_tranche` moves to **S-07-010** — Documents, ingestion,
+Evidence and durable handoff — which `BUILD_PLAN.yml` gates on S-07-009 alone. S-07-011 remains gated
+on S-07-010.
+
+Open follow-ups carried, none blocking: FU-2, FU-3, FU-6, FU-7, FU-8, FU-12, FU-13, FU-14, FU-15,
+FU-17, FU-20, FU-22, FU-23, FU-26, FU-27, FU-28, FU-29, FU-32, FU-33, FU-37, FU-39, FU-40, FU-42,
+FU-46, FU-47, FU-49, FU-50, FU-51, FU-53, FU-55, FU-56, FU-57, FU-58, FU-59, FU-60, FU-61, FU-62 and
+the newly opened FU-64.
+
+Authority And Precedence:
+Acceptance under standing delegation ADR-061 and review discipline ADR-080, on the owner's explicit
+condition of 2026-08-06: one independent defect-focused review over the pinned candidate range, no
+reopening of the closed history, and acceptance when no demonstrated blocker remains. Allocated the
+next unused number after ADR-141.
