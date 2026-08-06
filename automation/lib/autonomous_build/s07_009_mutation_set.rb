@@ -59,6 +59,10 @@ module AutonomousBuild
     AUTHORIZER = "app/contexts/identity_access/authorization/command_authorizer.rb"
     # FU-54
     BASELINE = "app/platform/permission_baseline.rb"
+    # FU-43 — F-01's ratified evolution
+    HTTP_CLIENT = "app/platform/outbound/guarded_http_client.rb"
+    POLICY = "app/platform/outbound/request_policy.rb"
+    DEADLINE_PROOF_F01 = "spec/platform/outbound/total_deadline_spec.rb"
     TRANSCRIPTION_PROOF = "spec/architecture/permission_baseline_transcription_spec.rb " \
                           "spec/acceptance/wf013_protected_enumeration_spec.rb"
 
@@ -905,7 +909,44 @@ module AutonomousBuild
         description: "the `security.investigation.approve` entry deleted — an under-grant in the " \
                      "fail-closed direction, and still a divergence from the ratified authority",
         from: "      \"security.investigation.approve\" => %w[SecurityOperator].freeze,\n", to: "",
-        expectation: "kill" }
+        expectation: "kill" },
+
+      # ---- FU-43: the total request deadline, F-01's ratified evolution (ADR-141) ----------------
+      #
+      # Each of these restores one limb of the pre-repair behaviour, in which `timeout_s` was
+      # re-armed per redirect hop and a request bounded at N seconds could run 11.1x that.
+      { id: "fu43-connect-deadline-rearmed-per-hop", blocker: "FU-43", file: HTTP_CLIENT,
+        proof: DEADLINE_PROOF_F01,
+        description: "the connect/read deadline goes back to a fresh full `timeout_s` per attempt, " \
+                     "so a redirect chain multiplies the caller's bound",
+        from: "        deadline = monotonic + policy.effective_timeout_s(left)\n",
+        to: "        deadline = monotonic + policy.timeout_s\n", expectation: "kill" },
+      { id: "fu43-resolver-deadline-rearmed-per-hop", blocker: "FU-43", file: HTTP_CLIENT,
+        proof: DEADLINE_PROOF_F01,
+        description: "the DNS lookup goes back to a fresh full `timeout_s`, the second half of the " \
+                     "per-attempt doubling that made one hop cost 2x the caller's number",
+        from: "        pin = resolver.resolve(target.canonical_host, timeout_s: policy.effective_timeout_s(left))\n",
+        to: "        pin = resolver.resolve(target.canonical_host, timeout_s: policy.timeout_s)\n",
+        expectation: "kill" },
+      { id: "fu43-pre-hop-budget-check-removed", blocker: "FU-43", file: HTTP_CLIENT,
+        proof: DEADLINE_PROOF_F01,
+        description: "the budget check before the next hop is deleted, so an exhausted request still " \
+                     "resolves and connects one more time",
+        from: "          return Outcome.timeout(**failure_meta(target, nil, redirects, started)) if remaining(total_deadline) <= 0\n",
+        to: "", expectation: "kill" },
+      { id: "fu43-total-budget-defaults-to-ceiling", blocker: "FU-43", file: POLICY,
+        proof: DEADLINE_PROOF_F01,
+        description: "the total defaults to the platform ceiling instead of the caller's per-attempt " \
+                     "number — the exact accidental bypass the owner's requirement 6 names",
+        from: "          total_timeout_s: Ceilings.clamp_positive(total_timeout_s || per_attempt,\n",
+        to: "          total_timeout_s: Ceilings.clamp_positive(total_timeout_s || Ceilings::TOTAL_REQUEST_TIMEOUT_MAX_S,\n",
+        expectation: "kill" },
+      { id: "fu43-effective-timeout-ignores-remaining", blocker: "FU-43", file: POLICY,
+        proof: DEADLINE_PROOF_F01,
+        description: "`effective_timeout_s` stops taking the lesser of the two, so the per-attempt " \
+                     "ceiling is once again the only bound any operation sees",
+        from: "      def effective_timeout_s(remaining_s) = [timeout_s, remaining_s].min\n",
+        to: "      def effective_timeout_s(_remaining_s) = timeout_s\n", expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
     # D4's mutations act on a TRIGGER DEFINITION rather than on a file, and they are now REPLAYED,

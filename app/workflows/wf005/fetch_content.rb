@@ -355,11 +355,19 @@ module Workflows
       # said so. The second half is enforced HERE, at the one place the platform can enforce it: the
       # request's own budget.
       #
-      # THE REQUEST IS CANCELLED, NOT DISCARDED AFTER THE FACT. F-01's frozen façade takes `timeout_s`
-      # and states that "a caller may ask for tighter, never wider", so bounding a request by the run's
-      # remaining wall clock needs no change to F-01 and no second way to reach the network. A request
-      # that would still be in flight at `deadline_at` is ended AT `deadline_at` — the customer's site
-      # is not still being read by a run that is over, and the bytes are never received.
+      # THE REQUEST IS CANCELLED, NOT DISCARDED AFTER THE FACT. F-01's façade takes `timeout_s` and
+      # states that "a caller may ask for tighter, never wider", so bounding a request by the run's
+      # remaining wall clock needs no second way to reach the network. A request that would still be
+      # in flight at `deadline_at` is ended AT `deadline_at` — the customer's site is not still being
+      # read by a run that is over, and the bytes are never received.
+      #
+      # THAT CLAIM WAS HALF TRUE UNTIL FU-43, AND THIS SAID SO WITHOUT KNOWING IT. Passing the
+      # remaining wall clock as `timeout_s` bounded ONE CONNECTION ATTEMPT, and F-01 re-armed it at
+      # every redirect hop: at the ratified 10-redirect ceiling the request this line believes it
+      # ended could run 11.1x past `deadline_at`. The owner ratified F-01's evolution (ADR-141) and
+      # the façade now carries a TOTAL deadline that redirects, DNS, TLS and body reads all spend.
+      # `timeout_s` is a subordinate ceiling and the total defaults to it, so this caller's existing
+      # single argument now means what this paragraph always claimed it meant.
       #
       # AND A REQUEST THAT COMPLETED IS NOT CANCELLED. The clamp only ever shortens; a response that
       # arrives inside the budget is classified exactly as it always was. ":442 — incomplete requests"

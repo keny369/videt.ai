@@ -8,9 +8,24 @@ module Platform
     # only ever be within the ratified envelope — a caller may ask for something
     # tighter, never wider.
     #
-    #  - timeout_s     : the connect-plus-response deadline for ONE connection attempt
-    #                    (each redirect hop is a fresh attempt with its own budget),
+    #  - timeout_s     : the connect-plus-response ceiling for ONE connection attempt,
     #                    bounded by the 15s hard ceiling. S-05 verification passes 10s.
+    #                    IT IS A SUBORDINATE CEILING, NOT A BUDGET (FU-43): it used to be
+    #                    re-armed per redirect hop, so it was the only bound and a chain
+    #                    of hops multiplied it. The effective timeout for every operation
+    #                    is now `min(timeout_s, remaining total budget)`.
+    #  - total_timeout_s : THE WALL-CLOCK BOUNDARY FOR THE WHOLE OPERATION (FU-43).
+    #                    DNS, connection setup, TLS negotiation, response headers, body
+    #                    reads AND every redirect hop consume this one budget. When it is
+    #                    exhausted the client stops deterministically with `:timeout`.
+    #
+    #                    IT DEFAULTS TO `timeout_s`, AND THAT IS THE POINT. The owner's
+    #                    requirement is that "callers cannot accidentally bypass the total
+    #                    deadline by supplying only a per-attempt timeout". A caller that
+    #                    passes only `timeout_s: 10` therefore gets a TOTAL of 10 seconds
+    #                    across every hop — the tightest possible reading — and a caller
+    #                    that wants a redirect chain to have more must ask for it by name.
+    #                    Omission cannot widen anything; there is no unbounded form.
     #  - byte_cap      : the entity-body cap; the reader stops after byte_cap + 1 bytes
     #                    so byte_cap + 1 proves oversize. S-05 http_file passes 4096.
     #  - max_redirects : redirects to follow before rejecting, bounded by 10.
@@ -34,13 +49,18 @@ module Platform
     #                    would have allowed, never admit one the platform refused. Nil
     #                    means "no caller policy", which is the behaviour every existing
     #                    caller already had.
-    RequestPolicy = Data.define(:timeout_s, :byte_cap, :max_redirects, :allowed_ports, :user_agent,
-                                :redirect_guard) do
-      def self.build(timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil,
+    RequestPolicy = Data.define(:timeout_s, :total_timeout_s, :byte_cap, :max_redirects, :allowed_ports,
+                                :user_agent, :redirect_guard) do
+      def self.build(timeout_s:, byte_cap:, total_timeout_s: nil, max_redirects: 0, allowed_ports: nil,
                      user_agent: Ceilings::DEFAULT_USER_AGENT, redirect_guard: nil)
         ports = Array(allowed_ports || Ceilings::ALLOWED_PORTS).map(&:to_i) & Ceilings::ALLOWED_PORTS
+        per_attempt = Ceilings.clamp_positive(timeout_s, Ceilings::CONNECT_RESPONSE_TIMEOUT_MAX_S)
         new(
-          timeout_s: Ceilings.clamp_positive(timeout_s, Ceilings::CONNECT_RESPONSE_TIMEOUT_MAX_S),
+          timeout_s: per_attempt,
+          # The total defaults to the per-attempt number, so omitting it is the TIGHTEST form
+          # rather than an unbounded one, and is then clamped to the platform's own hard bound.
+          total_timeout_s: Ceilings.clamp_positive(total_timeout_s || per_attempt,
+                                                   Ceilings::TOTAL_REQUEST_TIMEOUT_MAX_S),
           byte_cap: Ceilings.clamp_bytes(byte_cap),
           max_redirects: Ceilings.clamp_redirects(max_redirects),
           allowed_ports: ports.uniq.freeze,
@@ -48,6 +68,12 @@ module Platform
           redirect_guard:
         )
       end
+
+      # THE EFFECTIVE TIMEOUT FOR ONE OPERATION: the lesser of the per-attempt ceiling and what is
+      # left of the total budget (FU-43). Every network operation the client performs — the resolver
+      # call, the connect, the read — asks this rather than reading `timeout_s` directly, so there
+      # is one place the rule lives and no operation can be given a budget the total does not have.
+      def effective_timeout_s(remaining_s) = [timeout_s, remaining_s].min
 
       # Would the caller's policy admit this redirect target? A caller that supplied no
       # guard admits every hop the PLATFORM already validated.

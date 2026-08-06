@@ -20,6 +20,24 @@ module Platform
       CONNECT_RESPONSE_TIMEOUT_MAX_S = 15.0
       DNS_TIMEOUT_MAX_S = 15.0
 
+      # THE TOTAL WALL-CLOCK BOUND FOR ONE `Outbound.fetch`, REDIRECTS INCLUDED (FU-43).
+      #
+      # WHAT WAS WRONG. `timeout_s` was documented as "the deadline for ONE connection attempt
+      # (each redirect hop is a fresh attempt with its own budget)", and the client re-armed it per
+      # hop for BOTH the resolver call and the connect/read deadline. At the redirect ceiling one
+      # `fetch` could therefore run (10 + 1) x (dns + response) — measured at 11.1x the caller's
+      # number, and up to 22x with DNS timing. A request the run's wall clock was supposed to end
+      # could still be reading a customer's site minutes after `deadline_at`, and NO CALLER-SIDE FIX
+      # EXISTED: the façade accepted only a per-attempt number, so the only lever was
+      # `max_redirects`.
+      #
+      # IT IS THE SAME NUMBER AS THE PER-ATTEMPT CEILING, DELIBERATELY. PRULE-008 ratifies 15s as the
+      # hard connect-plus-response bound, and Ceilings' own rule is that a caller may ask for
+      # something tighter, never wider. Binding the TOTAL to that same 15s makes the previous
+      # overrun arithmetically impossible rather than merely discouraged: no `Outbound.fetch` can
+      # exceed 15 seconds of wall clock however many hops it follows.
+      TOTAL_REQUEST_TIMEOUT_MAX_S = CONNECT_RESPONSE_TIMEOUT_MAX_S
+
       # Per-URL body hard bound (10 MiB). The read stops at cap+1 to prove oversize.
       RESPONSE_BYTES_MAX = 10 * 1024 * 1024
 

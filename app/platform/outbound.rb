@@ -31,10 +31,17 @@ module Platform
     #                            timeout_s: 10, byte_cap: 4096, max_redirects: 0)
     #     => Outcome(kind: :response|:timeout|:connection_failure|:tls_failure|
     #                      :resolver_failure|:rejected, ...)
-    def fetch(url, timeout_s:, byte_cap:, max_redirects: 0, allowed_ports: nil, user_agent: nil,
-              redirect_guard: nil)
+    #
+    # `timeout_s` IS A PER-ATTEMPT CEILING AND `total_timeout_s` IS THE WALL-CLOCK BOUNDARY
+    # (FU-43, ADR-141). DNS, connection setup, TLS negotiation, response headers, body reads
+    # and every redirect hop spend ONE budget; no hop re-arms anything, and the effective
+    # timeout for each operation is the lesser of the two. `total_timeout_s` DEFAULTS TO
+    # `timeout_s`, so a caller that supplies only a per-attempt number gets that number as
+    # its total — the tightest reading — and there is no form of this call that is unbounded.
+    def fetch(url, timeout_s:, byte_cap:, total_timeout_s: nil, max_redirects: 0, allowed_ports: nil,
+              user_agent: nil, redirect_guard: nil)
       policy = RequestPolicy.build(
-        timeout_s:, byte_cap:, max_redirects:, allowed_ports:,
+        timeout_s:, byte_cap:, total_timeout_s:, max_redirects:, allowed_ports:,
         user_agent: user_agent || Ceilings::DEFAULT_USER_AGENT, redirect_guard:
       )
       GuardedHttpClient.new.get(url, policy:)

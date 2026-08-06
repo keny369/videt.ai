@@ -416,10 +416,12 @@ module Workflows
       def fetch(url)
         # RENEW WHERE TIME IS SPENT, AND AT EVERY HOP (F-04 FU-24). The traversal only PACES on a gate
         # deferral or a retry, so a run of candidates that each answer slowly reaches no other boundary —
-        # and one document is itself up to eleven bounded requests, because `REDIRECT_BUDGET` is ten and
-        # F-01 takes a fresh deadline per hop. Two such documents behind a single renewal is ~330 seconds
-        # under a 30-second lease. `Lease.owned?` guards the first connection, `redirect_guard` each one
-        # after it; both are no-ops without a lease.
+        # and one document is itself up to eleven connections, because `REDIRECT_BUDGET` is ten.
+        # (This once read "F-01 takes a fresh deadline per hop. Two such documents behind a single
+        # renewal is ~330 seconds under a 30-second lease." Since FU-43 / ADR-141 one document spends
+        # ONE total budget clamped to 15 seconds, so two are ~30 seconds — still at the lease
+        # boundary, which is why the renewal stays.) `Lease.owned?` guards the first connection,
+        # `redirect_guard` each one after it; both are no-ops without a lease.
         return relinquished_outcome unless Platform::ScheduledActions::Lease.owned?
 
         @outbound.fetch(url, timeout_s: TIMEOUT_S, byte_cap: MAX_BODY_BYTES,

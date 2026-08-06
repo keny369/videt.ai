@@ -166,10 +166,12 @@ module Workflows
 
       def fetch(canonical_host)
         # RENEW WHERE TIME IS SPENT, AND AT EVERY HOP (F-04 FU-24). A boundary placed only HERE was the
-        # measured defect: `REDIRECT_BUDGET` is ten, this path deliberately follows redirects because
-        # apex->www is one of the commonest robots configurations on the web, and F-01 takes a fresh
-        # deadline per hop — so one call is up to eleven bounded requests and ~165 seconds behind a single
-        # renewal, under a 30-second lease. `Lease.owned?` is the boundary before the first connection
+        # measured defect: `REDIRECT_BUDGET` is ten and this path deliberately follows redirects
+        # because apex->www is one of the commonest robots configurations on the web, so one call is
+        # up to eleven connections behind a single renewal, under a 30-second lease. (This once read
+        # "~165 seconds", true while F-01 took a fresh deadline per hop; since FU-43 / ADR-141 one
+        # call spends ONE total budget clamped to 15 seconds, and the number is corrected rather than
+        # left standing.) `Lease.owned?` is the boundary before the first connection
         # (it renews on cadence, then answers) and `Lease.redirect_guard` is the boundary before each
         # subsequent one. Both are no-ops without a lease, which is every caller that is not a delivery.
         return relinquished_outcome(canonical_host) unless Platform::ScheduledActions::Lease.owned?

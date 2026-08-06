@@ -57,10 +57,13 @@ module Platform
       # condition (only for a genuine programming error).
       def get(url, policy:)
         started = monotonic
+        # THE WALL-CLOCK BOUNDARY FOR THE WHOLE OPERATION, FIXED ONCE (FU-43). Everything below
+        # measures against this instant: it is never recomputed, so no hop can extend it.
+        total_deadline = started + policy.total_timeout_s
         parsed = parse_target(url, policy)
         return parsed if parsed.is_a?(Outcome)
 
-        follow(parsed, policy, started)
+        follow(parsed, policy, started, total_deadline)
       end
 
       private
@@ -68,7 +71,10 @@ module Platform
       def resolver = @resolver ||= GuardedResolver.new
       def connector = @connector ||= TlsConnector.new
 
-      def follow(target, policy, started)
+      # What is left of the total budget, in seconds. Negative once it is spent.
+      def remaining(total_deadline) = total_deadline - monotonic
+
+      def follow(target, policy, started, total_deadline)
         visited = Set.new
         redirects = 0
 
@@ -78,11 +84,18 @@ module Platform
           end
 
           visited << target.key
-          result = attempt(target, policy, redirects, started)
+          result = attempt(target, policy, redirects, started, total_deadline)
           return result unless result.is_a?(Redirect)
           if redirects >= policy.max_redirects
             return reject(:redirect_budget_exhausted, target, redirects, started)
           end
+
+          # THE BUDGET IS CHECKED BEFORE THE NEXT HOP IS EVEN RESOLVED (FU-43). A redirect chain
+          # used to re-arm the caller's timeout at every hop, so a request bounded at N seconds
+          # could run (max_redirects + 1) x N — measured at 11.1x, and the reason `deadline_at`
+          # was not a real boundary. Stopping here rather than inside the next attempt means the
+          # exhausted budget costs no DNS lookup and no connection.
+          return Outcome.timeout(**failure_meta(target, nil, redirects, started)) if remaining(total_deadline) <= 0
 
           nxt = resolve_redirect(target, result.location, policy, redirects, started)
           return nxt if nxt.is_a?(Outcome)
@@ -105,11 +118,22 @@ module Platform
 
       # One connection attempt against one target. Returns a terminal Outcome, or a
       # Redirect signal for the caller to revalidate.
-      def attempt(target, policy, redirects, started)
-        pin = resolver.resolve(target.canonical_host, timeout_s: policy.timeout_s)
+      def attempt(target, policy, redirects, started, total_deadline)
+        # EVERY OPERATION SPENDS THE SAME BUDGET (FU-43). The resolver call used to be handed the
+        # caller's full `timeout_s` and the connect/read deadline a fresh one after it, so a single
+        # attempt could cost 2x the caller's number before a redirect was even considered.
+        left = remaining(total_deadline)
+        return Outcome.timeout(**failure_meta(target, nil, redirects, started)) if left <= 0
+
+        pin = resolver.resolve(target.canonical_host, timeout_s: policy.effective_timeout_s(left))
         return refusal_outcome(pin, target, redirects, started) if pin.refused?
 
-        deadline = monotonic + policy.timeout_s
+        left = remaining(total_deadline)
+        return Outcome.timeout(**failure_meta(target, pin, redirects, started)) if left <= 0
+
+        # The connect + read deadline is the earlier of the per-attempt ceiling and the total
+        # boundary, so the subordinate ceiling can only ever make a request tighter.
+        deadline = monotonic + policy.effective_timeout_s(left)
         connection =
           begin
             connector.open(pinned: pin.address, host: target.canonical_host, port: target.port, deadline:)

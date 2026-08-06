@@ -54,15 +54,23 @@ module Platform
       # Renew if the cadence is due. A no-op without a lease.
       def renew_if_due = current&.renew_if_due
 
-      # THE BOUNDARY INSIDE ONE `Outbound.fetch`, which is NOT one bounded request.
+      # THE BOUNDARY INSIDE ONE `Outbound.fetch`, which is still several connections.
       #
-      # F-01 follows up to the ratified 10-redirect budget, and it takes a FRESH deadline per hop — so a
-      # single call is up to eleven connections at the 15-second hard timeout, ~165 seconds of request time
-      # (more, because the per-hop resolver timeout is taken outside that deadline) with no return to the
-      # caller. A renewal placed only BEFORE the call therefore covers the first hop and nothing else, and a
-      # 30-second lease lapses under a live worker in the middle of a perfectly ordinary apex->www->CDN
-      # chain. That was measured: two robots/sitemap fetches, 165 seconds, ZERO heartbeat writes, and the
-      # sweep reclaiming the action underneath them.
+      # F-01 follows up to the ratified 10-redirect budget, so a single call is up to eleven
+      # connections with no return to the caller. A renewal placed only BEFORE the call therefore
+      # covers the first hop and nothing else, and the sweep reclaims the action underneath a live
+      # worker in the middle of a perfectly ordinary apex->www->CDN chain. That was measured: two
+      # robots/sitemap fetches, ZERO heartbeat writes, and the action reclaimed underneath them.
+      #
+      # THE ARITHMETIC THAT MADE THIS URGENT IS GONE; THE BOUNDARY IS NOT (FU-43, ADR-141). This
+      # comment used to read "~165 seconds of request time (more, because the per-hop resolver
+      # timeout is taken outside that deadline)", because F-01 took a FRESH deadline per hop. It no
+      # longer does: one `Outbound.fetch` now spends a single total budget, clamped to the 15-second
+      # platform ceiling, so eleven hops cost at most fifteen seconds rather than a hundred and
+      # sixty-five. The renewal still belongs here — a 30-second lease against a 15-second call
+      # leaves no margin for the SECOND fetch, and `redirect_guard` is also :448's robots and Source
+      # Scope recheck, which is not a leasing concern at all — but the NUMBER is corrected rather
+      # than left standing as a live hazard it no longer describes.
       #
       # `redirect_guard` is the one seam F-01 already consults between two hops, so it is where the boundary
       # belongs. It is ONE implementation for every work type, per FU-24's "do not create separate heartbeat
