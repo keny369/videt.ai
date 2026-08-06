@@ -408,6 +408,50 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
   end
 
   # ============================================================================
+  #
+  # OWNER RULING 2, MEASURED RATHER THAN CATALOGUED. `crawl_terminal_fact_closure_spec`'s PROOF 156
+  # derives every Crawl child table and requires each to carry the closure TRIGGER — which is the
+  # right check for "was this table classified" and says nothing about whether the trigger still
+  # REFUSES anything. A mutation that leaves the trigger in place with a WHEN clause that never holds
+  # passes PROOF 156 untouched; it was measured surviving before these two examples existed.
+  describe "post-terminal closure, as behaviour (owner ruling 2)" do
+    # `f1_crawls_guard` admits `queued -> canceled`, and `crawls_terminal_shape` requires the terminal
+    # instant and reason with it. The real edge a cancellation takes, not a fixture shortcut.
+    def terminalize(id)
+      conn.exec_params(<<~SQL, [id])
+        UPDATE crawls SET state='canceled', terminal_at=now(), completion_reason='canceled',
+                          state_version = state_version + 1, updated_at = now()
+        WHERE id = $1::uuid
+      SQL
+    end
+
+    it "refuses a Document created against an already-terminal Crawl" do
+      # A Document is the coverage-bearing product of a run — :452 makes a covered outcome depend on
+      # one existing — so one appearing after the terminal selection changes a coverage number that
+      # has already been reported, and `f1_crawls_guard` refuses every correction.
+      expect { insert_document(url: "https://acme.example/live") }.not_to raise_error
+      terminalize(crawl_id)
+
+      expect { insert_document(url: "https://acme.example/late") }
+        .to raise_error(PG::RaiseException, /crawl_child_fact_after_terminal/)
+    end
+
+    it "refuses an IngestionJob created against an already-terminal Crawl, and leaves its LATER transitions legal" do
+      document = insert_document(url: "https://acme.example/closure")
+      job = insert_job(document, url: "https://acme.example/closure")
+      terminalize(crawl_id)
+
+      # THE CLOSURE IS ON INSERT ONLY, WHICH IS THE POINT: ingestion EXECUTES after the crawl ends —
+      # that is what the durable handoff IS — so the job's own lifecycle must keep running.
+      expect { move_job(job, "running") }.not_to raise_error
+      expect { move_job(job, "succeeded") }.not_to raise_error
+
+      expect { insert_job(document, url: "https://acme.example/closure", state: "queued") }
+        .to raise_error(PG::Error)
+    end
+  end
+
+  # ============================================================================
   describe "Document version allocation (:302, :462)" do
     # :462 — "A DIFFERENT BODY DIGEST creates a NEW VERSIONED Document/job and never overwrites prior
     # Evidence." Driven through the PRODUCTION WRITER rather than raw SQL, because the allocation is
@@ -448,6 +492,30 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
 
       expect(other["version"].to_i).to eq(1)
       expect(other["predecessor_document_id"]).to be_nil
+    end
+
+    # PRULE-009 / MTX-008 — "each successful SAME-VERSION job advances the Document EXACTLY ONCE,
+    # guarded ON THE DOCUMENT BY ITS VERSION rather than by delivery deduplication." The guard is the
+    # compare-and-set, so it has to be measured as one: a stale version advances nothing.
+    it "advances a Document only on the version the caller read" do
+      document = create_via_store("https://acme.example/advance", "body-1")
+      moved = Platform::UnitOfWork.run do |c|
+        store = IdentityAccess::Infrastructure::DocumentStore.new(c.raw_connection)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        store.mark_ingested(org, document["id"], 7, Time.now.utc)
+      end
+      expect(moved.to_i).to eq(0)
+      expect(DbInspector.one("SELECT state FROM documents WHERE id=$1::uuid", [document["id"]])["state"])
+        .to eq("discovered")
+
+      moved = Platform::UnitOfWork.run do |c|
+        store = IdentityAccess::Infrastructure::DocumentStore.new(c.raw_connection)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        store.mark_ingested(org, document["id"], 0, Time.now.utc)
+      end
+      expect(moved.to_i).to eq(1)
+      expect(DbInspector.one("SELECT state FROM documents WHERE id=$1::uuid", [document["id"]])["state"])
+        .to eq("ingested")
     end
   end
 

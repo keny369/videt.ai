@@ -282,6 +282,50 @@ RSpec.describe "WF-005 documents and ingestion", type: :acceptance,
       expect(parsed.keys).not_to include("body_base64")
     end
 
+    it "PROOF 168a — ':462 exact fetch replay returns the SAME job', and stages the body no second time" do
+      # THE HANDOFF IS ASKED DIRECTLY, and deliberately. On today's chain the frontier compare-and-set
+      # makes a second `produce` for one entry unreachable — a redelivery finds the entry `terminal`
+      # and records `superseded` — so the only way to measure :462's replay sentence is to put the
+      # production object in the state the sentence is about. The alternative was a recorded gap, and
+      # the mutation that removes the check SURVIVED the whole suite until this example existed.
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      doc = documents(ctx[:crawl_id]).first
+      entry = DbInspector.one(
+        "SELECT * FROM crawl_frontier_entries WHERE id = $1::uuid",
+        [outcomes(ctx[:crawl_id]).first["crawl_frontier_entry_id"]]
+      )
+      crawl = DbInspector.one("SELECT * FROM crawls WHERE id = $1::uuid", [ctx[:crawl_id]])
+      result = Workflows::Wf005::FetchContent::Result.new(
+        outcome: Workflows::Wf005::FetchContent::DOCUMENT_CREATED, reason_code: nil, attempt_id: nil,
+        http_status: 200, accounted_bytes: PAGE.bytesize, probe_bytes: 0, media_type: "text/html",
+        body: PAGE, final_url: "https://shop.acme.example/", redirect_count: 0, retryable: false
+      )
+      staged_before = DbInspector.one("SELECT count(*) AS n FROM f1_encrypted_records")["n"].to_i
+
+      produced = Platform::UnitOfWork.run do |c|
+        pg = c.raw_connection
+        IdentityAccess::Infrastructure::IngestionJobStore.new(pg)
+                                                         .enter_org_context(org: ctx[:g][:organization_id],
+                                                                            correlation_id: SecureRandom.uuid_v7)
+        Workflows::Wf005::IngestionHandoff.new(correlation_id: SecureRandom.uuid_v7)
+                                          .produce(pg:, organization_id: ctx[:g][:organization_id],
+                                                   crawl:, entry:, result:, now: start_now)
+      end
+
+      expect(produced.replayed).to be(true)
+      expect(produced.ingestion_job_id).to eq(job["id"])
+      expect(produced.document_id).to eq(doc["id"])
+      expect(documents(ctx[:crawl_id]).size).to eq(1)
+      expect(jobs(ctx[:crawl_id]).size).to eq(1)
+      # AND NO SECOND COPY OF THE CUSTOMER'S PAGE. A replay that staged again would leave an orphan
+      # ciphertext nothing ever destroys, because the destruction is keyed off the job row the
+      # conflict prevented from being written.
+      expect(DbInspector.one("SELECT count(*) AS n FROM f1_encrypted_records")["n"].to_i)
+        .to eq(staged_before)
+    end
+
     it "PROOF 168 — a `content_fetch_failed` retirement produces NO Document, NO job and NO Evidence" do
       ctx = fetchable
       result = fetch_pass(ctx, first_action(ctx), outbound_by_path("/" => html(status: 404, body: "").then { |_x|

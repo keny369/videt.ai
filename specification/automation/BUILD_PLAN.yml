@@ -1041,6 +1041,27 @@ blocks:
 
   - id: S-07-010
     name: Crawl Execution — Documents + ingestion + Evidence + durable handoff
+    #
+    # IMPLEMENTED AND VERIFIED 2026-08-06 (DECISIONS ADR-143), NOT YET ACCEPTED. ADR-061 makes the
+    # objective verification suite PLUS the independent ADR-026 five-lens review the acceptance
+    # mechanism; only the first half has run, so this stays `pending` rather than becoming
+    # `completed`, and `completed_blocks` does not gain it.
+    #
+    # WHAT IS BUILT. The nine `ingestion-interim-v1` job members WORKFLOW_SPECIFICATIONS.md :462 names
+    # that the :303 catalogue summary omits; the fetch commit that produces :452's two covered
+    # artifacts (a Document plus a queued IngestionJob for `document_created`, and the body-free
+    # `crawl_observation` for `content_absent`, which resolves ADR-067's D3 inline); the
+    # `ingestion_attempt_due` action and its handler with :464's eight first-match refusals and :466's
+    # exact 30/120-second schedule; and the durable handoff enforced as a CHECK, so a succeeded job
+    # without its valid `source_document` Evidence is unrepresentable.
+    #
+    # THE OD-027 BOUNDARY HELD, and MTX-008 names it exactly: no `parsing_jobs`, no `indexing_jobs`,
+    # no `has_one`, no `unique (parsing_job_id)`.
+    #
+    # ONE INTERIM, RECORDED RATHER THAN HIDDEN (ADR-143 part 3, FU-65). Staged response bodies are
+    # held behind an F-02 encrypted-record capability rather than in `stored_objects`, which is a
+    # shared platform table nobody has built, which no S-07 tranche owns, and whose `storage_provider
+    # CHECK ('aws_s3')` needs an external paid provider — an OWNER decision under AUTONOMY_POLICY.
     type: product
     status: pending
     depends_on:

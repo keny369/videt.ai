@@ -411,7 +411,15 @@ RSpec.describe "Repository truth", type: :model do
       # Round 1 predates the `# ROUND n` convention and carries `## ROUND 1`, so both levels count.
       # What must hold is that the headings are the consecutive run 1..n with no gap and no repeat —
       # a record that skipped or duplicated a round would make every count below meaningless.
-      review = ROOT.join("S-07-009_ACCEPTANCE_REVIEW.md").read
+      # DERIVED FROM `current_tranche`, for the reason LEDGER_PATH below is (S-07-010). This read
+      # `S-07-009_ACCEPTANCE_REVIEW.md` while the block is titled "the record of THE TRANCHE CURRENTLY
+      # UNDER REVIEW", so the next tranche's report was required to state ANOTHER tranche's round
+      # count — a number about a review it never had. A tranche whose independent ADR-026 review has
+      # not run yet has no review record, and that is the honest state rather than a missing file.
+      review_path = ROOT.join("#{BUILD_STATE.fetch('current_tranche')}_ACCEPTANCE_REVIEW.md")
+      skip "#{review_path.basename} does not exist yet" unless review_path.exist?
+
+      review = review_path.read
       # The em dash distinguishes a ROUND SECTION heading from a subsection of one
       # ("## ROUND 2 CONFIRMED-BLOCKING"), which would otherwise be counted as another round.
       rounds = review.scan(/^#+ ROUND (\d+) —/).flatten.map(&:to_i)

@@ -4976,3 +4976,116 @@ Acceptance under standing delegation ADR-061 and review discipline ADR-080, on t
 condition of 2026-08-06: one independent defect-focused review over the pinned candidate range, no
 reopening of the closed history, and acceptance when no demonstrated blocker remains. Allocated the
 next unused number after ADR-141.
+
+## ADR-143: S-07-010 Built — The Durable Handoff, With Body Staging On F-02 As A Recorded Interim, And D3 Resolved Inline
+
+Status: Accepted (implementation and verification); the tranche is NOT accepted as a block — the
+independent ADR-026 five-lens review has not run, and ADR-061 makes that review half of the
+acceptance mechanism.
+Date: 2026-08-06
+Owner: implementation agent under standing delegation ADR-061 / ADR-086; no owner ruling was required
+Reversibility: Two migrations and one new workflow limb. The staging decision below is the only part
+that a later block would migrate rather than simply change, and FU-65 states the migration.
+
+Decision:
+
+Record the S-07-010 build — Documents, Ingestion Jobs, their attempt history, the `ingestion-interim-v1`
+lifecycle, F-03 `source_document` and `content_absent` Evidence, and the durable handoff into parsing
+(WORKFLOW_SPECIFICATIONS.md :460-466; contracts/S-07.json MTX-008). It ENDS BEFORE the OD-027 withheld
+limb: no `parsing_jobs`, no `indexing_jobs`, no `has_one`, no `unique (parsing_job_id)`.
+
+**1. The durable handoff is a CONSTRAINT.** MTX-008 makes the handoff "the succeeded IngestionJob with
+its valid `source_document` Evidence" and :464 says "No Document may become ingested or enter the parse
+manifest WITHOUT that valid Evidence". `ingestion_jobs_succeeded_carries_evidence` and
+`ingestion_jobs_evidence_only_on_success` are those two sentences as CHECKs, so a succeeded job without
+its handoff is unrepresentable rather than merely unwritten — which is what lets S-08 read
+`state = 'succeeded'` without re-validating every row of :472's manifest.
+
+**2. D3 is resolved INLINE, which is the narrow reading.** ADR-067 left open whether :452's body-free
+`content_absent` observation is produced at fetch-commit or through the ingestion pipeline. The pipeline
+reading cannot be built without inventing product state: an IngestionJob's identity is keyed on
+`fetched_body_sha256` and a 404 has no body; its Document would have no `fetched_object_id`, `byte_size`
+or `content_sha256`; and :464's success path — the only path that produces Evidence — is defined as
+creating a `source_document` and moving a Document `discovered -> ingested`. :452 says this outcome has
+none of those. It is therefore produced in the same transaction that retires the frontier entry, with
+no job and no Document, exactly as :452 describes it.
+
+**3. BODY STAGING IS F-02, AND THAT IS AN INTERIM WITH ITS REASON STATED.** :462 requires staged bytes
+that are "immutable and inaccessible to product reads"; :464 destroys the "separate staging reference"
+at success; :466 destroys them at 24 hours. The canonical home is `stored_objects`
+(POSTGRESQL_SCHEMA.md :231, `storage_provider CHECK ('aws_s3')`) — a shared platform table that has
+never been built, that no S-07 tranche owns, and whose construction needs an external paid provider,
+which the autonomy policy makes an OWNER decision rather than an implementer's. Building it here would
+repeat exactly what D1 and D2 were escalated for.
+
+F-02 supplies all three properties through a frozen public contract this repository already uses for
+precisely this purpose — S-05 stores its redacted verification payload "behind an F-02 reference":
+`protect` returns a capability, there is no product read path to the ciphertext, and `erase` is a
+record-level cryptographic destruction. The staged record's AAD purpose is `temporary_processing`,
+which is the retention class SCORE_EVIDENCE_MODEL.md names for "staging bytes before Evidence
+creation". The Evidence payload is a SEPARATE retained record — which is why :464 calls the destroyed
+one "the separate staging reference" — so destroying the staging copy cannot dangle the Evidence.
+`documents.fetched_object_id` names the staged object and keeps naming it after destruction, exactly
+as a `stored_objects` row survives its own `destroyed` transition. FU-65 carries the migration.
+
+**4. The classification of crawled content is DERIVED, not chosen.** SCORE_EVIDENCE_MODEL.md defines
+`public` as "lawfully public source content" and `confidential` as "customer-PROVIDED nonpublic
+content". F-01 makes every crawl request anonymous and unauthenticated, so anything a Crawl can reach
+is content the Source serves to any client on the internet. Over-classifying is NOT the safe direction
+here: the same document says "declassification is PROHIBITED", so a defensive `restricted` could never
+be lowered and would put every crawled page behind a security grant that does not exist. The value is a
+per-job column so a later capture policy can classify differently.
+
+**5. The action targets the JOB, not the attempt, and this is stronger than ADR-085's analogue.**
+BACKGROUND_PROCESSING.md :200 records `ingestion_attempt_due`'s direct claim owner as "Ingestion
+Attempt". An attempt row created at SCHEDULING time would consume one of :466's three attempts without
+ever running, because `attempt_count` is `COUNT(*)` over `ingestion_attempts`; and the retry action is
+minted by the transaction that RECORDS THE FAILURE, so the failing execution would be creating its
+successor's attempt — a second producer, which ADR-085 refused. The job is a genuine claim owner
+(`queued -> running` under a compare-and-set IS the claim) and the durable idempotency authority is
+unchanged: `(ingestion_job_id, attempt_number)` under its `ON CONFLICT`. Unlike `crawl_frontier_entry`,
+`ingestion_job` IS a member of the entity-type vocabulary API_CONTRACTS.md declares closed, so FU-17's
+divergence does not extend to this kind.
+
+Two defects were found by the tranche's own acceptance chain and repaired rather than worked around:
+
+**(a) The lifecycle guard evaluated the edge set on EVERY update**, so `succeeded -> succeeded` was an
+illegal transition — and :464's own next sentence, "deletes the separate staging reference", is an
+UPDATE of a succeeded row that changes no state. The repair is NOT a self-edge in the edge set: that
+would let a writer consume a `state_version` for a transition that did not happen and break another
+worker's compare-and-set for no reason. A state-preserving update is admitted and separately forbidden
+from advancing the version.
+
+**(b) `spec/architecture/repository_truth_spec.rb` hardcoded two S-07-009 artefacts** — the mutation
+ledger and the acceptance-review record — inside a block titled "the record of THE TRANCHE CURRENTLY
+UNDER REVIEW", while every sibling check derives its subject from `current_tranche`. That is the exact
+defect :191 already corrected for `report_path`. It was not cosmetic: the ledger binds each verdict to
+the BYTES of the file it was measured against, so the first tranche to touch one of those files makes
+the ACCEPTED ledger stale and the gate reports a defect in a record nobody is reviewing. Both are now
+derived, both skip when the tranche has no such record, and `f1:mutations:regenerate` takes a `SET`
+from a closed registry so a second tranche can regenerate its own ledger at all.
+
+Verification from the candidate state: rspec 2574/0; brakeman 0 warnings; packwerk and zeitwerk clean;
+`bin/f1db f1:db:verify_runtime` 15 checks with RLS intact; architecture 245/0; structure file matches
+the current schema; mutation ledger 21 definitions, 21 killed, 0 survived, 0 broken.
+
+Consequences:
+
+`current_tranche` remains S-07-010 and the block is NOT added to `completed_blocks`: ADR-061 makes the
+objective verification suite PLUS the independent ADR-026 five-lens review the acceptance mechanism,
+and only the first half has run. What this ADR records is that the implementation is complete against
+the governing text, every mandatory gate is green, and an adversarial self-review against :460-466,
+:452, MTX-008 and MTX-030 found and repaired the two defects above.
+
+Three follow-ups are opened: FU-65 (the `stored_objects` migration for staged bodies), FU-66
+(:464's `malware_or_active_content_detected` check is not performed — there is no scanning provider and
+adding one is an owner decision), and FU-67 (accepted WF-005 events omit `prior_aggregate_version` /
+`committed_aggregate_version`, which API_CONTRACTS.md :938 lists as base members of every `created` and
+`state_transition` payload; the S-07-010 events carry them and the earlier ones do not).
+
+Authority And Precedence:
+Standing delegation ADR-061 and development cadence ADR-086. No architectural stop condition was met:
+no frozen foundation changed (F-02 and F-03 are consumed through their public contracts), no accepted
+proof was invalidated, and no product semantics had two materially different valid readings — D3's two
+readings were resolved by :452's own text rather than by preference. Allocated the next unused number
+after ADR-142.
