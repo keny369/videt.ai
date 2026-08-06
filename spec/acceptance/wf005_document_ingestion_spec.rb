@@ -534,6 +534,122 @@ RSpec.describe "WF-005 documents and ingestion", type: :acceptance,
       expect(document_row(job["document_id"])["state"]).to eq("discovered")
     end
 
+    # ---- the four refusals nothing proved, and the ORDER nothing proved at all -------------------
+    #
+    # ROUND 1 OF THE REVIEW MEASURED THE GAP RATHER THAN ASSUMING IT: of :464's eight first-match
+    # pre-persistence failures, only `staged_body_missing` and `fetched_body_digest_mismatch` were
+    # asserted anywhere in `spec/`, and the ORDER — which :464 makes normative by calling them
+    # "FIRST-MATCH" — was asserted nowhere. ADR-072 records exactly this class as a confirmed-blocking
+    # finding at S-03: "the MTX-027 first-match order inverted ... (the order is normatively fixed)".
+    #
+    # `malware_or_active_content_detected` is deliberately absent and is NOT given a fabricated test:
+    # the check does not run, FU-66 says so, and a test that asserted it did would be the false record
+    # this suite exists to prevent.
+
+    # Freeze one job field as the schema owner, so a refusal that only the INGESTER can produce is
+    # reachable. The lifecycle guard freezes the capture, which is the property PROOF 175 already
+    # proves; disabling it here is how the check BEHIND it becomes observable at all.
+    def force_job(job, assignments)
+      DbInspector.connection.exec("ALTER TABLE ingestion_jobs DISABLE TRIGGER ingestion_jobs_lifecycle_guard")
+      DbInspector.connection.exec_params(
+        "UPDATE ingestion_jobs SET #{assignments} WHERE id=$1::uuid", [job["id"]]
+      )
+    ensure
+      DbInspector.connection.exec("ALTER TABLE ingestion_jobs ENABLE TRIGGER ingestion_jobs_lifecycle_guard")
+    end
+
+    def dead_letter_reason(ctx, job)
+      run_ingestion(ingestion_actions(job["id"]).first)
+      job_row(job["id"])["last_reason_code"]
+    end
+
+    it "PROOF 175a — `received_byte_count_mismatch`: the staged bytes must be the size the fetch recorded" do
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      force_job(job, "received_byte_count = received_byte_count + 1")
+
+      expect(dead_letter_reason(ctx, job)).to eq("received_byte_count_mismatch")
+      expect(document_row(job["document_id"])["state"]).to eq("discovered")
+    end
+
+    it "PROOF 175b — `media_type_unsupported`: :436's two media types are the only ones ingestible" do
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      force_job(job, "media_type = 'application/pdf'")
+
+      expect(dead_letter_reason(ctx, job)).to eq("media_type_unsupported")
+    end
+
+    it "PROOF 175c — `ingestion_policy_unavailable`: a capture made under a policy this ingester does not implement" do
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      force_job(job, "response_capture_policy_version = 'crawl-policy-v2'")
+
+      expect(dead_letter_reason(ctx, job)).to eq("ingestion_policy_unavailable")
+    end
+
+    it "PROOF 175d — `source_scope_mismatch`: a URL the Source's CURRENT scope no longer admits" do
+      # :464 re-checks the capture before it becomes Evidence, and scope is re-evaluated at the
+      # CURRENT policy rather than the one pinned at fetch time — the same rule `FetchAuthorization`
+      # applies at the fetch, asked through the same predicate rather than a second one.
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      # NARROWED THE WAY PRODUCTION NARROWS. A scope policy is IMMUTABLE — `f1_source_scope_policies_immutable`
+      # refuses an in-place edit, correctly — so S-06 narrows by activating a NEW version and repointing
+      # `sources.current_scope_policy_id`. That is done here, which is also what makes the example
+      # meaningful: the ingester must read the CURRENT policy rather than the one pinned at fetch time.
+      narrowed = SecureRandom.uuid_v7
+      DbInspector.connection.exec_params(<<~SQL, [narrowed, job["source_id"]])
+        INSERT INTO source_scope_policies
+          (id, created_at, correlation_id, schema_version, organization_id, project_id, source_id,
+           policy_version, scope, canonical_host, allowed_schemes, allowed_ports, include_prefixes,
+           exclude_prefixes, query_handling, content_sha256)
+        SELECT $1::uuid, now(), gen_random_uuid(), p.schema_version, p.organization_id, p.project_id,
+               p.source_id, p.policy_version || '-narrowed', p.scope, p.canonical_host, p.allowed_schemes,
+               p.allowed_ports, ARRAY['/nowhere']::text[], p.exclude_prefixes, p.query_handling,
+               sha256('narrowed')
+        FROM source_scope_policies p
+        JOIN sources s ON s.current_scope_policy_id = p.id
+        WHERE s.id = $2::uuid
+      SQL
+      DbInspector.connection.exec_params(
+        "UPDATE sources SET current_scope_policy_id = $1::uuid, state_version = state_version + 1 " \
+        "WHERE id = $2::uuid", [narrowed, job["source_id"]]
+      )
+
+      expect(dead_letter_reason(ctx, job)).to eq("source_scope_mismatch")
+      expect(document_row(job["document_id"])["state"]).to eq("discovered")
+    end
+
+    it "PROOF 175e — the order is FIRST-MATCH: a job that fails two checks reports the EARLIER one" do
+      # ":464 — Before persistence, FIRST-MATCH failures are ..." The order is the contract, not a
+      # preference, and an implementation that returned whichever check happened to run first would
+      # report a reason that misdirects every reader of the dead-letter queue.
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      # Wrong size (4th) AND unsupported media type (6th) AND a capture policy this build does not
+      # implement (8th). :464's order makes the answer the 4th, twice over.
+      force_job(job, "received_byte_count = 1, media_type = 'application/pdf', " \
+                     "response_capture_policy_version = 'crawl-policy-v2'")
+
+      expect(dead_letter_reason(ctx, job)).to eq("received_byte_count_mismatch")
+    end
+
+    it "PROOF 175f — `staged_body_missing` PRECEDES the size and digest checks, as :464 orders them" do
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      force_job(job, "staged_body_reference = NULL, staged_body_destroyed_at = now(), " \
+                     "received_byte_count = 1")
+
+      expect(dead_letter_reason(ctx, job)).to eq("staged_body_missing")
+    end
+
     it "PROOF 176 — `ingest_dependency_unavailable` retries on :466's EXACT schedule and dead-letters at the third attempt" do
       # ":466 — one initial attempt plus two retries 30 and 120 seconds after the preceding failed
       # attempt." Asserted as the WHOLE sequence, not a prefix: the third attempt owes no retry.

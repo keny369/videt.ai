@@ -212,9 +212,9 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
 
   # A minimal valid Evidence row, appended exactly as F-03's own table requires. It exists so the
   # durable-handoff CHECK can be exercised against a REAL foreign key rather than a fabricated uuid.
-  def insert_evidence
+  def insert_evidence(project: nil, source: nil)
     id = SecureRandom.uuid_v7
-    conn.exec_params(<<~SQL, [id, org, project_id, source_id, SecureRandom.hex(32)])
+    conn.exec_params(<<~SQL, [id, org, project || project_id, source || source_id, SecureRandom.hex(32)])
       INSERT INTO evidence
         (id, created_at, schema_version, organization_id, project_id, source_id, evidence_type,
          producer_id, attempt_id, payload_reference, content_sha256, captured_at_utc, observed_at_utc,
@@ -331,6 +331,43 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
                   "completed_at = now(), evidence_id = '#{evidence}', " \
                   "state_version = state_version + 1 WHERE id = '#{job_id}'")
       end.to raise_error(PG::CheckViolation, /ingestion_jobs_evidence_only_on_success/)
+    end
+
+    # THE DURABLE HANDOFF MAY NOT CROSS A PROJECT BOUNDARY (review round 1, R1-1).
+    #
+    # POSTGRESQL_SCHEMA.md :128 requires all three of `(organization_id, project_id, id)` on a
+    # Project-owned link "rather than a separate Project lookup or application assertion".
+    # `ingestion_jobs.evidence_id` carried two, because `evidence` offers no three-column unique to
+    # point at — and the review drove this INSERT live and the database ACCEPTED it. FU-7's class,
+    # fourth occurrence, and acceptance-blocking here because MTX-008 makes this column THE durable
+    # handoff and :472 makes a cross-boundary manifest reference `input_manifest_invalid`.
+    it "refuses Evidence belonging to another Project of the same Organization" do
+      other_project = draft_project
+      other_source = insert_source(other_project)
+      foreign = insert_evidence(project: other_project, source: other_source)
+      move_job(job_id, "running")
+
+      expect { move_job(job_id, "succeeded", evidence: foreign) }
+        .to raise_error(PG::RaiseException, /ingestion_job_evidence_out_of_scope/)
+    end
+
+    it "refuses Evidence for another Source of the SAME Project" do
+      # :462 keys the job to one Source, and the Evidence F-03 produces for it carries that Source. A
+      # link that agreed on Project and disagreed on Source would still be a handoff to the wrong
+      # artifact, so the containment covers all three columns the foreign key would have.
+      sibling = insert_source(project_id)
+      foreign = insert_evidence(source: sibling)
+      move_job(job_id, "running")
+
+      expect { move_job(job_id, "succeeded", evidence: foreign) }
+        .to raise_error(PG::RaiseException, /ingestion_job_evidence_out_of_scope/)
+    end
+
+    it "admits Evidence that is contained, so the containment is not a blanket refusal" do
+      move_job(job_id, "running")
+      expect { move_job(job_id, "succeeded") }.not_to raise_error
+      expect(DbInspector.one("SELECT evidence_id FROM ingestion_jobs WHERE id=$1::uuid", [job_id])["evidence_id"])
+        .not_to be_nil
     end
 
     it "makes the Evidence link WRITE-ONCE, so an earlier snapshot cannot be re-pointed" do

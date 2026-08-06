@@ -1439,6 +1439,50 @@ $$;
 
 
 --
+-- Name: f1_ingestion_job_evidence_contained(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_ingestion_job_evidence_contained() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE contained boolean;
+BEGIN
+  IF NEW.evidence_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- `e.source_id IS NOT NULL AND e.source_id = NEW.source_id` rather than a NULL-safe
+  -- comparison operator, and the difference is exactness rather than style. `evidence.source_id`
+  -- is nullable — SCORE_EVIDENCE_MODEL.md makes it "nullable only for project-level external
+  -- measurements" — while `ingestion_jobs.source_id` is NOT NULL, so the only reachable NULL is
+  -- on the Evidence side and it means the Evidence is not Source-scoped at all. That is a
+  -- refusal, not an unknown. Plain `=` would yield NULL and be misreported below as an
+  -- UNREADABLE row, which is a different failure with a different meaning.
+  SELECT e.organization_id = NEW.organization_id
+           AND e.project_id = NEW.project_id
+           AND e.source_id IS NOT NULL AND e.source_id = NEW.source_id
+    INTO contained
+  FROM evidence e
+  WHERE e.id = NEW.evidence_id;
+
+  -- FAIL CLOSED ON AN UNREADABLE ROW. The foreign key guarantees the Evidence exists, so an
+  -- invisible one means this statement is running outside a proved Organization context — and a
+  -- handoff may not be admitted on the strength of a check that could not run. The same rule
+  -- `f1_crawl_child_fact_closed` applies to a Crawl it cannot read.
+  IF contained IS NULL THEN
+    RAISE EXCEPTION 'ingestion_job_evidence_unreadable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NOT contained THEN
+    RAISE EXCEPTION 'ingestion_job_evidence_out_of_scope' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_ingestion_jobs_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5783,6 +5827,13 @@ CREATE TRIGGER ingestion_attempts_guard BEFORE UPDATE ON public.ingestion_attemp
 
 
 --
+-- Name: ingestion_jobs ingestion_jobs_evidence_containment; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ingestion_jobs_evidence_containment BEFORE INSERT OR UPDATE OF evidence_id ON public.ingestion_jobs FOR EACH ROW EXECUTE FUNCTION public.f1_ingestion_job_evidence_contained();
+
+
+--
 -- Name: ingestion_jobs ingestion_jobs_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -7102,6 +7153,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260807090000'),
 ('20260806110000'),
 ('20260806100000'),
 ('20260727120390'),

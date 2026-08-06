@@ -159,6 +159,41 @@ module AutonomousBuild
                      "so every queued job waits for a dispatch that is never minted",
         from: "          link.merge(terminal_checkpoint(common, link)).merge(ingestion_link(common, pass))",
         to: "          link.merge(terminal_checkpoint(common, link))",
+        expectation: "kill" },
+
+      # ---- REVIEW ROUND 1. Every row below covers a control that existed with NO proof at all, or
+      # that did not exist until the review found its absence. -------------------------------------
+      { id: "s10-byte-count-unchecked", blocker: "S-07-010/R1-2/:464", file: EXECUTION,
+        proof: INGESTION_PROOF,
+        description: ":464's `received_byte_count_mismatch` is not checked, so Evidence can be made " \
+                     "from staged bytes that are not the size the fetch recorded",
+        from: "        return Work.new(reason_code: IngestionContract::RECEIVED_BYTE_COUNT_MISMATCH) unless\n          body.bytesize == job[\"received_byte_count\"].to_i\n",
+        to: "", expectation: "kill" },
+      { id: "s10-media-type-unchecked", blocker: "S-07-010/R1-2/:464", file: EXECUTION,
+        proof: INGESTION_PROOF,
+        description: ":464's `media_type_unsupported` is not checked, so a capture outside :436's two " \
+                     "media types becomes a `source_document` and enters :472's parse manifest",
+        from: "        return Work.new(reason_code: IngestionContract::MEDIA_TYPE_UNSUPPORTED) unless\n          IngestionContract.supported_media_type?(job[\"media_type\"])\n",
+        to: "", expectation: "kill" },
+      { id: "s10-scope-recheck-dropped", blocker: "S-07-010/R1-2/:464", file: EXECUTION,
+        proof: INGESTION_PROOF,
+        description: ":464's `source_scope_mismatch` is not checked, so a URL the Source's CURRENT " \
+                     "scope no longer admits is still turned into Evidence after the run",
+        from: "        return Work.new(reason_code: IngestionContract::SOURCE_SCOPE_MISMATCH) unless in_scope?(pg, job)\n",
+        to: "", expectation: "kill" },
+      { id: "s10-capture-policy-unchecked", blocker: "S-07-010/R1-2/:464", file: EXECUTION,
+        proof: INGESTION_PROOF,
+        description: ":464's `ingestion_policy_unavailable` is not checked, so a body captured under a " \
+                     "policy this ingester does not implement is ingested as though it had been",
+        from: "        return Work.new(reason_code: IngestionContract::INGESTION_POLICY_UNAVAILABLE) unless\n          IngestionHandoff::CAPTURE_POLICY_VERSION == job[\"response_capture_policy_version\"]\n",
+        to: "", expectation: "kill" },
+      { id: "s10-refusal-order-inverted", blocker: "S-07-010/R1-2/:464", file: EXECUTION,
+        proof: INGESTION_PROOF,
+        description: ":464's FIRST-MATCH order inverted, so a job failing several checks reports a " \
+                     "later reason than the contract fixes — the exact defect class ADR-072 recorded " \
+                     "as confirmed-blocking at S-03 for MTX-027",
+        from: "        return Work.new(reason_code: IngestionContract::RECEIVED_BYTE_COUNT_MISMATCH) unless\n          body.bytesize == job[\"received_byte_count\"].to_i\n        return Work.new(reason_code: IngestionContract::FETCHED_BODY_DIGEST_MISMATCH) unless\n          Digest::SHA256.digest(body) == unhex(job[\"fetched_body_sha256\"])\n        return Work.new(reason_code: IngestionContract::MEDIA_TYPE_UNSUPPORTED) unless\n          IngestionContract.supported_media_type?(job[\"media_type\"])\n",
+        to: "        return Work.new(reason_code: IngestionContract::MEDIA_TYPE_UNSUPPORTED) unless\n          IngestionContract.supported_media_type?(job[\"media_type\"])\n        return Work.new(reason_code: IngestionContract::RECEIVED_BYTE_COUNT_MISMATCH) unless\n          body.bytesize == job[\"received_byte_count\"].to_i\n        return Work.new(reason_code: IngestionContract::FETCHED_BODY_DIGEST_MISMATCH) unless\n          Digest::SHA256.digest(body) == unhex(job[\"fetched_body_sha256\"])\n",
         expectation: "kill" }
     ].map { |e| e.transform_keys(&:to_s) }.freeze
 
@@ -188,6 +223,17 @@ module AutonomousBuild
                      "self-edge are admitted and OD-015's closed edge set becomes a convention",
         mutant_ddl: "CREATE TRIGGER documents_lifecycle_guard BEFORE UPDATE ON public.documents " \
                     "FOR EACH ROW WHEN (new.id IS NULL) EXECUTE FUNCTION f1_documents_lifecycle_guard()",
+        expectation: "kill"
+      },
+      {
+        id: "s10-evidence-containment-disarmed", blocker: "S-07-010/R1-1/:128", mechanism: "trigger",
+        table: "ingestion_jobs", trigger: "ingestion_jobs_evidence_containment", proof: SCHEMA_PROOF,
+        description: "the durable handoff may name Evidence from ANOTHER Project of the same " \
+                     "Organization — FU-7's defect class, fourth occurrence, measured live before it " \
+                     "was repaired",
+        mutant_ddl: "CREATE TRIGGER ingestion_jobs_evidence_containment BEFORE INSERT OR UPDATE OF " \
+                    "evidence_id ON public.ingestion_jobs FOR EACH ROW WHEN (new.id IS NULL) " \
+                    "EXECUTE FUNCTION f1_ingestion_job_evidence_contained()",
         expectation: "kill"
       },
       {
