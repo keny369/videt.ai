@@ -4556,3 +4556,116 @@ at whether any remaining control is proved at one instance and assumed at the ot
 Authority And Precedence:
 S-07-009 repair authority; the adversarial pass is the ADR-061 self-challenge. Allocated the next
 unused number after ADR-137.
+
+---
+
+## ADR-139: FU-63 — The Battery Was Parameterised By Write, And Not By Configuration
+
+Date: 2026-08-06
+Status: Accepted
+Scope: S-07-009 repair. Evidence only: no production behaviour is changed by this ADR, and none was
+found defective by round 20.
+
+Context:
+
+Round 20 returned DO NOT ACCEPT with FU-63 as its blocker: **five authorization controls in the
+WF-005 write path were proved at one instance and assumed at the others.** 78 narrowly-scoped,
+arity-preserving mutations; 48 survived; 5 confirmed against the full 1191-example acceptance corpus.
+
+**NO REACHABLE PRODUCT DEFECT WAS FOUND, AND NONE IS REPAIRED HERE.** Twelve probes against the real
+stores and handlers passed at HEAD, and a 63,000-tuple differential across the five deciders found
+only `required_role` (by design) and FU-58 (latent). These were EVIDENCE gaps, the category ADR-138
+recorded for its own round.
+
+A15-1 made the battery run at every WRITE. What round 20 measured is that it still ran at ONE VALUE
+of everything else:
+
+* `g.id = ra.id` was bound by NOTHING at any of the three writes. Unbound at the queue write the
+  battery was 36 examples / 0 failures, and driven at the store it QUEUED A CRAWL ON A REVOKED GRANT.
+  The round-19 foreign-account case does not bind it: `TenantSeeder` inserts `state_version 0` with a
+  NULL scope while the bootstrap grant is `state_version 1` with a scope digest, so that case is
+  discriminated by the VERSION and SCOPE conjuncts and never reaches identity.
+* Every driver used ORGANIZATION scope with `required_role: nil`, so THE ENTIRE PROJECT-SCOPE
+  CONFIGURATION of `ActivateCrawlPolicy` had no write-level negative proof. `read_only_permitted`
+  derived as `!required_role.nil?` is FALSE in every case that existed and TRUE on the one production
+  path that carries a scope rule; driven, A READ-ONLY EXECUTIVE BUYER ACTIVATES AN IMMUTABLE
+  PROJECT-SCOPE CRAWL POLICY.
+* `same_principal?` compares TEN members and PROOF 251 bound ONE.
+* "Refused BEFORE the lock" was proved only for an actor holding NO Assignment.
+* `ra.status = 'active'` was bound only against `revoked`.
+
+Decision:
+
+**THE BATTERY IS PARAMETERISED BY CONFIGURATION, NOT ONLY BY WRITE.** FU-63's six-part repair,
+implemented in full:
+
+1. **The negative role population is DERIVED FROM `:135`.** `spec/support/ratified_permission_baseline.rb`
+   parses the ratified Permission Baseline table once, and the battery drives one refusal case per
+   canonical role whose cell for that capability reads `deny` — replacing a hand-picked
+   `TechnicalImplementer`. `permission_baseline_transcription_spec.rb` now reads the SAME parser
+   rather than carrying a second copy of it, and asserts that the denied set is the exact complement
+   of the transcribed allow-set for every materialized capability.
+2. **`WRITES` carries each write's PRODUCTION `required_role`, and the policy write appears at BOTH
+   ratified scopes.** The fourth entry is the Project-scope configuration `SCOPE_ROLE["project"]`
+   names, seeded with the MarketingOperator grant it demands.
+3. **Grant identity is bound by a COLLISION.** The carried tuple names a REVOKED Assignment while a
+   LIVE sibling of the same principal sits at the same version and the same scope, so every
+   non-identity conjunct is satisfied by the sibling and identity is the only thing left that can
+   refuse. `one_active_assignment_per_tuple` is a partial index over `status = 'active'`, which is
+   what lets the pair differ in nothing else. Two grants at the same version is a production shape
+   (`invitation_store.rb:113`).
+4. **`require!` is driven over `WriteAuthority.members`.** Each of the ten members is perturbed in
+   turn and must be refused, with the unperturbed authority accepted first so the sweep cannot pass
+   vacuously. The subject is the `Data` class itself, so a member added later is covered the day it
+   is added — demonstrated during implementation: the first draft enumerated nine perturbations and
+   the derivation failed on the tenth, `allowed_roles`, rather than skipping it.
+5. **PROOF 255/256/257 drive every unauthorized shape**, not only the emptiest one: an Account with no
+   Assignment, then one per denied role, each a real active effective grant. PROOF 257c adds the
+   Project-scope counterpart of 257b, which had the pre-lock property at neither layer.
+6. **The status conjunct is swept over the whole vocabulary**, read from the column's CHECK
+   constraint rather than listed, at every write.
+
+Evidence:
+
+| Proof file | Before | After |
+| --- | --- | --- |
+| `spec/acceptance/wf005_grant_battery_spec.rb` | 36 | 68 |
+| `spec/acceptance/wf005_capability_write_authority_spec.rb` | 22 | 24 |
+| `spec/architecture/permission_baseline_transcription_spec.rb` | 5 | 6 |
+
+Twenty-one round-20 definitions were added to the mutation set and replayed by the repository's own
+harness. **Twenty are killed. One survives, and is recorded as EQUIVALENT with its reason:**
+
+`r20-cancel-status-admits-pending` widens the status conjunct to admit `pending`. A pending Role
+Assignment CANNOT BE EFFECTIVE — the table's CHECK `role_assignment_pending_is_not_effective` forbids
+it — and the same CTE requires `ra.effective_at IS NOT NULL`. No row the database can hold is
+admitted by the widening, so it cannot change the outcome of any execution. That is an equivalent
+mutation, not an unbound control, and it is not excused in prose: the battery drives every status the
+CHECK admits at every write, and asserts that the CHECK still exists, so if it is ever dropped the
+equivalence fails loudly instead of ageing into a false record. Its discriminating sibling,
+`ra.status <> 'pending'`, is killed at all three writes.
+
+**WHAT IS DERIVED AND WHAT IS STILL A LIST.** Round 20 refuted ADR-138's "by construction"
+inheritance claim by building a fourth protected write that inherited nothing while the suite stayed
+green, so this repair does not restate that claim in a wider form. Two of the three populations here
+ARE derived and cannot drift: the denied ROLES come from the ratified document, and
+`same_principal?`'s members come from the `Data` class. **`WRITES` IS STILL A HAND-MAINTAINED LIST**,
+and enforcing its completeness is FU-61, which remains open. What this repair adds for the policy
+write alone is a totality check: `SCOPE_ROLE`'s keys are exactly the two scopes `valid_scope_shape?`
+admits, none of its values is nil, and both are driven by the battery — which is also the premise
+that makes widening `allowed_roles` for `policy.crawl.manage` equivalent rather than unbound, since
+`required_role` pins a single role at every production configuration of that write.
+
+Consequences:
+
+FU-63 is RESOLVED. This ADR does NOT accept S-07-009: the repair produces a new candidate that no
+lens has reviewed, and this tranche's history is that every repair round produced findings in the
+round after it. The next action is a fresh five-lens review of the resulting candidate.
+
+FU-37, FU-49, FU-50, FU-51, FU-53, FU-54 (owner), FU-55, FU-56, FU-57, FU-58, FU-59, FU-60, FU-61 and
+FU-62 remain open and unchanged.
+
+Authority And Precedence:
+S-07-009 repair authority under the owner's autonomous build execution directive of 2026-08-06, which
+reopens S-07-009 implementation and directs the FU-63 repair first. Allocated the next unused number
+after ADR-138.

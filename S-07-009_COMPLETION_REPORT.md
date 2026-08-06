@@ -1,6 +1,6 @@
 # S-07-009 — Crawl Execution: Terminal Checkpoint, Coverage/Completion, CancelCrawl
 
-**Acceptance status: NOT ACCEPTED. The round-19 repair is complete under ADR-137; this report is not an acceptance record.**
+**Acceptance status: NOT ACCEPTED. The FU-63 repair is complete under ADR-139; this report is not an acceptance record.**
 
 **EIGHTEEN full ADR-026 five-lens rounds have reviewed this tranche and all eighteen returned FAIL.**
 
@@ -45,10 +45,10 @@ round 16 five, and round 15 EIGHT of which two were live production defects. Eve
 the dispositions are ADR-133, ADR-134, ADR-135, ADR-136 and ADR-137.
 
 ```f1-evidence
-candidate_range: b2e8cfb..07f1471
+candidate_range: b2e8cfb..5bacbbb
 frozen_path_changes: 0
 frozen_paths: []
-suite_examples: 2472
+suite_examples: 2507
 review_rounds: 14
 ```
 
@@ -422,7 +422,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 
 | Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2472 examples, 0 failures` |
+| `bundle exec rspec` | `2507 examples, 0 failures` |
 | `bundle exec rspec spec/architecture` | `242 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
@@ -431,7 +431,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 119 mutations, 119 killed, 0 survived, 0 broken |
+| mutation ledger | 140 mutations, 139 killed, 1 survived (recorded equivalent), 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -566,8 +566,13 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**119 mutations, 119 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
-replayed, sealed and verified by the same machinery rather than copied in as literals.
+**140 mutations, 139 killed, 1 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+replayed, sealed and verified by the same machinery rather than copied in as literals. The single
+survivor is `r20-cancel-status-admits-pending`, the one **recorded equivalent** in the set: admitting
+`pending` at the write cannot change the outcome of any execution, because
+`role_assignment_pending_is_not_effective` forbids an effective pending row and the same CTE requires
+`ra.effective_at IS NOT NULL`. Its discriminating sibling `ra.status <> 'pending'` is killed at all
+three writes.
 
 Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the
 bytes of every proof file, the failing example identities, a digest of the failure reasons, the
