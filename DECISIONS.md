@@ -4669,3 +4669,108 @@ Authority And Precedence:
 S-07-009 repair authority under the owner's autonomous build execution directive of 2026-08-06, which
 reopens S-07-009 implementation and directs the FU-63 repair first. Allocated the next unused number
 after ADR-138.
+
+---
+
+## ADR-140: FU-54 — The Ratified Protected-Grant Enumeration Was Three Entries Short, And One Was Live
+
+Date: 2026-08-06
+Status: Accepted
+Scope: `Platform::PermissionBaseline::PROTECTED` and the transcription check that governs it.
+PRE-EXISTING and OUTSIDE the S-07-009 candidate range; taken here under the owner's autonomous build
+execution directive rather than deferred as another tranche's backlog.
+
+Context:
+
+`WORKFLOW_SPECIFICATIONS.md:333` enumerates the protected grants and `:335` states that "This
+enumeration is the authority for which grants are protected". It names EIGHTEEN permissions.
+`Platform::PermissionBaseline::PROTECTED` carried FIFTEEN.
+
+**NOTHING COULD SEE THE GAP.** `permission_baseline_transcription_spec.rb` checked `CAPABILITIES`
+against `:135` in two dimensions — the role cells, and the Read-Only Executive Buyer column — and had
+NO third dimension for `PROTECTED` against `:333`. Round 20 measured the consequence directly:
+deleting a ratified `PROTECTED` entry left the full suite at 2472/0.
+
+Two omissions were harmless. `security.investigation.approve` (`:185`, SecurityOperator "protected
+explicit grant") and the SecurityOperator `organization.close` arm (`:139`, "protected approval only")
+are under-grants in the fail-closed direction, because SecurityOperator is already protected through
+other keys; only the exactness of `:240`'s protected-permission preview was wrong.
+
+**THE THIRD WAS A LIVE AUTHORIZATION DEFECT, REPRODUCED BEFORE IT WAS REPAIRED.** `:175` makes
+BillingOperator the ONLY role whose `policy.entitlement.manage` cell reads `allow`, and BillingOperator
+appears in no other entry, so `protected_role?("BillingOperator")` was FALSE.
+`request_role_assignment.rb:61` therefore classed such a request non-protected, `GrantAuthority.evaluate`
+ran with `direct: true`, and the approval requirement never fired. Measured at HEAD before the repair,
+through the real handler: a lone OrganizationAdmin requesting a BillingOperator grant got
+`success=true`, `status=active`, `approval_due_at=nil`, and an empty allowlist — an immediately-active,
+never-expiring grant carrying protected authority, issued on one administrator's say-so.
+
+That contradicts `:333` ("approval within 24 hours by a SecurityOperator other than the requester"),
+`:316` (mandatory active expiry) and `:140` (an OrganizationAdmin's `role.manage` cell is confined to
+"non-protected tenant grants").
+
+Decision:
+
+**TRANSCRIBE THE ENUMERATION IN FULL, AND GIVE IT THE DIMENSION THAT WOULD HAVE CAUGHT THE GAP.**
+
+`PROTECTED` gains `policy.entitlement.manage => [BillingOperator]`,
+`security.investigation.approve => [SecurityOperator]` and `organization.close => [SecurityOperator]`.
+
+`organization.close` carries ONLY its SecurityOperator arm, because `:333` says so in words: "the
+OrganizationAdmin baseline cell permitting a closure request for the actor's own Organization is not a
+protected grant and is unchanged." Every other entry takes its whole non-deny row. That single
+exception is recorded as DATA in `spec/support/ratified_permission_baseline.rb`, checked against the
+document, so adding a second exception is a visible act rather than a reader's judgement.
+
+**DIMENSION 3.** `permission_baseline_transcription_spec.rb` now derives the whole map from `:333`'s
+sentence plus `:135`'s cells and compares `PROTECTED` to it. The subject is the document, not a second
+literal beside the first.
+
+**AND THE BEHAVIOURAL HALF.** `spec/acceptance/wf013_protected_enumeration_spec.rb` drives the real
+`RequestRoleAssignment` handler for EVERY canonical role the ratified enumeration protects — derived,
+not hand-picked — and requires each to land `pending` with a 24-hour approval deadline, no
+`effective_at`, and an empty allowlist. A non-protected role is the control and must still land
+`active`, so the rule is the enumeration rather than a blanket refusal. The expiry is supplied so the
+refusal cannot be over-determined by `role_expiry_required`, which fires first when it is absent.
+
+Evidence:
+
+Three mutations, replayed by the repository's own harness, all KILLED — the same deletions that left
+the suite green before this repair:
+
+| mutation | result |
+| --- | --- |
+| `fu54-protected-entitlement-entry-deleted` | killed, 3 failures |
+| `fu54-protected-close-arm-widened` | killed, 1 failure |
+| `fu54-protected-investigation-entry-deleted` | killed, 1 failure |
+
+One fixture encoded a classification it does not own: `wf013_activation_lifecycle_spec` seeded three
+roles including BillingOperator and asserted three activation timers. A protected Invitation correctly
+goes to approval and gets no activation timer. The roles and the expected count are now DERIVED from
+the enumeration. The invariant under test — every active Invitation has exactly one timer at its own
+expiry instant — is unchanged and was never broken.
+
+Consequences:
+
+**CUSTOMER-VISIBLE, AND STATED PLAINLY.** A BillingOperator grant now requires approval by a different
+SecurityOperator within 24 hours and a mandatory expiry. An Organization holding no SecurityOperator
+cannot create a BillingOperator directly; `:333`'s first-SecurityOperator path is the route to one.
+This is what the ratified specification requires, and the previous behaviour was the defect — but it
+is a real change to an accepted workflow and the owner should know it happened rather than read it in
+a diff.
+
+**IT IS NOT RETROACTIVE.** `protected_role?` governs the GRANT path — invitation classification and
+role-assignment request classification — not the USE path. Existing active BillingOperator Assignments
+are unaffected; `policy.entitlement.manage` is not materialized in `CAPABILITIES`, so no authorization
+decision changes.
+
+FU-54 is RESOLVED. This ADR does not accept S-07-009 and does not change any WF-005 behaviour.
+
+Authority And Precedence:
+Taken under the owner's autonomous build execution directive of 2026-08-06, whose Tier 1 rule governs
+authorization defects and whose owner-interaction threshold this does not meet: the repository
+resolves the specification question outright (`:335` — "this enumeration is the authority"), the
+change strengthens rather than weakens authorization, and no frozen contract is touched.
+`AUTONOMY_POLICY`'s "not another tranche's backlog" limit is what had held it as
+`owner_decision_required`; the directive supersedes that limit and the reasoning is recorded here
+rather than assumed. Allocated the next unused number after ADR-139.
