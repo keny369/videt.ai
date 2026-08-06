@@ -162,17 +162,28 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
     end
   end
 
-  def insert_job(document_id, url: "https://acme.example/a", state: "queued")
+  # The :462 capture members arrived with `20260806110000`, and every one of them is NOT NULL: a job
+  # that does not say what it is the ingestion OF cannot be written at all. `evidence_id` is
+  # deliberately absent — it is what a SUCCESS adds, and the durable-handoff CHECK is what makes that
+  # true (see "the durable handoff (:464, MTX-008)" below).
+  def insert_job(document_id, url: "https://acme.example/a", state: "queued", staged: true)
     id = SecureRandom.uuid_v7
     params = [id, org, project_id, source_id, crawl_id, document_id, url, sha("body-#{url}"),
-              state, now_iso]
+              state, now_iso, staged ? SecureRandom.uuid_v7 : nil]
     conn.exec_params(<<~SQL, params)
       INSERT INTO ingestion_jobs
         (id, state_version, schema_version, created_at, updated_at, correlation_id, causation_id,
          organization_id, project_id, source_id, crawl_id, document_id, canonical_url,
-         fetched_body_sha256, ingestion_schema_version, state)
+         fetched_body_sha256, ingestion_schema_version, state,
+         final_http_status, media_type, staged_body_reference, staged_body_destroyed_at,
+         staging_expires_at, received_byte_count, response_capture_policy_version,
+         data_classification, idempotency_key, queued_at)
       VALUES ($1,0,'ingestion-job-v1',$10::timestamptz,$10::timestamptz,gen_random_uuid(),gen_random_uuid(),
-              $2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7,$8,'ingestion-interim-v1',$9)
+              $2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7,$8,'ingestion-interim-v1',$9,
+              200,'text/html',$11::uuid,
+              CASE WHEN $11::uuid IS NULL THEN $10::timestamptz END,
+              $10::timestamptz + interval '24 hours', 1024, 'crawl-policy-v1',
+              'public', encode(sha256(convert_to($7,'UTF8')),'hex'), $10::timestamptz)
     SQL
     id
   end
@@ -185,10 +196,36 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
       "replay_requested_at = now()"
   end
 
-  def move_job(id, to, generation: nil, capsule: false)
+  def move_job(id, to, generation: nil, capsule: false, evidence: nil)
     gen = generation ? ", replay_generation = #{generation}" : ""
-    conn.exec("UPDATE ingestion_jobs SET state = '#{to}'#{gen}#{capsule ? capsule_sql : ''}, " \
-              "state_version = state_version + 1 WHERE id = '#{id}'")
+    # `succeeded` carries its Evidence and its completion instant, because
+    # `ingestion_jobs_succeeded_carries_evidence` refuses the row without them (:464, MTX-008). The
+    # helper supplies both rather than each example restating the handoff.
+    success = to == "succeeded" ? ", evidence_id = '#{evidence || insert_evidence}', completed_at = now()" : ""
+    # `running` stamps its own start instant, because `ingestion_jobs_started_before_completed` makes
+    # a completion without one unrepresentable — an ordering rule, not an ingestion rule, and it must
+    # not be what a lifecycle example trips over.
+    started = to == "running" ? ", started_at = coalesce(started_at, now())" : ""
+    conn.exec("UPDATE ingestion_jobs SET state = '#{to}'#{gen}#{started}#{success}" \
+              "#{capsule ? capsule_sql : ''}, state_version = state_version + 1 WHERE id = '#{id}'")
+  end
+
+  # A minimal valid Evidence row, appended exactly as F-03's own table requires. It exists so the
+  # durable-handoff CHECK can be exercised against a REAL foreign key rather than a fabricated uuid.
+  def insert_evidence
+    id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, org, project_id, source_id, SecureRandom.hex(32)])
+      INSERT INTO evidence
+        (id, created_at, schema_version, organization_id, project_id, source_id, evidence_type,
+         producer_id, attempt_id, payload_reference, content_sha256, captured_at_utc, observed_at_utc,
+         source_system, collection_method, collector_version, validation_status, data_classification,
+         payload_retention_class, correlation_id)
+      VALUES ($1::uuid, now(), 'source-document-v1', $2::uuid, $3::uuid, $4::uuid, 'source_document',
+              'wf005.ingestion', $1::text, 'ref-'||$1::text, $5, now(), now(),
+              'f1.crawler', 'crawl_content_ingestion', 'ingestion-interim-v1', 'valid', 'public',
+              'product_evidence_payload', gen_random_uuid())
+    SQL
+    id
   end
 
   describe "the Ingestion Job lifecycle (:303)" do
@@ -243,6 +280,174 @@ RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
     it "pins the interim ingestion schema version" do
       expect { conn.exec("UPDATE ingestion_jobs SET ingestion_schema_version = 'v2' WHERE id = '#{job_id}'") }
         .to raise_error(PG::Error)
+    end
+
+    # THE SELF-EDGE REPAIR, found by the S-07-010 acceptance chain and twice. :464's "deletes the
+    # separate staging reference" is an UPDATE of a `succeeded` row that changes no state, and the
+    # first guard evaluated the edge set on EVERY update — so the ratified success path could not
+    # execute its own next sentence. The repair admits a state-PRESERVING update and separately
+    # forbids it from consuming a state version, because the version counts transitions and a
+    # non-transition takes none. Admitting a self-edge in the EDGE SET instead would have let a
+    # writer burn versions and break another worker's compare-and-set for no reason.
+    it "admits a state-preserving update, and refuses one that consumes a state version" do
+      move_job(job_id, "running")
+      move_job(job_id, "succeeded")
+
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET staged_body_reference = NULL, " \
+                  "staged_body_destroyed_at = now() WHERE id = '#{job_id}'")
+      end.not_to raise_error
+
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET state_version = state_version + 1 WHERE id = '#{job_id}'")
+      end.to raise_error(PG::RaiseException, /state_version_without_transition/)
+    end
+  end
+
+  # ============================================================================
+  describe "the durable handoff and the capture contract (:462, :464; MTX-008)" do
+    let(:document_id) { insert_document(url: "https://acme.example/handoff") }
+    let(:job_id) { insert_job(document_id, url: "https://acme.example/handoff") }
+
+    # MTX-008 — "the durable handoff record IS the succeeded IngestionJob with its valid
+    # `source_document` Evidence"; :464 — "No Document may become ingested ... WITHOUT that valid
+    # Evidence." Enforced by the DATABASE, which is what lets S-08's parse manifest read
+    # `state = 'succeeded'` without re-validating every row it selects.
+    it "refuses a succeeded job that carries no Evidence" do
+      move_job(job_id, "running")
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET state = 'succeeded', completed_at = now(), " \
+                  "state_version = state_version + 1 WHERE id = '#{job_id}'")
+      end.to raise_error(PG::CheckViolation, /ingestion_jobs_succeeded_carries_evidence/)
+    end
+
+    it "refuses an Evidence link on a job that did not succeed" do
+      # :464 creates the Evidence AT SUCCESS and nowhere else, so a `failed` or `dead_letter` job
+      # carrying one would be a handoff a parsing consumer must not observe.
+      evidence = insert_evidence
+      move_job(job_id, "running")
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET state = 'failed', last_reason_code = 'ingest_timeout', " \
+                  "completed_at = now(), evidence_id = '#{evidence}', " \
+                  "state_version = state_version + 1 WHERE id = '#{job_id}'")
+      end.to raise_error(PG::CheckViolation, /ingestion_jobs_evidence_only_on_success/)
+    end
+
+    it "makes the Evidence link WRITE-ONCE, so an earlier snapshot cannot be re-pointed" do
+      # MTX-008 concurrency — "concurrent completion or replay CANNOT change an earlier snapshot".
+      first = insert_evidence
+      second = insert_evidence
+      move_job(job_id, "running")
+      move_job(job_id, "succeeded", evidence: first)
+
+      expect { conn.exec("UPDATE ingestion_jobs SET evidence_id = '#{second}' WHERE id = '#{job_id}'") }
+        .to raise_error(PG::RaiseException, /ingestion_job_evidence_immutable/)
+    end
+
+    # ":462 — Staged body bytes are IMMUTABLE." Present -> destroyed is the whole lifecycle: a
+    # re-staged job would hand a replay different bytes under the same digest, and pointing the
+    # reference elsewhere is the same thing with an extra step.
+    it "lets the staged reference be destroyed and nothing else" do
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET staged_body_reference = gen_random_uuid() WHERE id = '#{job_id}'")
+      end.to raise_error(PG::RaiseException, /ingestion_job_staged_body_immutable/)
+
+      conn.exec("UPDATE ingestion_jobs SET staged_body_reference = NULL, " \
+                "staged_body_destroyed_at = now() WHERE id = '#{job_id}'")
+
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET staged_body_reference = gen_random_uuid(), " \
+                  "staged_body_destroyed_at = NULL WHERE id = '#{job_id}'")
+      end.to raise_error(PG::RaiseException, /ingestion_job_staged_body_immutable/)
+    end
+
+    it "keeps `destroyed` and `never staged` distinguishable" do
+      # The biconditional is what makes `staged_body_missing` a real answer rather than a guess: a
+      # NULL reference always means destroyed, and it always says when.
+      expect do
+        conn.exec("UPDATE ingestion_jobs SET staged_body_reference = NULL WHERE id = '#{job_id}'")
+      end.to raise_error(PG::CheckViolation, /ingestion_jobs_staging_shape/)
+    end
+
+    # FU-30's lesson, applied where :466 puts a bound on the party that holds the bytes: a retention
+    # limit the retainer may extend is not a retention limit. The capture columns go with it, because
+    # a job whose description of its own input can change is a job whose Evidence provenance is
+    # worthless.
+    it "freezes the 24-hour staging deadline and the capture the job describes" do
+      { "staging_expires_at" => "now() + interval '999 hours'",
+        "received_byte_count" => "1", "media_type" => "'application/pdf'",
+        "final_http_status" => "204",
+        "response_capture_policy_version" => "'crawl-policy-v2'",
+        "queued_at" => "now() - interval '1 hour'" }.each do |column, value|
+        expect { conn.exec("UPDATE ingestion_jobs SET #{column} = #{value} WHERE id = '#{job_id}'") }
+          .to raise_error(PG::RaiseException, /ingestion_job_identity_immutable/), "#{column} was not frozen"
+      end
+    end
+
+    it "admits only a 2xx final status, because a 3xx names a hop rather than a response" do
+      expect { insert_job_with_status(document_id, 302) }.to raise_error(PG::CheckViolation)
+      expect { insert_job_with_status(document_id, 404) }.to raise_error(PG::CheckViolation)
+    end
+
+    def insert_job_with_status(document_id, status)
+      params = [SecureRandom.uuid_v7, org, project_id, source_id, crawl_id, document_id,
+                "https://acme.example/s#{status}", sha("b#{status}"), now_iso, status]
+      conn.exec_params(<<~SQL, params)
+        INSERT INTO ingestion_jobs
+          (id, state_version, schema_version, created_at, updated_at, correlation_id, causation_id,
+           organization_id, project_id, source_id, crawl_id, document_id, canonical_url,
+           fetched_body_sha256, ingestion_schema_version, state, final_http_status, media_type,
+           staged_body_reference, staging_expires_at, received_byte_count,
+           response_capture_policy_version, data_classification, idempotency_key, queued_at)
+        VALUES ($1::uuid,0,'ingestion-job-v1',$9::timestamptz,$9::timestamptz,gen_random_uuid(),
+                gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7,$8,
+                'ingestion-interim-v1','queued',$10::integer,'text/html',gen_random_uuid(),
+                $9::timestamptz + interval '24 hours',1024,'crawl-policy-v1','public','k',$9::timestamptz)
+      SQL
+    end
+  end
+
+  # ============================================================================
+  describe "Document version allocation (:302, :462)" do
+    # :462 — "A DIFFERENT BODY DIGEST creates a NEW VERSIONED Document/job and never overwrites prior
+    # Evidence." Driven through the PRODUCTION WRITER rather than raw SQL, because the allocation is
+    # the writer's: `MAX + 1` over the URL's own history on that Source, predecessor set to the row
+    # that held the maximum, under the per-URL advisory lock that makes two concurrent Crawls of one
+    # Source compute different numbers instead of colliding on the unique key.
+    def create_via_store(url, seed)
+      Platform::UnitOfWork.run do |c|
+        pg = c.raw_connection
+        store = IdentityAccess::Infrastructure::DocumentStore.new(pg)
+        store.enter_org_context(org:, correlation_id: SecureRandom.uuid_v7)
+        digest = Digest::SHA256.digest(url)
+        store.lock_document_line(source_id, digest)
+        store.create(id: SecureRandom.uuid_v7, now: Time.now.utc, correlation_id: SecureRandom.uuid_v7,
+                     causation_id: SecureRandom.uuid_v7, command_id: nil, organization_id: org,
+                     project_id:, source_id:, crawl_id:, canonical_url: url,
+                     canonical_url_sha256: digest, fetched_object_id: SecureRandom.uuid_v7,
+                     media_type: "text/html", byte_size: 10, content_sha256: Digest::SHA256.digest(seed))
+      end
+    end
+
+    it "numbers versions from 1 and links each to its predecessor" do
+      first = create_via_store("https://acme.example/v", "body-1")
+      second = create_via_store("https://acme.example/v", "body-2")
+      third = create_via_store("https://acme.example/v", "body-3")
+
+      expect(first["version"].to_i).to eq(1)
+      expect(first["predecessor_document_id"]).to be_nil
+      expect(second["version"].to_i).to eq(2)
+      expect(second["predecessor_document_id"]).to eq(first["id"])
+      expect(third["version"].to_i).to eq(3)
+      expect(third["predecessor_document_id"]).to eq(second["id"])
+    end
+
+    it "numbers a different URL on the same Source independently" do
+      create_via_store("https://acme.example/v", "body-1")
+      other = create_via_store("https://acme.example/other", "body-1")
+
+      expect(other["version"].to_i).to eq(1)
+      expect(other["predecessor_document_id"]).to be_nil
     end
   end
 

@@ -48,8 +48,13 @@ module Workflows
       # whether this pass retired its claimed entry and so released :454's depth seal; `terminal` is the
       # `crawl_terminal_outcomes` row it wrote in the same transaction, read back from the INSERT so the
       # pass reports the classification and commit order that were STORED.
-      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at, :released, :terminal) do
-        def initialize(released: false, terminal: nil, **) = super
+      # `produced` is the `IngestionHandoff::Produced` the same transaction created: the Document and
+      # queued IngestionJob for :452's `document_created`, or the body-free `crawl_observation` for
+      # `content_absent`. It is what the handler's terminal transaction mints :378's "exact INGESTION
+      # ... action" from, and it is nil on every pass that retired nothing.
+      Pass = Data.define(:outcome, :reason_code, :entry, :fetch, :reenter_at, :released, :terminal,
+                         :produced) do
+        def initialize(released: false, terminal: nil, produced: nil, **) = super
         def fetched? = outcome == CrawlDriver::FETCHED
         # Link the run forward to whatever is next.
         def advances? = [CrawlDriver::FETCHED, CrawlDriver::SUPERSEDED, CrawlDriver::RETIRED].include?(outcome)
@@ -356,7 +361,7 @@ module Workflows
         # the fetch decided rather than re-decided here. `FetchContent::Result#outcome` is already one of
         # :452's five tokens for an admitted content URL.
         decision = CoverageClassification.of(outcome: result.outcome, reason: result.reason_code)
-        recorded = retire(organization_id, crawl, entry, decision, now)
+        recorded = retire(organization_id, crawl, entry, decision, now, result)
         # THE RUN REACHED ITS TERMINAL SELECTION WHILE THIS PASS WAS IN FLIGHT (DECISIONS ADR-113).
         # `retire` decided that under the frontier lock and wrote nothing, so this pass has no
         # classification to report and MUST NOT LINK: :442's "stop scheduling affected work" and
@@ -369,7 +374,8 @@ module Workflows
         end
 
         Pass.new(outcome: FETCHED, reason_code: result.reason_code, entry:, fetch: result,
-                 reenter_at: nil, released: !recorded.nil?, terminal: recorded)
+                 reenter_at: nil, released: !recorded.nil?, terminal: recorded&.fetch(:outcome),
+                 produced: recorded&.fetch(:produced))
       end
 
       # :444's instant, or nil when no retry is owed or the run cannot outlast it.
@@ -456,7 +462,13 @@ module Workflows
       # makes a request that spans the deadline end AT the deadline; without it this read would be
       # silently discarding valid Documents for up to a full request timeout after the run ended,
       # which is suppressing the contradiction rather than removing it. The two are one repair.
-      def retire(organization_id, crawl, entry, decision, now)
+      # THE ARTIFACT IS PRODUCED IN THIS TRANSACTION TOO (S-07-010). :452 makes `document_created`
+      # mean "creates a valid Document" and `content_absent` mean "creates a valid body-free
+      # `crawl_observation`", so the coverage-bearing row and the artifact it asserts exists are one
+      # commit. Produced AFTER the compare-and-set on the claim, so a redelivery whose entry another
+      # pass already retired creates neither: the same rule that makes it record no second opinion
+      # makes it stage no second copy of the customer's page.
+      def retire(organization_id, crawl, entry, decision, now, result = nil)
         Platform::UnitOfWork.run do |conn|
           raw = conn.raw_connection
           store = IdentityAccess::Infrastructure::CrawlFrontierStore.new(raw)
@@ -466,9 +478,13 @@ module Workflows
           next nil unless store.terminalize(organization_id, entry["id"],
                                             entry["state_version"].to_i, now).positive?
 
-          record_outcome(raw, organization_id, crawl, entry, decision, now)
+          produced = handoff.produce(pg: raw, organization_id:, crawl:, entry:, result:, now:)
+          { outcome: record_outcome(raw, organization_id, crawl, entry, decision, now, produced),
+            produced: }
         end
       end
+
+      def handoff = @handoff ||= IngestionHandoff.new(ids: @ids, correlation_id: @correlation_id)
 
       # Re-read, never re-used: `crawl` was loaded at the top of the pass, BEFORE the network call, so
       # it cannot answer a question about what committed during it. Through the same accepted reader
@@ -487,13 +503,14 @@ module Workflows
       # write uses it, and `command_id` is deliberately absent: the driver is one pass of a run, and the
       # command that carries this pass belongs to the handler's terminal transaction, not to a record
       # that must survive whether or not that transaction commits.
-      def record_outcome(pg, organization_id, crawl, entry, decision, now)
+      def record_outcome(pg, organization_id, crawl, entry, decision, now, produced = nil)
         store = IdentityAccess::Infrastructure::CrawlTerminalOutcomeStore.new(pg)
         store.record(id: @ids.generate, now:, correlation_id: @correlation_id, causation_id: crawl["id"],
                      command_id: nil, organization_id:, project_id: crawl["project_id"],
                      crawl_id: crawl["id"], entry_id: entry["id"], source_id: entry["source_id"],
                      outcome: decision.outcome, reason: decision.reason,
-                     coverage_effect: decision.coverage_effect)
+                     coverage_effect: decision.coverage_effect,
+                     document_id: produced&.document_id)
       end
 
       # :442's wall clock, and only that: the Crawl's state, the Organization, the Project and the

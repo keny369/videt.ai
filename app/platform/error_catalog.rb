@@ -299,6 +299,19 @@ module Platform
       # MTX-030 idempotency/error_contract: concurrent altered creation of the pending Evaluation
       # keyed by (crawl_id, kind=initial). A request rejection — it changes no state.
       "evaluation_creation_conflict"      => "F1-DOMAIN-409",
+      # S-07-010, the ingestion limb. THREE DELIVERY-LEVEL REFUSALS, none of which is one of :464's
+      # ingestion reason codes: those are `ingestion_jobs.last_reason_code` values recording why an
+      # ATTEMPT failed, whereas these record why a DELIVERY performed no attempt at all. Keeping the
+      # two vocabularies apart is what stops a transport race from being reported to a reader as an
+      # ingestion outcome — the distinction ADR-092 had to correct after a settle reported one.
+      #
+      # `ingestion_attempt_contended`: another delivery holds a LIVE lease on the current attempt.
+      # `ingestion_job_not_runnable`: the job is already settled, or has spent :466's three attempts.
+      # `ingestion_late_completion_discarded`: ":466 — late completion is discarded" — this delivery's
+      # attempt was reclaimed while it worked, so it wrote nothing.
+      "ingestion_attempt_contended"       => "F1-DOMAIN-409",
+      "ingestion_job_not_runnable"        => "F1-DOMAIN-409",
+      "ingestion_late_completion_discarded" => "F1-DOMAIN-409",
       # The `entitlement-interim-v1` Block reasons (WORKFLOW_SPECIFICATIONS.md :519/:541). Only
       # `hard_limit_exceeded` comes from `InterimPolicy.classify`; `entitlement_inactive` and
       # `operation_unknown` are the short-circuit reasons in `Entitlement::Service#reserve`.

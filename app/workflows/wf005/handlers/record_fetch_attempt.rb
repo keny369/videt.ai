@@ -120,6 +120,7 @@ module Workflows
             write_execution(store, command, ctx, prepared[:org], ids[:execution],
                             prepared[:request_sha256], prepared[:key_digest], prepared[:now])
             write_audit(store, ids[:audit], prepared[:org], ctx, command, payload, prepared[:now])
+            emit_handoff_events(store, ids[:audit], prepared, ctx, command, pass)
             write_result(store, ids, command, ctx, prepared[:org], payload, prepared[:now])
             write_idempotency(store, ids[:idem], command, prepared[:org], prepared[:key_digest],
                               prepared[:request_sha256], ids[:execution], ids[:result], prepared[:now])
@@ -153,7 +154,36 @@ module Workflows
           return {} unless pass.advances?
 
           link = Workflows::Wf005::CrawlFetchDueSchedule.link_next(**common)
-          link.merge(terminal_checkpoint(common, link))
+          link.merge(terminal_checkpoint(common, link)).merge(ingestion_link(common, pass))
+        end
+
+        # :378's OTHER HALF — "its terminal transaction creates the exact INGESTION or next-frontier
+        # action" (S-07-010). A pass that retired a `document_created` entry has committed a queued
+        # IngestionJob in `CrawlDriver#retire`; this is the action that runs it, minted in the same
+        # commit as the ledger so a queued job and its dispatch cannot come apart.
+        #
+        # BOTH LINKS, NOT ONE OR THE OTHER. The sentence's "or" is about which KIND a pass creates,
+        # not a limit of one per transaction: the frontier link carries the run forward to the next
+        # URL and the ingestion link carries THIS URL into the pipeline, and they are independent
+        # chains. Suppressing the frontier link on a document-producing pass would stop the crawl at
+        # its first accepted page.
+        #
+        # A REPLAYED HANDOFF STILL LINKS, AND MUST. `IngestionHandoff` returns the EXISTING job for a
+        # redelivered fetch (:462 — "exact fetch replay returns the same job"), and the action's own
+        # identity absorbs the duplicate: same job, same generation, same `due_at`, so `Store#create`
+        # returns the existing action rather than a second one. Skipping the link on a replay would
+        # instead lose the dispatch entirely whenever the original pass died between its retirement
+        # and its ledger.
+        def ingestion_link(common, pass)
+          job_id = pass.produced&.ingestion_job_id
+          return {} if job_id.nil?
+
+          { ingestion_action_id: Workflows::Wf005::IngestionAttemptDueSchedule.schedule(
+            pg: common[:pg], organization_id: common[:organization_id], project_id: common[:project_id],
+            job_id:, replay_generation: 0, due_at: common[:now], now: common[:now],
+            correlation_id: common[:correlation_id], causation_id: common[:causation_id],
+            command_id: common[:command_id]
+          )[:action_id] }
         end
 
         # A RUN THAT HAS FINISHED ITS WORK REACHES ITS CHECKPOINT NOW, NOT FORTY MINUTES FROM NOW
@@ -187,6 +217,74 @@ module Workflows
           ) }
         end
 
+        # MTX-030's `DocumentDiscovered` and `IngestionQueued` (API_CONTRACTS.md :810, :812), which are
+        # the crawl side's only creation events and which no tranche before this one could emit
+        # because neither entity existed.
+        #
+        # EMITTED IN THE LEDGER TRANSACTION, NOT IN THE RETIREMENT. The Document and the job commit in
+        # `CrawlDriver#retire`, one transaction earlier — that separation is ADR-087's ruling and is
+        # not this tranche's to revisit — so the events sit exactly where every other record of this
+        # pass sits, and they can only ever describe artifacts that are ALREADY committed. The reverse
+        # ordering, an event for an artifact that rolled back, is unreachable. ADR-087 already weighed
+        # the loss window this leaves ("ledger completeness is identical either way, because in both
+        # cases the lost transaction is the one carrying the ledger rows") and accepted it.
+        #
+        # A REPLAYED HANDOFF EMITS NOTHING. `IngestionHandoff` returns the existing job for a
+        # redelivered fetch, and the creation it would announce happened in another delivery, which
+        # announced it. The two creation events are for a first creation only, which is what the
+        # `created` profile means.
+        def emit_handoff_events(store, audit_id, prepared, ctx, command, pass)
+          produced = pass.produced
+          return if produced.nil? || produced.document_id.nil? || produced.replayed
+
+          entry = prepared[:entry]
+          base = { store:, audit_id:, org: prepared[:org], ctx:, command:, now: prepared[:now],
+                   project_id: entry["project_id"] }
+          write_event(**base, type: "DocumentDiscovered", profile: "created",
+                      aggregate_type: "document", aggregate_id: produced.document_id,
+                      extra: { "from_state" => nil, "to_state" => "discovered",
+                               "prior_aggregate_version" => nil, "committed_aggregate_version" => 0 })
+          write_event(**base, type: "IngestionQueued", profile: "created",
+                      aggregate_type: TARGET_INGESTION_TYPE, aggregate_id: produced.ingestion_job_id,
+                      extra: { "from_state" => nil, "to_state" => "queued",
+                               "prior_aggregate_version" => nil, "committed_aggregate_version" => 0,
+                               # The `pipeline_job` extra schema (:958). Both output fields are null
+                               # because ":958 — output fields are both nonnull ONLY ON SUCCESS", and a
+                               # queued job has produced nothing.
+                               "document_id" => produced.document_id,
+                               "input_content_sha256" => body_digest_hex(pass),
+                               "output_entity" => nil, "output_content_sha256" => nil })
+        end
+
+        TARGET_INGESTION_TYPE = "ingestion_job"
+
+        # The digest of the body this pass retrieved, which is the ingestion job's input identity.
+        def body_digest_hex(pass) = Digest::SHA256.hexdigest(pass.fetch.body.to_s)
+
+        def write_event(store:, audit_id:, org:, ctx:, command:, now:, project_id:, type:, profile:,
+                        aggregate_type:, aggregate_id:, extra:, aggregate_version: 0)
+          event_id = ctx.generate_id
+          envelope = {
+            "account_id" => nil, "actor_id" => nil, "affected_entity_id" => aggregate_id,
+            "affected_entity_type" => aggregate_type, "aggregate_version" => aggregate_version,
+            "audit_record_id" => audit_id, "causation_id" => ctx.correlation_id,
+            "command_id" => command.command_id, "correlation_id" => ctx.correlation_id,
+            "event_id" => event_id, "event_profile" => profile, "event_type" => type,
+            "occurred_at_utc" => now.iso8601(6), "organization_id" => org, "outcome" => "success",
+            "project_id" => project_id, "reason_code" => nil, "schema_version" => "1.0",
+            "scheduled_action_id" => command.action_id, "service_identity_id" => ctx.service_identity_id,
+            "state_version" => aggregate_version, "workflow_id" => "WF-005"
+          }.merge(extra)
+          bytes = Platform::CanonicalJson.encode(envelope)
+          store.insert_event(
+            id: event_id, created_at: iso(now), event_type: type, event_profile: profile,
+            occurred_at: iso(now), organization_id: org, aggregate_type:, aggregate_id:,
+            aggregate_version:, partition_month: month(now), correlation_id: ctx.correlation_id,
+            causation_id: ctx.correlation_id, command_id: command.command_id, audit_record_id: audit_id,
+            event_bytes: bytes, event_sha256: Digest::SHA256.digest(bytes)
+          )
+        end
+
         def payload_for(entry, pass, link)
           result = pass.fetch
           {
@@ -218,8 +316,10 @@ module Workflows
             "frontier_seal_released" => pass.released,
             # The checkpoint a drained run creates for itself, so a reader can see that the run reached
             # its terminal selection rather than waiting out a deadline it had no work left to fill.
-            "terminal_checkpoint_action_id" => link[:terminal_checkpoint_action_id]
-          }.merge(terminal_fields(pass))
+            "terminal_checkpoint_action_id" => link[:terminal_checkpoint_action_id],
+            # :378's ingestion action, when this pass produced a job for one to run.
+            "ingestion_action_id" => link[:ingestion_action_id]
+          }.merge(terminal_fields(pass)).merge(handoff_fields(pass))
         end
 
         # :452'S CLASSIFICATION OF THE RETIRED ENTRY, READ BACK FROM THE ROW THAT WAS WRITTEN (FU-21).
@@ -234,7 +334,25 @@ module Workflows
 
           { "terminal_outcome" => row["outcome"], "coverage_effect" => row["coverage_effect"],
             "terminal_reason" => row["reason"], "terminal_commit_order" => row["commit_order"].to_i,
-            "terminal_accounted_response_bytes" => row["accounted_response_body_bytes"].to_i }
+            "terminal_accounted_response_bytes" => row["accounted_response_body_bytes"].to_i,
+            # The Document the row itself carries, read back from the INSERT, so the payload cannot
+            # claim a link the `crawl_terminal_outcomes_document_agreement` CHECK would have refused.
+            "terminal_document_id" => row["document_id"] }
+        end
+
+        # WHAT THIS PASS PRODUCED (S-07-010). Absent entirely on a pass that produced nothing, which
+        # is the same honest shape `terminal_fields` uses: a `content_fetch_failed` retirement has no
+        # Document and no observation, and three nulls would read as a claim that it does.
+        def handoff_fields(pass)
+          produced = pass.produced
+          return {} if produced.nil? || (produced.document_id.nil? && produced.evidence_id.nil?)
+
+          { "document_id" => produced.document_id,
+            "ingestion_job_id" => produced.ingestion_job_id,
+            # :452's body-free `crawl_observation` for a terminal 404/410. It is the artifact that
+            # makes that outcome COVERED, so the ledger records that it exists.
+            "crawl_observation_evidence_id" => produced.evidence_id,
+            "ingestion_handoff_replayed" => produced.replayed }
         end
 
         def deny(store, command, ctx, org, now, reason)

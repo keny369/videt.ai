@@ -48,7 +48,7 @@ module IdentityAccess
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:causation_id], row[:command_id],
           row[:organization_id], row[:project_id], row[:crawl_id], row[:entry_id], row[:source_id],
-          row[:outcome], row[:reason], row[:coverage_effect]
+          row[:outcome], row[:reason], row[:coverage_effect], row[:document_id]
         ]
         query(<<~SQL, params).to_a.first
           INSERT INTO crawl_terminal_outcomes
@@ -61,8 +61,11 @@ module IdentityAccess
                  COALESCE((SELECT MAX(o.commit_order) FROM crawl_terminal_outcomes o
                            WHERE o.organization_id = $6::uuid AND o.crawl_id = $8::uuid), 0) + 1,
                  $11, $12,
-                 -- S-07-010's. :301 says "Document ID NULL" because nothing creates a Document yet.
-                 NULL,
+                 -- THE LINK S-07-009 LEFT NULL, NOW SUPPLIED BY THE ARTIFACT ITSELF (S-07-010). It is
+                 -- the Document `Wf005::IngestionHandoff` created in THIS transaction, or NULL for
+                 -- every other outcome — which `crawl_terminal_outcomes_document_agreement` enforces
+                 -- independently, so a non-`document_created` row cannot acquire one.
+                 $14::uuid,
                  COALESCE((SELECT SUM(a.accounted_response_bytes) FROM fetch_attempts a
                            WHERE a.organization_id = $6::uuid AND a.crawl_id = $8::uuid
                              AND a.crawl_frontier_entry_id = $9::uuid
@@ -71,7 +74,8 @@ module IdentityAccess
           -- What was STORED, not what the caller intended to store: two of these columns were assigned
           -- by the statement itself, and the pass reports the classification from here so its ledger
           -- payload cannot describe a row the CHECK constraints would have refused.
-          RETURNING id, commit_order, outcome, reason, coverage_effect, accounted_response_body_bytes
+          RETURNING id, commit_order, outcome, reason, coverage_effect, accounted_response_body_bytes,
+                    document_id
         SQL
       end
 

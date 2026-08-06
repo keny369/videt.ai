@@ -1455,19 +1455,65 @@ BEGIN
      OR NEW.document_id IS DISTINCT FROM OLD.document_id
      OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
      OR NEW.fetched_body_sha256 IS DISTINCT FROM OLD.fetched_body_sha256
-     OR NEW.ingestion_schema_version IS DISTINCT FROM OLD.ingestion_schema_version THEN
+     OR NEW.ingestion_schema_version IS DISTINCT FROM OLD.ingestion_schema_version
+     -- The capture this job describes (rule 1).
+     OR NEW.final_http_status IS DISTINCT FROM OLD.final_http_status
+     OR NEW.media_type IS DISTINCT FROM OLD.media_type
+     OR NEW.received_byte_count IS DISTINCT FROM OLD.received_byte_count
+     OR NEW.response_capture_policy_version IS DISTINCT FROM OLD.response_capture_policy_version
+     OR NEW.data_classification IS DISTINCT FROM OLD.data_classification
+     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+     OR NEW.queued_at IS DISTINCT FROM OLD.queued_at
+     -- :466's bound is measured from fetch completion and is not the holder's to move (FU-30).
+     OR NEW.staging_expires_at IS DISTINCT FROM OLD.staging_expires_at THEN
     RAISE EXCEPTION 'ingestion_job_identity_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
-  allowed := CASE OLD.state WHEN 'queued' THEN ARRAY['running'] WHEN 'running' THEN ARRAY['succeeded','failed'] WHEN 'failed' THEN ARRAY['queued','dead_letter'] WHEN 'dead_letter' THEN ARRAY['queued'] ELSE ARRAY[]::text[] END;
-  IF NOT (NEW.state = ANY (allowed)) THEN
-    RAISE EXCEPTION 'ingestion_job_illegal_transition % -> %', OLD.state, NEW.state
+  -- Rule 2: present -> destroyed, and nothing else.
+  IF NEW.staged_body_reference IS DISTINCT FROM OLD.staged_body_reference
+     AND NOT (OLD.staged_body_reference IS NOT NULL AND NEW.staged_body_reference IS NULL) THEN
+    RAISE EXCEPTION 'ingestion_job_staged_body_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF OLD.staged_body_destroyed_at IS NOT NULL
+     AND NEW.staged_body_destroyed_at IS DISTINCT FROM OLD.staged_body_destroyed_at THEN
+    RAISE EXCEPTION 'ingestion_job_staged_body_destruction_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- Rule 3: write-once.
+  IF OLD.evidence_id IS NOT NULL AND NEW.evidence_id IS DISTINCT FROM OLD.evidence_id THEN
+    RAISE EXCEPTION 'ingestion_job_evidence_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- THE EDGE SET GOVERNS TRANSITIONS; A NON-TRANSITION IS A DIFFERENT RULE.
+  --
+  -- `20260806100000` evaluated the edge set on EVERY update, so `succeeded -> succeeded` was an
+  -- illegal transition — and that made :464's own next sentence unexecutable, because "deletes
+  -- the separate staging reference" is an UPDATE of a succeeded row that changes no state. The
+  -- first version of this migration inherited the defect and the acceptance chain demonstrated
+  -- it twice, on `succeeded` and on `queued`.
+  --
+  -- THE REPAIR IS NOT TO ADMIT SELF-EDGES. A self-edge in the EDGE SET would let a writer
+  -- consume a `state_version` for a transition that did not happen, which is how another
+  -- worker's compare-and-set comes to fail for no reason. So a state-preserving update is
+  -- admitted and separately required to leave `state_version` alone: the version means "how
+  -- many transitions this row has taken", and a non-transition takes none.
+  IF NEW.state IS DISTINCT FROM OLD.state THEN
+    allowed := CASE OLD.state
+                 WHEN 'queued' THEN ARRAY['running']
+                 WHEN 'running' THEN ARRAY['succeeded','failed']
+                 WHEN 'failed' THEN ARRAY['queued','dead_letter']
+                 WHEN 'dead_letter' THEN ARRAY['queued']
+                 ELSE ARRAY[]::text[]
+               END;
+    IF NOT (NEW.state = ANY (allowed)) THEN
+      RAISE EXCEPTION 'ingestion_job_illegal_transition % -> %', OLD.state, NEW.state
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  ELSIF NEW.state_version IS DISTINCT FROM OLD.state_version THEN
+    RAISE EXCEPTION 'ingestion_job_state_version_without_transition'
       USING ERRCODE = 'raise_exception';
   END IF;
 
-  -- THE REPLAY GENERATION MOVES ON EXACTLY ONE EDGE, AND BY EXACTLY ONE. :303 — "Authorized
-  -- replay changes this existing row `dead_letter -> queued`, increments replay generation
-  -- exactly once". Any other edge must leave it alone; that edge must advance it by one.
   IF OLD.state = 'dead_letter' AND NEW.state = 'queued' THEN
     IF NEW.replay_generation IS DISTINCT FROM OLD.replay_generation + 1 THEN
       RAISE EXCEPTION 'ingestion_job_replay_generation_not_incremented'
@@ -3417,15 +3463,38 @@ CREATE TABLE public.ingestion_jobs (
     replay_requested_at timestamp(6) with time zone,
     state text NOT NULL,
     last_reason_code text,
+    final_http_status integer NOT NULL,
+    media_type text NOT NULL,
+    staged_body_reference uuid,
+    staged_body_destroyed_at timestamp(6) with time zone,
+    staging_expires_at timestamp(6) with time zone NOT NULL,
+    received_byte_count bigint NOT NULL,
+    response_capture_policy_version text NOT NULL,
+    data_classification text NOT NULL,
+    evidence_id uuid,
+    idempotency_key text NOT NULL,
+    queued_at timestamp(6) with time zone NOT NULL,
+    started_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
     CONSTRAINT ingestion_jobs_attempt_count_check CHECK ((attempt_count >= 0)),
     CONSTRAINT ingestion_jobs_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT ingestion_jobs_data_classification_check CHECK ((data_classification = ANY (ARRAY['public'::text, 'internal'::text, 'confidential'::text, 'restricted'::text]))),
+    CONSTRAINT ingestion_jobs_evidence_only_on_success CHECK (((evidence_id IS NULL) OR (state = 'succeeded'::text))),
     CONSTRAINT ingestion_jobs_fetched_body_sha256_check CHECK ((octet_length(fetched_body_sha256) = 32)),
+    CONSTRAINT ingestion_jobs_final_http_status_check CHECK (((final_http_status >= 200) AND (final_http_status <= 299))),
+    CONSTRAINT ingestion_jobs_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 200))),
     CONSTRAINT ingestion_jobs_ingestion_schema_version_check CHECK ((ingestion_schema_version = 'ingestion-interim-v1'::text)),
     CONSTRAINT ingestion_jobs_last_reason_code_check CHECK (((last_reason_code IS NULL) OR (last_reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text))),
+    CONSTRAINT ingestion_jobs_media_type_check CHECK (((length(media_type) >= 1) AND (length(media_type) <= 255))),
+    CONSTRAINT ingestion_jobs_received_byte_count_check CHECK ((received_byte_count >= 0)),
     CONSTRAINT ingestion_jobs_replay_capsule CHECK ((((replay_generation = 0) AND (recovery_source_event_id IS NULL) AND (recovery_command_id IS NULL) AND (earlier_terminal_reason_code IS NULL) AND (replay_requester_account_id IS NULL) AND (replay_support_session_id IS NULL) AND (replay_human_rationale IS NULL) AND (replay_requested_at IS NULL)) OR ((replay_generation > 0) AND (recovery_source_event_id IS NOT NULL) AND (recovery_command_id IS NOT NULL) AND (earlier_terminal_reason_code IS NOT NULL) AND (replay_requester_account_id IS NOT NULL) AND (replay_human_rationale IS NOT NULL) AND (replay_requested_at IS NOT NULL)))),
     CONSTRAINT ingestion_jobs_replay_generation_check CHECK ((replay_generation >= 0)),
     CONSTRAINT ingestion_jobs_replay_human_rationale_check CHECK (((replay_human_rationale IS NULL) OR ((length(replay_human_rationale) >= 20) AND (length(replay_human_rationale) <= 2000)))),
-    CONSTRAINT ingestion_jobs_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'dead_letter'::text])))
+    CONSTRAINT ingestion_jobs_response_capture_policy_version_check CHECK (((length(response_capture_policy_version) >= 1) AND (length(response_capture_policy_version) <= 120))),
+    CONSTRAINT ingestion_jobs_staging_shape CHECK ((((staged_body_reference IS NOT NULL) AND (staged_body_destroyed_at IS NULL)) OR ((staged_body_reference IS NULL) AND (staged_body_destroyed_at IS NOT NULL)))),
+    CONSTRAINT ingestion_jobs_started_before_completed CHECK (((completed_at IS NULL) OR ((started_at IS NOT NULL) AND (started_at <= completed_at)))),
+    CONSTRAINT ingestion_jobs_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'dead_letter'::text]))),
+    CONSTRAINT ingestion_jobs_succeeded_carries_evidence CHECK (((state <> 'succeeded'::text) OR ((evidence_id IS NOT NULL) AND (completed_at IS NOT NULL))))
 );
 
 ALTER TABLE ONLY public.ingestion_jobs FORCE ROW LEVEL SECURITY;
@@ -5350,6 +5419,13 @@ CREATE INDEX ingestion_jobs_due ON public.ingestion_jobs USING btree (organizati
 
 
 --
+-- Name: ingestion_jobs_staging_live; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingestion_jobs_staging_live ON public.ingestion_jobs USING btree (organization_id, staging_expires_at) WHERE (staged_body_reference IS NOT NULL);
+
+
+--
 -- Name: one_active_access_policy_per_org; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6247,6 +6323,14 @@ ALTER TABLE ONLY public.ingestion_jobs
 
 
 --
+-- Name: ingestion_jobs ingestion_jobs_evidence_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_evidence_fk FOREIGN KEY (organization_id, evidence_id) REFERENCES public.evidence(organization_id, id);
+
+
+--
 -- Name: ingestion_jobs ingestion_jobs_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7018,6 +7102,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260806110000'),
 ('20260806100000'),
 ('20260727120390'),
 ('20260727120380'),

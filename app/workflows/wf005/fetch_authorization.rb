@@ -129,6 +129,27 @@ module Workflows
                       scope_policy_version: scope["policy_version"])
       end
 
+      # IS THIS URL STILL INSIDE THE SOURCE'S CURRENT SCOPE? (S-07-010; :464's `source_scope_mismatch`.)
+      #
+      # Ingestion runs AFTER the fetch and re-checks the capture before it becomes Evidence, and :464
+      # makes "outside the Source's scope" one of its eight first-match refusals. That is the SAME
+      # question `authorize` asks above, against the SAME current policy, so it is asked here rather
+      # than reimplemented: a second scope predicate in one workflow is how `/%70rivate` and
+      # `/a/../private` come to be judged differently by two callers.
+      #
+      # NOT `authorize` ITSELF, and the difference is the point. `authorize` also requires a live
+      # Crawl, an executing entitlement reservation and a resolved robots gate — every one of which
+      # is a property of a RUN IN PROGRESS, and every one of which is legitimately gone by the time
+      # an ingestion attempt executes, because :466 gives ingestion its own retry schedule and a
+      # 24-hour staging window that both outlive the run. Reusing the whole verdict would refuse
+      # every ingestion of a finished Crawl, which is every ingestion.
+      def in_current_scope?(organization_id:, project_id:, source_id:, canonical_url:)
+        scope = @store.current_scope_policy(organization_id, project_id, source_id)
+        return false if scope.nil?
+
+        Wf004::SourceScopePredicate.evaluate(url: canonical_url, policies: [policy_of(scope)]).allowed?
+      end
+
       private
 
       # Robots governs CONTENT (and sitemap) fetches only — the robots fetch itself must be able to

@@ -74,6 +74,18 @@ Rails.application.config.to_prepare do
   # and which its audit record and event both name. `CancelCrawl` is deliberately not here: it is an
   # actor command with its own permission and route (API_CONTRACTS.md :279), and :458 settles a
   # cancellation by order of commit rather than at this checkpoint.
+  # The ingestion limb (S-07-010). `ingestion_attempt_due` is a SPECIALIZED work type (`ingest`,
+  # BACKGROUND_PROCESSING.md :200), so it is absent from the generic `scheduled_action_dispatch`
+  # operation table and the registry's operation cross-check does not apply. One operation only:
+  # :466 gives an ingestion attempt a single execution path, and its retry is another delivery of the
+  # same kind rather than a different operation.
+  registry.register(
+    action_kind: "ingestion_attempt_due",
+    action_schema_version: "1.0",
+    operation: "RunIngestionJob",
+    handler: Workflows::Wf005::Handlers::RunIngestionJob,
+    command: Workflows::Wf005::Commands::RunIngestionJob
+  )
   registry.register(
     action_kind: "crawl_terminal_deadline",
     action_schema_version: "1.0",

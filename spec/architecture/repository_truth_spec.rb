@@ -514,7 +514,21 @@ RSpec.describe "Repository truth", type: :model do
     # So a mutation claim is now backed by a LEDGER the harness writes, entry by entry, and no entry
     # can exist without confirmation that the mutation landed — the harness aborts rather than record
     # a verdict for an edit git cannot see.
-    LEDGER_PATH = "specification/automation/S-07-009_MUTATION_LEDGER.json"
+    # DERIVED FROM `current_tranche`, NOT HARDCODED (S-07-010). This constant read
+    # `S-07-009_MUTATION_LEDGER.json` while the block it lives in is titled "the record of THE TRANCHE
+    # CURRENTLY UNDER REVIEW" and every sibling check in it derives its subject from
+    # `BUILD_STATE["current_tranche"]` — the exact correction :191 already applied to `report_path`
+    # for the same reason ("this read `S-07-008_COMPLETION_REPORT.md`, and the block actually being
+    # accepted was checked by nothing").
+    #
+    # IT WAS NOT MERELY UNTIDY. The S-07-009 ledger binds each verdict to the BYTES of the file it was
+    # measured against, so the first tranche to touch one of those files makes the accepted ledger
+    # stale and this check fails — reporting a defect in an accepted record rather than a gap in the
+    # tranche under review. S-07-010 touched `crawl_driver.rb` and demonstrated exactly that.
+    #
+    # THE STRENGTH IS UNCHANGED and the `skip` below is what makes it so: a tranche with no ledger is
+    # skipped exactly as before, and a tranche WITH one is verified in full against its own files.
+    LEDGER_PATH = "specification/automation/#{BUILD_STATE.fetch('current_tranche')}_MUTATION_LEDGER.json"
 
     it "carries a mutation ledger the REPOSITORY can replay, not one that reports on itself" do
       # ROUND 9's GATE ASSERTED A BOOLEAN THE LEDGER'S AUTHOR WROTE. `entry["landed"] == true` is a
