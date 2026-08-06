@@ -4774,3 +4774,115 @@ change strengthens rather than weakens authorization, and no frozen contract is 
 `AUTONOMY_POLICY`'s "not another tranche's backlog" limit is what had held it as
 `owner_decision_required`; the directive supersedes that limit and the reasoning is recorded here
 rather than assumed. Allocated the next unused number after ADR-139.
+
+---
+
+## ADR-141: FU-43 — F-01 Gets A Total Request Deadline, And `deadline_at` Becomes A Real Boundary
+
+Date: 2026-08-06
+Status: Accepted
+Scope: **A RATIFIED EVOLUTION OF A FROZEN FOUNDATION.** `FOUNDATION-001` Shared Outbound Transport,
+property 6a. Five frozen paths change.
+
+Context:
+
+FU-43 was opened at round 3 (R3-4 half a) and has been `owner_decision_required` ever since, because
+`AUTONOMY_POLICY:177` and `AUTONOMOUS_BUILD_CONTROLLER.md:169` make any change to a frozen foundation
+a mandatory human escalation. Half (b) — anchoring the budget to the pass's own elapsed time — was
+repaired at the time. **Half (a) could not be repaired by any caller.**
+
+`RequestPolicy#timeout_s` was documented as "the connect-plus-response deadline for ONE connection
+attempt (each redirect hop is a fresh attempt with its own budget)", and `GuardedHttpClient#attempt`
+implemented exactly that: a fresh `resolver.resolve(timeout_s: policy.timeout_s)` and a fresh
+`deadline = monotonic + policy.timeout_s` at every hop. At the ratified `max_redirects` ceiling of 10,
+one `Outbound.fetch` bounded at N seconds could therefore run `(10 + 1) × (dns + response)` — the
+acceptance review measured **11.1×**, and up to 22× with DNS timing.
+
+**SO `deadline_at` WAS NOT A BOUNDARY.** A crawl the run's wall clock was supposed to end could still
+be reading a customer's site minutes later. `FetchContent` believed otherwise and said so in a
+comment: passing the run's remaining wall clock as `timeout_s` "needs no change to F-01". That was
+half true — it bounded one connection attempt — and the other half is this defect. No caller-side fix
+existed: the façade accepted only a per-attempt number, so the only lever was `max_redirects`.
+
+Decision:
+
+**ONE `fetch` HAS ONE WALL-CLOCK BOUNDARY.** The owner ratified the evolution on 2026-08-06 and
+declined both alternatives — capping redirects as a mitigation, and documenting the overrun as
+accepted behaviour.
+
+`RequestPolicy` gains `total_timeout_s`. DNS resolution, connection setup, TLS negotiation, response
+headers, body reads and every redirect hop spend that one budget. No hop re-arms anything. When it is
+exhausted the client stops deterministically and reports the ratified `:timeout` outcome, which the
+existing crawl-lifecycle contracts already classify and audit.
+
+**THE PER-ATTEMPT TIMEOUT SURVIVES ONLY AS A SUBORDINATE CEILING.** Every operation asks
+`policy.effective_timeout_s(remaining)`, which is `[timeout_s, remaining].min` — one place, so no
+operation can be handed a budget the total does not have.
+
+**THE TOTAL IS CLAMPED TO THE SAME HARD BOUND AS THE PER-ATTEMPT CEILING** (`TOTAL_REQUEST_TIMEOUT_MAX_S
+= CONNECT_RESPONSE_TIMEOUT_MAX_S`, 15s, PRULE-008). The overrun is now arithmetically impossible
+rather than merely discouraged: no `fetch` can exceed fifteen seconds of wall clock however many hops
+it follows.
+
+**A CALLER CANNOT ACCIDENTALLY BYPASS IT** (owner requirement 6). `total_timeout_s` defaults to
+`timeout_s`, so a caller supplying only a per-attempt number gets that number as its TOTAL — the
+tightest reading, not an unbounded one. There is no shape of `Outbound.fetch` without a total. Every
+existing call site is therefore strictly tighter than before with no change: `FetchContent` already
+passes the run's remaining wall clock, and that argument now means what its comment always claimed.
+
+Evidence:
+
+`spec/platform/outbound/total_deadline_spec.rb` — a **maximum-length redirect chain**, ten hops, with
+seams that burn real time, measured on the wall clock:
+
+- the chain completes and returns 200 when the budget allows it (non-vacuity: eleven opens, terminal
+  host reached, elapsed greater than the chain's own cost);
+- under a budget smaller than the chain costs the outcome is `:timeout`, **fewer than eleven
+  connections are opened**, the terminal host is never reached, and elapsed is below the budget plus
+  one hop — it stops early rather than reporting late;
+- no connection is ever handed a deadline past the total boundary;
+- the caller's `redirect_guard` is not consulted once the budget is exhausted;
+- every operation is handed the lesser of the two bounds, and the remaining budget strictly shrinks
+  across hops;
+- the per-attempt ceiling still binds when it is the tighter of the two;
+- omitting `total_timeout_s` yields the per-attempt value, and a caller asking for 600s gets the
+  platform ceiling.
+
+Five mutations, each restoring one limb of the old behaviour, all KILLED:
+`fu43-connect-deadline-rearmed-per-hop`, `fu43-resolver-deadline-rearmed-per-hop`,
+`fu43-pre-hop-budget-check-removed`, `fu43-total-budget-defaults-to-ceiling`,
+`fu43-effective-timeout-ignores-remaining`.
+
+**TWO OF THEM SURVIVED THE FIRST DRAFT OF THAT FILE, AND BOTH WERE GAPS IN THE PROOF RATHER THAN IN
+THE CODE.** The harness burned its time in the resolver and in `open`, so the connect/read cap was
+bound by nothing — reverting it survived all six examples. And deleting the pre-hop budget check left
+every outcome identical, because the check at the top of `attempt` catches the exhausted budget one
+step later; what differs is that the CALLER'S `redirect_guard` — `:448`'s robots and Source Scope
+recheck, which in production takes a per-gate lock and writes an authorization decision — is consulted
+for a hop that can never be made. That is PRULE-039's reasoning exactly, and it is this tranche's
+signature defect appearing inside the repair for a different instance of it. The connector now records
+the absolute deadline it is handed and the guard records its invocations.
+
+**THREE RECORDS THE OLD BEHAVIOUR MADE TRUE ARE CORRECTED WHERE THEY STAND**, rather than left to read
+as live hazards: `Lease` and `EnsureRobots` both cited "~165 seconds" for one call, and
+`DiscoverSitemaps` "~330 seconds" for two. One call is now bounded at fifteen. The per-hop renewal
+boundaries those comments justify are UNCHANGED and still correct — a 30-second lease against a
+15-second call leaves no margin for the second fetch, and `redirect_guard` is also `:448`'s recheck,
+which is not a leasing concern — only the arithmetic was false.
+
+Consequences:
+
+FU-43 is RESOLVED. Every platform-originated request is now bounded by a real wall clock, which is
+what `:442`'s "incomplete requests are canceled" requires and what `deadline_at` has always claimed.
+
+Behaviour is strictly tighter everywhere, and that is a real change: a single-attempt request that
+previously had `timeout_s` for DNS *and* `timeout_s` for connect+response now has one budget covering
+both. S-05 verification (10s, 0 redirects) and the WF-005 robots, sitemap and content paths all run
+inside the ratified ceilings and the full suite is green, but a customer site that was answering just
+inside the old doubled budget will now time out. That is the specified behaviour, not a regression.
+
+Authority And Precedence:
+Owner decision of 2026-08-06, which ratifies the frozen-contract evolution, requires the total
+deadline as the authoritative correction for FU-43, and explicitly declines the lower-redirect
+mitigation and any documentation of the overrun as accepted behaviour. `FOUNDATION-001` property 6a
+records the evolution in the contract itself. Allocated the next unused number after ADR-140.
