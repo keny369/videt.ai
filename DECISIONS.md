@@ -4498,8 +4498,15 @@ tranche's signature shape: a control proved at one instance and assumed at the o
 defect class round 16 was called for, recurring for the fourth time.
 
 REPAIR, AND WHY IT IS STRUCTURAL RATHER THAN THREE MORE PROOFS. Both cases now live in the battery's
-SHARED EXAMPLES, so they run at every write BY CONSTRUCTION and a fourth protected write would inherit
-them. Each seeds a grant for the ACTOR'S OWN account — so the principal qual passes — and builds the
+SHARED EXAMPLES, so they run at every write the battery ENUMERATES and a fourth protected write
+inherits them THE MOMENT IT IS ADDED TO `WRITES`. That last clause is a correction: this sentence
+originally read "by construction … a fourth protected write would inherit them", and the following
+review refuted it by construction (finding F-2). It built a fourth protected write carrying the same
+authority CTE with two conjuncts removed; outside `WRITES` the whole suite stayed at 2472/0 with
+Zeitwerk, Packwerk and Brakeman clean, and the identical file added to `WRITES` produced 48 examples
+with 3 failures. The inheritance is real but it is triggered by a hand-maintained literal, not by
+construction. FU-61 records the gap; the battery's own header (`:22-24`) always stated the
+precondition correctly. Each seeds a grant for the ACTOR'S OWN account — so the principal qual passes — and builds the
 authority through the PRODUCTION BUILDER for that write's real capability: a `MarketingOperator`
 read-only grant, whose role is inside all three cells so only the sixth column can refuse it; and a
 `TechnicalImplementer` grant, which the ratified table denies all three capabilities and which the
