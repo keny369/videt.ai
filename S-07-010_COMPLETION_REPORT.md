@@ -12,7 +12,7 @@ Governing text: `specification/volume-i/WORKFLOW_SPECIFICATIONS.md` § Interim I
 :304; `specification/volume-ii/BACKGROUND_PROCESSING.md` :140, :200, :378.
 
 ```f1-evidence
-candidate_range: 780b1a4..3ff2b2c
+candidate_range: 780b1a4..9391ea8
 frozen_path_changes: 1
 frozen_paths:
   - lib/f1/runtime_grants.rb
@@ -27,7 +27,7 @@ review_rounds: 0
 | Block | S-07-010 |
 | Branch | `implementation/s07-010-documents` |
 | Base | `780b1a4` (ADR-142, S-07-009 accepted) |
-| Candidate | `780b1a4..3ff2b2c` |
+| Candidate | `780b1a4..9391ea8` |
 | Files in range | 29, every one under a declared path; excluded set EMPTY |
 | Frozen-path changes | 1 — `lib/f1/runtime_grants.rb`, additive new-table grants under the Foundation Consumption Rule (ADR-029) |
 | Independent review | NOT RUN |
@@ -210,7 +210,7 @@ new proof rather than by a weaker expectation**:
 
 ## What is owed before acceptance
 
-The independent ADR-026 five-lens review over `780b1a4..3ff2b2c` — contract, security and tenancy,
+The independent ADR-026 five-lens review over `780b1a4..9391ea8` — contract, security and tenancy,
 concurrency and atomicity and idempotency, schema and migration, architecture and scope. This record
 is the implementation's own account of itself and an adversarial self-review against the governing
 text; it is not a substitute for that review, and ADR-061 says so.
