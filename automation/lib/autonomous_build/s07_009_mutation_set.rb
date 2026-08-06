@@ -747,6 +747,20 @@ module AutonomousBuild
         to: "        new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,\n" \
             "            epoch: actor.authorization_epoch, required_role: (required_role == \"MarketingOperator\" ? nil : required_role),\n",
         expectation: "kill" },
+      # AND THE HANDLER'S HALF OF THE SAME RULE, AT THE SCOPE THAT HAD NO PROOF OF IT. PROOF 257b
+      # observes that a mis-scoped actor is refused BEFORE the per-Organization lock at ORGANIZATION
+      # scope; `SCOPE_ROLE` has two entries and the Project one was observed by nothing, at either
+      # layer. PROOF 257c is that counterpart, and this is what makes it a proof rather than an
+      # assertion: with the Project arm of the Ruby guard conceded, the handler takes the blocking
+      # lock before the write refuses it, and the OUTCOME is identical either way — which is exactly
+      # why only an invocation observation can see it. PRULE-039 / SEC-REQ-005.
+      { id: "r20-policy-scope-guard-conceded-for-project", blocker: "R20-2/FU-63", file: POLICY_HANDLER,
+        proof: CAPABILITY_PROOF,
+        description: "`authorized_for_scope?` concedes PROJECT scope, so a mis-scoped actor reaches " \
+                     "the per-Organization lock before being refused",
+        from: "        def authorized_for_scope?(scope, decision)\n          required = SCOPE_ROLE[scope]\n",
+        to: "        def authorized_for_scope?(scope, decision)\n          return true if scope == \"project\"\n\n          required = SCOPE_ROLE[scope]\n",
+        expectation: "kill" },
       { id: "r20-policy-scope-rule-conjunct-unbound", blocker: "R20-2/FU-63", file: POLICY_STORE,
         proof: BATTERY_PROOF,
         description: "the scope rule stops being a conjunct of the policy write, so a grant holding " \

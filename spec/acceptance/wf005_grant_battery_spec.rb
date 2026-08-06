@@ -312,11 +312,20 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
   # The values `role_assignments.status` can hold, READ FROM THE DATABASE rather than listed here
   # (FU-63 part 6). A status added to the CHECK constraint joins the sweep below by itself; a
   # hand-written list would leave the new one untested and green.
+  # The character class is `[a-z_]+` rather than `[a-z]+`: a status named `auto_expired` would not
+  # match the narrower one, and the sweep would skip it SILENTLY — a derived population that quietly
+  # drops a member is worse than a hand-written list, because it reads as complete.
   def assignment_statuses
-    DbInspector.one(<<~SQL)["def"].scan(/'([a-z]+)'::text/).flatten.uniq
+    definition = DbInspector.one(<<~SQL)["def"]
       SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
       WHERE conname = 'role_assignments_status_check'
     SQL
+    parsed = definition.scan(/'([a-z_]+)'::text/).flatten.uniq
+    # The parse is checked against the raw definition, so a regex that stopped matching a member
+    # fails here instead of shrinking the sweep.
+    expect(parsed.length).to eq(definition.scan(/'[^']+'::text/).length),
+                             "the status vocabulary parsed to #{parsed.inspect} from #{definition}"
+    parsed
   end
 
   # Each non-active status in THE SHAPE PRODUCTION HOLDS IT, which is what decides whether the
@@ -787,6 +796,16 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
                           .map { |s| s.fetch(:required_role) })
         .to match_array(scope_role.values),
             "a production crawl-policy scope is not driven by this battery"
+
+      # AND THE SUBSUMPTION ITSELF, WHICH THE EQUIVALENCE ABOVE RESTS ON. `required_role` is stronger
+      # than `allowed_roles` only while the role it pins is INSIDE the capability's cell: if
+      # `SCOPE_ROLE` ever named a role the cell excludes, the two conjuncts would refuse different
+      # sets and the cell would have an independent job at this write again. An equivalence resting
+      # on an unasserted premise is the false-record class ADR-124 was opened for.
+      expect(scope_role.values)
+        .to all(be_in(Platform::PermissionBaseline::CAPABILITIES.fetch("policy.crawl.manage"))),
+            "`SCOPE_ROLE` pins a role outside `policy.crawl.manage`'s ratified cell, so `allowed_roles` " \
+            "is no longer subsumed by `required_role` at this write"
     end
 
     # WHY ADMITTING `pending` AT THE WRITE IS EQUIVALENT (R20-5). `ra.status = 'active'` and
