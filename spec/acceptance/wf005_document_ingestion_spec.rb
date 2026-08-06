@@ -671,6 +671,50 @@ RSpec.describe "WF-005 documents and ingestion", type: :acceptance,
       expect(job_row(job["id"])["state_version"]).to eq(version)
       expect(ingestion_attempts(job["id"]).size).to eq(1)
     end
+
+    it "PROOF 184 — a contended delivery MINTS ITS SUCCESSOR at the incumbent's lease boundary" do
+      # WITHOUT THIS THE JOB IS STRANDED FOR EVER, and the path is ordinary rather than exotic:
+      # `Worker#run_handler` SETTLES every result that is not a confirmed lease loss, so the contended
+      # delivery ends its own action. If the incumbent then dies, the job sits `running` behind a lease
+      # that lapses with nothing pending to notice it, and :466's retry is only ever minted by a settle
+      # that never happens. Found by this tranche's own review.
+      ctx = fetchable
+      one_page(ctx)
+      job = jobs(ctx[:crawl_id]).first
+      execution_for.claim(organization_id: ctx[:g][:organization_id], job_id: job["id"], now: start_now)
+      incumbent = ingestion_attempts(job["id"]).first
+
+      run_ingestion(ingestion_actions(job["id"]).first, at: start_now + 1)
+
+      actions = ingestion_actions(job["id"])
+      expect(actions.size).to eq(2)
+      successor = actions.last
+      expect(successor["status"]).to eq("pending")
+      # DERIVED FROM THE INCUMBENT'S COMMITTED ROW, so two contended deliveries compute one identity
+      # and the second replays the first's successor instead of forking a second chain.
+      expect(Time.parse(successor["due_at"]).getutc)
+        .to eq(Time.parse(incumbent["lease_expires_at"]).getutc)
+
+      # AND IT DOES NOT SPIN. Once the incumbent settles, the successor finds nothing to run and mints
+      # nothing further.
+      Platform::UnitOfWork.run do |c|
+        DbInspector.connection.exec_params(
+          "UPDATE ingestion_attempts SET outcome='failed', reason_code='ingest_timeout', " \
+          "completed_at=$2::timestamptz, checkpoint_version=checkpoint_version+1 WHERE id=$1::uuid",
+          [incumbent["id"], start_now.iso8601(6)]
+        )
+        store = IdentityAccess::Infrastructure::IngestionJobStore.new(c.raw_connection)
+        store.enter_org_context(org: ctx[:g][:organization_id], correlation_id: SecureRandom.uuid_v7)
+        row = store.get(ctx[:g][:organization_id], job["id"])
+        store.fail(ctx[:g][:organization_id], job["id"], row["state_version"].to_i, "ingest_timeout", start_now)
+        row = store.get(ctx[:g][:organization_id], job["id"])
+        store.dead_letter(ctx[:g][:organization_id], job["id"], row["state_version"].to_i, start_now)
+      end
+
+      result = run_ingestion(successor, at: Time.parse(successor["due_at"]).getutc + 1)
+      expect(result.failure.reason_code).to eq("ingestion_job_not_runnable")
+      expect(ingestion_actions(job["id"]).size).to eq(2)
+    end
   end
 
   # ============================================================================

@@ -89,17 +89,38 @@ module Workflows
         # A DELIVERY THAT CLAIMED NOTHING WRITES NO PRODUCT STATE AND SAYS SO.
         #
         # Three shapes reach here and all three are ordinary: the job is gone, another worker holds a
-        # LIVE lease on the current attempt, or the job is already settled. None is a defect and none
-        # is retryable at the product level — a live lease is another delivery doing the work, and a
-        # settled job has had its outcome. The ledger records the refusal so the delivery is
-        # accounted for, and the idempotency record is written so a redelivery replays this same
-        # answer rather than racing the winner a second time.
+        # LIVE lease on the current attempt, or the job is already settled. The ledger records the
+        # refusal so the delivery is accounted for, and the idempotency record is written so a
+        # redelivery replays this same answer rather than racing the winner a second time.
+        #
+        # THE CONTENDED SHAPE ALSO MINTS A SUCCESSOR, AND WITHOUT IT THE JOB COULD BE STRANDED FOR
+        # EVER. `Worker#run_handler` SETTLES every result that is not a confirmed lease loss, so this
+        # delivery ends its own action; if the incumbent then dies, the job is left `running` behind an
+        # attempt lease that lapses with nothing pending to notice, and :466's retry is only ever minted
+        # by a settle that never happens. The successor is due at the incumbent's own lease boundary —
+        # read from the committed attempt row, so two contended deliveries compute one identity — and by
+        # then the job is either settled (`ingestion_job_not_runnable`, which mints nothing) or
+        # reclaimable. Found by this tranche's review, not in production.
         def unclaimed(command, ctx, prepared, claim)
           Platform::UnitOfWork.run do |conn|
-            store = IdentityAccess::Infrastructure::CrawlStartStore.new(conn.raw_connection)
+            raw = conn.raw_connection
+            store = IdentityAccess::Infrastructure::CrawlStartStore.new(raw)
             store.enter_org_context(org: prepared[:org], correlation_id: ctx.correlation_id)
-            deny(store, command, ctx, prepared[:org], prepared[:now], claim.reason_code)
+            link = reenter(raw, command, ctx, prepared, claim)
+            deny(store, command, ctx, prepared[:org], prepared[:now], claim.reason_code, link:)
           end
+        end
+
+        def reenter(pg, command, ctx, prepared, claim)
+          return {} unless claim.reenters?
+
+          Wf005::IngestionAttemptDueSchedule.schedule(
+            pg:, organization_id: prepared[:org], project_id: prepared[:job]["project_id"],
+            job_id: command.ingestion_job_id,
+            replay_generation: prepared[:job]["replay_generation"].to_i,
+            due_at: claim.reenter_at, now: prepared[:now], correlation_id: ctx.correlation_id,
+            causation_id: ctx.correlation_id, command_id: command.command_id
+          )
         end
 
         def finalize(command, ctx, prepared, execution, claim, work)
@@ -269,13 +290,15 @@ module Workflows
 
         # ---- ledger writers --------------------------------------------------------
 
-        def deny(store, command, ctx, org, now, reason)
+        def deny(store, command, ctx, org, now, reason, link: {})
           ids = %i[execution audit result idem].to_h { |k| [k, ctx.generate_id] }
           request_sha256 = request_hash(command)
           key_digest = Digest::SHA256.digest(command.action_identity_sha256)
           write_execution(store, command, ctx, org, ids[:execution], request_sha256, key_digest, now)
           write_audit(store, ids[:audit], org, ctx, command,
-                      { "ingestion_job_id" => command.ingestion_job_id, "reason_code" => reason }, now,
+                      { "ingestion_job_id" => command.ingestion_job_id, "reason_code" => reason,
+                        "reentry_action_id" => link[:action_id],
+                        "reentry_due_at_utc" => link[:due_at]&.getutc&.iso8601(6) }.compact, now,
                       to_state: nil, outcome: "failure", reason_code: reason)
           failure = Platform::ErrorCatalog.failure(reason, support_reference: ctx.correlation_id)
           write_result(store, ids, command, ctx, org, {}, now, failure:)

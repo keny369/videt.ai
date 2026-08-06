@@ -44,10 +44,17 @@ module Workflows
       # The claim's verdict. `kind` is what this delivery may do next, and nothing else in this class
       # decides it: `:claimed` performs an attempt, `:reclaimed` settles a dead one, and the other
       # three write nothing at all.
-      Claim = Data.define(:kind, :job, :attempt, :attempt_number, :reason_code) do
-        def initialize(job: nil, attempt: nil, attempt_number: nil, reason_code: nil, **) = super
+      #
+      # `reenter_at` IS ONLY EVER SET ON `:contended`, AND IT IS NOT COSMETIC. A contended delivery
+      # settles its own action, so without a successor the job would be stranded the moment the
+      # incumbent died: `running`, holding a lease that will expire, with no pending action left to
+      # notice. See `contended_at` for why the instant is read from the incumbent's own row.
+      Claim = Data.define(:kind, :job, :attempt, :attempt_number, :reason_code, :reenter_at) do
+        def initialize(job: nil, attempt: nil, attempt_number: nil, reason_code: nil,
+                       reenter_at: nil, **) = super
         def performable? = kind == :claimed
         def settleable? = %i[claimed reclaimed].include?(kind)
+        def reenters? = kind == :contended
       end
 
       # What the work phase decided. `reason_code` nil means every :464 check passed and `body` holds
@@ -115,7 +122,9 @@ module Workflows
         return Claim.new(kind: :not_runnable, job:, reason_code: NOT_RUNNABLE) if number > IngestionContract::MAX_ATTEMPTS
 
         moved = store.start(organization_id, job["id"], job["state_version"].to_i, number, now)
-        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if moved.to_i.zero?
+        if moved.to_i.zero?
+          return contended(store, organization_id, job, now)
+        end
 
         attempt = store.claim_attempt(
           id: @ids.generate, now:, correlation_id: @correlation_id, causation_id: job["crawl_id"],
@@ -131,7 +140,7 @@ module Workflows
         # Two deliveries that computed the same number: `ON CONFLICT` gives exactly one an attempt.
         # The loser has already lost the `start` compare-and-set above in every reachable ordering,
         # so this is the backstop rather than the mechanism — and it fails closed either way.
-        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if attempt.nil?
+        return contended(store, organization_id, job, now) if attempt.nil?
 
         Claim.new(kind: :claimed, job: store.get(organization_id, job["id"]), attempt:,
                   attempt_number: number)
@@ -151,8 +160,9 @@ module Workflows
         # one transaction — so it is corruption rather than a race, and guessing at it would run an
         # ingestion nobody claimed.
         raise Platform::InvariantViolation, "running ingestion job has no attempt" if attempt.nil?
-        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if attempt["outcome"].nil? &&
-                                                                            lease_live?(attempt, now)
+        if attempt["outcome"].nil? && lease_live?(attempt, now)
+          return contended(store, organization_id, job, now, attempt:)
+        end
 
         if attempt["outcome"].nil?
           store.terminalize_attempt(attempt["id"], attempt["checkpoint_version"].to_i, now,
@@ -161,6 +171,30 @@ module Workflows
         Claim.new(kind: :reclaimed, job:, attempt: store.latest_attempt(organization_id, job["id"]),
                   attempt_number: attempt["attempt_number"].to_i,
                   reason_code: attempt["reason_code"] || IngestionContract::INGEST_TIMEOUT)
+      end
+
+      # A CONTENDED DELIVERY MINTS ITS OWN SUCCESSOR, AND THAT IS THE WHOLE OF IT.
+      #
+      # `Worker#run_handler` SETTLES any result that is not a confirmed lease loss, so a contended
+      # delivery ends its action. If the incumbent then dies, the job is left `running` behind an
+      # attempt lease that will lapse with NOTHING pending to notice — permanently, because
+      # `running_work_sweep_due` has no registered handler and :466's retry is only ever minted by a
+      # settle that never happens. Found by this tranche's own review rather than in production.
+      #
+      # THE INSTANT IS THE INCUMBENT'S OWN LEASE BOUNDARY, read from the committed attempt row, so two
+      # contended deliveries compute the SAME `due_at` and therefore the same action identity — the
+      # second replays the first's successor instead of forking a second chain. When there is no
+      # attempt to read (the loser of a `queued -> running` compare-and-set arrives before the winner's
+      # attempt row is visible) the lease length is the honest bound: it is the longest the winner can
+      # legitimately hold the claim.
+      #
+      # IT CANNOT SPIN. Each successor is at or after the incumbent's lease boundary, and by then the
+      # job is either settled — `ingestion_job_not_runnable`, which mints nothing — or reclaimable.
+      def contended(store, organization_id, job, now, attempt: nil)
+        attempt ||= store.latest_attempt(organization_id, job["id"])
+        expires = attempt && attempt["outcome"].nil? && attempt["lease_expires_at"]
+        at = expires ? Platform::PgInstant.utc(expires) : now.utc + IdentityAccess::Infrastructure::IngestionJobStore::ATTEMPT_LEASE_SECONDS
+        Claim.new(kind: :contended, job:, attempt:, reason_code: CONTENDED, reenter_at: at)
       end
 
       def lease_live?(attempt, now)

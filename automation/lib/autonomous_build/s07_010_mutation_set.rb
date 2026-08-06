@@ -21,6 +21,7 @@ module AutonomousBuild
     JOB_STORE = "app/contexts/identity_access/infrastructure/ingestion_job_store.rb"
     OUTCOME_STORE = "app/contexts/identity_access/infrastructure/crawl_terminal_outcome_store.rb"
     FETCH_HANDLER = "app/workflows/wf005/handlers/record_fetch_attempt.rb"
+    FETCH_HANDLER_INGEST = "app/workflows/wf005/handlers/run_ingestion_job.rb"
 
     INGESTION_PROOF = "spec/acceptance/wf005_document_ingestion_spec.rb"
     SCHEMA_PROOF = "spec/persistence/documents_and_ingestion_schema_spec.rb"
@@ -140,8 +141,15 @@ module AutonomousBuild
       { id: "s10-contended-claim-taken", blocker: "S-07-010/:466", file: EXECUTION, proof: INGESTION_PROOF,
         description: "a LIVE lease is treated as reclaimable, so two workers ingest one body " \
                      "concurrently and the second settles over the first",
-        from: "        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if attempt[\"outcome\"].nil? &&\n                                                                            lease_live?(attempt, now)",
-        to: "        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if false",
+        from: "        if attempt[\"outcome\"].nil? && lease_live?(attempt, now)",
+        to: "        if false",
+        expectation: "kill" },
+      { id: "s10-contended-strands-the-job", blocker: "S-07-010/:466", file: FETCH_HANDLER_INGEST,
+        proof: INGESTION_PROOF,
+        description: "a contended delivery mints no successor, so a job whose incumbent then dies is " \
+                     "left `running` behind a lapsing lease with nothing pending to notice — for ever, " \
+                     "because :466's retry is only ever minted by a settle that never happens",
+        from: "            link = reenter(raw, command, ctx, prepared, claim)\n", to: "            link = {}\n",
         expectation: "kill" },
 
       # ---- :378's ingestion link, which is the only thing that runs any of it --------------------

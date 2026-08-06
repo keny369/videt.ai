@@ -14,7 +14,7 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 19 failures",
+      "result": "22 examples, 20 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:137",
         "spec/acceptance/wf005_document_ingestion_spec.rb:184",
@@ -33,15 +33,16 @@
         "spec/acceptance/wf005_document_ingestion_spec.rb:606",
         "spec/acceptance/wf005_document_ingestion_spec.rb:627",
         "spec/acceptance/wf005_document_ingestion_spec.rb:661",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:678",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:700"
+        "spec/acceptance/wf005_document_ingestion_spec.rb:675",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:722",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:744"
       ],
-      "failure_digest": "bb318424fa182d55dc321188ce4728938821a9ed60bbd7678a8838ad4d7690c1",
+      "failure_digest": "23763663082d7e6c32ec21dbb339674083d61c699c25a25794dd73d33f005ab5",
       "file_sha256": "c65acce57b7f3b275dc4c0cb6d5caffb3d90c83387b869461b81b1f5a41b3793",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "b290e4d04f443290d7db093ecaf488b6a4a3f70b802c412d5e908891cf44b3f5"
+      "binding_sha256": "e99333b86c5a8d92fed52299fe5f87a2714220986ffe8d479c2b747506cc8abf"
     },
     {
       "id": "s10-absence-not-recorded",
@@ -54,16 +55,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:252"
       ],
       "failure_digest": "61530f9b65d8726bf7dd6b24eac1608ea15f069b180288d027c1bef708a07b0e",
       "file_sha256": "c65acce57b7f3b275dc4c0cb6d5caffb3d90c83387b869461b81b1f5a41b3793",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "652282d08cba58d3e3c61a87b943d32bb11c8b5cbd80ff40e2d8177594337ea4"
+      "binding_sha256": "7edc24d985257a2e521149dc7b5a9048229c03f6141fe59cfc12dbdc7c119d2e"
     },
     {
       "id": "s10-observation-invalid",
@@ -76,16 +77,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:252"
       ],
       "failure_digest": "2e0335aac2b5ad353083113970c5cd6818e24ac70e9d0dfe52d0a7d29c486a15",
       "file_sha256": "c65acce57b7f3b275dc4c0cb6d5caffb3d90c83387b869461b81b1f5a41b3793",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "3a90ac20f7b8a4d2124a1a3bfc929b9a90c4baf73036580038befa7553bb8fbe"
+      "binding_sha256": "defc36a1bd97775bcaa99e581f0df36fc64d31081fc3fd8942f68d9eca378b55"
     },
     {
       "id": "s10-outcome-document-unlinked",
@@ -98,7 +99,7 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 21 failures",
+      "result": "22 examples, 22 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:137",
         "spec/acceptance/wf005_document_ingestion_spec.rb:184",
@@ -119,15 +120,16 @@
         "spec/acceptance/wf005_document_ingestion_spec.rb:606",
         "spec/acceptance/wf005_document_ingestion_spec.rb:627",
         "spec/acceptance/wf005_document_ingestion_spec.rb:661",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:678",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:700"
+        "spec/acceptance/wf005_document_ingestion_spec.rb:675",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:722",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:744"
       ],
-      "failure_digest": "47d4b90b3fdd30e5bdbb41a99e9b0bafcdebc531849a7797079fecf48d80897d",
+      "failure_digest": "bc23e7cb91aa92f02a966c915e102083ef46f451742439f7bbe379d6d42fb2ec",
       "file_sha256": "a05887c97a52f2d121251b42d7d7c902b3a0b9551d217dd25ed8332b34ab085e",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "737579ed6bd63022c064b00872c117e455f9249bfc350659e7df5f49778951df"
+      "binding_sha256": "78571fe2327815e84196b72a4726a5709466fb4be3f463aa42e9f1a65ca3fbb4"
     },
     {
       "id": "s10-replay-forks-the-job",
@@ -140,16 +142,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:285"
       ],
       "failure_digest": "8aaf39b536eac1091b7973d2c1a58f6c189f5df76dd9734cc5580f72b1e192f7",
       "file_sha256": "c65acce57b7f3b275dc4c0cb6d5caffb3d90c83387b869461b81b1f5a41b3793",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "d7aa7ecfcfdddcaff7b20915bd3bac3f7d729cbe94e805134edf5e09cdbef40e"
+      "binding_sha256": "2efdd7edc2778d7905fe4c3aaeac1d93b77bd5f447aabb5fa771a69a28571ce4"
     },
     {
       "id": "s10-version-not-allocated",
@@ -169,9 +171,9 @@
       "failure_digest": "00d85e03ee9df39742aebc7a076810472c4014df8cb08e6b238f153305c5f621",
       "file_sha256": "3a32d48b08137bf2abf38649ede4ed26b3885ba1631e698830861ff5b09ddcc1",
       "proof_sha256": "4adf1c6194943bbc0ecd9b82d3ce432eb2eda98e45fc1752c4dbc21196a5cc59",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "ac0bb5bb00a5ce4d736cf0cc41f2e3d37d6a62052bc28ae7e5b212a76206d03e"
+      "binding_sha256": "bb630c687b56e722fe7376bc6f7cfba319db909ab6c82bbec9486ff6a934d40b"
     },
     {
       "id": "s10-staging-not-destroyed",
@@ -184,16 +186,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:346"
       ],
-      "failure_digest": "f72a816651b1f02a1a268a418944845a398da055a7acec191024ec152e530506",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "failure_digest": "a8baff7e13ab25903be1f8e875c360eabf6f440d9446bd183c2e9126807e5648",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "c784db967c150d91a22cfa4667234dab8a2bf6aed5c87afc75b44fda39fefbed"
+      "binding_sha256": "9bc02629cabf6d82bab4866e0d749fefa937c1c2b034d056a91ee9ecd587924e"
     },
     {
       "id": "s10-document-not-advanced",
@@ -206,17 +208,17 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 2 failures",
+      "result": "22 examples, 2 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:346",
         "spec/acceptance/wf005_document_ingestion_spec.rb:445"
       ],
       "failure_digest": "bb01046f9f0c665e87fed25eb0ffcb1ef10da149e4218c09a51c7c9ad75d525b",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "48513c99a3d9553774ab5dc357953486638b184d32c5d20b7a2afb98754622ac"
+      "binding_sha256": "858862153ec15eb9787f44a9831c361e432fb9b6987e85e9e088e594b33c49d9"
     },
     {
       "id": "s10-document-advance-unguarded",
@@ -236,9 +238,9 @@
       "failure_digest": "db06bdd6cda798a43629c0d8bb246e90446d36b1b01841ea0b928e2c01918870",
       "file_sha256": "3a32d48b08137bf2abf38649ede4ed26b3885ba1631e698830861ff5b09ddcc1",
       "proof_sha256": "4adf1c6194943bbc0ecd9b82d3ce432eb2eda98e45fc1752c4dbc21196a5cc59",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "150e7b078b05e05ec21f569e25de36c69f60bda105435331d0a83e1c2206efb3"
+      "binding_sha256": "2f127f3e8b4ee24a162adb52d167aef7ddb5c1a496d8d1920581846dc6cfed9a"
     },
     {
       "id": "s10-staging-bound-unenforced",
@@ -251,16 +253,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:495"
       ],
       "failure_digest": "6b40660bf29c81965f1f17bbd2c89ec84db6504819b3cb6366649c4f61c6144d",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "ad8cbc1488b9086788a78e7320c3af8fc3818d36963c2d54ccfa57c2911db4ee"
+      "binding_sha256": "40bc059033ddb293ec40a10706523d889c035ad9b92735a5bbbbc3e4692e4ed4"
     },
     {
       "id": "s10-digest-unverified",
@@ -273,16 +275,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:512"
       ],
       "failure_digest": "96ff27dde9a5fab035bbe5609d61104a3c794b7a48367b8f007715382b757998",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "630ede85d5143aa589b7631e5eec54f5e42571cec5006c1e4776e37d24a5e176"
+      "binding_sha256": "42c852437dc38ad5280d6e653fec5ea0cf07aea430b83f7747ebabedefee27c6"
     },
     {
       "id": "s10-retry-unbounded",
@@ -295,16 +297,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:537"
       ],
       "failure_digest": "9a0b08e73e5664e6b1b7eddd8d6ed8a3afe6e09bf4a0b6b81db598514736180e",
       "file_sha256": "35bd71c2f2e7df56cebff409c32445619c4da6bb64f73f385696c454695bb4a1",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "2268a1bdb03aa651c98d675486fcd295a9cd6efb16e32babffbc781be3d2daba"
+      "binding_sha256": "587147aaa74e38fc4279b48c46b22b2142959eb603897ca03ce85497a19216a0"
     },
     {
       "id": "s10-nonretryable-retried",
@@ -317,17 +319,17 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 2 failures",
+      "result": "22 examples, 2 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:474",
         "spec/acceptance/wf005_document_ingestion_spec.rb:495"
       ],
       "failure_digest": "9b17d5794550d8aad473c8b64e552089691afe671d1361d214e0261e8399f44a",
       "file_sha256": "35bd71c2f2e7df56cebff409c32445619c4da6bb64f73f385696c454695bb4a1",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "9718cf361e3c0c80bac736f4bb4cba2b548a3b23582c5c665545e845c932362d"
+      "binding_sha256": "51cec3b3ed5ce8576f916fd845df7d22466b709bda59d74b0a492473f4981606"
     },
     {
       "id": "s10-retry-instant-from-worker-clock",
@@ -340,17 +342,17 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 2 failures",
+      "result": "22 examples, 2 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:537",
         "spec/acceptance/wf005_document_ingestion_spec.rb:572"
       ],
-      "failure_digest": "4a8382bba7a12663eaccf922ef501a22c91f46b3a35ee160f57996a7c54c3d85",
+      "failure_digest": "89aabd3f86d2e3862b6b28e08c77006ccc9b5bd4072478e813df4480e36700c2",
       "file_sha256": "c8eaabad326fec3dfa9c4961a72ae01639a36b22f98bfc18b46fba259e8a8198",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "7d180589b687423d9cdfb8e28dc7b6bd6f47bea9ea1c2f3354f6b8e87c378eba"
+      "binding_sha256": "af246f712bc7a5fecb742a452484d5c8080fc4be093a5a04c21c57e23362c8d6"
     },
     {
       "id": "s10-timeout-equality-lost",
@@ -363,16 +365,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:606"
       ],
       "failure_digest": "f24893788a596ed507c98eec277e008649e49cce115284afb259580b5bc86a13",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "0f2580e53269d6b2826fa246d50d4cac0204605ade406947729b2e41932854dc"
+      "binding_sha256": "4dd0b67998c880eb793bb726f044b83d5d5e2a0a25544491f7ca21ae6f68b54a"
     },
     {
       "id": "s10-late-completion-accepted",
@@ -385,16 +387,16 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 1 failure",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:627"
       ],
       "failure_digest": "88ab4582480dbfb1e73704686ce17ed9a7eb3edf5a39398c9e57ffd4c566bd6d",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "cae08cab73642c7fd18c02e783eaae2cdcee6b5781378b76d29778fe9c1e20dd"
+      "binding_sha256": "982648f64fed75b680f64d16c0a38c237165c40acf29070c093a5bd81ea2f74a"
     },
     {
       "id": "s10-contended-claim-taken",
@@ -402,21 +404,44 @@
       "file": "app/workflows/wf005/ingestion_execution.rb",
       "proof": "spec/acceptance/wf005_document_ingestion_spec.rb",
       "description": "a LIVE lease is treated as reclaimable, so two workers ingest one body concurrently and the second settles over the first",
-      "from": "        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if attempt[\"outcome\"].nil? &&\n                                                                            lease_live?(attempt, now)",
-      "to": "        return Claim.new(kind: :contended, job:, reason_code: CONTENDED) if false",
+      "from": "        if attempt[\"outcome\"].nil? && lease_live?(attempt, now)",
+      "to": "        if false",
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 1 failure",
+      "result": "22 examples, 2 failures",
       "failing_examples": [
-        "spec/acceptance/wf005_document_ingestion_spec.rb:661"
+        "spec/acceptance/wf005_document_ingestion_spec.rb:661",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:675"
       ],
-      "failure_digest": "7cdf9781dc4e1231f969021daada06701747e3e9b73c5b733617165913021aa5",
-      "file_sha256": "c3b34d1eb18c88bece2e600611167d1ce7f72e8f26f328d6841ed6d8a24589e9",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "failure_digest": "cc609ea6341557835fd6c72a5f31a64d7f37c7471290dcec0df59346bf62e843",
+      "file_sha256": "c2e554cdeb1449619957532aec1599b09e50aaa2507e788a8f711753e74e1f40",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "970ba791c7f2d5047c0aa0bc93240da43c95d806296d4a184250628efb84061c"
+      "binding_sha256": "1960563ac505812e376bd4c8baac7d8bad94d275b57d1e0b2734e7b1372cea94"
+    },
+    {
+      "id": "s10-contended-strands-the-job",
+      "blocker": "S-07-010/:466",
+      "file": "app/workflows/wf005/handlers/run_ingestion_job.rb",
+      "proof": "spec/acceptance/wf005_document_ingestion_spec.rb",
+      "description": "a contended delivery mints no successor, so a job whose incumbent then dies is left `running` behind a lapsing lease with nothing pending to notice — for ever, because :466's retry is only ever minted by a settle that never happens",
+      "from": "            link = reenter(raw, command, ctx, prepared, claim)\n",
+      "to": "            link = {}\n",
+      "expectation": "kill",
+      "landed": true,
+      "verdict": "killed",
+      "result": "22 examples, 1 failure",
+      "failing_examples": [
+        "spec/acceptance/wf005_document_ingestion_spec.rb:675"
+      ],
+      "failure_digest": "25ae43e60330530aa3a913d3db4c9e67fc9ffd514252fc2db8783009df40463d",
+      "file_sha256": "079f0c556aa16a52555b929e2026c3cac1d827d4d480dd5ce4f5c880e4dc788d",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
+      "restored": true,
+      "binding_sha256": "353e73ebbba43b426b26cd66e2993ad4d4fbbdb6c0cf126924fec76dcdec3572"
     },
     {
       "id": "s10-ingestion-action-not-created",
@@ -429,7 +454,7 @@
       "expectation": "kill",
       "landed": true,
       "verdict": "killed",
-      "result": "21 examples, 13 failures",
+      "result": "22 examples, 14 failures",
       "failing_examples": [
         "spec/acceptance/wf005_document_ingestion_spec.rb:206",
         "spec/acceptance/wf005_document_ingestion_spec.rb:346",
@@ -442,15 +467,16 @@
         "spec/acceptance/wf005_document_ingestion_spec.rb:572",
         "spec/acceptance/wf005_document_ingestion_spec.rb:627",
         "spec/acceptance/wf005_document_ingestion_spec.rb:661",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:678",
-        "spec/acceptance/wf005_document_ingestion_spec.rb:700"
+        "spec/acceptance/wf005_document_ingestion_spec.rb:675",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:722",
+        "spec/acceptance/wf005_document_ingestion_spec.rb:744"
       ],
-      "failure_digest": "77cc90bc1e39463bfbe238ee2060ea2611cbe75e7a1b77cc95aac04ca139e7ba",
+      "failure_digest": "d9d738be4d3b13994fcded3979ca9262cbf5fe11106e77123ad319975dff6d67",
       "file_sha256": "6e7ebf9feea3d4569f36b199977a24030ba14028c3fb27fecff156461b89f425",
-      "proof_sha256": "b5f3f4b519f15f29ad336232dd4c8c536c1b94c7b985cc97341c93dd1094498c",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "proof_sha256": "6af9af27c9987e783a4b916b838f35373df3a813c8ef7d44d72949459a234513",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "d89e48416031d354a69bf4d4765dcc3770e27cb9001f43faeb26a28341591ade"
+      "binding_sha256": "0f8fa52b79f0868a4276700c10f7adcee240af3578985279cf8d9036f9004f21"
     },
     {
       "id": "s10-job-guard-disarmed",
@@ -475,12 +501,12 @@
         "spec/persistence/documents_and_ingestion_schema_spec.rb:350",
         "spec/persistence/documents_and_ingestion_schema_spec.rb:376"
       ],
-      "failure_digest": "53ffc1e5a843061157715816b1478108e35659b5e1502e09b60374394685bb51",
+      "failure_digest": "504e5407b92d665e3eb6cc666d82a0c31b64ff350b4c4a16a9c8b14dcea1c712",
       "file_sha256": "90b4055a6513b7a8b0fba8c1aa3b06ee8208cfb05c221229c1c0b8c3a637b03f",
       "proof_sha256": "4adf1c6194943bbc0ecd9b82d3ce432eb2eda98e45fc1752c4dbc21196a5cc59",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "e1ad6d27e15d1a2106d8d5dbd1e6c354c75bc9a7841938bd80f9cf2b33a66a2a"
+      "binding_sha256": "6bc7f78010b66737fe29ab295a1983221e25e504a2fe55d3023779119011f10d"
     },
     {
       "id": "s10-document-guard-disarmed",
@@ -503,9 +529,9 @@
       "failure_digest": "e12fc0004509ef0cc70819d7bfc62e1bd77b1ec68577912af422e110e9864297",
       "file_sha256": "cceca5c81692649c651b1356349eeb3bca80bec664e065590f95ef221784a87d",
       "proof_sha256": "4adf1c6194943bbc0ecd9b82d3ce432eb2eda98e45fc1752c4dbc21196a5cc59",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "207c0744bb7f7df89f33061fdf02812e05024fe604aa7cbfb7e3ad9d2f7c051c"
+      "binding_sha256": "df7cc45bf564a77d3e27372090ef43c06d3fd113f83f69d4b25797dd57db897d"
     },
     {
       "id": "s10-document-closure-removed",
@@ -526,9 +552,9 @@
       "failure_digest": "7c554e1c4cdf67c472e1ab973396c8ceecb3a0370ca089627a088c3e3fc93f6e",
       "file_sha256": "5ab02d9a5fbbdf1e49966fbc365d9b45f498dfc9e310ce4eb9165ad2549e8f96",
       "proof_sha256": "4adf1c6194943bbc0ecd9b82d3ce432eb2eda98e45fc1752c4dbc21196a5cc59",
-      "commit": "a09faa934c76620da2b20f4375e6cf701b6a6888",
+      "commit": "a467420bd12b2670802d3371682ff116d94579f7",
       "restored": true,
-      "binding_sha256": "29bb91564b1e0126b2c5105e25e0eb7ed5aa205608f1126c346f00926cb78e02"
+      "binding_sha256": "341e972aa88bcbb0f4f9f3e1d0fe65e07c44a1608e3077e022daf64114bab363"
     }
   ]
 }
