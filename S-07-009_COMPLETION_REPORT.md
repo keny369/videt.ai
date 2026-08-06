@@ -423,7 +423,8 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | Gate | Result at this candidate |
 | --- | --- |
 | `bundle exec rspec` | `2507 examples, 0 failures` |
-| `bundle exec rspec spec/architecture` | `242 examples, 0 failures, 1 pending` |
+| `bundle exec rspec spec/architecture` | `243 examples, 0 failures, 1 pending` |
+| `bundle exec rspec spec/automation/{unit,integration,policy,crash_recovery,locking,end_to_end}` | `39 / 20 / 21 / 5 / 5 / 10`, 0 failures |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
 | `bin/rails zeitwerk:check` | all is good |
