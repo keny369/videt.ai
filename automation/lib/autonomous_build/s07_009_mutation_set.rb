@@ -911,6 +911,69 @@ module AutonomousBuild
         from: "      \"security.investigation.approve\" => %w[SecurityOperator].freeze,\n", to: "",
         expectation: "kill" },
 
+      # ---- R21: the conjuncts the LEDGER proved at one write and assumed at the others -----------
+      #
+      # FOUND BY THE CONSTRAINED INDEPENDENT REVIEW OF THIS CANDIDATE, by building the
+      # conjunct-by-site coverage matrix the ledger implies rather than reading it. FU-63 made the
+      # BATTERY run every case at every write; the LEDGER still proved four conjuncts at the
+      # cancellation alone — `g.scope_hex` and `ra.effective_at` at neither the queue nor the policy
+      # write, `ra.expires_at` at neither the policy write, and the scope-rule conjunct at the queue.
+      # That is this tranche's signature shape one level up: the battery cases exist at every write,
+      # and nothing measured that they DISCRIMINATE there.
+      #
+      # Each substitution keeps every bind parameter referenced and well-typed (A16-1): an orphaned
+      # parameter makes PostgreSQL refuse the statement, and a kill that only says "the SQL no longer
+      # type-checks" proves nothing about the conjunct.
+      { id: "r21-queue-scope-unbound", blocker: "R21/FU-63", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the queue insert stops comparing the grant's SCOPE digest to the one the " \
+                     "decision evaluated",
+        from: "             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n",
+        to: "             AND (g.scope_hex IS NOT NULL OR ra.scope_sha256 IS NULL)\n", expectation: "kill" },
+      { id: "r21-policy-scope-unbound", blocker: "R21/FU-63", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the policy activation stops comparing the grant's SCOPE digest",
+        from: "             AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')\n",
+        to: "             AND (g.scope_hex IS NOT NULL OR ra.scope_sha256 IS NULL)\n", expectation: "kill" },
+      { id: "r21-queue-effective-unbound", blocker: "R21/FU-63", file: CRAWL_STORE, proof: BATTERY_PROOF,
+        description: "the queue insert stops requiring the grant to be EFFECTIVE at the instant it " \
+                     "judges it, so a not-yet-effective Assignment authorises a Crawl",
+        from: "              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz\n",
+        to: "              AND (ra.effective_at IS NOT NULL OR $2::timestamptz IS NOT NULL)\n",
+        expectation: "kill" },
+      { id: "r21-policy-effective-unbound", blocker: "R21/FU-63", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the policy activation stops requiring the grant to be EFFECTIVE",
+        from: "              AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz\n",
+        to: "              AND (ra.effective_at IS NOT NULL OR $2::timestamptz IS NOT NULL)\n",
+        expectation: "kill" },
+      { id: "r21-policy-expiry-unbound", blocker: "R21/FU-63", file: POLICY_STORE, proof: BATTERY_PROOF,
+        description: "the policy activation stops refusing an EXPIRED grant",
+        from: "              AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)\n",
+        to: "              AND (ra.expires_at IS NULL OR $2::timestamptz IS NOT NULL)\n", expectation: "kill" },
+      # THE LAST CELL OF THE MATRIX, AND IT IS EQUIVALENT RATHER THAN UNBOUND. The scope-rule
+      # conjunct exists in all three statements, but only `ActivateCrawlPolicy` ever sends a
+      # non-nil `required_role`; `QueueCrawl` and `CancelCrawl` call `WriteAuthority.for` without
+      # one. The classification is recorded rather than left as a blank cell somebody later reads
+      # as an oversight.
+      { id: "r21-queue-scope-rule-conjunct-unbound", blocker: "R21/FU-63", file: CRAWL_STORE,
+        proof: BATTERY_PROOF,
+        description: "the scope-rule conjunct removed from the QUEUE insert, where no production " \
+                     "caller ever populates it",
+        from: "              AND ($19::text IS NULL OR ra.canonical_role = $19::text)\n",
+        to: "              AND ($19::text IS NULL OR $19::text IS NOT NULL)\n",
+        expectation: "equivalent",
+        equivalence_reason: "`QueueCrawl#commit` calls `IdentityAccess::Authorization::WriteAuthority.for` " \
+                            "with no `required_role:`, and the parameter defaults to nil, so `$19` is " \
+                            "NULL on every production execution of this write and the conjunct's first " \
+                            "disjunct is already true. The substitution therefore cannot change the " \
+                            "outcome of any execution this caller can produce: it is equivalent, not " \
+                            "unbound. THE PREMISE IS ASSERTED RATHER THAN ASSUMED -- the battery's " \
+                            "`WRITES` table records each write's PRODUCTION `required_role` and drives " \
+                            "the policy write at BOTH ratified scopes, and the scope-rule conjunct IS " \
+                            "independently killed there by `r20-policy-scope-rule-conjunct-unbound`. If " \
+                            "a caller ever sends a `required_role` to the queue insert, that write gains " \
+                            "a `required_role` entry in `WRITES`, the mis-scoped case runs against it, " \
+                            "and this row must be re-derived. The identical reasoning covers " \
+                            "`CancelCrawl`, whose commit also passes no `required_role`." },
+
       # ---- FU-43: the total request deadline, F-01's ratified evolution (ADR-141) ----------------
       #
       # Each of these restores one limb of the pre-repair behaviour, in which `timeout_s` was
