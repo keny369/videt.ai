@@ -2704,3 +2704,69 @@ S-07-009 remains NOT ACCEPTED. The round-19 repairs make a new candidate no lens
 tranche's history is that every repair round produced findings in the round after it. A twentieth round
 is required. What changed: four of five lenses returned PASS, no lens found a product defect in range,
 and the limb that failed three consecutive rounds is closed by argument rather than by another repair.
+
+## The ADR-061 self-challenge, and what it did to this round
+
+Run against the round-19 repair head after the repairs were committed, as an adversarial verifier
+instructed to REFUTE rather than confirm, on three claims: that the protected-grant conjunct is
+vacuous, that the two new proofs are sound, and that the R19-CTR-1 deletion lost no coverage.
+
+**IT REFUTED THE SECOND, AND THE REFUTATION WAS A LIVE EXPLOIT.**
+
+**R-ADV-2.** `WriteAuthority.for` derives the ratified cell PER CAPABILITY. PROOF 265 drives one write
+and PROOF 266 drove one write, so each bound its derivation for exactly ONE capability, and every other
+read-only or denied-role case in the suite builds through `AuthorityFixture`, which carries its own
+copy of both expressions and can bind neither. Three capability-scoped mutations were measured against
+the WHOLE acceptance corpus:
+
+| mutation | scope | result |
+| --- | --- | --- |
+| `read_only_permitted` broken for `crawl.trigger` only | 1185 acceptance examples | **0 failures** |
+| `read_only_permitted` broken for `policy.crawl.manage` only | 1185 acceptance examples | **0 failures** |
+| `allowed_roles` broken for `crawl.trigger` only | 1185 acceptance examples | **0 failures** |
+
+Reconfirmed centrally across `spec/acceptance` plus `spec/architecture`: the only failure was
+`repository_truth_spec`'s byte-digest staleness check, which fires identically for a comment-only edit.
+
+And the property is broken, not merely untested. With the first mutation applied, a Read-Only Executive
+Buyer — the tuple whose ratified `:147` cell reads `deny` — QUEUES A CRAWL:
+
+    HEAD:       capability_authorized=false  inserted=0
+    ro-trigger: capability_authorized=true   inserted=1
+
+**This is round-18 CB-1 one capability over, inside the round-19 repair for it.** It is the fourth
+recurrence of the shape round 16 was called for: a control proved at one instance and assumed at the
+others.
+
+**REPAIRED STRUCTURALLY.** Both cases now live in the battery's SHARED EXAMPLES, so they run at every
+write by construction and a fourth protected write inherits them. All three mutations now die, each at
+exactly the write whose capability was broken: `[1:2:10]`, `[1:3:10]`, `[1:2:11]`.
+
+## What the challenge narrowed, and what survived it
+
+**The vacuity conclusion HOLDS for the three capabilities in play, but its three grounds were not
+independent.** The SQL has no analogue of the Ruby short-circuit — the write never reads
+`protected_permission_allowlist` or `bootstrap_admin_exception` for ANY capability. Measured: a
+`role.manage` authority presented to `CrawlStartStore#cancel` is DENIED by Ruby (`missing_authority`,
+granting=0) and AUTHORIZED by the write, which cancels a running Crawl. Latent only because no
+production caller passes a protected capability and `CAPABILITIES.fetch` fails closed for 13 of the 15
+PROTECTED keys. The real support is a CALLER CENSUS — the shape FU-48 exists to remove — and the census
+is wider than recorded: `WriteAuthority.for` has FOUR call sites in `app/`, not three. FU-58. The
+lifecycle guard is BEFORE UPDATE only, with no INSERT trigger and no CHECK on an active row's
+allowlist, so it is not the independent ground it was cited as. FU-59.
+
+**The R19-CTR-1 deletion survived.** The two PROOF 262d blocks were byte-identical; both 262c variants
+covered `activate` and `reject`; and the deleted source scan's unique catch set is exactly {edits that
+remove the literal text while still refusing an active row}, every member of which leaves the security
+property intact. No coverage of a real defect was lost.
+
+**The battery's principal-conjunct case survived.** Attacked with a per-qual attribution probe, the
+foreign grant fails exactly one qual — `account_ok` — at all three writes, with org, active, effective,
+unexpired, required_role, roles, read_only, scope and version all passing. Not vacuous.
+
+## Stop, restated after the challenge
+
+S-07-009 remains NOT ACCEPTED, and round 19 is emphatically not a pass. A round whose own repair
+contained a live exploit of the class it was repairing cannot be an acceptance round. The next
+five-lens round reviews the round-19 repair range and must be directed FIRST at whether any remaining
+control is proved at one instance and assumed at the others.

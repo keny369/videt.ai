@@ -609,11 +609,49 @@ module AutonomousBuild
         from: "            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
         to: "            read_only_permitted: true,\n",
         expectation: "kill" },
+      # THE SAME DERIVATIONS, BROKEN AT ONE CAPABILITY RATHER THAN AT ALL OF THEM (R-ADV-2). The
+      # blanket mutations above are killed by a proof driving ONE write, so they cannot detect a cell
+      # derived wrongly for a capability that proof does not carry. Measured before the repair: each of
+      # these three survived ALL 1185 acceptance examples, and the first let a Read-Only Executive Buyer
+      # QUEUE A CRAWL.
+      { id: "r19-read-only-derivation-trigger-only", blocker: "R-ADV-2", file: WRITE_AUTHORITY,
+        proof: BATTERY_PROOF,
+        description: "the sixth column derived permissively for `crawl.trigger` ALONE — invisible to " \
+                     "any proof that drives only the cancellation",
+        from: "            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        to: "            read_only_permitted: capability == \"crawl.trigger\" || Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        expectation: "kill" },
+      { id: "r19-read-only-derivation-policy-only", blocker: "R-ADV-2", file: WRITE_AUTHORITY,
+        proof: BATTERY_PROOF,
+        description: "the sixth column derived permissively for `policy.crawl.manage` ALONE",
+        from: "            read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        to: "            read_only_permitted: capability == \"policy.crawl.manage\" || Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),\n",
+        expectation: "kill" },
+      { id: "r19-roles-derivation-trigger-only", blocker: "R-ADV-2", file: WRITE_AUTHORITY,
+        proof: BATTERY_PROOF,
+        description: "the capability cell derived as a union for `crawl.trigger` ALONE — R17-SEC-1 " \
+                     "one layer up, scoped narrowly enough that PROOF 265 cannot see it",
+        from: "            allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),\n",
+        to: "            allowed_roles: capability == \"crawl.trigger\" ? Platform::PermissionBaseline::CAPABILITIES.values.flatten.uniq : Platform::PermissionBaseline::CAPABILITIES.fetch(capability),\n",
+        expectation: "kill" },
       { id: "r19-account-qual-unbound", blocker: "R19-CTR-2", file: CRAWL_STORE, proof: BATTERY_PROOF,
         description: "the queue write stops asking whose grant it is — the principal conjunct no " \
                      "battery case bound before round 19",
         from: "            WHERE ra.organization_id = $4::uuid AND ra.account_id = $18::uuid\n",
         to: "            WHERE ra.organization_id = $4::uuid AND $18::uuid IS NOT NULL\n",
+        expectation: "kill" },
+      # THE SAME QUAL AT THE OTHER TWO WRITES. Balloting it at one write and asserting the others is
+      # the defect this round exists to remove, so the copies are each measured rather than inferred.
+      { id: "r19-account-qual-unbound-cancel", blocker: "R19-CTR-2", file: STORE, proof: BATTERY_PROOF,
+        description: "the cancellation stops asking whose grant it is",
+        from: "            WHERE ra.organization_id = $5::uuid AND ra.account_id = $9::uuid\n",
+        to: "            WHERE ra.organization_id = $5::uuid AND $9::uuid IS NOT NULL\n",
+        expectation: "kill" },
+      { id: "r19-account-qual-unbound-policy", blocker: "R19-CTR-2", file: POLICY_STORE,
+        proof: BATTERY_PROOF,
+        description: "the policy activation stops asking whose grant it is",
+        from: "            WHERE ra.organization_id = $4::uuid AND ra.account_id = $17::uuid\n",
+        to: "            WHERE ra.organization_id = $4::uuid AND $17::uuid IS NOT NULL\n",
         expectation: "kill" },
       { id: "r18-decide-guard-widened", blocker: "R18-CB-4", file: ROLE_ASSIGNMENT_STORE,
         proof: ORDER_PROOF,

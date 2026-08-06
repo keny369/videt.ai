@@ -34,10 +34,10 @@ round 16 five, and round 15 EIGHT of which two were live production defects. Eve
 the dispositions are ADR-133, ADR-134, ADR-135, ADR-136 and ADR-137.
 
 ```f1-evidence
-candidate_range: b2e8cfb..dc9fd25
+candidate_range: b2e8cfb..07f1471
 frozen_path_changes: 0
 frozen_paths: []
-suite_examples: 2466
+suite_examples: 2472
 review_rounds: 14
 ```
 
@@ -125,7 +125,7 @@ comes from that window.
 | | |
 | --- | --- |
 | Block | S-07-009, BUILD_PLAN `Crawl Execution — terminal checkpoint + coverage/completion + CancelCrawl` |
-| **Repair candidate** | **`b2e8cfb..dc9fd25`, PINNED** — never `..HEAD`. This row read `7f043a2..6fda00d` with authority ADR-124 until round 19 (finding R19-CTR-3): five rounds stale, while the `f1-evidence` block below carried the current range. `repository_truth_spec` reads the candidate ONLY from that block, so this row was unchecked — the same R8-7 shape the round-8 review recorded for this same table. |
+| **Repair candidate** | **`b2e8cfb..07f1471`, PINNED** — never `..HEAD`. This row read `7f043a2..6fda00d` with authority ADR-124 until round 19 (finding R19-CTR-3): five rounds stale, while the `f1-evidence` block below carried the current range. `repository_truth_spec` reads the candidate ONLY from that block, so this row was unchecked — the same R8-7 shape the round-8 review recorded for this same table. |
 | Round-18 reviewed candidate | `b2e8cfb..dd78732`, records `fcc80c0` (FAIL, four blockers; findings in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 14) |
 | Round-8 reviewed candidate | `7f043a2..e1f5bab`, governance `5dadf7f` (FAIL, nine blockers; findings in `S-07-009_ACCEPTANCE_REVIEW.md` § ROUND 8) |
 | Repair authority | ADR-137 (round 19); ADR-122's isolation invariant remains in force and is extended to Redis |
@@ -411,7 +411,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 
 | Gate | Result at this candidate |
 | --- | --- |
-| `bundle exec rspec` | `2466 examples, 0 failures` |
+| `bundle exec rspec` | `2472 examples, 0 failures` |
 | `bundle exec rspec spec/architecture` | `242 examples, 0 failures, 1 pending` |
 | `bundle exec brakeman -q --no-pager -z` | zero warnings |
 | `bin/packwerk check` | no offenses; no stale violations |
@@ -420,7 +420,7 @@ never the one under review. `repository_truth_spec` now governs this table too.
 | `bin/f1-db-bootstrap-gate` | 9 checks passed |
 | `bin/f1db f1:db:verify_runtime` | 15 checks passed; RLS intact |
 | `bin/f1db db:schema:dump` then `git diff --exit-code -- db/structure.sql` | no structure drift |
-| mutation ledger | 114 mutations, 114 killed, 0 survived, 0 broken |
+| mutation ledger | 119 mutations, 119 killed, 0 survived, 0 broken |
 
 Every gate passing remains verification, not acceptance.
 
@@ -555,7 +555,7 @@ instruction.**
 `specification/automation/S-07-009_MUTATION_LEDGER.json` is produced by `rake f1:mutations:regenerate`
 from definitions in `automation/lib/autonomous_build/s07_009_mutation_set.rb`. It is never edited.
 
-**114 mutations, 114 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
+**119 mutations, 119 killed, 0 survived, 0 broken** — 10 of them TRIGGER mutations, which are now
 replayed, sealed and verified by the same machinery rather than copied in as literals.
 
 Each row is sealed over the patch bytes, the target bytes, the target path, the proof command, the

@@ -4459,3 +4459,93 @@ S-07-009 repair authority. R19-SEC-2 is expressly NOT taken under it and is reco
 owner decision, following the precedent of the round-2 `:442` violation ("it needs a follow-up of its
 own and an owner decision; this review opens neither") and of ADR-131. Allocated the next unused
 number after ADR-136.
+
+## ADR-138: Round 19's Adversarial Pass Refuted Round 19's Own Repair
+
+Date: 2026-08-06
+Status: Accepted
+Scope: S-07-009. The round-19 repair head, `67f7ee6`.
+
+Context:
+
+ADR-061 requires that a round returning no confirmed blockers independently challenge its own
+conclusion before acceptance. Round 19 DID return blockers, and the challenge was run anyway against
+the three claims the round rested on: that the protected-grant conjunct is vacuous, that the two new
+proofs are sound, and that the R19-CTR-1 deletion lost no coverage.
+
+**IT REFUTED THE SECOND CLAIM, AND THE REFUTATION IS A LIVE EXPLOIT.**
+
+Decision:
+
+**R-ADV-2 — THE DERIVATIONS WERE BOUND AT ONE CAPABILITY EACH.** `WriteAuthority.for` reads the
+ratified cell PER CAPABILITY. PROOF 265 drives one write and PROOF 266 drove one write, so each bound
+its derivation for ONE capability. Every other read-only or denied-role case in the suite builds its
+authority through `AuthorityFixture`, which carries its OWN copy of both expressions and therefore
+cannot bind either. Measured: breaking `read_only_permitted` for `crawl.trigger` ALONE, or for
+`policy.crawl.manage` ALONE, or breaking `allowed_roles` for `crawl.trigger` ALONE, left **all 1185
+acceptance examples green**. Independently reconfirmed here across `spec/acceptance` plus
+`spec/architecture`, where the ONLY failure was `repository_truth_spec`'s byte-digest staleness check
+— which fires identically for a comment-only edit.
+
+And the property is genuinely broken, not merely untested. With the first mutation applied, a
+Read-Only Executive Buyer — the tuple whose ratified `:147` cell reads `deny` — QUEUES A CRAWL:
+
+    HEAD:       capability_authorized=false  inserted=0
+    ro-trigger: capability_authorized=true   inserted=1
+
+**THIS IS ROUND-18 CB-1 ONE CAPABILITY OVER, INSIDE THE ROUND-19 REPAIR FOR IT**, and it is this
+tranche's signature shape: a control proved at one instance and assumed at the others — the exact
+defect class round 16 was called for, recurring for the fourth time.
+
+REPAIR, AND WHY IT IS STRUCTURAL RATHER THAN THREE MORE PROOFS. Both cases now live in the battery's
+SHARED EXAMPLES, so they run at every write BY CONSTRUCTION and a fourth protected write would inherit
+them. Each seeds a grant for the ACTOR'S OWN account — so the principal qual passes — and builds the
+authority through the PRODUCTION BUILDER for that write's real capability: a `MarketingOperator`
+read-only grant, whose role is inside all three cells so only the sixth column can refuse it; and a
+`TechnicalImplementer` grant, which the ratified table denies all three capabilities and which the
+battery's `required_role: nil` leaves `allowed_roles` alone to refuse. Each asserts the ratified cell
+still has the shape the case depends on, so neither can go vacuous if the table is amended.
+
+VERIFICATION. All three capability-scoped mutations now die, each at exactly the write whose capability
+was broken and at no other:
+
+    read_only broken for crawl.trigger ONLY       -> [1:2:10] the queue insert
+    read_only broken for policy.crawl.manage ONLY -> [1:3:10] the policy activation
+    allowed_roles broken for crawl.trigger ONLY   -> [1:2:11] the queue insert
+
+All three are registered as ledger definitions.
+
+**WHAT SURVIVED THE CHALLENGE.** The R19-CTR-1 deletion lost no coverage: the two PROOF 262d blocks
+were byte-identical, both 262c variants covered `activate` and `reject`, and the deleted source scan's
+unique catch set is exactly {edits removing the literal text while still refusing an active row},
+every member of which leaves the security property intact. The battery's principal-conjunct case was
+attacked with a per-qual attribution probe and refuses on `account_ok` alone at all three writes — not
+vacuous.
+
+**WHAT WAS NARROWED.** The vacuity of the protected-grant conjunct HOLDS for the three capabilities in
+play, but its "three independent grounds" were not independent. The SQL has no analogue of the Ruby
+short-circuit: the write never reads `protected_permission_allowlist` or `bootstrap_admin_exception`
+for ANY capability. Measured — a `role.manage` authority presented to `CrawlStartStore#cancel`: Ruby
+`authorize` DENIES (`missing_authority`), the write AUTHORIZES and cancels a running Crawl. It is
+latent only because no production caller passes a protected capability and `CAPABILITIES.fetch` fails
+closed for 13 of the 15. The real support is ground (b), a CALLER CENSUS — which is the "one deletion
+away from nothing" shape FU-48 exists to remove. `WriteAuthority.for` has FOUR call sites in `app/`,
+not three: the three handlers plus `authority_attestation.rb:66`, and both it and
+`PostWaitDecision#authority_attestation` take a free `capability:` parameter. Recorded as FU-58.
+
+Also corrected: `f1_role_assignments_lifecycle_guard` is BEFORE UPDATE only. There is no INSERT
+trigger and no CHECK constraining an active row's allowlist, so an INSERT may create an ACTIVE grant
+with any protected allowlist and `bootstrap_admin_exception = true`; dual control at insert time is
+Ruby-only. It does not reach the writes — an INSERT mints a new id and the CTE joins on the carried
+`g.id` and `g.state_version` — but ground (c) is not the guarantee it was stated to be. FU-59.
+
+Consequences:
+
+**S-07-009 IS STILL NOT ACCEPTED, AND ROUND 19 IS NOT A PASS.** A round whose own repair contained a
+live exploit of the class it was repairing cannot be an acceptance round. Ledger regenerated with the
+three new definitions. The next five-lens round reviews the repair range and should be directed FIRST
+at whether any remaining control is proved at one instance and assumed at the others.
+
+Authority And Precedence:
+S-07-009 repair authority; the adversarial pass is the ADR-061 self-challenge. Allocated the next
+unused number after ADR-137.
