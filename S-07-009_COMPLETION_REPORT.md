@@ -2,16 +2,27 @@
 
 **Acceptance status: NOT ACCEPTED. The round-19 repair is complete under ADR-137; this report is not an acceptance record.**
 
-**NINETEEN full ADR-026 five-lens rounds have reviewed this tranche and all nineteen returned FAIL.**
+**EIGHTEEN full ADR-026 five-lens rounds have reviewed this tranche and all eighteen returned FAIL.**
 
-A NOTE ON THE ROUND NUMBERS, because two records counted differently and round 19 found it (R19-CTR-3).
+A NOTE ON THE ROUND NUMBERS, because two records counted differently and the round recorded at
+ROUND 14 found it (R19-CTR-3), then got the arithmetic wrong itself and had to be corrected again
+(finding F4 of the following review). THE COUNT IS DERIVED, NOT ASSERTED: fourteen sections in
+`S-07-009_ACCEPTANCE_REVIEW.md` — which is the figure `review_rounds` gates — plus two on the
+preserved `repair/s07-009-r10@68c1d52` plus two integrated through `0b90938`/`b2e8cfb` is
+EIGHTEEN. An earlier draft of this paragraph said fifteen recorded and nineteen total; both were
+wrong and `14 + 2 + 2` did not close.
+
+THE `R19-` FINDING PREFIX IS AN IDENTIFIER, NOT AN ORDINAL. It was carried from the instruction
+that commissioned that review and is now referenced by commits, ADR-137, ADR-138 and the mutation
+ledger's `blocker` fields, so it stays fixed. It does not assert that the round was the
+nineteenth; that round is the EIGHTEENTH, recorded at ROUND 14.
 `S-07-009_ACCEPTANCE_REVIEW.md` numbers its own SECTIONS (its last is ROUND 14), while `BUILD_STATE`
 and this header number FIVE-LENS ROUNDS INCLUDING the ones never written into that record. The two
 sequences are offset and neither was wrong; what was wrong was prose that used one number while
 citing the other's content. The five-lens count is authoritative here and the section number is always
 given beside it.
 
-Fifteen of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
+Fourteen of them are recorded in `S-07-009_ACCEPTANCE_REVIEW.md`; two are recorded on the preserved,
 unmerged `repair/s07-009-r10@68c1d52`, and two more — run at `f801245` and `abf5390` — were integrated
 through the repair commits `0b90938` and `b2e8cfb` and the D-numbered sections of
 `S-07-009_BLOCKER_LEDGER.md` without ever being written into the review record. The `review_rounds`
@@ -19,7 +30,7 @@ figure below counts the sections of that file, which is what its gate measures; 
 generalised it to "rounds that have reviewed this tranche", and that was wrong (round-15 finding
 R15-CTR-2, out of range but corrected here rather than carried).
 
-The latest round — round 19, this record's ROUND 14 — found FOUR confirmed-blocking findings, all
+The latest round — this record's ROUND 14, the EIGHTEENTH five-lens round — found FOUR confirmed-blocking findings, all
 in-range and all in the EVIDENCE rather than in the product: a proof that round 18 recorded as
 replaced and had only been duplicated beside, and which stayed green against the very defeat it was
 rejected for; the principal conjunct of all three protected writes, which no battery case bound and
@@ -326,7 +337,7 @@ arity of foreign keys it found but could not discover a missing link; migration 
 proof repair that exact gap. The separate `IS NOT DISTINCT FROM` refutation remains unchanged and is
 covered by `spec/architecture/repository_truth_spec.rb`'s tracked-record corpus.
 
-## Review history — seventeen rounds, seventeen FAILs (thirteen recorded in the review file)
+## Review history — eighteen rounds, eighteen FAILs (fourteen recorded in the review file)
 
 | Round | Candidate | Outcome |
 | --- | --- | --- |

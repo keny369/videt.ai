@@ -2594,7 +2594,7 @@ S-07-009 remains NOT ACCEPTED.
 # ROUND 14 — the round-18 repaired candidate `b2e8cfb..dd78732`, records `fcc80c0`
 
 Round run: 2026-08-06, full ADR-026 five-lens form, five isolated worktrees and five isolated
-databases. The NINETEENTH five-lens round. Its brief was the limb three consecutive rounds had each
+databases. The EIGHTEENTH five-lens round. Its brief was the limb three consecutive rounds had each
 found unbound: the THIRD conjunct of `confers?` — the protected-grant gate — and any remaining limb of
 the ratified `:314` row the protected writes do not carry.
 

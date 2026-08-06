@@ -4355,7 +4355,7 @@ Scope: S-07-009. Candidate `b2e8cfb..dd78732`, reviewed at `fcc80c0`.
 
 Context:
 
-The nineteenth ADR-026 five-lens round, run in five isolated worktrees against five isolated
+The eighteenth ADR-026 five-lens round, run in five isolated worktrees against five isolated
 databases. Its brief was the one limb three consecutive rounds had each found unbound: the THIRD
 conjunct of `CommandAuthorizer#confers?`, the protected-grant gate, and any remaining limb of the
 ratified `:314` row the protected writes do not carry.
@@ -4440,7 +4440,7 @@ Ledger regenerated at the repair head: 114 definitions, 114 killed, 0 survived, 
 definitions — `r19-read-only-derivation-constant` and `r19-account-qual-unbound` — both kill, and the
 two rows whose `failing_examples` named the deleted duplicates now correctly name one line each.
 
-**THIS DOES NOT ACCEPT S-07-009.** Nineteen rounds, none returning PASS on the state it reviewed. The
+**THIS DOES NOT ACCEPT S-07-009.** Eighteen rounds, none returning PASS on the state it reviewed. The
 round-19 repairs make a NEW candidate that no lens has reviewed, and the tranche's own history is that
 each repair round has produced findings in the round that followed. A twentieth round is required.
 
