@@ -15,9 +15,11 @@ module Workflows
     #      Committing the claim FIRST is what makes a lost worker visible: the attempt row and its
     #      lease exist, so the next delivery can tell "someone is working on this" from "someone
     #      died", which a claim made inside the settle could not.
-    #   2. THE WORK, holding NO transaction and NO lock. :464's eight first-match pre-persistence
-    #      checks, over bytes this phase decrypts. A 10 MiB AES-GCM decrypt is short but it is not
-    #      free, and it has no business happening while a row lock on the job is held.
+    #   2. THE WORK, holding NO LOCK. :464's eight first-match pre-persistence checks, over bytes this
+    #      phase decrypts. It opens a transaction — every table it reads is RLS-forced and the proved
+    #      Organization context lives on the connection — but it takes no row lock and no advisory
+    #      lock, which is the half that matters: a 10 MiB AES-GCM decrypt is short and not free, and
+    #      it has no business happening while `FOR UPDATE` is held on the job.
     #   3. THE SETTLE, on the CALLER'S transaction — the handler's terminal one. There is no external
     #      call anywhere in this workflow, so the Evidence, the Document advance, the job transition,
     #      the attempt terminalization, the staging destruction, the events and the ledger are ONE

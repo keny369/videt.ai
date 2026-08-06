@@ -180,6 +180,14 @@ module Workflows
           media_type: result.media_type, staged_body_reference: staged.reference,
           # ":466 — at most 24 hours FROM FETCH COMPLETION", stamped once and frozen by the guard.
           staging_expires_at: IngestionContract.staging_expiry(now),
+          # ":462 — received byte count." `FetchContent::Result` carries the ACCOUNTED figure and not
+          # the raw one, and on this path they are the same number rather than merely close: F-01
+          # never content-decodes, so `Outcome#byte_count` IS `body.bytesize`, and
+          # `ByteAccounting.measure` returns `min(received, ceiling)` — where a body that reached the
+          # ceiling is `over_limit?`, which `FetchContent#classify` turns into `content_fetch_failed`
+          # or `limit_discarded` and never into `document_created`. So the only bodies that reach here
+          # were under their ceiling, where accounted == received == the staged bytes' size. The
+          # ingester re-derives that equality from the bytes themselves rather than trusting it.
           received_byte_count: result.accounted_bytes.to_i,
           response_capture_policy_version: CAPTURE_POLICY_VERSION,
           data_classification: CONTENT_CLASSIFICATION,
