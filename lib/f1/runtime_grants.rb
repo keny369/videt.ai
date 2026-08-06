@@ -122,6 +122,22 @@ module F1
       # not a substitute for it. A coverage-bearing decision that could be rewritten after the fact
       # would make :456's "no edge leaves terminal" an application convention rather than a property.
       "crawl_terminal_outcomes"           => "SELECT, INSERT",
+      # S-07-010 Documents and ingestion (schemas/POSTGRESQL_SCHEMA.md :302, :303, :304). Additive
+      # new-table grants (Foundation Consumption Rule / ADR-029): no existing grant changes and
+      # FORCE RLS is preserved on all three.
+      #
+      # NO DELETE ANYWHERE, and for `documents` that is the load-bearing one. :302 says a Document
+      # "leaves product use only through the separate retention and deletion lifecycle, which
+      # destroys the row rather than transitioning it" — that lifecycle is not built, is not S-07-010's,
+      # and until it exists no runtime path may destroy a Document. The lifecycle trigger governs
+      # which UPDATEs are legal; the missing DELETE is defence in depth behind it.
+      "documents"                         => "SELECT, INSERT, UPDATE",
+      # The job row is reused across replay generations (:303, "Authorized replay changes this
+      # EXISTING row"), so it needs UPDATE and must never need DELETE: a replaced job would lose the
+      # replay lineage the recovery profile reads.
+      "ingestion_jobs"                    => "SELECT, INSERT, UPDATE",
+      # T-CHK, insert-then-terminalise, exactly like `fetch_attempts` above.
+      "ingestion_attempts"                => "SELECT, INSERT, UPDATE",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

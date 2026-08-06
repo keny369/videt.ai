@@ -1,0 +1,333 @@
+# frozen_string_literal: true
+
+require "rails_helper"
+
+# S-07-010's three tables, and the guards that make their lifecycles properties of the DATABASE
+# rather than conventions of a handler (schemas/POSTGRESQL_SCHEMA.md :302, :303, :304).
+#
+# WHY THE DATABASE AND NOT THE HANDLER. Every lifecycle in this repository that was enforced only in
+# Ruby has eventually been reached another way; the S-07-009 rounds are twenty rounds of that lesson.
+# A Document that could go `discovered -> indexed`, or an Ingestion Job whose replay generation could
+# advance twice, is not a defect to be found in review if the constraint refuses it outright.
+#
+# OD-015 IS THE SHARPEST OF THESE. :302 says the check "MUST NOT recognize either value even as
+# forward-compatible migration shape", so `quarantined` and `retired` are asserted absent from the
+# LIVE constraint rather than merely unused by the code.
+RSpec.describe "S-07-010 documents and ingestion schema", type: :model do
+  self.use_transactional_tests = false
+  after { ReceiptMinter.truncate_all }
+
+  let(:org) { TenantSeeder.create_organization(display_name: "Acme Org") }
+  def conn = DbInspector.connection
+  def now_iso = Time.utc(2026, 8, 6, 10, 0, 0).iso8601(6)
+  def sha(seed) = { value: Digest::SHA256.digest(seed), format: 1 }
+
+  # Project, Source and Crawl fixtures follow the sibling persistence specs' convention: each spec
+  # owns the rows it needs, so a change to one table's fixture cannot silently alter another spec's
+  # premise. All three tables under test carry the :128 composite link, so a fabricated id would
+  # prove the foreign key rather than the guard.
+  def draft_project
+    id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, org])
+      INSERT INTO projects
+        (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+         display_name, locale, time_zone, objective, state, source_set_version)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,'P','en-AU','UTC','discoverability_assessment','draft',0)
+    SQL
+    id
+  end
+
+  def insert_source(pid, host: "s#{SecureRandom.hex(4)}.example")
+    id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, org, pid, host])
+      INSERT INTO sources
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
+         submitted_root_uri, canonical_root_uri, canonical_host, registration_schema_version,
+         host_normalization_version, registration_origin, registering_account_id,
+         registration_command_id, registration_idempotency_key_digest,
+         registration_authorization_decision_id, registered_at, state)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,
+              'https://'||$4, 'https://'||$4||'/', $4, 'source-registration-v1',
+              'ascii-host-v1','human_command',gen_random_uuid(),
+              gen_random_uuid(), sha256('k'), gen_random_uuid(), now(), 'active')
+    SQL
+    id
+  end
+
+  def insert_crawl(pid)
+    id = SecureRandom.uuid_v7
+    conn.exec_params(<<~SQL, [id, org, pid])
+      INSERT INTO crawls
+        (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id, kind,
+         requested_entitlement_policy_id, requested_entitlement_policy_version, trigger_kind, queued_at, state)
+      VALUES ($1,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'root',
+              gen_random_uuid(),'entitlement-interim-v1','manual',now(),'queued')
+    SQL
+    id
+  end
+
+  let(:project_id) { draft_project }
+  let(:source_id)  { insert_source(project_id) }
+  let(:crawl_id)   { insert_crawl(project_id) }
+
+  def insert_document(url: "https://acme.example/a", version: 1)
+    id = SecureRandom.uuid_v7
+    params = [id, org, project_id, source_id, crawl_id, url, sha(url), version, now_iso,
+              sha("body-#{url}-#{version}")]
+    conn.exec_params(<<~SQL, params)
+      INSERT INTO documents
+        (id, state_version, schema_version, created_at, updated_at, correlation_id, causation_id,
+         organization_id, project_id, source_id, crawl_id, canonical_url, canonical_url_sha256,
+         version, fetched_object_id, media_type, byte_size, content_sha256, state, discovered_at)
+      VALUES ($1,0,'document-v1',$9::timestamptz,$9::timestamptz,gen_random_uuid(),gen_random_uuid(),
+              $2::uuid,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8::bigint,gen_random_uuid(),'text/html',1024,
+              $10,'discovered',$9::timestamptz)
+    SQL
+    id
+  end
+
+  # Moves the state AND the timestamp that state requires, so the lifecycle-times CHECK is satisfied
+  # and the only thing that can refuse the move is the transition guard.
+  def move_document(id, to)
+    conn.exec_params(<<~SQL, [id, to, now_iso])
+      UPDATE documents SET state = $2,
+        ingested_at = CASE WHEN $2 IN ('ingested','parsed','indexed') THEN coalesce(ingested_at,$3::timestamptz) END,
+        parsed_at   = CASE WHEN $2 IN ('parsed','indexed')            THEN coalesce(parsed_at,$3::timestamptz) END,
+        indexed_at  = CASE WHEN $2 = 'indexed'                        THEN coalesce(indexed_at,$3::timestamptz) END,
+        state_version = state_version + 1, updated_at = $3::timestamptz
+      WHERE id = $1::uuid
+    SQL
+  end
+
+  describe "the Document lifecycle (:302)" do
+    it "admits exactly `discovered -> ingested -> parsed -> indexed`, in order" do
+      id = insert_document
+      %w[ingested parsed indexed].each { |to| expect { move_document(id, to) }.not_to raise_error }
+
+      expect(DbInspector.one("SELECT state FROM documents WHERE id = $1::uuid", [id])["state"]).to eq("indexed")
+    end
+
+    it "refuses every skip and the self-edge" do
+      { "https://acme.example/s1" => "parsed", "https://acme.example/s2" => "indexed" }.each do |url, to|
+        id = insert_document(url:)
+        expect { move_document(id, to) }
+          .to raise_error(PG::RaiseException, /document_illegal_transition/), "discovered -> #{to} was admitted"
+      end
+
+      # A self-edge is not a state change and must not consume a state version.
+      id = insert_document(url: "https://acme.example/self")
+      expect { move_document(id, "discovered") }
+        .to raise_error(PG::RaiseException, /document_illegal_transition/)
+    end
+
+    it "makes `indexed` terminal — no edge leaves it" do
+      id = insert_document(url: "https://acme.example/terminal")
+      %w[ingested parsed indexed].each { |to| move_document(id, to) }
+
+      %w[discovered ingested parsed indexed].each do |to|
+        expect { move_document(id, to) }
+          .to raise_error(PG::RaiseException, /document_illegal_transition/), "indexed -> #{to} was admitted"
+      end
+    end
+
+    it "freezes the Document's identity and the content it is a Document OF" do
+      id = insert_document(url: "https://acme.example/frozen")
+
+      { "canonical_url" => "'https://other.example/'", "version" => "2",
+        "byte_size" => "9999", "media_type" => "'application/pdf'" }.each do |column, value|
+        expect { conn.exec("UPDATE documents SET #{column} = #{value} WHERE id = '#{id}'") }
+          .to raise_error(PG::RaiseException, /document_identity_immutable/), "#{column} was not frozen"
+      end
+    end
+
+    # OD-015 / ADR-019. The values must be absent from the LIVE constraint, not merely unused by the
+    # application: :302 forbids them "even as forward-compatible migration shape".
+    it "does not recognize `quarantined` or `retired`, even as forward-compatible shape" do
+      definition = DbInspector.one(<<~SQL)&.fetch("def")
+        SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conrelid = 'documents'::regclass AND pg_get_constraintdef(oid) LIKE '%discovered%'
+      SQL
+
+      expect(definition).not_to be_nil, "the documents state CHECK is gone"
+      expect(definition).to include("discovered", "ingested", "parsed", "indexed")
+      expect(definition).not_to include("quarantined")
+      expect(definition).not_to include("retired")
+    end
+
+    it "keeps the state and the lifecycle timestamps from disagreeing" do
+      id = insert_document(url: "https://acme.example/times")
+
+      expect { conn.exec("UPDATE documents SET state = 'ingested' WHERE id = '#{id}'") }
+        .to raise_error(PG::CheckViolation, /documents_lifecycle_times/)
+    end
+  end
+
+  def insert_job(document_id, url: "https://acme.example/a", state: "queued")
+    id = SecureRandom.uuid_v7
+    params = [id, org, project_id, source_id, crawl_id, document_id, url, sha("body-#{url}"),
+              state, now_iso]
+    conn.exec_params(<<~SQL, params)
+      INSERT INTO ingestion_jobs
+        (id, state_version, schema_version, created_at, updated_at, correlation_id, causation_id,
+         organization_id, project_id, source_id, crawl_id, document_id, canonical_url,
+         fetched_body_sha256, ingestion_schema_version, state)
+      VALUES ($1,0,'ingestion-job-v1',$10::timestamptz,$10::timestamptz,gen_random_uuid(),gen_random_uuid(),
+              $2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7,$8,'ingestion-interim-v1',$9)
+    SQL
+    id
+  end
+
+  def capsule_sql
+    ", recovery_source_event_id = gen_random_uuid(), recovery_command_id = gen_random_uuid(), " \
+      "earlier_terminal_reason_code = 'ingestion_failed', " \
+      "replay_requester_account_id = gen_random_uuid(), " \
+      "replay_human_rationale = 'the upstream parser regression is fixed and this replay is safe', " \
+      "replay_requested_at = now()"
+  end
+
+  def move_job(id, to, generation: nil, capsule: false)
+    gen = generation ? ", replay_generation = #{generation}" : ""
+    conn.exec("UPDATE ingestion_jobs SET state = '#{to}'#{gen}#{capsule ? capsule_sql : ''}, " \
+              "state_version = state_version + 1 WHERE id = '#{id}'")
+  end
+
+  describe "the Ingestion Job lifecycle (:303)" do
+    let(:document_id) { insert_document(url: "https://acme.example/job") }
+    let(:job_id) { insert_job(document_id, url: "https://acme.example/job") }
+
+    it "runs the ordinary attempt cycle and makes `succeeded` terminal" do
+      expect { move_job(job_id, "running") }.not_to raise_error
+      expect { move_job(job_id, "succeeded") }.not_to raise_error
+
+      expect { move_job(job_id, "queued") }
+        .to raise_error(PG::RaiseException, /ingestion_job_illegal_transition/)
+    end
+
+    it "advances the replay generation on the replay edge, by EXACTLY one" do
+      move_job(job_id, "running")
+      move_job(job_id, "failed")
+      move_job(job_id, "dead_letter")
+
+      # :303 — "increments replay generation exactly once". Two is refused as firmly as zero.
+      expect { move_job(job_id, "queued", generation: 2, capsule: true) }
+        .to raise_error(PG::RaiseException, /replay_generation_not_incremented/)
+      expect { move_job(job_id, "queued", capsule: true) }
+        .to raise_error(PG::RaiseException, /replay_generation_not_incremented/)
+
+      expect { move_job(job_id, "queued", generation: 1, capsule: true) }.not_to raise_error
+      expect(DbInspector.one("SELECT replay_generation FROM ingestion_jobs WHERE id = $1::uuid",
+                             [job_id])["replay_generation"].to_i).to eq(1)
+    end
+
+    it "refuses to move the replay generation on any other edge" do
+      expect { move_job(job_id, "running", generation: 1) }
+        .to raise_error(PG::RaiseException, /replay_generation_immutable/)
+    end
+
+    # The capsule is seven columns and ONE fact. A partially-captured replay is exactly the shape a
+    # constraint assembled from loose parts admits and review misses.
+    it "refuses a partially captured replay capsule" do
+      move_job(job_id, "running")
+      move_job(job_id, "failed")
+      move_job(job_id, "dead_letter")
+
+      expect { move_job(job_id, "queued", generation: 1) }
+        .to raise_error(PG::CheckViolation, /ingestion_jobs_replay_capsule/)
+    end
+
+    it "freezes the job's identity, including the body digest it is the ingestion of" do
+      expect { conn.exec("UPDATE ingestion_jobs SET canonical_url = 'https://x.example/' WHERE id = '#{job_id}'") }
+        .to raise_error(PG::RaiseException, /ingestion_job_identity_immutable/)
+    end
+
+    it "pins the interim ingestion schema version" do
+      expect { conn.exec("UPDATE ingestion_jobs SET ingestion_schema_version = 'v2' WHERE id = '#{job_id}'") }
+        .to raise_error(PG::Error)
+    end
+  end
+
+  describe "the Ingestion Attempt record (:304)" do
+    let(:document_id) { insert_document(url: "https://acme.example/attempt") }
+    let(:job_id) { insert_job(document_id, url: "https://acme.example/attempt", state: "running") }
+
+    def insert_attempt(job_id, number: 1)
+      id = SecureRandom.uuid_v7
+      params = [id, org, project_id, job_id, number, sha("input-#{number}"), now_iso]
+      conn.exec_params(<<~SQL, params)
+        INSERT INTO ingestion_attempts
+          (id, schema_version, created_at, updated_at, correlation_id, causation_id,
+           organization_id, project_id, ingestion_job_id, attempt_number, input_sha256,
+           scheduled_at, started_at, deadline_at)
+        VALUES ($1,'ingestion-attempt-v1',$7::timestamptz,$7::timestamptz,gen_random_uuid(),gen_random_uuid(),
+                $2::uuid,$3::uuid,$4::uuid,$5::int,$6,$7::timestamptz,$7::timestamptz,
+                $7::timestamptz + interval '5 minutes')
+      SQL
+      id
+    end
+
+    it "is write-once at its outcome — a terminal attempt cannot be re-decided" do
+      attempt = insert_attempt(job_id)
+      # The completion instant comes from the FIXTURE clock, not `now()`: the fixture's instant is
+      # deliberately fixed, and a real `now()` earlier than `started_at` trips
+      # `ingestion_attempts_started_before_completed` — which is the constraint doing its job, not the
+      # property this example is about.
+      conn.exec("UPDATE ingestion_attempts SET outcome = 'failed', completed_at = '#{now_iso}', " \
+                "reason_code = 'ingestion_failed' WHERE id = '#{attempt}'")
+
+      expect { conn.exec("UPDATE ingestion_attempts SET reason_code = 'other' WHERE id = '#{attempt}'") }
+        .to raise_error(PG::RaiseException, /ingestion_attempt_terminal/)
+    end
+
+    it "freezes the attempt's job, number and input identity" do
+      attempt = insert_attempt(job_id)
+
+      expect { conn.exec("UPDATE ingestion_attempts SET attempt_number = 2 WHERE id = '#{attempt}'") }
+        .to raise_error(PG::RaiseException, /ingestion_attempt_identity_immutable/)
+    end
+
+    it "carries no outcome without a completion instant, and no success without its output" do
+      attempt = insert_attempt(job_id)
+
+      expect { conn.exec("UPDATE ingestion_attempts SET outcome = 'succeeded' WHERE id = '#{attempt}'") }
+        .to raise_error(PG::CheckViolation, /ingestion_attempts_terminal_shape/)
+
+      expect do
+        conn.exec("UPDATE ingestion_attempts SET outcome = 'succeeded', completed_at = '#{now_iso}' " \
+                  "WHERE id = '#{attempt}'")
+      end.to raise_error(PG::CheckViolation, /ingestion_attempts_terminal_shape/)
+    end
+
+    it "numbers attempts uniquely within one job" do
+      insert_attempt(job_id, number: 1)
+
+      expect { insert_attempt(job_id, number: 1) }.to raise_error(PG::UniqueViolation)
+      expect { insert_attempt(job_id, number: 2) }.not_to raise_error
+    end
+  end
+
+  describe "tenancy and grants" do
+    it "forces row-level security on all three tables" do
+      %w[documents ingestion_jobs ingestion_attempts].each do |table|
+        row = DbInspector.one("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1",
+                              [table])
+        expect(row["relrowsecurity"]).to eq("t"), "#{table} does not enable RLS"
+        expect(row["relforcerowsecurity"]).to eq("t"), "#{table} does not FORCE RLS"
+      end
+    end
+
+    # :302 — a Document "leaves product use only through the separate retention and deletion
+    # lifecycle, which destroys the row rather than transitioning it". That lifecycle is not built and
+    # is not S-07-010's, so no runtime role may destroy one yet.
+    it "grants the runtime no DELETE on any of the three" do
+      %w[documents ingestion_jobs ingestion_attempts].each do |table|
+        granted = DbInspector.all(<<~SQL, [table]).map { |r| r["privilege_type"] }
+          SELECT privilege_type FROM information_schema.role_table_grants
+          WHERE table_name = $1 AND grantee = 'f1_runtime'
+        SQL
+
+        expect(granted).not_to include("DELETE"), "#{table} grants DELETE to f1_runtime"
+        expect(granted).to include("SELECT", "INSERT", "UPDATE"), "#{table} is missing a runtime grant"
+      end
+    end
+  end
+end

@@ -707,6 +707,43 @@ $$;
 
 
 --
+-- Name: f1_documents_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_documents_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE allowed text[];
+BEGIN
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
+     OR NEW.canonical_url_sha256 IS DISTINCT FROM OLD.canonical_url_sha256
+     OR NEW.version IS DISTINCT FROM OLD.version
+     OR NEW.predecessor_document_id IS DISTINCT FROM OLD.predecessor_document_id
+     OR NEW.fetched_object_id IS DISTINCT FROM OLD.fetched_object_id
+     OR NEW.content_sha256 IS DISTINCT FROM OLD.content_sha256
+     OR NEW.byte_size IS DISTINCT FROM OLD.byte_size
+     OR NEW.media_type IS DISTINCT FROM OLD.media_type
+     OR NEW.discovered_at IS DISTINCT FROM OLD.discovered_at THEN
+    RAISE EXCEPTION 'document_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  allowed := CASE OLD.state WHEN 'discovered' THEN ARRAY['ingested'] WHEN 'ingested' THEN ARRAY['parsed'] WHEN 'parsed' THEN ARRAY['indexed'] ELSE ARRAY[]::text[] END;
+  IF NOT (NEW.state = ANY (allowed)) THEN
+    RAISE EXCEPTION 'document_illegal_transition % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_encrypted_record_destroy(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1369,6 +1406,78 @@ BEGIN
     AND a.lease_expires_at > v_now;
   GET DIAGNOSTICS v_changed = ROW_COUNT;
   RETURN v_changed > 0;
+END;
+$$;
+
+
+--
+-- Name: f1_ingestion_attempts_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_ingestion_attempts_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.ingestion_job_id IS DISTINCT FROM OLD.ingestion_job_id
+     OR NEW.attempt_number IS DISTINCT FROM OLD.attempt_number
+     OR NEW.replay_generation IS DISTINCT FROM OLD.replay_generation
+     OR NEW.input_sha256 IS DISTINCT FROM OLD.input_sha256
+     OR NEW.scheduled_at IS DISTINCT FROM OLD.scheduled_at THEN
+    RAISE EXCEPTION 'ingestion_attempt_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF OLD.outcome IS NOT NULL THEN
+    RAISE EXCEPTION 'ingestion_attempt_terminal' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_ingestion_jobs_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_ingestion_jobs_lifecycle_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE allowed text[];
+BEGIN
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.source_id IS DISTINCT FROM OLD.source_id
+     OR NEW.crawl_id IS DISTINCT FROM OLD.crawl_id
+     OR NEW.document_id IS DISTINCT FROM OLD.document_id
+     OR NEW.canonical_url IS DISTINCT FROM OLD.canonical_url
+     OR NEW.fetched_body_sha256 IS DISTINCT FROM OLD.fetched_body_sha256
+     OR NEW.ingestion_schema_version IS DISTINCT FROM OLD.ingestion_schema_version THEN
+    RAISE EXCEPTION 'ingestion_job_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  allowed := CASE OLD.state WHEN 'queued' THEN ARRAY['running'] WHEN 'running' THEN ARRAY['succeeded','failed'] WHEN 'failed' THEN ARRAY['queued','dead_letter'] WHEN 'dead_letter' THEN ARRAY['queued'] ELSE ARRAY[]::text[] END;
+  IF NOT (NEW.state = ANY (allowed)) THEN
+    RAISE EXCEPTION 'ingestion_job_illegal_transition % -> %', OLD.state, NEW.state
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  -- THE REPLAY GENERATION MOVES ON EXACTLY ONE EDGE, AND BY EXACTLY ONE. :303 — "Authorized
+  -- replay changes this existing row `dead_letter -> queued`, increments replay generation
+  -- exactly once". Any other edge must leave it alone; that edge must advance it by one.
+  IF OLD.state = 'dead_letter' AND NEW.state = 'queued' THEN
+    IF NEW.replay_generation IS DISTINCT FROM OLD.replay_generation + 1 THEN
+      RAISE EXCEPTION 'ingestion_job_replay_generation_not_incremented'
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  ELSIF NEW.replay_generation IS DISTINCT FROM OLD.replay_generation THEN
+    RAISE EXCEPTION 'ingestion_job_replay_generation_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
 END;
 $$;
 
@@ -2615,6 +2724,53 @@ ALTER TABLE ONLY public.crawls FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: documents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.documents (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    canonical_url_sha256 bytea NOT NULL,
+    version bigint NOT NULL,
+    predecessor_document_id uuid,
+    fetched_object_id uuid NOT NULL,
+    media_type text NOT NULL,
+    byte_size bigint NOT NULL,
+    content_sha256 bytea NOT NULL,
+    state text NOT NULL,
+    discovered_at timestamp(6) with time zone NOT NULL,
+    ingested_at timestamp(6) with time zone,
+    parsed_at timestamp(6) with time zone,
+    indexed_at timestamp(6) with time zone,
+    transition_reason_code text,
+    CONSTRAINT documents_byte_size_check CHECK ((byte_size >= 0)),
+    CONSTRAINT documents_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT documents_canonical_url_sha256_check CHECK ((octet_length(canonical_url_sha256) = 32)),
+    CONSTRAINT documents_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT documents_lifecycle_times CHECK ((((state = 'discovered'::text) AND (ingested_at IS NULL) AND (parsed_at IS NULL) AND (indexed_at IS NULL)) OR ((state = 'ingested'::text) AND (ingested_at IS NOT NULL) AND (parsed_at IS NULL) AND (indexed_at IS NULL)) OR ((state = 'parsed'::text) AND (ingested_at IS NOT NULL) AND (parsed_at IS NOT NULL) AND (indexed_at IS NULL)) OR ((state = 'indexed'::text) AND (ingested_at IS NOT NULL) AND (parsed_at IS NOT NULL) AND (indexed_at IS NOT NULL)))),
+    CONSTRAINT documents_media_type_check CHECK (((length(media_type) >= 1) AND (length(media_type) <= 255))),
+    CONSTRAINT documents_predecessor_not_self CHECK ((predecessor_document_id IS DISTINCT FROM id)),
+    CONSTRAINT documents_state_check CHECK ((state = ANY (ARRAY['discovered'::text, 'ingested'::text, 'parsed'::text, 'indexed'::text]))),
+    CONSTRAINT documents_transition_reason_code_check CHECK (((transition_reason_code IS NULL) OR (transition_reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text))),
+    CONSTRAINT documents_version_check CHECK ((version > 0))
+);
+
+ALTER TABLE ONLY public.documents FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: entitlement_commit_intents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3178,6 +3334,101 @@ CREATE TABLE public.identity_receipt_nonces (
     CONSTRAINT identity_receipt_nonces_retention_class_check CHECK ((retention_class = 'security_audit'::text)),
     CONSTRAINT receipt_expiry_is_ten_minutes CHECK ((expires_at = (validated_at + '00:10:00'::interval)))
 );
+
+
+--
+-- Name: ingestion_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingestion_attempts (
+    id uuid NOT NULL,
+    checkpoint_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    ingestion_job_id uuid NOT NULL,
+    attempt_number integer NOT NULL,
+    replay_generation bigint DEFAULT 0 NOT NULL,
+    input_sha256 bytea NOT NULL,
+    claim_owner uuid,
+    claim_generation bigint DEFAULT 0 NOT NULL,
+    claimed_at timestamp(6) with time zone,
+    lease_expires_at timestamp(6) with time zone,
+    last_heartbeat_at timestamp(6) with time zone,
+    scheduled_at timestamp(6) with time zone NOT NULL,
+    started_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone NOT NULL,
+    output_object_id uuid,
+    output_sha256 bytea,
+    outcome text,
+    reason_code text,
+    CONSTRAINT ingestion_attempts_attempt_number_check CHECK ((attempt_number > 0)),
+    CONSTRAINT ingestion_attempts_input_sha256_check CHECK ((octet_length(input_sha256) = 32)),
+    CONSTRAINT ingestion_attempts_outcome_check CHECK (((outcome IS NULL) OR (outcome = ANY (ARRAY['succeeded'::text, 'failed'::text])))),
+    CONSTRAINT ingestion_attempts_output_sha256_check CHECK (((output_sha256 IS NULL) OR (octet_length(output_sha256) = 32))),
+    CONSTRAINT ingestion_attempts_reason_code_check CHECK (((reason_code IS NULL) OR (reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text))),
+    CONSTRAINT ingestion_attempts_replay_generation_check CHECK ((replay_generation >= 0)),
+    CONSTRAINT ingestion_attempts_started_before_completed CHECK (((completed_at IS NULL) OR ((started_at IS NOT NULL) AND (started_at <= completed_at)))),
+    CONSTRAINT ingestion_attempts_terminal_shape CHECK ((((outcome IS NULL) AND (completed_at IS NULL) AND (output_object_id IS NULL) AND (output_sha256 IS NULL) AND (reason_code IS NULL)) OR ((outcome = 'succeeded'::text) AND (completed_at IS NOT NULL) AND (output_object_id IS NOT NULL) AND (output_sha256 IS NOT NULL)) OR ((outcome = 'failed'::text) AND (completed_at IS NOT NULL) AND (output_object_id IS NULL) AND (output_sha256 IS NULL) AND (reason_code IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.ingestion_attempts FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: ingestion_jobs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingestion_jobs (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    document_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    fetched_body_sha256 bytea NOT NULL,
+    ingestion_schema_version text NOT NULL,
+    replay_generation bigint DEFAULT 0 NOT NULL,
+    attempt_count bigint DEFAULT 0 NOT NULL,
+    next_due_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone,
+    recovery_source_event_id uuid,
+    recovery_command_id uuid,
+    earlier_terminal_reason_code text,
+    replay_requester_account_id uuid,
+    replay_support_session_id uuid,
+    replay_human_rationale text,
+    replay_requested_at timestamp(6) with time zone,
+    state text NOT NULL,
+    last_reason_code text,
+    CONSTRAINT ingestion_jobs_attempt_count_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT ingestion_jobs_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT ingestion_jobs_fetched_body_sha256_check CHECK ((octet_length(fetched_body_sha256) = 32)),
+    CONSTRAINT ingestion_jobs_ingestion_schema_version_check CHECK ((ingestion_schema_version = 'ingestion-interim-v1'::text)),
+    CONSTRAINT ingestion_jobs_last_reason_code_check CHECK (((last_reason_code IS NULL) OR (last_reason_code ~ '^[a-z][a-z0-9_]{0,119}$'::text))),
+    CONSTRAINT ingestion_jobs_replay_capsule CHECK ((((replay_generation = 0) AND (recovery_source_event_id IS NULL) AND (recovery_command_id IS NULL) AND (earlier_terminal_reason_code IS NULL) AND (replay_requester_account_id IS NULL) AND (replay_support_session_id IS NULL) AND (replay_human_rationale IS NULL) AND (replay_requested_at IS NULL)) OR ((replay_generation > 0) AND (recovery_source_event_id IS NOT NULL) AND (recovery_command_id IS NOT NULL) AND (earlier_terminal_reason_code IS NOT NULL) AND (replay_requester_account_id IS NOT NULL) AND (replay_human_rationale IS NOT NULL) AND (replay_requested_at IS NOT NULL)))),
+    CONSTRAINT ingestion_jobs_replay_generation_check CHECK ((replay_generation >= 0)),
+    CONSTRAINT ingestion_jobs_replay_human_rationale_check CHECK (((replay_human_rationale IS NULL) OR ((length(replay_human_rationale) >= 20) AND (length(replay_human_rationale) <= 2000)))),
+    CONSTRAINT ingestion_jobs_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'dead_letter'::text])))
+);
+
+ALTER TABLE ONLY public.ingestion_jobs FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -4230,6 +4481,38 @@ ALTER TABLE ONLY public.crawls
 
 
 --
+-- Name: documents documents_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: documents documents_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: documents documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: documents documents_source_url_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_source_url_version_unique UNIQUE (source_id, canonical_url_sha256, version);
+
+
+--
 -- Name: entitlement_commit_intents entitlement_commit_intents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4491,6 +4774,62 @@ ALTER TABLE ONLY public.identity_receipt_nonces
 
 ALTER TABLE ONLY public.identity_receipt_nonces
     ADD CONSTRAINT identity_receipt_nonces_receipt_digest_key UNIQUE (receipt_digest);
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_number_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_attempts
+    ADD CONSTRAINT ingestion_attempts_number_unique UNIQUE (ingestion_job_id, attempt_number);
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_attempts
+    ADD CONSTRAINT ingestion_attempts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_attempts
+    ADD CONSTRAINT ingestion_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_identity_unique UNIQUE (crawl_id, source_id, canonical_url, fetched_body_sha256, ingestion_schema_version);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4864,6 +5203,20 @@ CREATE INDEX crawls_project_state ON public.crawls USING btree (organization_id,
 
 
 --
+-- Name: documents_crawl; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX documents_crawl ON public.documents USING btree (organization_id, crawl_id);
+
+
+--
+-- Name: documents_project_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX documents_project_state ON public.documents USING btree (organization_id, project_id, state, id);
+
+
+--
 -- Name: entitlement_commit_intents_reservation_output_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4973,6 +5326,27 @@ CREATE INDEX fetch_attempts_expired_leases ON public.fetch_attempts USING btree 
 --
 
 CREATE UNIQUE INDEX idempotency_scope_key ON public.idempotency_records USING btree (scope_kind, command_type, target_type, key_digest, COALESCE(organization_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(bootstrap_principal_digest, '\x'::bytea), COALESCE(target_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
+-- Name: ingestion_attempts_job; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingestion_attempts_job ON public.ingestion_attempts USING btree (organization_id, ingestion_job_id, attempt_number);
+
+
+--
+-- Name: ingestion_jobs_document; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingestion_jobs_document ON public.ingestion_jobs USING btree (organization_id, document_id);
+
+
+--
+-- Name: ingestion_jobs_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ingestion_jobs_due ON public.ingestion_jobs USING btree (organization_id, state, next_due_at) WHERE (state = 'queued'::text);
 
 
 --
@@ -5249,6 +5623,20 @@ CREATE TRIGGER crawls_guard BEFORE DELETE OR UPDATE ON public.crawls FOR EACH RO
 
 
 --
+-- Name: documents documents_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER documents_lifecycle_guard BEFORE UPDATE ON public.documents FOR EACH ROW EXECUTE FUNCTION public.f1_documents_lifecycle_guard();
+
+
+--
+-- Name: documents documents_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER documents_terminal_closure AFTER INSERT ON public.documents FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
+
+
+--
 -- Name: entitlement_commit_intents entitlement_commit_intents_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5309,6 +5697,27 @@ CREATE TRIGGER evidence_append_only BEFORE DELETE OR UPDATE ON public.evidence F
 --
 
 CREATE TRIGGER fetch_attempts_guard BEFORE DELETE OR UPDATE ON public.fetch_attempts FOR EACH ROW EXECUTE FUNCTION public.f1_fetch_attempts_guard();
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ingestion_attempts_guard BEFORE UPDATE ON public.ingestion_attempts FOR EACH ROW EXECUTE FUNCTION public.f1_ingestion_attempts_guard();
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ingestion_jobs_lifecycle_guard BEFORE UPDATE ON public.ingestion_jobs FOR EACH ROW EXECUTE FUNCTION public.f1_ingestion_jobs_lifecycle_guard();
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_terminal_closure; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ingestion_jobs_terminal_closure AFTER INSERT ON public.ingestion_jobs FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
 
 
 --
@@ -5582,6 +5991,38 @@ ALTER TABLE ONLY public.crawls
 
 
 --
+-- Name: documents documents_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: documents documents_predecessor_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_predecessor_fk FOREIGN KEY (organization_id, project_id, predecessor_document_id) REFERENCES public.documents(organization_id, project_id, id);
+
+
+--
+-- Name: documents documents_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: documents documents_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documents
+    ADD CONSTRAINT documents_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
 -- Name: entitlement_commit_intents entitlement_commit_intents_org_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5771,6 +6212,54 @@ ALTER TABLE ONLY public.fetch_attempts
 
 ALTER TABLE ONLY public.identity_receipt_consumptions
     ADD CONSTRAINT identity_receipt_consumptions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.identity_receipt_nonces(id);
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_job_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_attempts
+    ADD CONSTRAINT ingestion_attempts_job_fk FOREIGN KEY (organization_id, project_id, ingestion_job_id) REFERENCES public.ingestion_jobs(organization_id, project_id, id);
+
+
+--
+-- Name: ingestion_attempts ingestion_attempts_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_attempts
+    ADD CONSTRAINT ingestion_attempts_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_crawl_fk FOREIGN KEY (organization_id, project_id, crawl_id) REFERENCES public.crawls(organization_id, project_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_document_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_document_fk FOREIGN KEY (organization_id, project_id, document_id) REFERENCES public.documents(organization_id, project_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: ingestion_jobs ingestion_jobs_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_jobs
+    ADD CONSTRAINT ingestion_jobs_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
 
 
 --
@@ -6082,6 +6571,19 @@ CREATE POLICY crawls_context ON public.crawls USING ((organization_id = public.f
 
 
 --
+-- Name: documents; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: documents documents_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY documents_context ON public.documents USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: entitlement_commit_intents; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -6248,6 +6750,32 @@ ALTER TABLE public.identity_receipt_consumptions ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.identity_receipt_nonces ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ingestion_attempts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ingestion_attempts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ingestion_attempts ingestion_attempts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY ingestion_attempts_context ON public.ingestion_attempts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: ingestion_jobs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ingestion_jobs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ingestion_jobs ingestion_jobs_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY ingestion_jobs_context ON public.ingestion_jobs USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
 
 --
 -- Name: invitation_reference_registry; Type: ROW SECURITY; Schema: public; Owner: -
@@ -6490,6 +7018,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260806100000'),
 ('20260727120390'),
 ('20260727120380'),
 ('20260727120370'),
