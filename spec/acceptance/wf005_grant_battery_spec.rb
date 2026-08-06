@@ -148,6 +148,46 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
                     [org]).map { |r| r["id"] }
   end
 
+  # Seed one further Role Assignment for the ACTOR'S OWN account and return it in the shape the
+  # decision carries. Seeded rather than moved, because `f1_role_assignments_lifecycle_guard` freezes
+  # `canonical_role`, `permission_mode` and `persona` after insert — which is itself why neither axis
+  # can be reached by moving a row underneath a decision.
+  def seed_actor_grant(env, canonical_role:, permission_mode: "standard", persona: nil)
+    account = DbInspector.one("SELECT account_id FROM sessions WHERE id = $1::uuid",
+                              [env[:session]])["account_id"]
+    TenantSeeder.create_role_assignment(organization_id: env[:org], account_id: account,
+                                        canonical_role:, permission_mode:, persona:)
+    row = DbInspector.one(<<~SQL, [env[:org], account, canonical_role, permission_mode])
+      SELECT id, state_version, coalesce(encode(scope_sha256, 'hex'), '') AS scope_hex
+      FROM role_assignments
+      WHERE organization_id = $1::uuid AND account_id = $2::uuid AND status = 'active'
+        AND canonical_role = $3 AND permission_mode = $4
+    SQL
+    raise "the #{canonical_role}/#{permission_mode} grant was not seeded" if row.nil?
+
+    row
+  end
+
+  # THE AUTHORITY AS PRODUCTION BUILDS IT, for a decision carrying exactly `grant`. `confers?` filters
+  # a denied grant out of `decision.granting` upstream, so the decision is constructed here holding it:
+  # that is precisely the state a deleted or wrong `confers?` produces, and it is what the write-level
+  # counterpart exists to survive. The DERIVATIONS are the real ones — this is the half no fixture can
+  # bind, because `AuthorityFixture` carries its own copy of them.
+  def production_authority(env, capability, grant)
+    in_org(env[:org]) do |pg|
+      auth = IdentityAccess::Authorization::CommandAuthorizer.new(
+        IdentityAccess::Infrastructure::AuthorizationStore.new(pg)
+      )
+      actor = auth.authenticate(session_id: env[:session], now: start_now,
+                                correlation_id: SecureRandom.uuid_v7)
+      decision = IdentityAccess::Authorization::Decision.new(
+        allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
+        policy_snapshot_id: nil, role_assignment_versions: [], granting_assignments: [grant]
+      )
+      IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:)
+    end
+  end
+
   def move_grants(org, set, params = [])
     DbInspector.connection.exec_params(<<~SQL, [org, *params])
       UPDATE role_assignments SET #{set}
@@ -334,6 +374,63 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
       expect(outcome[:capability_authorized]).to be(false),
                                                  "a grant belonging to another Account authorised this " \
                                                  "principal's protected write"
+      expect(spec.fetch(:applied).call(outcome)).to eq(0)
+      expect(send(spec.fetch(:untouched), env)).to be(true)
+    end
+
+    # THE DERIVATIONS, BOUND AT EVERY CAPABILITY RATHER THAN AT ONE (round-19 finding R-ADV-2).
+    #
+    # PROOF 265 and PROOF 266 each drive ONE write, so each binds its derivation for ONE capability.
+    # `WriteAuthority.for` reads the ratified cell PER CAPABILITY, and every other read-only or
+    # denied-role case in the suite builds its authority through `AuthorityFixture`, which carries its
+    # OWN copy of both expressions. Measured: breaking `read_only_permitted` for `crawl.trigger` ALONE,
+    # or for `policy.crawl.manage` ALONE, or breaking `allowed_roles` for `crawl.trigger` ALONE, leaves
+    # ALL 1185 acceptance examples green — and a Read-Only Executive Buyer then QUEUES A CRAWL
+    # (`capability_authorized=true inserted=1`). That is round-18 CB-1 one capability over, inside the
+    # round-19 repair for it, and it is this tranche's signature shape: a control proved at one
+    # instance and assumed at the others.
+    #
+    # These two cases live in the shared examples so they run at EVERY write BY CONSTRUCTION, which is
+    # the same structural answer the principal-conjunct case above uses. Each seeds a grant for the
+    # ACTOR'S OWN account — so the principal qual passes — and builds the authority through the
+    # PRODUCTION BUILDER for THIS write's real capability.
+    it "refuses a READ-ONLY grant when the authority comes from the PRODUCTION BUILDER (R-ADV-2)" do
+      # `MarketingOperator` is inside every one of the three ratified cells, so the ROLE qual passes and
+      # the sixth column is the only thing that can refuse it. If `read_only_permitted` were derived
+      # permissively for THIS capability, the write would authorise.
+      grant = seed_actor_grant(env, canonical_role: "MarketingOperator",
+                                    permission_mode: "read_only", persona: "executive_buyer")
+      expect(Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)))
+        .to include("MarketingOperator"),
+            "the seeded role is outside this capability's cell, so the ROLE qual would refuse first " \
+            "and this case would not bind the read-only derivation"
+
+      outcome = drive(spec, env, production_authority(env, spec.fetch(:capability), grant))
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a read-only grant spent this capability through the " \
+                                                 "production builder, so the sixth column is not what " \
+                                                 "`WriteAuthority.for` derives for it"
+      expect(spec.fetch(:applied).call(outcome)).to eq(0)
+      expect(send(spec.fetch(:untouched), env)).to be(true)
+    end
+
+    it "refuses a grant whose role the cell EXCLUDES, from the PRODUCTION BUILDER (R-ADV-2)" do
+      # `TechnicalImplementer` is denied all three capabilities by the ratified table, and the battery
+      # passes no `required_role`, so `allowed_roles` is the only thing that can refuse it. If the cell
+      # were derived as a union — R17-SEC-1 one layer up — the write would authorise.
+      grant = seed_actor_grant(env, canonical_role: "TechnicalImplementer")
+      expect(Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)))
+        .not_to include("TechnicalImplementer"),
+                "the ratified cell now admits this role, so the case proves nothing"
+
+      outcome = drive(spec, env, production_authority(env, spec.fetch(:capability), grant))
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "a role the ratified cell denies spent this capability " \
+                                                 "through the production builder"
       expect(spec.fetch(:applied).call(outcome)).to eq(0)
       expect(send(spec.fetch(:untouched), env)).to be(true)
     end
