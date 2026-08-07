@@ -67,6 +67,19 @@ RSpec.describe "Source ownership verification", type: :request do
     expect(source_state).to eq("proposed")
   end
 
+  # The pending `initial` Evaluation a started Crawl opens, written directly because the
+  # workflow that opens it runs in a background process. Only the four columns WF-005's
+  # own predicate reads are meaningful here.
+  def open_initial_evaluation
+    crawl = DbInspector.all("SELECT id, organization_id, project_id FROM crawls").first
+    DbInspector.all(<<~SQL, [crawl["organization_id"], crawl["project_id"], crawl["id"]])
+      INSERT INTO evaluations (id, created_at, updated_at, correlation_id, organization_id,
+                               project_id, crawl_id, kind, state)
+      VALUES (gen_random_uuid(), now(), now(), gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid,
+              'initial', 'pending')
+    SQL
+  end
+
   def issue_challenge(method = "dns_txt")
     post verification_path, params: { verification_method: method }
   end
@@ -302,6 +315,35 @@ RSpec.describe "Source ownership verification", type: :request do
       follow_redirect!
       expect(response.body).to include("Crawl queued")
       expect(DbInspector.all("SELECT state FROM crawls").first["state"]).to eq("queued")
+    end
+
+    it "states the OD-018 guard instead of offering a second trigger that would refuse" do
+      registered_source
+      issue_challenge
+      publish(required_value)
+      post "#{verification_path}/observe"
+      post "/app/projects/#{project_id}/sources/#{source_id}/activate"
+      post "/app/projects/#{project_id}/activate"
+      post "/app/projects/#{project_id}/crawls"
+      # The `initial` Evaluation is opened by StartCrawl, in the background worker, which
+      # this suite deliberately does not run. Its ROW is the whole precondition, so the
+      # row is what the screen is put in front of.
+      open_initial_evaluation
+
+      get "/app/projects/#{project_id}/crawls"
+
+      # The first crawl opened an `initial` Evaluation, which is exactly what WF-005
+      # refuses a second crawl on.
+      expect(response.body).to include("This project cannot be crawled again")
+      expect(response.body).to include("opened an evaluation that has not resolved")
+      expect(response.body).not_to include("Queue crawl")
+
+      # And the route still refuses directly, with the workflow's own reason: a hidden
+      # control is not a denial.
+      post "/app/projects/#{project_id}/crawls"
+      follow_redirect!
+      expect(response.body).to include("already has a crawl in flight")
+      expect(DbInspector.all("SELECT id FROM crawls").length).to eq(1)
     end
 
     it "shows what the run is doing, and says plainly that it has produced nothing yet" do

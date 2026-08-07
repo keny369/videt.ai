@@ -20,7 +20,9 @@ module App
 
         { project:,
           crawls: store.crawls(organization_id: actor.organization_id, project_id: params[:project_id]),
-          sources: store.sources(organization_id: actor.organization_id, project_id: params[:project_id]) }
+          sources: store.sources(organization_id: actor.organization_id, project_id: params[:project_id]),
+          evaluation_in_flight: store.initial_evaluation_in_flight?(organization_id: actor.organization_id,
+                                                                    project_id: params[:project_id]) }
       end
       return if outcome.nil?
       return render("shared/not_found", status: :not_found) if outcome.value.nil?
@@ -31,6 +33,12 @@ module App
       # refusal the command would give rather than a guess at it.
       @active_sources = outcome.value[:sources].count { |s| s["state"] == "active" }
       @project_active = @project["state"] == "active"
+      # The OD-018 guard. It is stated here for the same reason as the other two, and it
+      # deserves its own sentence: a first Crawl opens an `initial` Evaluation, and the
+      # workflow that would resolve that Evaluation is a later slice, so today the first
+      # Crawl of a Project is currently its only one. Saying so is the honest screen; a
+      # button that always refuses is not.
+      @evaluation_in_flight = outcome.value[:evaluation_in_flight]
       @can_trigger = permitted?(outcome, "crawl.trigger")
     end
 

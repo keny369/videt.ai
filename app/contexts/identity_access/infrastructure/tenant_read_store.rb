@@ -184,6 +184,20 @@ module IdentityAccess
         SQL
       end
 
+      # The OD-018 queue-time guard, read for the screen rather than discovered by pressing
+      # a button WF-005 will refuse: a Project with a pending or running `initial`
+      # Evaluation cannot queue another Crawl.
+      #
+      # This is the same predicate `QueueCrawl` evaluates, so the screen states the
+      # workflow's own precondition and not an approximation of it.
+      def initial_evaluation_in_flight?(organization_id:, project_id:)
+        exec(<<~SQL, [organization_id, project_id]).to_a.first["n"].to_i.positive?
+          SELECT COUNT(*) AS n FROM evaluations
+          WHERE organization_id = $1::uuid AND project_id = $2::uuid AND kind = 'initial'
+            AND state IN ('pending','running')
+        SQL
+      end
+
       # The per-URL terminal record: the decided outcome of each frontier entry and what
       # it did to coverage. This is the row that explains a run with no Documents — a
       # host that could not serve robots.txt terminates here with `not_covered` and

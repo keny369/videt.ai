@@ -8,7 +8,7 @@
 
 <div class="page-heading">
   <h1>Crawls</h1>
-  <% if @can_trigger && @project_active && @active_sources.positive? %>
+  <% if @can_trigger && @project_active && @active_sources.positive? && !@evaluation_in_flight %>
     <%= button_to "Queue crawl", app_project_crawls_path(@project["id"]),
                   method: :post, class: "button", form: { data: { turbo: false } } %>
   <% end %>
@@ -16,9 +16,9 @@
 
 <%# The prerequisite is stated rather than discovered by pressing a button that always
     refuses. These are the same two conditions WF-005 evaluates. %>
-<% unless @project_active && @active_sources.positive? %>
+<% unless @project_active && @active_sources.positive? && !@evaluation_in_flight %>
   <div class="errors" role="status">
-    <h2>This project cannot be crawled yet</h2>
+    <h2>This project cannot be crawled <%= @evaluation_in_flight ? "again" : "yet" %></h2>
     <ul>
       <% unless @project_active %>
         <li>The project is <%= @project["state"] %>. It must be active.</li>
@@ -27,6 +27,12 @@
         <li>
           No active source. A source must have its ownership verified and then be
           activated. <%= link_to "Review sources", app_project_sources_path(@project["id"]) %>.
+        </li>
+      <% end %>
+      <% if @evaluation_in_flight %>
+        <li>
+          The first crawl of this project opened an evaluation that has not resolved.
+          Until it does, this project accepts no further crawls.
         </li>
       <% end %>
     </ul>
