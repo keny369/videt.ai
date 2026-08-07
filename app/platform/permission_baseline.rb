@@ -127,7 +127,30 @@ module Platform
       # cells are identical: :738 says "cancellation requires `crawl.cancel`", and collapsing two
       # ratified permissions into one because today's cells agree is how a later divergence in the
       # table becomes silently unimplementable. NOT a protected permission (:333 omits it).
-      "crawl.cancel" => %w[OrganizationAdmin MarketingOperator].freeze
+      "crawl.cancel" => %w[OrganizationAdmin MarketingOperator].freeze,
+      # THE CUSTOMER-FACING READS, materialized for the first time (OD-020; :202 "Each
+      # read is tenant-scoped, is denied outside an explicit grant, confers no write
+      # authority, and is never implied by holding a companion mutation permission").
+      # Until now not one read was transcribed, so every read answered `deny` and no read
+      # screen could render at all.
+      #
+      # ":154 `organization.read` | allow for own Organization | allow for own
+      # Organization | allow for own Organization | support-session only | allow for own
+      # Organization | allow for own Organization | workflow-specific only". The
+      # SecurityOperator arm is support-session-only, deferred exactly as the two
+      # Organization lifecycle rows are. BillingOperator IS allowed here, and only here
+      # among the reads.
+      "organization.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer BillingOperator].freeze,
+      # ":155 `project.read`, `source.read`, `crawl.read`, `evaluation.read` | allow |
+      # allow | allow | authorized incident/adjudication scope only | deny | allow |
+      # workflow-specific only". One ratified row, four capabilities: BillingOperator
+      # denies, and the SecurityOperator cell is conditional on an incident/adjudication
+      # scope this build has no mechanism for, so it is deferred rather than transcribed.
+      # `evaluation.read` is deliberately NOT materialized — no Evaluation read screen
+      # exists, and an allow nothing consumes is an unexercised one.
+      "project.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
+      "source.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
+      "crawl.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are
@@ -258,7 +281,12 @@ module Platform
     # assignment-scope (GrantScope) containment limb, which remains open and is a
     # different dimension of the same row.
     READ_ONLY_MODE = "read_only"
-    READ_ONLY_CAPABILITIES = [].freeze
+    # The sixth column, now that this build materializes read capabilities. :154 and :155
+    # both read `allow for own Organization`/`allow` for the Read-Only Executive Buyer,
+    # so a `read_only` assignment confers exactly these and nothing else — which is what
+    # makes the mode meaningful rather than decorative: the same MarketingOperator row
+    # that allows `project.create` in `standard` confers none of it in `read_only`.
+    READ_ONLY_CAPABILITIES = %w[organization.read project.read source.read crawl.read].freeze
 
     # Does an assignment held in `permission_mode` confer `capability`? Any mode other
     # than `read_only` is unconstrained by this dimension and answers to the role cell

@@ -1,14 +1,34 @@
 Rails.application.routes.draw do
-  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
-
-  # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
-  # Can be used by load balancers and uptime monitors to verify that the app is live.
+  # Liveness only: 200 if the app boots. Outside every authenticated surface and
+  # carrying no product data.
   get "up" => "rails/health#show", as: :rails_health_check
 
-  # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
-  # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
-  # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
+  # WEB-001..WEB-005 (FRONTEND_ARCHITECTURE.md § Unauthenticated and identity screens).
+  # Everything under /start is receipt-entry: no Session exists yet, the forms set
+  # data-turbo="false", and success is a 303 to the authorized logical destination.
+  scope "/start", as: :start do
+    get "sign-in", to: "start/sign_ins#new", as: :sign_in
+    post "sign-in", to: "start/sign_ins#create"
 
-  # Defines the root path route ("/")
-  # root "posts#index"
+    get "bootstrap-grant", to: "start/bootstrap_grants#new", as: :bootstrap_grant
+    post "bootstrap-grant", to: "start/bootstrap_grants#create"
+
+    get "bootstrap-organization", to: "start/organizations#new", as: :bootstrap_organization
+    post "bootstrap-organization", to: "start/organizations#create"
+  end
+
+  # The Session-bound product shell. Every route declares the exact capability it needs;
+  # none infers one from the controller or action name.
+  scope "/app", module: "app", as: :app do
+    root to: "home#show", as: :home
+
+    resources :projects, only: %i[index new create] do
+      member { post :activate }
+    end
+
+    # WEB-005: a Session with no effective access has somewhere deterministic to land.
+    get "access-unavailable", to: "access#unavailable", as: :access_unavailable
+  end
+
+  root to: redirect("/app")
 end

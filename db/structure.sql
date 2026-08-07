@@ -1043,7 +1043,7 @@ $$;
 -- Name: f1_enter_self_service_context(bytea, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.f1_enter_self_service_context(p_receipt_digest bytea, p_org_id uuid, p_correlation_id uuid) RETURNS TABLE(receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, mfa_satisfied boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, bootstrap_principal_digest bytea, organization_id uuid)
+CREATE FUNCTION public.f1_enter_self_service_context(p_receipt_digest bytea, p_org_id uuid, p_correlation_id uuid) RETURNS TABLE(receipt_id uuid, purpose text, validated_at timestamp with time zone, expires_at timestamp with time zone, email_verified boolean, mfa_satisfied boolean, issuer_key text, issuer_subject text, receipt_schema_version text, assurance_version text, bootstrap_principal_digest bytea, organization_id uuid, normalized_email text)
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'pg_catalog', 'public'
     AS $$
@@ -1061,7 +1061,7 @@ BEGIN
 
   RETURN QUERY SELECT r.id, r.purpose, r.validated_at, r.expires_at, r.email_verified,
                       r.mfa_satisfied, r.issuer_key, r.issuer_subject, r.receipt_schema_version,
-                      r.assurance_version, v_principal, p_org_id;
+                      r.assurance_version, v_principal, p_org_id, r.normalized_email;
 END;
 $$;
 
@@ -7182,6 +7182,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260807130000'),
 ('20260807120000'),
 ('20260807090000'),
 ('20260806110000'),

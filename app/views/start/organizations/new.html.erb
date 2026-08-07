@@ -1,0 +1,56 @@
+<% content_for :title, "Name your organization" %>
+
+<div class="panel">
+  <h1>Name your organization</h1>
+  <p class="lede">
+    Step 2 of 2, for <strong><%= @email %></strong>. This creates the organization, its
+    billing entity, your administrator role and a first draft project in one commit.
+  </p>
+
+  <% if @error.present? %>
+    <div class="errors" role="alert" tabindex="-1">
+      <h2>That could not be completed</h2>
+      <p><%= @error %></p>
+    </div>
+  <% end %>
+
+  <% if @field_errors.present? %>
+    <div class="errors" role="alert" tabindex="-1">
+      <h2>Check the following</h2>
+      <ul>
+        <% @field_errors.each do |field, message| %>
+          <li><%= link_to message, "##{field}" %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= form_with url: start_bootstrap_organization_path, method: :post, data: { turbo: false }, class: "form" do %>
+    <div class="field">
+      <%= label_tag :organization_display_name, "Organization name" %>
+      <%= text_field_tag :organization_display_name, @organization_display_name, required: true,
+                         maxlength: 120, autofocus: true,
+                         "aria-invalid": @field_errors&.key?(:organization_display_name),
+                         "aria-describedby": "organization_display_name_hint" %>
+      <p class="hint" id="organization_display_name_hint">1 to 120 characters.</p>
+    </div>
+
+    <div class="field">
+      <%= label_tag :project_display_name, "First project name" %>
+      <%= text_field_tag :project_display_name, @project_display_name, required: true,
+                         maxlength: 120,
+                         "aria-invalid": @field_errors&.key?(:project_display_name),
+                         "aria-describedby": "project_display_name_hint" %>
+      <p class="hint" id="project_display_name_hint">
+        The website or property you want assessed first.
+      </p>
+    </div>
+
+    <div class="field">
+      <%= label_tag :project_objective, "Objective (optional)" %>
+      <%= text_field_tag :project_objective, @project_objective, maxlength: 500 %>
+    </div>
+
+    <button type="submit">Create organization</button>
+  <% end %>
+</div>

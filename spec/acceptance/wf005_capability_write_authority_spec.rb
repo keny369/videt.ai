@@ -770,10 +770,17 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
           AND status = 'active' AND permission_mode = 'read_only'
       SQL
       expect(read_only).not_to be_nil, "the read-only grant was not seeded, so this proof is vacuous"
-      expect(Platform::PermissionBaseline::READ_ONLY_CAPABILITIES).to be_empty,
-                                                                     "the ratified read-only set is no longer " \
-                                                                     "empty, so this proof must name a " \
-                                                                     "capability that set still excludes"
+      # The set is no longer empty: OD-020's customer-facing reads are materialized, and :155's
+      # sixth cell allows them to a Read-Only Executive Buyer. That is exactly the amendment this
+      # guard was written to catch, and it says what to do about it — "this proof must name a
+      # capability that set still excludes". `crawl.cancel` is such a capability: :147's read-only
+      # cell reads `deny`, so the mode check is still the only thing that can refuse this write,
+      # which is what keeps the proof non-vacuous.
+      expect(Platform::PermissionBaseline::READ_ONLY_CAPABILITIES).not_to include("crawl.cancel"),
+                                                                          "the ratified read-only set now " \
+                                                                          "admits crawl.cancel, so the mode " \
+                                                                          "cell can no longer refuse this " \
+                                                                          "write and the proof is vacuous"
 
       outcomes = Platform::UnitOfWork.run do |conn|
         pg = conn.raw_connection

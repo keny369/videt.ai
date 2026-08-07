@@ -1,0 +1,51 @@
+<% content_for :title, "Projects" %>
+
+<div class="page-heading">
+  <h1>Projects</h1>
+  <% if @can_create %>
+    <%= link_to "New project", new_app_project_path, class: "button" %>
+  <% end %>
+</div>
+
+<% if @projects.empty? %>
+  <%# :210 empty is a successful authorized zero-item collection, and is not a denial. %>
+  <p class="empty">No projects yet.</p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Projects in this organization</caption>
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">State</th>
+        <th scope="col">Sources</th>
+        <th scope="col">Created</th>
+        <% if @can_activate %><th scope="col">Action</th><% end %>
+      </tr>
+    </thead>
+    <tbody>
+      <% @projects.each do |project| %>
+        <tr>
+          <th scope="row"><%= project["display_name"] %></th>
+          <td>
+            <%# :228 no colour-only status distinction: the word is the status. %>
+            <span class="state state--<%= project["state"] %>"><%= project["state"] %></span>
+          </td>
+          <td><%= project["source_set_version"] %></td>
+          <td><%= project["created_at"].to_s.first(10) %></td>
+          <% if @can_activate %>
+            <td>
+              <% if project["state"] == "draft" %>
+                <%= button_to "Activate", activate_app_project_path(project["id"]),
+                              method: :post, class: "button button--small",
+                              form: { data: { turbo: false } } %>
+              <% else %>
+                <span aria-hidden="true">&mdash;</span>
+                <span class="visually-hidden">No action available</span>
+              <% end %>
+            </td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

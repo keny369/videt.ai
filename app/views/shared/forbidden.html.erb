@@ -1,0 +1,10 @@
+<% content_for :title, "Not authorized" %>
+
+<div class="panel">
+  <h1>You do not have access to this</h1>
+  <%# :161 no protected partial and no echo of protected values; the stable support
+      reference is what makes the refusal traceable without disclosing anything. %>
+  <p>Your account does not hold the permission this page requires.</p>
+  <p class="aside">Support reference <code><%= support_reference %></code></p>
+  <p><%= link_to "Back to organization home", app_home_path %></p>
+</div>

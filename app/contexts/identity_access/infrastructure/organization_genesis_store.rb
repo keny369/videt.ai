@@ -25,7 +25,8 @@ module IdentityAccess
         sql = <<~SQL
           SELECT receipt_id, purpose, validated_at, expires_at, email_verified, mfa_satisfied,
                  issuer_key, issuer_subject, receipt_schema_version, assurance_version,
-                 encode(bootstrap_principal_digest,'hex') AS principal_hex, organization_id
+                 encode(bootstrap_principal_digest,'hex') AS principal_hex, organization_id,
+                 normalized_email
           FROM f1_enter_self_service_context($1, $2::uuid, $3::uuid)
         SQL
         exec(sql, [bytea(receipt_digest), organization_id, correlation_id]).to_a.first

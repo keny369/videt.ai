@@ -1,0 +1,39 @@
+<% content_for :title, "Organization home" %>
+
+<% content_for :shell do %>
+  <%= render "shared/shell", organization: @organization, account: @account,
+             can_read_projects: @can_read_projects, current: :home %>
+<% end %>
+
+<h1>Organization home</h1>
+
+<%# :61 the destination shell only. The Project list is deliberately absent: it needs
+    project.read, which holding organization.read never implies. %>
+<dl class="facts">
+  <dt>Organization</dt>
+  <dd><%= @organization["display_name"] %></dd>
+
+  <%# The identifier the sign-in form asks for. Shown because sign-in requires the
+      Organization explicitly and there is no directory lookup to supply it. %>
+  <dt>Organization identifier</dt>
+  <dd><code><%= @organization["id"] %></code></dd>
+
+  <dt>Status</dt>
+  <dd><span class="state state--<%= @organization["status"] %>"><%= @organization["status"] %></span></dd>
+
+  <dt>Reporting time zone</dt>
+  <dd><%= @organization["reporting_time_zone"] %></dd>
+
+  <dt>Locale</dt>
+  <dd><%= @organization["default_locale"] %></dd>
+
+  <dt>Signed in as</dt>
+  <dd><%= @account["normalized_email"] %></dd>
+
+  <dt>Account status</dt>
+  <dd><span class="state state--<%= @account["status"] %>"><%= @account["status"] %></span></dd>
+</dl>
+
+<% if @can_read_projects %>
+  <p><%= link_to "Go to projects", app_projects_path, class: "button" %></p>
+<% end %>

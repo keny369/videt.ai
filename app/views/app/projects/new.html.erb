@@ -1,0 +1,33 @@
+<% content_for :title, "New project" %>
+
+<h1>New project</h1>
+
+<% if @error.present? %>
+  <div class="errors" role="alert" tabindex="-1">
+    <h2>That could not be created</h2>
+    <p><%= @error %></p>
+  </div>
+<% end %>
+
+<%= form_with url: app_projects_path, method: :post, data: { turbo: false }, class: "form" do %>
+  <div class="field">
+    <%= label_tag :display_name, "Project name" %>
+    <%= text_field_tag :display_name, @display_name, required: true, maxlength: 120,
+                       autofocus: true, "aria-describedby": "display_name_hint" %>
+    <p class="hint" id="display_name_hint">1 to 120 characters.</p>
+  </div>
+
+  <div class="field">
+    <%= label_tag :local_presence_reason, "Why this project has no local presence" %>
+    <%= text_area_tag :local_presence_reason, @local_presence_reason, rows: 3,
+                      required: true, minlength: 20, maxlength: 500,
+                      "aria-describedby": "local_presence_reason_hint" %>
+    <p class="hint" id="local_presence_reason_hint">
+      20 to 500 characters. Projects that do claim a local presence need a full local
+      business profile, which this screen does not yet collect.
+    </p>
+  </div>
+
+  <button type="submit">Create project</button>
+  <%= link_to "Cancel", app_projects_path, class: "button button--quiet" %>
+<% end %>

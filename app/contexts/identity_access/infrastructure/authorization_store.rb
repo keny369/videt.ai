@@ -57,7 +57,7 @@ module IdentityAccess
       # which refuses once `now` reaches the earlier of the two. Clamping the idle field
       # here would both violate the check and quietly conflate the two rules.
       def record_session_activity(session_id:, now:, idle_seconds:)
-        exec(<<~SQL, [session_id, now, idle_seconds])
+        exec(<<~SQL, [session_id, timestamp(now), idle_seconds])
           UPDATE sessions
           SET last_activity_at = $2::timestamptz,
               idle_expires_at = $2::timestamptz + ($3 || ' seconds')::interval,
@@ -91,6 +91,16 @@ module IdentityAccess
 
       # Step 3 (:326, :316): the Account's active, effective, unexpired Role
       # Assignments in the current Organization context.
+      #
+      # `now` is normalized to microsecond ISO 8601 before it reaches PostgreSQL. A Ruby
+      # `Time` handed to `exec_params` is stringified by `to_s`, which truncates to whole
+      # SECONDS: an Assignment made effective at 10:00:00.106825 was therefore invisible
+      # to every request in the remainder of that second, because the truncated `now`
+      # compared as 10:00:00.000000 and the `effective_at <= now` test failed. The
+      # existing suites never saw it — they run at a fixed clock against Assignments
+      # seeded seconds or hours earlier — but a real actor bootstrapping an Organization
+      # and immediately loading a page hits it every time, and the symptom is a bare
+      # `missing_authority` denial for an actor who plainly holds the role.
       def effective_role_assignments(account_id:, now:)
         sql = <<~SQL
           SELECT id, canonical_role, state_version, permission_mode, persona,
@@ -101,7 +111,7 @@ module IdentityAccess
             AND effective_at IS NOT NULL AND effective_at <= $2::timestamptz
             AND (expires_at IS NULL OR $2::timestamptz < expires_at)
         SQL
-        exec(sql, [account_id, now]).to_a
+        exec(sql, [account_id, timestamp(now)]).to_a
       end
 
       # The durable, immutable authorization decision (PG § authorization_decisions),
@@ -127,6 +137,10 @@ module IdentityAccess
       private
 
       def exec(sql, params) = @pg.exec_params(sql, params)
+
+      # Full microsecond precision, whatever the caller passed. Callers that already
+      # formatted an ISO string pass straight through.
+      def timestamp(value) = value.respond_to?(:getutc) ? value.getutc.iso8601(6) : value
     end
   end
 end

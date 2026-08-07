@@ -53,14 +53,26 @@ RSpec.describe "Permission Baseline transcription", type: :model do
   # `[]` would delete that whole dimension of the battery while leaving it green. This asserts the
   # derivation against the transcription it is the complement of: a canonical role is in exactly one
   # of the two sets, for every materialized capability.
+  # The one ratified row that denies NO canonical role: :154 reads `allow for own
+  # Organization` in all six actor columns, with SecurityOperator reachable only through a
+  # Support Session. Its empty denied-set is a fact about the table, not a derivation that
+  # silently collapsed, so it is named here — and named narrowly, so any OTHER capability
+  # dropping to an empty negative population still fails the example below.
+  def universally_allowed = ["organization.read"].freeze
+
   it "derives each capability's DENIED canonical roles as the exact complement of its allowed cell" do
     materialized.each do |capability|
       denied = RatifiedPermissionBaseline.denied_roles(capability)
       allowed = Platform::PermissionBaseline::CAPABILITIES.fetch(capability)
       deferred = deferred_cells.fetch(capability, {}).keys
 
-      expect(denied).not_to be_empty, "#{capability}: no canonical role is denied, so the battery's " \
-                                      "negative population would be empty"
+      if universally_allowed.include?(capability)
+        expect(denied).to be_empty, "#{capability}: recorded as denying no canonical role, but the " \
+                                    "table now denies #{denied.inspect}"
+      else
+        expect(denied).not_to be_empty, "#{capability}: no canonical role is denied, so the battery's " \
+                                        "negative population would be empty"
+      end
       expect(denied & allowed).to be_empty, "#{capability}: a role is both allowed and denied"
       expect((denied + allowed + deferred).sort)
         .to eq(RatifiedPermissionBaseline.canonical_role_columns.sort),
@@ -81,7 +93,17 @@ RSpec.describe "Permission Baseline transcription", type: :model do
   def deferred_cells
     {
       "organization.suspend" => { "SecurityOperator" => "support-session only" },
-      "organization.reactivate" => { "SecurityOperator" => "support-session only" }
+      "organization.reactivate" => { "SecurityOperator" => "support-session only" },
+      # The customer-facing reads (OD-020). `organization.read` defers on the same
+      # support-session mechanism as the two rows above. The four-capability :155 row
+      # defers on a different one: its SecurityOperator cell is conditional on an
+      # authorized incident/adjudication scope, and neither Incidents nor Adjudication
+      # Cases are reachable in this build, so there is no scope to evaluate the cell
+      # against. Both are DEFERRED ALLOWS, the safe direction.
+      "organization.read" => { "SecurityOperator" => "support-session only" },
+      "project.read" => { "SecurityOperator" => "authorized incident/adjudication scope only" },
+      "source.read" => { "SecurityOperator" => "authorized incident/adjudication scope only" },
+      "crawl.read" => { "SecurityOperator" => "authorized incident/adjudication scope only" }
     }.freeze
   end
 

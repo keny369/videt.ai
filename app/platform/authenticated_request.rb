@@ -52,6 +52,18 @@ module Platform
     end
 
     class << self
+      # The authority port. Platform is the kernel and depends on no bounded context, so
+      # it does not name the object that authenticates a Session or evaluates a
+      # capability — those are IdentityAccess's decisions. The composition root
+      # (`config/initializers/f1_session_authority.rb`) supplies a builder taking a raw
+      # PostgreSQL connection and returning something answering the five calls below.
+      attr_writer :authority_builder
+
+      def authority_builder
+        @authority_builder ||
+          raise(Platform::InvariantViolation, "no session authority is configured for AuthenticatedRequest")
+      end
+
       # `token` is the raw cookie value. `capability` is the exact permission the route
       # declares; it is never inferred from the controller or action name.
       def call(token:, capability:, correlation_id:, clock: Platform::Clock.system, resource: nil, &block)
@@ -67,22 +79,21 @@ module Platform
 
       def authenticate_and_authorize(conn:, digest:, capability:, correlation_id:, clock:, resource:, &block)
         now = clock.now_utc
-        store = IdentityAccess::Infrastructure::AuthorizationStore.new(conn.raw_connection)
-        authorizer = IdentityAccess::Authorization::CommandAuthorizer.new(store)
+        authority = authority_builder.call(conn.raw_connection)
 
-        actor = authorizer.authenticate_by_token(token_sha256: digest, now:, correlation_id:)
+        actor = authority.authenticate_by_token(token_sha256: digest, now:, correlation_id:)
         return denial_for(actor) if actor.is_a?(Symbol)
 
         # Tier two. Re-read under the lock: a revocation that committed between the
         # pre-context resolve and here is only visible from this side of it.
-        locked = store.lock_session(actor.session_id)
+        locked = authority.lock_session(actor.session_id)
         return Denied.new(kind: :unauthenticated, reason: "session_invalid") if locked.nil? || locked["status"] != "active"
 
-        decision = authorizer.authorize(actor:, capability:, now:)
-        record_decision(store:, actor:, decision:, capability:, correlation_id:, now:, resource:)
+        decision = authority.authorize(actor:, capability:, now:)
+        record_decision(authority:, actor:, decision:, capability:, correlation_id:, now:, resource:)
         return Denied.new(kind: :forbidden, reason: decision.reason) unless decision.allowed?
 
-        store.record_session_activity(session_id: actor.session_id, now: iso(now), idle_seconds: IDLE_SECONDS)
+        authority.record_session_activity(session_id: actor.session_id, now: iso(now), idle_seconds: IDLE_SECONDS)
         Authorized.new(actor:, decision:, value: block&.call(actor, conn))
       end
 
@@ -101,10 +112,10 @@ module Platform
       # about is not evidence. A route that governs a specific entity passes it; one
       # that is Organization-wide (a collection read, a create form) resolves to the
       # Organization the Session proved, which is the thing actually being acted on.
-      def record_decision(store:, actor:, decision:, capability:, correlation_id:, now:, resource:)
+      def record_decision(authority:, actor:, decision:, capability:, correlation_id:, now:, resource:)
         type = resource&.[](:type) || "organization"
         id = resource&.[](:id) || actor.organization_id
-        store.insert_authorization_decision(
+        authority.record_authorization_decision(
           id: SecureRandom.uuid_v7, created_at: iso(now), organization_id: actor.organization_id,
           correlation_id:, causation_id: correlation_id, command_id: nil,
           subject_id: actor.account_id, action: capability,

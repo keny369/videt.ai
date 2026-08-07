@@ -75,6 +75,12 @@ module IdentityAccess
       # Canonical roles of the Account's currently effective Role Assignments
       # (active, effective_at reached, not expired). Feeds the admin-role-capable
       # MFA gate and the organization_home/access_unavailable destination.
+      # `now` is normalized to microsecond ISO 8601 first. A Ruby `Time` handed to
+      # `exec_params` is stringified by `to_s`, which truncates to whole SECONDS, so an
+      # Assignment made effective at 10:00:00.106825 was not yet effective to any sign-in
+      # in the rest of that second. The visible symptom was the worst kind: an
+      # administrator who had just bootstrapped their Organization signed in and was sent
+      # to `access_unavailable`, told they hold no access, seconds after being granted it.
       def effective_roles(account_id:, now:)
         sql = <<~SQL
           SELECT canonical_role
@@ -83,7 +89,7 @@ module IdentityAccess
             AND effective_at IS NOT NULL AND effective_at <= $2::timestamptz
             AND (expires_at IS NULL OR $2::timestamptz < expires_at)
         SQL
-        exec(sql, [account_id, now]).to_a.map { |r| r["canonical_role"] }
+        exec(sql, [account_id, timestamp(now)]).to_a.map { |r| r["canonical_role"] }
       end
 
       def active_access_policy_version(org)
@@ -224,6 +230,10 @@ module IdentityAccess
 
       def bytea(bytes) = { value: bytes, format: 1 }
       def hex(bytes) = bytes.unpack1("H*")
+
+      # Full microsecond precision, whatever the caller passed. An already-formatted ISO
+      # string passes through unchanged.
+      def timestamp(value) = value.respond_to?(:getutc) ? value.getutc.iso8601(6) : value
     end
   end
 end

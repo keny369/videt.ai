@@ -75,7 +75,12 @@ module IdentityAccess
             AND (expires_at IS NULL OR $6::timestamptz < expires_at)
           LIMIT 1
         SQL
-        exec(sql, [account_id, canonical_role, permission_mode, persona, scope_hex, now]).values.dig(0, 0)
+        # Microsecond precision matters here for the same reason it does in the sign-in
+        # and authorization stores: `exec_params` stringifies a Ruby `Time` to whole
+        # seconds, and a truncated `now` would hide an Assignment that became effective
+        # earlier in the same second — turning this duplicate check into a false negative
+        # and admitting the second grant it exists to refuse.
+        exec(sql, [account_id, canonical_role, permission_mode, persona, scope_hex, timestamp(now)]).values.dig(0, 0)
       end
 
       # ---- writers -------------------------------------------------------------
@@ -297,6 +302,10 @@ module IdentityAccess
 
       def bytea(bytes) = { value: bytes, format: 1 }
       def iso(time) = time.getutc.iso8601(6)
+
+      # Full microsecond precision, whatever the caller passed. An already-formatted ISO
+      # string passes through unchanged.
+      def timestamp(value) = value.respond_to?(:getutc) ? iso(value) : value
     end
   end
 end

@@ -1,0 +1,26 @@
+<%# The one server-rendered shell every authenticated page uses
+    (FRONTEND_ARCHITECTURE.md :102). Organization identity and read-only Account status;
+    no sign-out control, because Volume I defines no standalone current-user
+    Session-revocation command and :115 forbids rendering one. %>
+<header class="shell">
+  <div class="shell__identity">
+    <span class="shell__org"><%= organization["display_name"] %></span>
+    <span class="shell__account"><%= account["normalized_email"] %></span>
+  </div>
+
+  <nav class="shell__nav" aria-label="Primary">
+    <ul>
+      <li>
+        <%= link_to "Home", app_home_path,
+                    "aria-current": (current == :home ? "page" : nil) %>
+      </li>
+      <%# Blocked collection destinations are omitted until their read authority resolves. %>
+      <% if can_read_projects %>
+        <li>
+          <%= link_to "Projects", app_projects_path,
+                      "aria-current": (current == :projects ? "page" : nil) %>
+        </li>
+      <% end %>
+    </ul>
+  </nav>
+</header>

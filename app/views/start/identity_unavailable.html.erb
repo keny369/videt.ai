@@ -1,0 +1,15 @@
+<% content_for :title, "Identity provider unavailable" %>
+
+<div class="panel">
+  <h1>Identity provider not configured</h1>
+  <p class="lede">
+    F1 authenticates through an approved managed identity service, fixed by a signed
+    release artifact (<code>f1-managed-identity-redirect-v1</code>). No identity provider
+    is configured for this environment, so no account can be created or signed in to.
+  </p>
+  <p>
+    This is a deployment prerequisite, not a fault in the application: the authorization
+    endpoint, client, receipt issuer and audience, callback URI and JWKS URL all come
+    from that artifact and cannot be supplied by request or environment.
+  </p>
+</div>

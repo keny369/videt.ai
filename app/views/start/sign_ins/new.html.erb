@@ -1,0 +1,37 @@
+<% content_for :title, "Sign in" %>
+
+<div class="panel">
+  <h1>Sign in</h1>
+
+  <% if @error.present? %>
+    <div class="errors" role="alert" tabindex="-1">
+      <h2>That could not be completed</h2>
+      <p><%= @error %></p>
+    </div>
+  <% end %>
+
+  <%= form_with url: start_sign_in_path, method: :post, data: { turbo: false }, class: "form" do %>
+    <div class="field">
+      <%= label_tag :email, "Email address" %>
+      <%= email_field_tag :email, @email, required: true, autocomplete: "email",
+                          autofocus: true, "aria-invalid": @error.present? %>
+    </div>
+
+    <%# The Organization is never selected implicitly: an address may hold accounts in
+        several tenants, and guessing would be a silent cross-tenant decision. %>
+    <div class="field">
+      <%= label_tag :organization_id, "Organization identifier" %>
+      <%= text_field_tag :organization_id, @organization_id, required: true,
+                         "aria-describedby": "organization_id_hint" %>
+      <p class="hint" id="organization_id_hint">
+        Shown on your organization home page after the organization was created.
+      </p>
+    </div>
+
+    <button type="submit">Sign in</button>
+  <% end %>
+
+  <p class="aside">
+    No organization yet? <%= link_to "Create one", start_bootstrap_grant_path %>.
+  </p>
+</div>
