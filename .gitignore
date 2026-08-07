@@ -1,0 +1,21 @@
+.DS_Store
+.vscode/
+.env
+.env.*
+coverage/
+tmp/
+node_modules/
+vendor/
+log/
+__pycache__/
+*.pyc
+
+# Rails / bundler local state
+/.bundle/
+/config/master.key
+/config/credentials/*.key
+/storage/*
+!/storage/.keep
+/public/assets
+.byebug_history
+.rspec_status
