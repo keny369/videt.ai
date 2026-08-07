@@ -26,6 +26,17 @@ end
 
 Sidekiq.configure_server do |config|
   config.redis = { url: redis_url }
-  # Belt-and-suspenders alongside each job's own options: never auto-retry, never dead-set.
-  config.default_job_options = { "retry" => false, "dead" => false }
 end
+
+# Belt-and-suspenders alongside each job's own options: never auto-retry, never dead-set.
+#
+# This is a MODULE-level default, not a server-config one, and it is set outside both
+# blocks on purpose. `Sidekiq::Job::ClassMethods` seeds a job class's options from
+# `Sidekiq.default_job_options` and `Sidekiq::JobUtil` normalizes every enqueued job
+# against it, so the default has to exist in the CLIENT process (the web process that
+# enqueues) as much as in the server, and `Sidekiq::Config` has no such writer at all.
+# Written as `config.default_job_options =` inside `configure_server` it raised
+# NoMethodError on boot, which no test caught because nothing in the suite boots a
+# Sidekiq server process: every worker process died at startup, so the scheduler
+# dispatched work to queues that had no live consumer and every Crawl stayed `queued`.
+Sidekiq.default_job_options = { "retry" => false, "dead" => false }

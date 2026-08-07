@@ -88,6 +88,42 @@ RSpec.describe Platform::Outbound::TlsConnector, type: :model do
     end
   end
 
+  # THE PRODUCTION CONSTRUCTION PATH. Every example above injects `ssl_context:`, which is
+  # what made this the one untested line in the adapter: `default_context` ended on
+  # `context.freeze`, and `OpenSSL::SSL::SSLContext#freeze` is overridden to run `setup`
+  # and return TRUE rather than the context. So a connector built the way production
+  # builds it handed `true` to `SSLSocket.new` and every real HTTPS request through the
+  # platform's single egress surface failed — HTTP-file ownership verification and every
+  # crawl fetch alike, measured live against a public host.
+  describe ".default_context" do
+    it "is an SSL context, not the return value of freezing one" do
+      expect(described_class.default_context).to be_a(OpenSSL::SSL::SSLContext)
+    end
+
+    it "verifies the peer and the hostname against the system roots, at TLS 1.2 or better" do
+      context = described_class.default_context
+
+      expect(context.verify_mode).to eq(OpenSSL::SSL::VERIFY_PEER)
+      expect(context.verify_hostname).to be(true)
+      expect(context.cert_store).to be_a(OpenSSL::X509::Store)
+      # `min_version` is write-only in the openssl gem, so the floor is not readable here;
+      # the handshake example below is what proves the context is a real, set-up one.
+      expect(context).to be_frozen
+    end
+
+    it "reaches a real handshake when no context is injected, and refuses an untrusted CA" do
+      port = start_tls_server(response: http_response(body: "verified"))
+
+      # No `ssl_context:` — exactly how production builds it. The loopback server's CA is
+      # not a system root, so the correct outcome is the adapter's own TLS failure. With
+      # the defect this raised TypeError, which is not one of the adapter's typed errors
+      # and escaped it entirely.
+      expect do
+        described_class.new.open(pinned: loopback, host: cert_host, port:, deadline: deadline)
+      end.to raise_error(client_error(:TlsError))
+    end
+  end
+
   describe ".peer_matches?" do
     it "accepts the pinned address and its IPv4-mapped form" do
       expect(described_class.peer_matches?("127.0.0.1", IPAddr.new("127.0.0.1"))).to be(true)

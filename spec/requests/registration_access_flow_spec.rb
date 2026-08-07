@@ -144,7 +144,9 @@ RSpec.describe "Registration and access", type: :request do
       expect(response.body).to include("example.com")
       # Registration only PROPOSES: it must not present the Source as verified or active.
       expect(response.body).to include("proposed")
-      expect(response.body).to include("Awaiting ownership verification")
+      # The one action a proposed Source has is WEB-015 verification, not activation.
+      expect(response.body).to include("Verify ownership")
+      expect(response.body).not_to include("Activate")
     end
 
     it "refuses a non-HTTPS address with the workflow's own reason, creating nothing" do

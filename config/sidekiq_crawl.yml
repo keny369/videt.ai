@@ -1,0 +1,19 @@
+# F-04 Background Execution — the worker_crawl process config (BACKGROUND_PROCESSING.md
+# :62, "| `crawl` | `worker_crawl` | robots, sitemap and content fetch attempts plus Crawl
+# terminalization | 10 |"). Committed operational config for the `crawl` queue so the
+# worker actually runs (FOUNDATION-004 property 10 / AC-1).
+#
+# Without this file the whole S-07 crawl chain was enqueued and never consumed: the
+# scheduler dispatched `crawl_dispatch`, `crawl_fetch_due` and `crawl_terminal_deadline`
+# onto the `crawl` queue and no committed process listened to it, so a Crawl queued from
+# the product stayed `queued` for ever. Run as its own process, separate from
+# worker_control:
+#
+#   bundle exec sidekiq -C config/sidekiq_crawl.yml
+#
+# One process, one queue, fixed concurrency 10 — never weighted polling. Scaling changes
+# process counts, never queue ownership or per-process concurrency (an architecture change).
+---
+:concurrency: 10
+:queues:
+  - crawl

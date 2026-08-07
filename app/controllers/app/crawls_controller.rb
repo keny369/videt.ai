@@ -10,7 +10,7 @@ module App
   # WF-005 refuses a crawl unless the Project is active AND it has at least one active
   # Source (`crawl_project_not_active`, `crawl_no_active_source`). This screen states that
   # prerequisite rather than offering a button that always fails: a Source reaches `active`
-  # only after WF-003 ownership verification, which has no screen yet.
+  # only after WF-003 ownership verification and then WF-004 activation.
   class CrawlsController < ApplicationController
     def index
       outcome = authorize!("crawl.read", resource: { type: "project", id: params[:project_id] }) do |actor, conn|
@@ -34,6 +34,29 @@ module App
       @can_trigger = permitted?(outcome, "crawl.trigger")
     end
 
+    # WEB-017 QRY-023 CrawlDetail: "Crawl, Source/URL outcome and stage summary
+    # projection", under the same `crawl.read` authority as the collection.
+    #
+    # The collection can only say a run failed. This says WHY, in the run's own
+    # vocabulary: the Sources it was pinned to, every fetch it made with its outcome and
+    # reason code, the per-URL terminal decisions and their effect on coverage, and the
+    # Documents it produced. A run that produced nothing is the case worth explaining, so
+    # each empty section says what its emptiness means rather than rendering blank.
+    def show
+      outcome = authorize!("crawl.read", resource: { type: "crawl", id: params[:id] }) do |actor, conn|
+        read_detail(actor, conn)
+      end
+      return if outcome.nil?
+      return render("shared/not_found", status: :not_found) if outcome.value.nil?
+
+      @project = outcome.value[:project]
+      @crawl = outcome.value[:crawl]
+      @sources = outcome.value[:sources]
+      @fetch_attempts = outcome.value[:fetch_attempts]
+      @terminal_outcomes = outcome.value[:terminal_outcomes]
+      @documents = outcome.value[:documents]
+    end
+
     def create
       gate = authorize!("crawl.trigger", resource: { type: "project", id: params[:project_id] })
       return if gate.nil?
@@ -49,6 +72,20 @@ module App
     end
 
     private
+
+    def read_detail(actor, conn)
+      store = IdentityAccess::Infrastructure::TenantReadStore.new(conn.raw_connection)
+      org = actor.organization_id
+      project = store.project(organization_id: org, project_id: params[:project_id])
+      crawl = store.crawl(organization_id: org, project_id: params[:project_id], crawl_id: params[:id])
+      return nil if project.nil? || crawl.nil?
+
+      { project:, crawl:,
+        sources: store.crawl_sources(organization_id: org, crawl_id: params[:id]),
+        fetch_attempts: store.fetch_attempts(organization_id: org, crawl_id: params[:id]),
+        terminal_outcomes: store.crawl_terminal_outcomes(organization_id: org, crawl_id: params[:id]),
+        documents: store.crawl_documents(organization_id: org, crawl_id: params[:id]) }
+    end
 
     def submit_queue(organization_id, project_id)
       session_id = Platform::SessionLocator.resolve(session_token)
@@ -82,6 +119,11 @@ module App
     REASONS = {
       "crawl_project_not_active" => "Activate the project before crawling it.",
       "crawl_no_active_source" => "This project has no active source. Verify and activate a source first.",
+      # WF-005 admits one root crawl per project until its evaluation resolves. A person
+      # pressing the button twice deserves that sentence, not the reason code.
+      "initial_evaluation_already_running" => "This project already has a crawl in flight. Wait for it to finish.",
+      "crawl_trigger_unauthorized" => "You do not have permission to start crawls.",
+      "crawl_entitlement_unavailable" => "Your plan's crawl allowance could not be reserved.",
       "entitlement_denied" => "Your plan's crawl allowance is exhausted."
     }.freeze
   end

@@ -8,7 +8,9 @@ module App
   # Registration only PROPOSES a Source. It never verifies, activates or crawls, and this
   # screen does not pretend otherwise: a newly registered Source shows as `proposed`, and
   # the activation control appears only once a Source has been verified. Rendering an
-  # "activate" button on a proposed Source would offer an action WF-004 refuses.
+  # "activate" button on a proposed Source would offer an action WF-004 refuses. A
+  # proposed Source instead links to the WF-003 verification surface, which is the only
+  # route from `proposed` to `verified`.
   #
   # Reads go through Platform::AuthenticatedRequest, which owns their transaction. Writes
   # do not: a WF-004 handler opens the sole unit of work itself and authenticates the
@@ -32,6 +34,9 @@ module App
       @sources = outcome.value[:sources]
       @can_register = permitted?(outcome, "source.register")
       @can_manage = permitted?(outcome, "source.lifecycle.manage")
+      # `source.verify` is a separate grant from reading the collection: a Marketing
+      # Operator may register and activate Sources but may not verify one.
+      @can_verify = permitted?(outcome, "source.verify")
     end
 
     def new

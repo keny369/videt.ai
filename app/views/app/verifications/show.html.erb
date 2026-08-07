@@ -1,0 +1,161 @@
+<% content_for :title, "Verify ownership" %>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <%= link_to "Projects", app_projects_path %> &rsaquo;
+  <%= link_to @project["display_name"], app_project_sources_path(@project["id"]) %> &rsaquo;
+  <span aria-current="page">Verify <%= @source["canonical_host"] %></span>
+</nav>
+
+<div class="page-heading">
+  <h1>Verify ownership</h1>
+  <div class="actions">
+    <span class="state state--<%= @source["state"] %>"><%= @source["state"] %></span>
+  </div>
+</div>
+
+<dl class="facts">
+  <dt>Source</dt>
+  <dd><%= @source["canonical_root_uri"] || @source["submitted_root_uri"] %></dd>
+  <dt>Host</dt>
+  <dd><%= @source["canonical_host"] %></dd>
+</dl>
+
+<% if @source["state"] != "proposed" %>
+  <%# Verification opens only from `proposed`; anything else is already past it. %>
+  <div class="errors" role="status">
+    <h2>Nothing to verify</h2>
+    <p>
+      This source is <%= @source["state"] %>.
+      <%= link_to "Return to sources", app_project_sources_path(@project["id"]) %>.
+    </p>
+  </div>
+<% elsif @request.nil? || @request["request_status"] != "pending" %>
+  <%# No governing challenge: offer to open one. A terminal Request is shown as
+      history below, but it cannot be observed again — a new one must be issued. %>
+  <section class="panel">
+    <h2>Issue an ownership challenge</h2>
+    <p class="lede">
+      F1 will only crawl a source whose owner has proved control of it. Choose how you
+      want to prove control of <strong><%= @source["canonical_host"] %></strong>.
+    </p>
+
+    <%= form_with url: app_project_source_verification_path(@project["id"], @source["id"]),
+                  method: :post, class: "form", data: { turbo: false } do %>
+      <div class="field">
+        <label for="verification_method">Method</label>
+        <select id="verification_method" name="verification_method">
+          <option value="dns_txt">DNS TXT record</option>
+          <option value="http_file">File served over HTTPS</option>
+        </select>
+        <p class="hint">
+          DNS proves control of the domain. The file proves control of the web server.
+          The method cannot be changed once the challenge is issued.
+        </p>
+      </div>
+      <button type="submit" class="button">Issue challenge</button>
+    <% end %>
+  </section>
+<% else %>
+  <section class="panel">
+    <h2>Publish this value</h2>
+
+    <% if @required_value.nil? %>
+      <div class="errors" role="status">
+        <h2>The challenge value cannot be shown</h2>
+        <p>
+          This challenge was issued but its value can no longer be delivered. It expires
+          at <%= @request["expires_at_utc"].to_s.first(19) %> UTC, after which a new one
+          can be issued.
+        </p>
+      </div>
+    <% else %>
+      <dl class="facts">
+        <dt><%= @request["method"] == "dns_txt" ? "Record name" : "URL" %></dt>
+        <dd><code><%= @observation_location %></code></dd>
+        <dt><%= @request["method"] == "dns_txt" ? "TXT value" : "File contents" %></dt>
+        <dd><code><%= @required_value %></code></dd>
+        <dt>Expires</dt>
+        <dd><%= @request["expires_at_utc"].to_s.first(19) %> UTC</dd>
+      </dl>
+
+      <% if @request["method"] == "dns_txt" %>
+        <p class="hint">
+          Add a TXT record named <code><%= @observation_location %></code> with exactly
+          that value. Public DNS can take a few minutes to serve a new record.
+        </p>
+      <% else %>
+        <p class="hint">
+          Serve that exact text at <code><%= @observation_location %></code> over HTTPS,
+          with status 200 and no redirect. A single trailing newline is allowed.
+        </p>
+      <% end %>
+
+      <div class="actions">
+        <%= button_to "Check now", observe_app_project_source_verification_path(@project["id"], @source["id"]),
+                      method: :post, class: "button", form: { data: { turbo: false } } %>
+        <% if @dev_records %>
+          <%# Development only, and only when the local observation surface is switched
+              on. It publishes the value into the local record the development observer
+              reads; the check that follows is the real one. %>
+          <%= button_to "Publish locally (development)",
+                        place_record_app_project_source_verification_path(@project["id"], @source["id"]),
+                        method: :post, class: "button button--quiet", form: { data: { turbo: false } } %>
+        <% end %>
+      </div>
+      <p class="hint">
+        Manual checks are limited to one every five minutes, and ten in total for a
+        challenge. F1 also checks on its own schedule while the challenge is open.
+      </p>
+    <% end %>
+  </section>
+<% end %>
+
+<% if @request %>
+  <h2>Checks</h2>
+  <dl class="facts">
+    <dt>Status</dt>
+    <dd><span class="state state--<%= @request["request_status"] %>"><%= @request["request_status"] %></span></dd>
+    <dt>Method</dt>
+    <dd><%= @request["method"] %></dd>
+    <dt>Issued</dt>
+    <dd><%= @request["issued_at_utc"].to_s.first(19) %> UTC</dd>
+    <% if @request["decision_reason_code"].present? %>
+      <dt>Outcome</dt>
+      <dd><%= @request["decision_reason_code"] %></dd>
+    <% end %>
+  </dl>
+
+  <% if @attempts.empty? %>
+    <p class="empty">No checks have run yet.</p>
+  <% else %>
+    <table class="collection">
+      <caption class="visually-hidden">Verification checks for <%= @source["canonical_host"] %></caption>
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Origin</th>
+          <th scope="col">When</th>
+          <th scope="col">Network</th>
+          <th scope="col">Result</th>
+          <th scope="col">Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @attempts.each do |attempt| %>
+          <tr>
+            <th scope="row"><%= attempt["attempt_number"] %></th>
+            <td><%= attempt["origin"] == "on_demand" ? "manual" : "scheduled" %></td>
+            <td><%= (attempt["completed_at_utc"] || attempt["reserved_at_utc"]).to_s.first(19) %></td>
+            <td><%= attempt["network_outcome"] || "—" %></td>
+            <td><%= attempt["match_decision"] || attempt["state"] %></td>
+            <td><%= attempt["reason_code"] || "—" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+<% end %>
+
+<p class="aside">
+  <%= link_to "Back to sources", app_project_sources_path(@project["id"]) %>
+</p>

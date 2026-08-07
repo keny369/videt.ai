@@ -51,7 +51,10 @@
     <tbody>
       <% @crawls.each do |crawl| %>
         <tr>
-          <th scope="row"><%= (crawl["started_at"] || crawl["queued_at"] || crawl["created_at"]).to_s.first(19) %></th>
+          <th scope="row">
+            <%= link_to (crawl["started_at"] || crawl["queued_at"] || crawl["created_at"]).to_s.first(19),
+                        app_project_crawl_path(@project["id"], crawl["id"]) %>
+          </th>
           <td><%= crawl["kind"] %></td>
           <td><%= crawl["trigger_kind"] %></td>
           <td><span class="state state--<%= crawl["state"] %>"><%= crawl["state"] %></span></td>

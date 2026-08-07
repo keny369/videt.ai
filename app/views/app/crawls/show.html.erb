@@ -1,0 +1,171 @@
+<% content_for :title, "Crawl" %>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <%= link_to "Projects", app_projects_path %> &rsaquo;
+  <%= link_to @project["display_name"], app_project_sources_path(@project["id"]) %> &rsaquo;
+  <%= link_to "Crawls", app_project_crawls_path(@project["id"]) %> &rsaquo;
+  <span aria-current="page">This run</span>
+</nav>
+
+<div class="page-heading">
+  <h1>Crawl</h1>
+  <div class="actions">
+    <span class="state state--<%= @crawl["state"] %>"><%= @crawl["state"] %></span>
+  </div>
+</div>
+
+<dl class="facts">
+  <dt>Queued</dt>
+  <dd><%= (@crawl["queued_at"] || @crawl["created_at"]).to_s.first(19) %></dd>
+  <dt>Started</dt>
+  <dd><%= @crawl["started_at"].to_s.first(19).presence || "not yet" %></dd>
+  <dt>Finished</dt>
+  <dd><%= @crawl["terminal_at"].to_s.first(19).presence || "not yet" %></dd>
+  <dt>Kind</dt>
+  <dd><%= @crawl["kind"] %> (<%= @crawl["trigger_kind"] %>)</dd>
+  <% if @crawl["completion_reason"].present? %>
+    <dt>Outcome</dt>
+    <dd><%= @crawl["completion_reason"] %></dd>
+  <% end %>
+  <% if @crawl["coverage_status"].present? %>
+    <dt>Coverage</dt>
+    <dd><%= @crawl["coverage_status"] %></dd>
+  <% end %>
+</dl>
+
+<%# A run that is not terminal has nothing to explain yet, and saying "no documents" of a
+    run that has not finished would be a false negative rather than an empty result. %>
+<% if %w[queued running].include?(@crawl["state"]) %>
+  <p class="aside">
+    This run has not finished. State advances in the background;
+    <%= link_to "reload", app_project_crawl_path(@project["id"], @crawl["id"]) %> to see where it is.
+  </p>
+<% end %>
+
+<h2>Sources</h2>
+<% if @sources.empty? %>
+  <p class="empty">This run was pinned to no sources.</p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Sources this crawl was pinned to</caption>
+    <thead>
+      <tr>
+        <th scope="col">Address</th>
+        <th scope="col">Scope policy</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @sources.each do |source| %>
+        <tr>
+          <th scope="row"><%= source["canonical_root_uri"] %></th>
+          <td><%= source["scope_policy_version"] %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<h2>Documents</h2>
+<% if @documents.empty? %>
+  <p class="empty">
+    This run produced no documents.
+    <% if @terminal_outcomes.any? %>
+      The per-URL outcomes below say why.
+    <% end %>
+  </p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Documents this crawl produced</caption>
+    <thead>
+      <tr>
+        <th scope="col">URL</th>
+        <th scope="col">Version</th>
+        <th scope="col">Type</th>
+        <th scope="col">Bytes</th>
+        <th scope="col">State</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @documents.each do |document| %>
+        <tr>
+          <th scope="row"><%= document["canonical_url"] %></th>
+          <td><%= document["version"] %></td>
+          <td><%= document["media_type"] || "—" %></td>
+          <td><%= document["byte_size"] %></td>
+          <td><span class="state state--<%= document["state"] %>"><%= document["state"] %></span></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<h2>URL outcomes</h2>
+<% if @terminal_outcomes.empty? %>
+  <p class="empty">No URL has reached a terminal outcome in this run.</p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Per-URL terminal outcomes</caption>
+    <thead>
+      <tr>
+        <th scope="col">#</th>
+        <th scope="col">Outcome</th>
+        <th scope="col">Reason</th>
+        <th scope="col">Coverage</th>
+        <th scope="col">Bytes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @terminal_outcomes.each do |row| %>
+        <tr>
+          <th scope="row"><%= row["commit_order"] %></th>
+          <td><%= row["outcome"] %></td>
+          <td><%= row["reason"] || "—" %></td>
+          <td><%= row["coverage_effect"] %></td>
+          <td><%= row["accounted_response_body_bytes"] || "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<h2>Fetches</h2>
+<% if @fetch_attempts.empty? %>
+  <p class="empty">
+    No fetch was attempted. A run that cannot get its robots.txt terminates before
+    requesting anything else.
+  </p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Fetch attempts this crawl made</caption>
+    <thead>
+      <tr>
+        <th scope="col">URL</th>
+        <th scope="col">Kind</th>
+        <th scope="col">#</th>
+        <th scope="col">Outcome</th>
+        <th scope="col">Reason</th>
+        <th scope="col">Status</th>
+        <th scope="col">Bytes</th>
+        <th scope="col">ms</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @fetch_attempts.each do |attempt| %>
+        <tr>
+          <th scope="row"><%= attempt["canonical_url"] %></th>
+          <td><%= attempt["request_kind"] %></td>
+          <td><%= attempt["attempt_number"] %></td>
+          <td><%= attempt["outcome"] || "in progress" %></td>
+          <td><%= attempt["reason_code"] || "—" %></td>
+          <td><%= attempt["http_status"] || "—" %></td>
+          <td><%= attempt["accounted_response_bytes"] || "—" %></td>
+          <td><%= attempt["latency_ms"] || "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<p class="aside">
+  <%= link_to "Back to crawls", app_project_crawls_path(@project["id"]) %>
+</p>

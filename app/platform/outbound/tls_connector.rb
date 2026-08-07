@@ -94,7 +94,16 @@ module Platform
         context.min_version = OpenSSL::SSL::TLS1_2_VERSION
         context.verify_mode = OpenSSL::SSL::VERIFY_PEER
         context.verify_hostname = true
+        # `SSLContext#freeze` is not `Object#freeze`: the openssl gem overrides it to run
+        # `setup` and RETURNS THAT, which is `true`. Ending the method on `context.freeze`
+        # therefore returned `true` as the context, and every real HTTPS request through
+        # the platform's ONE egress surface died in `SSLSocket.new(socket, true)` — HTTP
+        # file verification and every crawl fetch alike. Nothing caught it because every
+        # transport test injects `ssl_context:`, so the production construction path was
+        # the only untested line in the adapter. Freeze for the setup, then return the
+        # context explicitly.
         context.freeze
+        context
       end
 
       def remaining(deadline)

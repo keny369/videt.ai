@@ -26,7 +26,7 @@
         <th scope="col">Host</th>
         <th scope="col">State</th>
         <th scope="col">Registered</th>
-        <% if @can_manage %><th scope="col">Action</th><% end %>
+        <% if @can_manage || @can_verify %><th scope="col">Action</th><% end %>
       </tr>
     </thead>
     <tbody>
@@ -36,14 +36,19 @@
           <td><%= source["canonical_host"] %></td>
           <td><span class="state state--<%= source["state"] %>"><%= source["state"] %></span></td>
           <td><%= source["registered_at"].to_s.first(10) %></td>
-          <% if @can_manage %>
+          <% if @can_manage || @can_verify %>
             <td>
               <%# Activation is offered only from `verified`. WF-004 refuses it from
-                  `proposed`, so rendering the control there would offer a false action. %>
-              <% if source["state"] == "verified" %>
+                  `proposed`, so rendering the control there would offer a false action.
+                  A proposed Source gets the one action it does have: verification. %>
+              <% if source["state"] == "verified" && @can_manage %>
                 <%= button_to "Activate", activate_app_project_source_path(@project["id"], source["id"]),
                               method: :post, class: "button button--small",
                               form: { data: { turbo: false } } %>
+              <% elsif source["state"] == "proposed" && @can_verify %>
+                <%= link_to "Verify ownership",
+                            app_project_source_verification_path(@project["id"], source["id"]),
+                            class: "button button--small button--quiet" %>
               <% elsif source["state"] == "proposed" %>
                 <span class="hint">Awaiting ownership verification</span>
               <% else %>

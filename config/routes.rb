@@ -27,9 +27,20 @@ Rails.application.routes.draw do
 
       resources :sources, only: %i[index new create] do
         member { post :activate }
+
+        # WF-003 ownership verification. One Source has at most one governing
+        # Verification Request, so this is a singular resource: `show` is QRY-021,
+        # `create` issues the challenge, `observe` reserves and runs one on-demand
+        # observation. `place_record` exists only in an opted-in development process
+        # and the action refuses everywhere else.
+        resource :verification, only: %i[show create], controller: "verifications" do
+          post :observe
+          post :place_record
+        end
       end
 
-      resources :crawls, only: %i[index create]
+      # `show` is WEB-017 QRY-023 CrawlDetail: what one run actually did.
+      resources :crawls, only: %i[index create show]
     end
 
     # WEB-005: a Session with no effective access has somewhere deterministic to land.

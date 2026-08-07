@@ -1,2 +1,34 @@
 #!/usr/bin/env ruby
-exec "./bin/rails", "server", *ARGV
+# Start the whole local runtime, not just the web process.
+#
+# `bin/rails server` on its own gives a product that can queue work and never perform it:
+# Crawls stay `queued`, Verification Requests never expire, automated observation slots
+# never run. Procfile.dev runs the web process alongside the Sidekiq workers and the
+# singleton scheduler, which is what BACKGROUND_PROCESSING.md's process catalogue actually
+# describes.
+#
+# `bin/dev web` (or any subset of the Procfile process names) runs only those, for the
+# common case of wanting the server without a background runtime attached to the terminal.
+require "fileutils"
+
+exec_foreman = lambda do |args|
+  exec("foreman", "start", "-f", "Procfile.dev", *args)
+end
+
+unless system("which foreman > /dev/null 2>&1")
+  warn "Installing foreman to run Procfile.dev..."
+  system("gem install foreman") || abort("could not install foreman; run `gem install foreman`")
+end
+
+# Named processes become `-m web=1,worker_crawl=1,...` with everything else off, so
+# `bin/dev web` is the old single-process behaviour without a second entry point for it.
+if ARGV.any? && ARGV.none? { |a| a.start_with?("-") }
+  names = File.readlines("Procfile.dev").filter_map { |l| l[/\A([a-z_]+):/, 1] }
+  unknown = ARGV - names
+  abort("unknown process: #{unknown.join(", ")}. Known: #{names.join(", ")}") if unknown.any?
+
+  formation = names.map { |n| "#{n}=#{ARGV.include?(n) ? 1 : 0}" }.join(",")
+  exec_foreman.call(["-m", formation])
+end
+
+exec_foreman.call(ARGV)

@@ -1,0 +1,17 @@
+# F-04 Background Execution — the worker_pipeline process config (BACKGROUND_PROCESSING.md
+# :60, "| `pipeline` | `worker_pipeline` | ingestion, parsing, Evaluation orchestration,
+# Checks, scoring, recommendations, Export generation | 5 |"). Committed operational config
+# for the `pipeline` queue so the worker actually runs (FOUNDATION-004 property 10 / AC-1).
+#
+# The baseline's only `pipeline` work today is `ingestion_attempt_due` (S-07-010), which is
+# what turns a fetched body into a Document's ingestion outcome. Without a process on this
+# queue a Crawl could fetch and never ingest. Run as its own process:
+#
+#   bundle exec sidekiq -C config/sidekiq_pipeline.yml
+#
+# One process, one queue, fixed concurrency 5 — never weighted polling. Scaling changes
+# process counts, never queue ownership or per-process concurrency (an architecture change).
+---
+:concurrency: 5
+:queues:
+  - pipeline

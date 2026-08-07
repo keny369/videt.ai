@@ -128,24 +128,63 @@ module Platform
         pin = resolver.resolve(target.canonical_host, timeout_s: policy.effective_timeout_s(left))
         return refusal_outcome(pin, target, redirects, started) if pin.refused?
 
-        left = remaining(total_deadline)
-        return Outcome.timeout(**failure_meta(target, pin, redirects, started)) if left <= 0
+        connect(target, pin, policy, redirects, started, total_deadline)
+      end
 
-        # The connect + read deadline is the earlier of the per-attempt ceiling and the total
-        # boundary, so the subordinate ceiling can only ever make a request tighter.
-        deadline = monotonic + policy.effective_timeout_s(left)
-        connection =
-          begin
-            connector.open(pinned: pin.address, host: target.canonical_host, port: target.port, deadline:)
-          rescue TimeoutError
-            return Outcome.timeout(**failure_meta(target, pin, redirects, started))
-          rescue TlsError
-            return Outcome.tls_failure(**failure_meta(target, pin, redirects, started))
-          rescue PeerMismatchError, ConnectionError
-            return Outcome.connection_failure(**failure_meta(target, pin, redirects, started))
-          end
+      # A dual-stack host resolves to several addresses and the resolver pins ONE of them
+      # (`ordered.first`, which sorts IPv6 before IPv4). On a network with no route to
+      # that family the connection is unreachable and the host was, until this method,
+      # permanently unfetchable through the platform: every crawl of it failed closed at
+      # robots.txt with `connection_failure`, on a host any browser reaches.
+      #
+      # So an UNREACHABLE address falls through to the next candidate. This weakens
+      # nothing. The candidates are the same answer from the same lookup, and
+      # `GuardedResolver` already refused the whole set unless every member classified as
+      # public (a mixed set fails closed), so candidate two is exactly as safe as
+      # candidate one. There is no re-resolution — the DNS-rebinding backstop is
+      # untouched — and each attempt still verifies that the transport peer equals the
+      # address it was told to use.
+      #
+      # ONLY unreachability falls through. A TLS failure, a peer mismatch or a timeout is
+      # a property of the destination or a safety signal, not of the route, and retrying
+      # elsewhere would either hide it or spend the budget twice over. The shared
+      # `total_deadline` is never recomputed, so the whole fallback still lives inside the
+      # caller's one wall-clock boundary (FU-43).
+      CONNECT_CANDIDATE_LIMIT = 4
 
-        exchange(target, pin, connection, policy, deadline, redirects, started)
+      def connect(target, pin, policy, redirects, started, total_deadline)
+        addresses = connect_order(pin)
+        addresses.each do |address|
+          left = remaining(total_deadline)
+          return Outcome.timeout(**failure_meta(target, pin, redirects, started)) if left <= 0
+
+          # The connect + read deadline is the earlier of the per-attempt ceiling and the total
+          # boundary, so the subordinate ceiling can only ever make a request tighter.
+          deadline = monotonic + policy.effective_timeout_s(left)
+          connection =
+            begin
+              connector.open(pinned: address, host: target.canonical_host, port: target.port, deadline:)
+            rescue TimeoutError
+              return Outcome.timeout(**failure_meta(target, pin, redirects, started))
+            rescue TlsError
+              return Outcome.tls_failure(**failure_meta(target, pin, redirects, started))
+            rescue PeerMismatchError
+              return Outcome.connection_failure(**failure_meta(target, pin, redirects, started))
+            rescue ConnectionError
+              next
+            end
+
+          return exchange(target, pin, connection, policy, deadline, redirects, started)
+        end
+
+        Outcome.connection_failure(**failure_meta(target, pin, redirects, started))
+      end
+
+      # The pinned address first, then the rest of the same classified answer. Bounded so
+      # a host with many records cannot turn one request into many connections; the bound
+      # is on ATTEMPTS, while the wall-clock bound remains the caller's total deadline.
+      def connect_order(pin)
+        ([pin.address] + Array(pin.candidates)).uniq(&:hton).first(CONNECT_CANDIDATE_LIMIT)
       end
 
       def exchange(target, pin, connection, policy, deadline, redirects, started)

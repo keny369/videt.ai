@@ -1,0 +1,22 @@
+# The processes F1 needs to actually DO something, run together by `bin/dev`.
+#
+# The web process alone can only ever queue work. Every product outcome that takes time —
+# a Crawl starting, a page being fetched, a body being ingested, a Verification Request
+# expiring, an automated observation slot running — is a persisted timer in PostgreSQL
+# that the `scheduler` polls and hands to the Sidekiq process owning that queue
+# (BACKGROUND_PROCESSING.md § Process And Queue Catalogue). Miss one of these and the
+# product looks broken in a way no test reproduces: the row is right, the timer is right,
+# and nothing ever picks it up.
+#
+# Queue ownership here is the ratified one, not a convenience: one process, one queue,
+# fixed concurrency, no weighted polling. `worker_control` serves `control` plus its
+# `maintenance` capsule from config/sidekiq.yml.
+#
+# `scheduler` is deliberately singular. It takes a PostgreSQL lease for its whole run, so
+# a second copy would start, fail to acquire the lease and exit.
+web: bin/rails server -p ${PORT:-3000}
+worker_control: bundle exec sidekiq -C config/sidekiq.yml
+worker_crawl: bundle exec sidekiq -C config/sidekiq_crawl.yml
+worker_pipeline: bundle exec sidekiq -C config/sidekiq_pipeline.yml
+worker_lifecycle: bundle exec sidekiq -C config/sidekiq_lifecycle.yml
+scheduler: bundle exec rake f1:scheduled_actions:run
