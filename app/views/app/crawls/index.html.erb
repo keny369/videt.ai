@@ -51,7 +51,9 @@
         <th scope="col">Trigger</th>
         <th scope="col">State</th>
         <th scope="col">Coverage</th>
+        <th scope="col">Documents</th>
         <th scope="col">Outcome</th>
+        <th scope="col">Evaluation</th>
       </tr>
     </thead>
     <tbody>
@@ -65,7 +67,18 @@
           <td><%= crawl["trigger_kind"] %></td>
           <td><span class="state state--<%= crawl["state"] %>"><%= crawl["state"] %></span></td>
           <td><%= crawl["coverage_status"] || "—" %></td>
+          <td><%= crawl["document_count"] %></td>
           <td><%= crawl["completion_reason"] || "—" %></td>
+          <td>
+            <%# A run that never started opened no Evaluation; one that did is either still
+                holding the queue or has released it. %>
+            <% if crawl["evaluation_state"].nil? %>
+              <span aria-hidden="true">&mdash;</span>
+              <span class="visually-hidden">No evaluation</span>
+            <% else %>
+              <span class="state state--<%= crawl["evaluation_state"] %>"><%= crawl["evaluation_state"] %></span>
+            <% end %>
+          </td>
         </tr>
       <% end %>
     </tbody>

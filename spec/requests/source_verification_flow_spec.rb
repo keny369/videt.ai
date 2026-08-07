@@ -434,6 +434,21 @@ RSpec.describe "Source ownership verification", type: :request do
         expect(crawl_ids.length).to eq(2)
       end
 
+      it "shows each run's evaluation in the list, so the queue holder is visible" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+
+        get "/app/projects/#{project_id}/crawls"
+        expect(response.body).to include("Evaluation")
+        expect(response.body).to include("state--pending")
+
+        run_evaluation_input_gate(crawl_ids.first, organization_id)
+
+        get "/app/projects/#{project_id}/crawls"
+        expect(response.body).to include("state--failed")
+      end
+
       it "emits the three events the blocked input gate is specified to emit" do
         prepared_project
         post "/app/projects/#{project_id}/crawls"

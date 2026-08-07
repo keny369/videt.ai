@@ -116,14 +116,21 @@ module IdentityAccess
         SQL
       end
 
-      # QRY-022 CrawlCollection.
+      # QRY-022 CrawlCollection. The Evaluation each run opened is joined in rather than
+      # fetched per row: its state is what decides whether the Project can be crawled
+      # again, so a list that omitted it would leave the reader unable to tell a run that
+      # is still holding the queue from one that has released it.
       def crawls(organization_id:, project_id:, limit: 50)
         exec(<<~SQL, [organization_id, project_id, limit]).to_a
-          SELECT id, kind, trigger_kind, state, coverage_status, completion_reason,
-                 created_at, queued_at, started_at, terminal_at
-          FROM crawls
-          WHERE organization_id = $1::uuid AND project_id = $2::uuid
-          ORDER BY created_at DESC, id DESC
+          SELECT c.id, c.kind, c.trigger_kind, c.state, c.coverage_status, c.completion_reason,
+                 c.created_at, c.queued_at, c.started_at, c.terminal_at,
+                 e.state AS evaluation_state, e.reason AS evaluation_reason,
+                 (SELECT count(*) FROM documents d WHERE d.crawl_id = c.id) AS document_count
+          FROM crawls c
+          LEFT JOIN evaluations e
+            ON e.crawl_id = c.id AND e.organization_id = c.organization_id AND e.kind = 'initial'
+          WHERE c.organization_id = $1::uuid AND c.project_id = $2::uuid
+          ORDER BY c.created_at DESC, c.id DESC
           LIMIT $3
         SQL
       end
