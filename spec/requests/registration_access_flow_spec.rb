@@ -123,6 +123,98 @@ RSpec.describe "Registration and access", type: :request do
     end
   end
 
+  describe "registering a source" do
+    def first_project_id
+      DbInspector.all("SELECT id FROM projects ORDER BY created_at").first["id"]
+    end
+
+    it "registers a source against the genesis project and lists it as proposed" do
+      create_organization
+      follow_redirect!
+      project_id = first_project_id
+
+      get "/app/projects/#{project_id}/sources"
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("No sources registered")
+
+      post "/app/projects/#{project_id}/sources", params: { submitted_root_uri: "https://example.com" }
+      expect(response).to redirect_to("/app/projects/#{project_id}/sources")
+
+      follow_redirect!
+      expect(response.body).to include("example.com")
+      # Registration only PROPOSES: it must not present the Source as verified or active.
+      expect(response.body).to include("proposed")
+      expect(response.body).to include("Awaiting ownership verification")
+    end
+
+    it "refuses a non-HTTPS address with the workflow's own reason, creating nothing" do
+      create_organization
+      project_id = first_project_id
+
+      post "/app/projects/#{project_id}/sources", params: { submitted_root_uri: "http://example.com" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(DbInspector.all("SELECT id FROM sources")).to be_empty
+    end
+
+    it "does not disclose another organization's project through the sources route" do
+      create_organization(organization: "First Tenant", project: "First Site")
+      first_token = cookies[ApplicationController::SESSION_COOKIE]
+      first_project = first_project_id
+
+      other_email = "other-#{SecureRandom.hex(4)}@example.com"
+      post "/start/bootstrap-grant", params: { email: other_email }
+      post "/start/bootstrap-organization",
+           params: { organization_display_name: "Second Tenant", project_display_name: "Second Site" }
+      second_project = DbInspector.all("SELECT id FROM projects ORDER BY created_at").last["id"]
+      expect(second_project).not_to eq(first_project)
+
+      # The first tenant asking for the second tenant's Project gets "not found", which
+      # does not distinguish absent from forbidden.
+      cookies[ApplicationController::SESSION_COOKIE] = first_token
+      get "/app/projects/#{second_project}/sources"
+
+      expect(response).to have_http_status(:not_found)
+      expect(response.body).not_to include("Second Site")
+    end
+  end
+
+  describe "the crawls screen" do
+    def first_project_id
+      DbInspector.all("SELECT id FROM projects ORDER BY created_at").first["id"]
+    end
+
+    it "states both unmet prerequisites instead of offering a trigger that would refuse" do
+      create_organization
+      follow_redirect!
+      project_id = first_project_id
+
+      get "/app/projects/#{project_id}/crawls"
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("This project cannot be crawled yet")
+      # The genesis Project is a draft with no sources, so BOTH conditions are named.
+      expect(response.body).to include("It must be active")
+      expect(response.body).to include("No active source")
+      expect(response.body).not_to include("Queue crawl")
+      expect(response.body).to include("No crawls have run")
+    end
+
+    it "refuses a directly posted trigger with the workflow's own reason" do
+      create_organization
+      project_id = first_project_id
+
+      # A hidden control is not a denial: the route is posted to directly and WF-005 is
+      # what actually refuses it.
+      post "/app/projects/#{project_id}/crawls"
+
+      expect(response).to redirect_to("/app/projects/#{project_id}/crawls")
+      follow_redirect!
+      expect(response.body).to match(/no active source|Activate the project/i)
+      expect(DbInspector.all("SELECT id FROM crawls")).to be_empty
+    end
+  end
+
   describe "refusal" do
     it "sends an unauthenticated visitor to sign in rather than rendering the shell" do
       get "/app"

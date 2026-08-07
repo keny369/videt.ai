@@ -25,7 +25,11 @@
     <tbody>
       <% @projects.each do |project| %>
         <tr>
-          <th scope="row"><%= project["display_name"] %></th>
+          <th scope="row">
+            <%# Sources are reachable per project. The link is convenience, not authority:
+                the sources screen authorizes source.read for itself on every request. %>
+            <%= link_to project["display_name"], app_project_sources_path(project["id"]) %>
+          </th>
           <td>
             <%# :228 no colour-only status distinction: the word is the status. %>
             <span class="state state--<%= project["state"] %>"><%= project["state"] %></span>

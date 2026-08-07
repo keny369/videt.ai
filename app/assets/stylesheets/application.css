@@ -251,3 +251,13 @@ button,
     transition-duration: 0.01ms !important;
   }
 }
+
+.breadcrumb {
+  margin: 1.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.breadcrumb a { text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }

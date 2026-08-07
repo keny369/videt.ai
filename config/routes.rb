@@ -24,6 +24,12 @@ Rails.application.routes.draw do
 
     resources :projects, only: %i[index new create] do
       member { post :activate }
+
+      resources :sources, only: %i[index new create] do
+        member { post :activate }
+      end
+
+      resources :crawls, only: %i[index create]
     end
 
     # WEB-005: a Session with no effective access has somewhere deterministic to land.

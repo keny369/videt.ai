@@ -1,0 +1,71 @@
+<% content_for :title, "Crawls" %>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <%= link_to "Projects", app_projects_path %> &rsaquo;
+  <%= link_to @project["display_name"], app_project_sources_path(@project["id"]) %> &rsaquo;
+  <span aria-current="page">Crawls</span>
+</nav>
+
+<div class="page-heading">
+  <h1>Crawls</h1>
+  <% if @can_trigger && @project_active && @active_sources.positive? %>
+    <%= button_to "Queue crawl", app_project_crawls_path(@project["id"]),
+                  method: :post, class: "button", form: { data: { turbo: false } } %>
+  <% end %>
+</div>
+
+<%# The prerequisite is stated rather than discovered by pressing a button that always
+    refuses. These are the same two conditions WF-005 evaluates. %>
+<% unless @project_active && @active_sources.positive? %>
+  <div class="errors" role="status">
+    <h2>This project cannot be crawled yet</h2>
+    <ul>
+      <% unless @project_active %>
+        <li>The project is <%= @project["state"] %>. It must be active.</li>
+      <% end %>
+      <% if @active_sources.zero? %>
+        <li>
+          No active source. A source must have its ownership verified and then be
+          activated. <%= link_to "Review sources", app_project_sources_path(@project["id"]) %>.
+        </li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<% if @crawls.empty? %>
+  <p class="empty">No crawls have run for this project.</p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Crawls for <%= @project["display_name"] %></caption>
+    <thead>
+      <tr>
+        <th scope="col">Started</th>
+        <th scope="col">Kind</th>
+        <th scope="col">Trigger</th>
+        <th scope="col">State</th>
+        <th scope="col">Coverage</th>
+        <th scope="col">Outcome</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @crawls.each do |crawl| %>
+        <tr>
+          <th scope="row"><%= (crawl["started_at"] || crawl["queued_at"] || crawl["created_at"]).to_s.first(19) %></th>
+          <td><%= crawl["kind"] %></td>
+          <td><%= crawl["trigger_kind"] %></td>
+          <td><span class="state state--<%= crawl["state"] %>"><%= crawl["state"] %></span></td>
+          <td><%= crawl["coverage_status"] || "—" %></td>
+          <td><%= crawl["completion_reason"] || "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <%# :186 later worker completion does not push or poll; the next navigation or an
+      explicit refresh loads current state. %>
+  <p class="aside">
+    Crawl state advances in the background. <%= link_to "Refresh", app_project_crawls_path(@project["id"]) %>
+    to load the current state.
+  </p>
+<% end %>

@@ -1,0 +1,59 @@
+<% content_for :title, "Sources" %>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <%= link_to "Projects", app_projects_path %> &rsaquo;
+  <span aria-current="page"><%= @project["display_name"] %></span>
+</nav>
+
+<div class="page-heading">
+  <h1>Sources</h1>
+  <div class="actions">
+    <%= link_to "Crawls", app_project_crawls_path(@project["id"]), class: "button button--quiet" %>
+    <% if @can_register %>
+      <%= link_to "Register source", new_app_project_source_path(@project["id"]), class: "button" %>
+    <% end %>
+  </div>
+</div>
+
+<% if @sources.empty? %>
+  <p class="empty">No sources registered for this project yet.</p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Sources registered to <%= @project["display_name"] %></caption>
+    <thead>
+      <tr>
+        <th scope="col">Address</th>
+        <th scope="col">Host</th>
+        <th scope="col">State</th>
+        <th scope="col">Registered</th>
+        <% if @can_manage %><th scope="col">Action</th><% end %>
+      </tr>
+    </thead>
+    <tbody>
+      <% @sources.each do |source| %>
+        <tr>
+          <th scope="row"><%= source["canonical_root_uri"] || source["submitted_root_uri"] %></th>
+          <td><%= source["canonical_host"] %></td>
+          <td><span class="state state--<%= source["state"] %>"><%= source["state"] %></span></td>
+          <td><%= source["registered_at"].to_s.first(10) %></td>
+          <% if @can_manage %>
+            <td>
+              <%# Activation is offered only from `verified`. WF-004 refuses it from
+                  `proposed`, so rendering the control there would offer a false action. %>
+              <% if source["state"] == "verified" %>
+                <%= button_to "Activate", activate_app_project_source_path(@project["id"], source["id"]),
+                              method: :post, class: "button button--small",
+                              form: { data: { turbo: false } } %>
+              <% elsif source["state"] == "proposed" %>
+                <span class="hint">Awaiting ownership verification</span>
+              <% else %>
+                <span aria-hidden="true">&mdash;</span>
+                <span class="visually-hidden">No action available</span>
+              <% end %>
+            </td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

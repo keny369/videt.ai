@@ -1,0 +1,9 @@
+<% content_for :title, "Not found" %>
+
+<div class="panel">
+  <h1>Not found</h1>
+  <%# Deliberately does not distinguish "no such record" from "not in your organization":
+      telling them apart would confirm the existence of another tenant's data. %>
+  <p>That record does not exist, or is not part of your organization.</p>
+  <p><%= link_to "Back to projects", app_projects_path %></p>
+</div>
