@@ -15,8 +15,16 @@ module Platform
     ) do
       # The fixed Redis queue and the catalogue work-type for this kind; the
       # Dispatcher stamps `work_type` into the scalar envelope (:77).
+      #
+      # One kind has no literal cell: `evaluation_stage_advance` "selects its work type
+      # only from the exact stage registry" (:245), so its catalogue value is nil and the
+      # registry answers instead. Every other kind is unchanged.
       def queue = Platform::ScheduledActions::Catalogue.queue_for(action_kind)
-      def work_type = Platform::ScheduledActions::Catalogue.work_type_for(action_kind)
+
+      def work_type
+        Platform::ScheduledActions::Catalogue.work_type_for(action_kind) ||
+          Platform::ScheduledActions::Catalogue.stage_work_type_for(action_kind)
+      end
     end
   end
 end

@@ -131,15 +131,27 @@ RSpec.describe "Crawl-queue invariants", type: :model do
   end
 
   describe "the evaluations immutability/lifecycle guard" do
-    it "refuses DELETE, refuses identity edits, and refuses every state transition" do
+    # The guard's IMMUTABILITY half, which no slice may relax. Its lifecycle half — which
+    # state transitions are admitted — moved to `evaluation_lifecycle_invariants_spec.rb`
+    # when the WF-006 input gate opened `pending -> running` and `running -> failed`. This
+    # example used to assert "every state transition is refused", which was true only while
+    # nothing could resolve an Evaluation; keeping that sentence here would now contradict
+    # the guard and hide which edges are actually open.
+    it "refuses DELETE and refuses identity edits" do
       pid = draft_project
       eid = insert_evaluation(pid, state: "pending")
       expect { conn.exec_params("DELETE FROM evaluations WHERE id = $1::uuid", [eid]) }
         .to raise_error(PG::RaiseException, /evaluation_immutable/)
       expect { conn.exec_params("UPDATE evaluations SET kind = 'retry' WHERE id = $1::uuid", [eid]) }
         .to raise_error(PG::RaiseException, /evaluation_facts_immutable/)
-      expect { conn.exec_params("UPDATE evaluations SET state = 'running' WHERE id = $1::uuid", [eid]) }
-        .to raise_error(PG::RaiseException, /evaluation_transition_unavailable/)
+    end
+
+    it "still refuses a transition no workflow performs" do
+      pid = draft_project
+      eid = insert_evaluation(pid, state: "pending")
+
+      expect { conn.exec_params("UPDATE evaluations SET state = 'completed' WHERE id = $1::uuid", [eid]) }
+        .to raise_error(PG::RaiseException, /evaluation_transition_unavailable pending -> completed/)
     end
   end
 end

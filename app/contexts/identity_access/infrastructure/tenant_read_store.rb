@@ -184,6 +184,17 @@ module IdentityAccess
         SQL
       end
 
+      # The Evaluation a Crawl opened, and how it resolved. `reason` is the workflow's own
+      # reason code, never a sentence composed in SQL.
+      def crawl_evaluation(organization_id:, crawl_id:)
+        exec(<<~SQL, [organization_id, crawl_id]).to_a.first
+          SELECT id, kind, state, reason, created_at, started_at, completed_at, failed_at
+          FROM evaluations
+          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND kind = 'initial'
+          ORDER BY created_at ASC, id ASC LIMIT 1
+        SQL
+      end
+
       # The OD-018 queue-time guard, read for the screen rather than discovered by pressing
       # a button WF-005 will refuse: a Project with a pending or running `initial`
       # Evaluation cannot queue another Crawl.

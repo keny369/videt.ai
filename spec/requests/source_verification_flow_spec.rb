@@ -80,6 +80,22 @@ RSpec.describe "Source ownership verification", type: :request do
     SQL
   end
 
+  # The WF-006 input gate as the worker runs it: the same command, built from the same
+  # action shape, under the same service identity. Only the transport is skipped.
+  def run_evaluation_input_gate(crawl_id, organization_id)
+    command = Workflows::Wf006::Commands::SealEvaluationInputs.new(
+      command_id: SecureRandom.uuid_v7, schema_version: "1.0", organization_id:,
+      target_type: "crawl", crawl_id:, due_at: Time.now.utc,
+      action_id: SecureRandom.uuid_v7, action_identity_sha256: SecureRandom.hex(32),
+      requested_at_utc: Time.now.utc
+    )
+    context = Platform::RequestContext.for_service(
+      service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+      correlation_id: SecureRandom.uuid_v7
+    )
+    Workflows::Wf006::Handlers::SealEvaluationInputs.new.call(command:, request_context: context)
+  end
+
   def issue_challenge(method = "dns_txt")
     post verification_path, params: { verification_method: method }
   end
@@ -367,6 +383,159 @@ RSpec.describe "Source ownership verification", type: :request do
       expect(response.body).to include("This run has not finished")
       expect(response.body).to include("This run produced no documents")
       expect(response.body).to include("No URL has reached a terminal outcome")
+    end
+
+    # THE LATCH. Before the WF-006 input gate existed, this block was impossible: the
+    # first crawl opened an `initial` Evaluation, nothing resolved it, and the project
+    # refused every crawl after it for ever.
+    describe "crawling the same project more than once" do
+      def prepared_project
+        registered_source
+        issue_challenge
+        publish(required_value)
+        post "#{verification_path}/observe"
+        post "/app/projects/#{project_id}/sources/#{source_id}/activate"
+        post "/app/projects/#{project_id}/activate"
+      end
+
+      def crawl_ids = DbInspector.all("SELECT id FROM crawls ORDER BY created_at").map { |c| c["id"] }
+      def organization_id = DbInspector.all("SELECT id FROM organizations").first["id"]
+
+      def evaluation_for(crawl_id)
+        DbInspector.all("SELECT * FROM evaluations WHERE crawl_id = $1::uuid", [crawl_id]).first
+      end
+
+      it "resolves the evaluation and then accepts a second crawl" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        first = crawl_ids.first
+        open_initial_evaluation
+
+        # The gate runs, and the Evaluation stops being in flight.
+        result = run_evaluation_input_gate(first, organization_id)
+        expect(result).to be_success
+
+        evaluation = evaluation_for(first)
+        expect(evaluation["state"]).to eq("failed")
+        expect(evaluation["reason"]).to eq("evaluation_inputs_unavailable")
+        # `pending -> running -> failed` in one statement: `running` is a recorded
+        # waypoint, so both instants are stamped and the version advanced once.
+        expect(evaluation["started_at"]).to be_present
+        expect(evaluation["failed_at"]).to be_present
+
+        # The screen offers the trigger again, and the trigger works.
+        get "/app/projects/#{project_id}/crawls"
+        expect(response.body).to include("Queue crawl")
+        expect(response.body).not_to include("cannot be crawled")
+
+        post "/app/projects/#{project_id}/crawls"
+        follow_redirect!
+        expect(response.body).to include("Crawl queued")
+        expect(crawl_ids.length).to eq(2)
+      end
+
+      it "emits the three events the blocked input gate is specified to emit" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+        run_evaluation_input_gate(crawl_ids.first, organization_id)
+
+        events = DbInspector.all(<<~SQL).to_h { |e| [e["event_type"], e] }
+          SELECT event_type, aggregate_type, event_profile FROM event_registry
+          WHERE event_type LIKE 'Evaluation%'
+        SQL
+
+        expect(events.keys).to contain_exactly("EvaluationStarted", "EvaluationInputsBlocked", "EvaluationFailed")
+        expect(events["EvaluationStarted"]["aggregate_type"]).to eq("evaluation")
+        expect(events["EvaluationFailed"]["aggregate_type"]).to eq("evaluation")
+        # The blocked result is created on the snapshot aggregate, per its registry row.
+        expect(events["EvaluationInputsBlocked"]["aggregate_type"]).to eq("evaluation_input_snapshot")
+        expect(events["EvaluationInputsBlocked"]["event_profile"]).to eq("created")
+      end
+
+      it "performs no Check or provider side effect — it only records the input gate" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+        before = DbInspector.all("SELECT id FROM evidence").length
+
+        run_evaluation_input_gate(crawl_ids.first, organization_id)
+
+        # No Evidence is produced by a blocked gate: it observed nothing.
+        expect(DbInspector.all("SELECT id FROM evidence").length).to eq(before)
+      end
+
+      it "replays a duplicate delivery without transitioning anything twice" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+        crawl = crawl_ids.first
+        identity = SecureRandom.hex(32)
+
+        deliver = lambda do
+          command = Workflows::Wf006::Commands::SealEvaluationInputs.new(
+            command_id: SecureRandom.uuid_v7, schema_version: "1.0", organization_id:,
+            target_type: "crawl", crawl_id: crawl, due_at: Time.now.utc,
+            action_id: SecureRandom.uuid_v7, action_identity_sha256: identity,
+            requested_at_utc: Time.now.utc
+          )
+          Workflows::Wf006::Handlers::SealEvaluationInputs.new.call(
+            command:, request_context: Platform::RequestContext.for_service(
+              service_identity_id: Platform::ServiceIdentity.scheduled_action_executor,
+              correlation_id: SecureRandom.uuid_v7
+            )
+          )
+        end
+
+        first = deliver.call
+        second = deliver.call
+
+        expect(first).to be_success
+        expect(second).to be_success
+        expect(second.replayed).to be(true)
+        # Two guarded edges, so the aggregate advanced exactly twice — not four times.
+        expect(evaluation_for(crawl)["state_version"].to_i).to eq(2)
+        expect(DbInspector.all("SELECT id FROM event_registry WHERE event_type = 'EvaluationFailed'").length).to eq(1)
+      end
+
+      it "records the checkpoint and no transition when there is nothing to resolve" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        # No Evaluation was ever opened for this Crawl (it never started).
+        result = run_evaluation_input_gate(crawl_ids.first, organization_id)
+
+        expect(result).to be_success
+        expect(result.payload[:outcome]).to eq("void")
+        expect(DbInspector.all("SELECT id FROM event_registry WHERE event_type LIKE 'Evaluation%'")).to be_empty
+      end
+
+      it "refuses a crawl belonging to another organization without touching it" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+        crawl = crawl_ids.first
+
+        result = run_evaluation_input_gate(crawl, SecureRandom.uuid_v7)
+
+        expect(result).not_to be_success
+        expect(result.reason_code).to eq("scheduled_action_target_mismatch")
+        expect(evaluation_for(crawl)["state"]).to eq("pending")
+      end
+
+      it "shows the resolved evaluation on the crawl, in terms that do not blame the source" do
+        prepared_project
+        post "/app/projects/#{project_id}/crawls"
+        open_initial_evaluation
+        crawl = crawl_ids.first
+        run_evaluation_input_gate(crawl, organization_id)
+
+        get "/app/projects/#{project_id}/crawls/#{crawl}"
+
+        expect(response.body).to include("Evaluation")
+        expect(response.body).to include("evaluation_inputs_unavailable")
+        expect(response.body).to include("content analysis is not part of this build yet")
+        expect(response.body).to include("Nothing is wrong with the source")
+      end
     end
 
     it "does not disclose another organization's crawl detail" do

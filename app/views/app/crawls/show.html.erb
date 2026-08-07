@@ -42,6 +42,35 @@
   </p>
 <% end %>
 
+<h2>Evaluation</h2>
+<%# The Evaluation a started Crawl opens. It is on this screen because its state is what
+    decides whether the project can be crawled again, so a reader who wants to know "why
+    can I not crawl" finds the answer next to the run that caused it. %>
+<% if @evaluation.nil? %>
+  <p class="empty">
+    This run opened no evaluation. Only a crawl that started opens one.
+  </p>
+<% else %>
+  <dl class="facts">
+    <dt>State</dt>
+    <dd><span class="state state--<%= @evaluation["state"] %>"><%= @evaluation["state"] %></span></dd>
+    <dt>Resolved</dt>
+    <dd><%= (@evaluation["completed_at"] || @evaluation["failed_at"]).to_s.first(19).presence || "not yet" %></dd>
+    <% if @evaluation["reason"].present? %>
+      <dt>Reason</dt>
+      <dd><%= @evaluation["reason"] %></dd>
+    <% end %>
+  </dl>
+  <% if (explanation = App::Crawls::EVALUATION_REASONS[@evaluation["reason"]]) %>
+    <p class="hint"><%= explanation %></p>
+  <% end %>
+  <% if %w[pending running].include?(@evaluation["state"]) %>
+    <p class="aside">
+      While this evaluation is unresolved the project accepts no further crawls.
+    </p>
+  <% end %>
+<% end %>
+
 <h2>Sources</h2>
 <% if @sources.empty? %>
   <p class="empty">This run was pinned to no sources.</p>

@@ -1222,9 +1222,24 @@ BEGIN
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'evaluation_facts_immutable' USING ERRCODE = 'raise_exception';
   END IF;
+
   IF NEW.state IS DISTINCT FROM OLD.state THEN
-    RAISE EXCEPTION 'evaluation_transition_unavailable % -> %', OLD.state, NEW.state USING ERRCODE = 'raise_exception';
+    IF OLD.state = 'pending' AND NEW.state = 'running' THEN
+      IF NEW.started_at IS NULL THEN
+        RAISE EXCEPTION 'evaluation_transition_instant_required running'
+          USING ERRCODE = 'raise_exception';
+      END IF;
+    ELSIF OLD.state = 'running' AND NEW.state = 'failed' THEN
+      IF NEW.failed_at IS NULL THEN
+        RAISE EXCEPTION 'evaluation_transition_instant_required failed'
+          USING ERRCODE = 'raise_exception';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'evaluation_transition_unavailable % -> %', OLD.state, NEW.state
+        USING ERRCODE = 'raise_exception';
+    END IF;
   END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -7182,6 +7197,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260807140000'),
 ('20260807130000'),
 ('20260807120000'),
 ('20260807090000'),

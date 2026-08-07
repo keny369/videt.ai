@@ -16,7 +16,7 @@ candidate_range: 780b1a4..8f55c9e
 frozen_path_changes: 1
 frozen_paths:
   - lib/f1/runtime_grants.rb
-suite_examples: 2674
+suite_examples: 2703
 review_rounds: 0
 ```
 
@@ -190,7 +190,7 @@ new proof rather than by a weaker expectation**:
 
 | Gate | Result |
 | --- | --- |
-| `bundle exec rspec` | `2674 examples, 0 failures` (2584 at this tranche; +29 from the registration-access transport work, then +61 from the WF-003 verification surface, the crawl-detail screen and the two outbound-transport defects, all of which followed it) |
+| `bundle exec rspec` | `2703 examples, 0 failures` (2584 at this tranche; +29 from the registration-access transport work, then +61 from the WF-003 verification surface, the crawl-detail screen and the two outbound-transport defects, and +29 from the WF-006 evaluation input gate, all of which followed it) |
 | `bundle exec rspec spec/architecture` | 245 examples, 0 failures |
 | `bundle exec brakeman -q --no-pager -z` | 0 warnings, 0 errors |
 | `bin/packwerk check` | no offenses, no stale violations |

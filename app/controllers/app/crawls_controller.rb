@@ -59,6 +59,7 @@ module App
 
       @project = outcome.value[:project]
       @crawl = outcome.value[:crawl]
+      @evaluation = outcome.value[:evaluation]
       @sources = outcome.value[:sources]
       @fetch_attempts = outcome.value[:fetch_attempts]
       @terminal_outcomes = outcome.value[:terminal_outcomes]
@@ -89,6 +90,7 @@ module App
       return nil if project.nil? || crawl.nil?
 
       { project:, crawl:,
+        evaluation: store.crawl_evaluation(organization_id: org, crawl_id: params[:id]),
         sources: store.crawl_sources(organization_id: org, crawl_id: params[:id]),
         fetch_attempts: store.fetch_attempts(organization_id: org, crawl_id: params[:id]),
         terminal_outcomes: store.crawl_terminal_outcomes(organization_id: org, crawl_id: params[:id]),
@@ -124,6 +126,17 @@ module App
   end
 
   module Crawls
+    # The Evaluation reason codes this build can produce, as a sentence. There is exactly
+    # one today, and it is not a fault in the crawled site: the WF-006 input gate derives
+    # `blocked` because no parser policy can be resolved and no Parsed Artifact can
+    # succeed, so the honest sentence names the missing capability rather than implying
+    # the source failed.
+    EVALUATION_REASONS = {
+      "evaluation_inputs_unavailable" =>
+        "The crawl's documents could not be turned into evaluation inputs, because content " \
+        "analysis is not part of this build yet. Nothing is wrong with the source."
+    }.freeze
+
     REASONS = {
       "crawl_project_not_active" => "Activate the project before crawling it.",
       "crawl_no_active_source" => "This project has no active source. Verify and activate a source first.",

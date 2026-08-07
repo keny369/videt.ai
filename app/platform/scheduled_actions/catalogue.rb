@@ -101,10 +101,44 @@ module Platform
         "evidence_retention_warning" => "RecordEvidenceRetentionWarning"
       }.freeze
 
+      # The Evaluation stage registry (:439-444). `evaluation_stage_advance` is the one
+      # kind whose KINDS cell is blank, because ":245 it selects its work type only from
+      # the exact stage registry below"; this is that registry, transcribed.
+      #
+      # Every row maps to the same work type, so the selection is determinate WITHOUT
+      # knowing which stage an action is at — which is why `stage_work_type_for` needs no
+      # stage argument and no per-action payload. `STAGE_WORK_TYPE` proves that premise
+      # rather than assuming it: if a later stage is registered with a different work
+      # type the constant raises at load, and the resolution must then be given the stage.
+      EVALUATION_STAGES = {
+        "seal_input_snapshot" => "evaluation_advance",
+        "materialize_applicability" => "evaluation_advance",
+        "materialize_check_result_keys" => "evaluation_advance",
+        "seal_issue_set" => "evaluation_advance",
+        "resolve_adjudication_gate" => "evaluation_advance"
+      }.freeze
+
+      STAGE_WORK_TYPE = EVALUATION_STAGES.values.uniq.then do |types|
+        if types.length != 1
+          raise "the Evaluation stage registry maps to #{types.length} work types; " \
+                "stage_work_type_for must be given the stage"
+        end
+        types.first
+      end
+
+      STAGE_SELECTED_KINDS = ["evaluation_stage_advance"].freeze
+
       def kinds = KINDS.keys
       def kind?(action_kind) = KINDS.key?(action_kind)
       def queue_for(action_kind) = KINDS.fetch(action_kind).first
       def work_type_for(action_kind) = KINDS.fetch(action_kind).last
+
+      # The stage registry's answer for a stage-selected kind, and nil for every other —
+      # so a kind with a genuinely absent work type still fails closed at the dispatcher
+      # rather than borrowing this one.
+      def stage_work_type_for(action_kind)
+        STAGE_WORK_TYPE if STAGE_SELECTED_KINDS.include?(action_kind)
+      end
     end
   end
 end

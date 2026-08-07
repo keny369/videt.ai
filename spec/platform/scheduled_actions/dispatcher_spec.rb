@@ -76,15 +76,37 @@ RSpec.describe Platform::ScheduledActions::Dispatcher, type: :model do
     expect(Platform::ScheduledActions::ExecutionJob.jobs).to be_empty
   end
 
+  # NO CATALOGUE KIND RESOLVES TO A NIL WORK TYPE ANY MORE. `evaluation_stage_advance` was
+  # the only one, and it now answers from the Evaluation stage registry (:245), which is
+  # what let the WF-006 input gate be dispatched at all. The fail-closed branch still has
+  # to hold for the next kind that arrives without a mapping, so it is exercised against an
+  # action whose work type is nil rather than against a kind that no longer has one — the
+  # alternative would be deleting the only test of a guard that still matters.
   it "quarantines an action with no enqueueable work type rather than emit an unparseable envelope" do
-    id = create_due(due_at: ScheduledActionHarness.past, action_kind: "evaluation_stage_advance",
-                    target_type: "evaluation_stage")
+    id = create_due(due_at: ScheduledActionHarness.past)
+    # `Action` is a frozen Data value, so the absent mapping is simulated where it would
+    # really come from: the catalogue that answers for the kind.
+    allow(Platform::ScheduledActions::Catalogue).to receive(:work_type_for).and_return(nil)
+    allow(Platform::ScheduledActions::Catalogue).to receive(:stage_work_type_for).and_return(nil)
+
     dispatched = dispatcher.dispatch_due
 
-    expect(dispatched.map(&:outcome)).to eq([:unmappable])           # evaluation_stage_advance -> work_type nil
+    expect(dispatched.map(&:outcome)).to eq([:unmappable])
     expect(Platform::ScheduledActions::ExecutionJob.jobs).to be_empty
     expect(ScheduledActionHarness.row(id).values_at("status", "reason"))
       .to eq(%w[quarantined scheduled_work_mapping_mismatch])
+  end
+
+  it "dispatches the Evaluation stage advance, whose work type comes from the stage registry" do
+    create_due(due_at: ScheduledActionHarness.past, action_kind: "evaluation_stage_advance",
+               target_type: "crawl")
+    dispatched = dispatcher.dispatch_due
+
+    expect(dispatched.map(&:outcome)).to eq([:enqueued])
+    expect(dispatched.first.queue).to eq("pipeline")
+    expect(Platform::ScheduledActions::ExecutionJob.jobs.first["queue"]).to eq("pipeline")
+    expect(Platform::ScheduledActions::ExecutionJob.jobs.first["args"].first["work_type"])
+      .to eq("evaluation_advance")
   end
 
   it "applies the dispatch-failure path (no fire-and-forget) when Redis enqueue raises" do

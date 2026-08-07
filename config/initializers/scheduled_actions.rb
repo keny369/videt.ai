@@ -93,4 +93,19 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf005::Handlers::CompleteCrawl,
     command: Workflows::Wf005::Commands::CompleteCrawl
   )
+  # The Evaluation input gate. `evaluation_stage_advance` is a SPECIALIZED work type whose
+  # cell in the generic `scheduled_action_dispatch` table is deliberately blank because
+  # :245 fixes its work type from the Evaluation stage registry instead, so the registry's
+  # operation cross-check does not apply. One stage is registered — `seal_input_snapshot`,
+  # whose ratified outcome is the "immutable snapshot/blocked result transaction" (:439).
+  # The remaining four stages need the parsing and Check pipelines and have no handler, so
+  # an action naming them quarantines as `scheduled_work_mapping_mismatch` rather than
+  # being dispatched to this one.
+  registry.register(
+    action_kind: "evaluation_stage_advance",
+    action_schema_version: "1.0",
+    operation: "SealEvaluationInputs",
+    handler: Workflows::Wf006::Handlers::SealEvaluationInputs,
+    command: Workflows::Wf006::Commands::SealEvaluationInputs
+  )
 end

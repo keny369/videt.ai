@@ -186,6 +186,19 @@ module Workflows
                                               completion_reason: selection.completion_reason,
                                               coverage_status: selection.coverage_status).to_i.zero?
 
+          # THE HANDOFF TO WF-006, ON THIS TRANSACTION. A started Crawl opened a pending
+          # `initial` Evaluation, and OD-018 refuses the Project another root Crawl while
+          # one is pending or running. Nothing resolved it, so the first Crawl of a Project
+          # was permanently its last. The parse manifest is the Crawl's succeeded
+          # IngestionJobs and that set is final exactly now, so this is the moment — and the
+          # only moment — the input gate can run. Scheduling it here means the terminal state
+          # and the checkpoint that resolves its Evaluation commit or roll back together.
+          Workflows::Wf006::EvaluationStageSchedule.schedule(
+            pg: d[:pg], organization_id: org, project_id: pid, crawl_id: crawl["id"],
+            terminal_at: now, now:, correlation_id: ctx.correlation_id,
+            command_id: command.command_id, state_version: new_version
+          )
+
           metering = settle_reservation(d, crawl, selection, ids)
 
           payload = {
