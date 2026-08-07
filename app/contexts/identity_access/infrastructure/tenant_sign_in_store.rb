@@ -130,15 +130,16 @@ module IdentityAccess
         params = [
           row[:id], row[:created_at], row[:correlation_id], row[:organization_id], row[:account_id],
           bytea(row[:identity_receipt_digest]), row[:authorization_context_version], row[:creation_reason],
-          row[:issued_at], row[:last_activity_at], row[:idle_expires_at], row[:absolute_expires_at]
+          row[:issued_at], row[:last_activity_at], row[:idle_expires_at], row[:absolute_expires_at],
+          bytea(row[:token_sha256])
         ]
         exec(<<~SQL, params)
           INSERT INTO sessions
             (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
              identity_receipt_digest, authorization_context_version, creation_reason,
-             issued_at, last_activity_at, idle_expires_at, absolute_expires_at, status)
+             issued_at, last_activity_at, idle_expires_at, absolute_expires_at, status, token_sha256)
           VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8,
-                  $9::timestamptz,$10::timestamptz,$11::timestamptz,$12::timestamptz,'active')
+                  $9::timestamptz,$10::timestamptz,$11::timestamptz,$12::timestamptz,'active',$13)
         SQL
       end
 

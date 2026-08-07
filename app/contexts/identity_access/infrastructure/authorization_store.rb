@@ -26,6 +26,47 @@ module IdentityAccess
         exec(sql, [session_id]).to_a.first
       end
 
+      # Pre-context Session authentication by bearer token (SECURITY_PERFORMANCE.md
+      # :38). The browser holds an opaque token; only its SHA-256 digest is stored, so
+      # this resolves by digest against the UNIQUE index and the plaintext token never
+      # reaches the database. Returns the same fields as `authenticate_session` plus the
+      # Session id, which the caller needs to lock the row and record activity.
+      def authenticate_session_by_token(token_sha256)
+        sql = <<~SQL
+          SELECT id, account_id, organization_id, status, idle_expires_at, absolute_expires_at,
+                 authorization_context_version
+          FROM f1_authenticate_session_by_token($1)
+        SQL
+        exec(sql, [{ value: token_sha256, format: 1 }]).to_a.first
+      end
+
+      # Tier two: take the Session row under the proved Organization context before any
+      # activity is recorded, so a concurrent revocation either lands before this lock
+      # (and is observed) or waits behind it.
+      def lock_session(session_id)
+        exec("SELECT id, status FROM sessions WHERE id = $1::uuid FOR UPDATE", [session_id]).to_a.first
+      end
+
+      # ":242 update only the Session last-activity and idle-expiry fields required by
+      # Volume I."
+      #
+      # `idle_expires_at` is exactly `last_activity_at + 30 minutes` — the table check
+      # `session_idle_is_thirty_minutes` enforces equality, not a bound. It is
+      # deliberately NOT capped at the absolute deadline: the two deadlines are separate
+      # facts, and the absolute one is enforced where it belongs, at authentication,
+      # which refuses once `now` reaches the earlier of the two. Clamping the idle field
+      # here would both violate the check and quietly conflate the two rules.
+      def record_session_activity(session_id:, now:, idle_seconds:)
+        exec(<<~SQL, [session_id, now, idle_seconds])
+          UPDATE sessions
+          SET last_activity_at = $2::timestamptz,
+              idle_expires_at = $2::timestamptz + ($3 || ' seconds')::interval,
+              updated_at = $2::timestamptz,
+              state_version = state_version + 1
+          WHERE id = $1::uuid AND status = 'active'
+        SQL
+      end
+
       def enter_org_context(org, correlation_id)
         exec("SELECT f1_enter_org_context($1::uuid, $2::uuid)", [org, correlation_id])
       end

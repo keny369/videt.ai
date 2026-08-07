@@ -158,23 +158,31 @@ module TenantSeeder
   # Seeds a Session for an org actor. Defaults are valid at a 2026-07-20 10:00 fixed
   # clock (issued 09:45 -> idle 10:15, absolute 21:45). Pass an old issued/last time
   # or a terminal status to build an expired/revoked Session.
+  # `session_token:` is the raw bearer token the browser would hold. It defaults to a
+  # value derived from the Session id so a seeded Session is addressable by token in a
+  # transport test; only its digest is stored, exactly as in production.
   def create_session(organization_id:, account_id:, id: SecureRandom.uuid_v7, status: "active",
                      issued_at: Time.utc(2026, 7, 20, 9, 45, 0), last_activity_at: nil,
-                     authorization_context_version: 7, creation_reason: "existing_account_sign_in")
+                     authorization_context_version: 7, creation_reason: "existing_account_sign_in",
+                     session_token: nil)
     last = last_activity_at || issued_at
     idle = last + (30 * 60)
     absolute = issued_at + (12 * 3600)
     terminated = %w[revoked expired].include?(status) ? issued_at : nil
+    # A correctly shaped bearer token by default: transport code rejects a malformed
+    # cookie before it ever reaches the database, so a seeded Session carrying a
+    # made-up string would be unauthenticable for the wrong reason.
+    raw = session_token || Platform::SessionToken.mint.raw
     params = [id, organization_id, account_id, bytea(Digest::SHA256.digest("session:#{id}")),
               authorization_context_version, creation_reason, ts(issued_at), ts(last), ts(idle), ts(absolute),
-              status, (terminated ? ts(terminated) : nil)]
+              status, (terminated ? ts(terminated) : nil), bytea(Digest::SHA256.digest(raw))]
     conn.exec_params(<<~SQL, params)
       INSERT INTO sessions
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
          identity_receipt_digest, authorization_context_version, creation_reason, issued_at, last_activity_at,
-         idle_expires_at, absolute_expires_at, status, terminated_at)
+         idle_expires_at, absolute_expires_at, status, terminated_at, token_sha256)
       VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9::timestamptz,
-              $10::timestamptz,$11,$12::timestamptz)
+              $10::timestamptz,$11,$12::timestamptz,$13)
     SQL
     id
   end
@@ -200,8 +208,12 @@ module TenantSeeder
                              bootstrap_admin_exception: canonical_role == "OrganizationAdmin")
     end
     create_access_policy(organization_id: org) if with_policy
-    session_id = create_session(organization_id: org, account_id:, status: session_status, **session_opts)
-    { organization_id: org, account_id: account_id, session_id: session_id }
+    token = session_opts.delete(:session_token) || Platform::SessionToken.mint.raw
+    session_id = create_session(organization_id: org, account_id:, status: session_status,
+                                session_token: token, **session_opts)
+    # `session_token` is the raw bearer value a browser would hold. Transport tests need
+    # it; nothing persists it, so this is the only place it exists.
+    { organization_id: org, account_id: account_id, session_id: session_id, session_token: token }
   end
 
   def create_access_policy(organization_id:, id: SecureRandom.uuid_v7, status: "active",

@@ -8,7 +8,12 @@ module IdentityAccess
     # The authenticated Session actor: the Account and Organization derived FROM the
     # Session record (never from caller input), plus the Organization authorization
     # epoch resolved at command time.
-    AuthenticatedActor = Data.define(:account_id, :organization_id, :authorization_epoch)
+    # `session_id` is populated when the actor was authenticated by bearer token, where
+    # the Session id is a lookup result rather than a caller input. It stays nil on the
+    # by-id path, whose caller already holds the id it passed in.
+    AuthenticatedActor = Data.define(:account_id, :organization_id, :authorization_epoch, :session_id) do
+      def initialize(session_id: nil, **) = super
+    end
 
     # The capability decision plus the fields the durable authorization_decisions
     # record must carry (WORKFLOW_SPECIFICATIONS.md § authorization decision :331).
@@ -64,21 +69,20 @@ module IdentityAccess
       # :account_inactive / :organization_inactive (which deny before Assignment
       # evaluation, :324).
       def authenticate(session_id:, now:, correlation_id:)
-        row = @store.authenticate_session(session_id)
-        return :session_invalid if row.nil? || row["status"] != "active"
-        return :session_invalid if now >= session_deadline(row)
+        resolve(@store.authenticate_session(session_id), now:, correlation_id:)
+      end
 
-        org = row["organization_id"]
-        @store.enter_org_context(org, correlation_id)
-
-        account = @store.account(row["account_id"])
-        return :account_inactive if account.nil? || account["status"] != "active"
-
-        org_row = @store.organization(org)
-        return :organization_inactive if org_row.nil? || org_row["status"] != "active"
-
-        AuthenticatedActor.new(account_id: row["account_id"], organization_id: org,
-                               authorization_epoch: org_row["authorization_epoch"].to_i)
+      # The transport twin: a browser presents an opaque bearer token, never a Session
+      # id. The id is not a credential — it appears in command payloads, audit rows and
+      # events — so the only thing a request may be authenticated by is the token whose
+      # digest the Session row carries. Validation past that point is identical, which
+      # is why both entry points share `resolve`: an expiry or status rule that held for
+      # one and not the other would be a bypass.
+      #
+      # Returns an AuthenticatedActor carrying the Session id, so the caller can lock
+      # the row and record activity without a second lookup.
+      def authenticate_by_token(token_sha256:, now:, correlation_id:)
+        resolve(@store.authenticate_session_by_token(token_sha256), now:, correlation_id:)
       end
 
       # Evaluate `capability` for an authenticated actor, following the ratified
@@ -115,6 +119,26 @@ module IdentityAccess
       end
 
       private
+
+      # Shared by both entry points. An expiry, status or context rule that held for one
+      # and not the other would be an authentication bypass, so there is one body.
+      def resolve(row, now:, correlation_id:)
+        return :session_invalid if row.nil? || row["status"] != "active"
+        return :session_invalid if now >= session_deadline(row)
+
+        org = row["organization_id"]
+        @store.enter_org_context(org, correlation_id)
+
+        account = @store.account(row["account_id"])
+        return :account_inactive if account.nil? || account["status"] != "active"
+
+        org_row = @store.organization(org)
+        return :organization_inactive if org_row.nil? || org_row["status"] != "active"
+
+        AuthenticatedActor.new(account_id: row["account_id"], organization_id: org,
+                               authorization_epoch: org_row["authorization_epoch"].to_i,
+                               session_id: row["id"])
+      end
 
       # Step 4 for one Assignment: the baseline cell allows the capability to this
       # Assignment's canonical role, and — when the capability is protected — the

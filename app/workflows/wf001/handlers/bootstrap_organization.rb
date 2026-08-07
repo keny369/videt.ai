@@ -164,7 +164,7 @@ module Workflows
                                       command_execution_id: ids[:execution], outcome: "consumed", reason_code: nil)
           raise IdentityAccess::Infrastructure::OrganizationGenesisStore::Consumed if nonce == "already_consumed"
 
-          create_session(store, ids, organization_id, command, now, ctx)
+          token = create_session(store, ids, organization_id, command, now, ctx)
 
           payload = success_payload(ids, organization_id)
           audit_id = write_success_audit(store, ids, organization_id, ctx, command, now, payload)
@@ -176,7 +176,8 @@ module Workflows
 
           Platform::CommandResult.success(result_id: ids[:result], command_type: command.command_type,
                                           audit_record_id: audit_id, correlation_id: ctx.correlation_id,
-                                          payload: payload.transform_keys(&:to_sym))
+                                          payload: payload.transform_keys(&:to_sym),
+                                          session_token: token)
         rescue IdentityAccess::Infrastructure::OrganizationGenesisStore::Consumed
           raise Platform::InvariantViolation, "receipt nonce consumed concurrently"
         rescue LostRace
@@ -191,12 +192,18 @@ module Workflows
           changed
         end
 
+        # The Session row carries only the digest; the minted pair is returned so the
+        # caller can hand the raw token to the transport that sets the cookie. It is
+        # never written to the payload, the audit record or an event.
         def create_session(store, ids, organization_id, command, now, ctx)
+          token = Platform::SessionToken.mint
           store.insert_session(id: ids[:session], now:, correlation_id: ctx.correlation_id, organization_id:,
                                account_id: ids[:account], identity_receipt_digest: command.receipt_digest,
                                authorization_context_version: 1, creation_reason: "self_service_bootstrap",
                                issued_at: now, last_activity_at: now,
-                               idle_expires_at: now + (30 * 60), absolute_expires_at: now + (12 * 3600))
+                               idle_expires_at: now + (30 * 60), absolute_expires_at: now + (12 * 3600),
+                               token_sha256: token.digest)
+          token
         end
 
         # ":641 self-service event order" — the fixed thirteen, in exactly this

@@ -170,11 +170,14 @@ module Workflows
           raise Consumed if consumed == "already_consumed"
 
           epoch = (store.organization_epoch(org) || 0).to_i
+          # Only the digest is stored; `token.raw` leaves through the CommandResult so
+          # the transport can set the cookie, and is never persisted or audited.
+          token = Platform::SessionToken.mint
           store.insert_session(
             id: ids[:session], created_at: iso(now), correlation_id: ctx.correlation_id, organization_id: org,
             account_id:, identity_receipt_digest: command.receipt_digest, authorization_context_version: epoch,
             creation_reason: CREATION_REASON, issued_at: iso(now), last_activity_at: iso(now),
-            idle_expires_at: iso(idle_exp), absolute_expires_at: iso(abs_exp)
+            idle_expires_at: iso(idle_exp), absolute_expires_at: iso(abs_exp), token_sha256: token.digest
           )
           events << event_spec("SessionCreated", "created", "session", ids[:session], 0, nil, "active")
 
@@ -190,7 +193,8 @@ module Workflows
 
           Platform::CommandResult.success(
             result_id: ids[:result], command_type: command.command_type, audit_record_id: ids[:audit],
-            correlation_id: ctx.correlation_id, payload: payload.transform_keys(&:to_sym)
+            correlation_id: ctx.correlation_id, payload: payload.transform_keys(&:to_sym),
+            session_token: token
           )
         rescue Consumed
           raise Platform::InvariantViolation, "receipt nonce consumed concurrently"

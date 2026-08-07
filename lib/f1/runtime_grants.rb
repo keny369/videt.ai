@@ -196,6 +196,9 @@ module F1
       "f1_resolve_invitation_reference(bytea)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
+      # The bearer-token twin: the browser presents an opaque token, never a Session
+      # id, so the runtime resolves a Session by the digest of that token.
+      "f1_authenticate_session_by_token(bytea)",
       "f1_enter_org_context(uuid, uuid)",
       # The self-service genesis context: resolves the second self-service receipt
       # and enters a combined principal+real-Organization context so the Bootstrap
@@ -270,6 +273,7 @@ module F1
       "f1_resolve_invitation_reference(bytea)",
       "f1_resolve_invitation_org(bytea)",
       "f1_authenticate_session(uuid)",
+      "f1_authenticate_session_by_token(bytea)",
       "f1_enter_org_context(uuid, uuid)",
       "f1_enter_self_service_context(bytea, uuid, uuid)",
       "f1_service_identity_active(uuid)",

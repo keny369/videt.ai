@@ -40,6 +40,21 @@ $$;
 
 
 --
+-- Name: f1_authenticate_session_by_token(bytea); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_authenticate_session_by_token(p_token_sha256 bytea) RETURNS TABLE(id uuid, account_id uuid, organization_id uuid, status text, idle_expires_at timestamp with time zone, absolute_expires_at timestamp with time zone, authorization_context_version bigint)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+  SELECT s.id, s.account_id, s.organization_id, s.status, s.idle_expires_at,
+         s.absolute_expires_at, s.authorization_context_version
+  FROM sessions s
+  WHERE s.token_sha256 = p_token_sha256;
+$$;
+
+
+--
 -- Name: f1_billing_entities_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3989,10 +4004,17 @@ CREATE TABLE public.sessions (
     revoke_reason text,
     expiry_reason text,
     terminated_at timestamp(6) with time zone,
+    token_sha256 bytea NOT NULL,
+    token_replay_ciphertext bytea,
+    token_replay_nonce bytea,
+    token_replay_key_version text,
     CONSTRAINT session_absolute_is_twelve_hours CHECK ((absolute_expires_at = (issued_at + '12:00:00'::interval))),
     CONSTRAINT session_idle_is_thirty_minutes CHECK ((idle_expires_at = (last_activity_at + '00:30:00'::interval))),
     CONSTRAINT sessions_identity_receipt_digest_check CHECK ((octet_length(identity_receipt_digest) = 32)),
-    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+    CONSTRAINT sessions_replay_capsule_active_only CHECK (((status = 'active'::text) OR (token_replay_ciphertext IS NULL))),
+    CONSTRAINT sessions_replay_capsule_whole CHECK ((((token_replay_ciphertext IS NULL) AND (token_replay_nonce IS NULL) AND (token_replay_key_version IS NULL)) OR ((token_replay_ciphertext IS NOT NULL) AND (token_replay_nonce IS NOT NULL) AND (token_replay_key_version IS NOT NULL)))),
+    CONSTRAINT sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text]))),
+    CONSTRAINT sessions_token_sha256_length CHECK ((octet_length(token_sha256) = 32))
 );
 
 
@@ -5575,6 +5597,13 @@ CREATE INDEX scheduled_actions_leases ON public.scheduled_actions USING btree (l
 
 
 --
+-- Name: sessions_token_sha256_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sessions_token_sha256_key ON public.sessions USING btree (token_sha256);
+
+
+--
 -- Name: source_scope_change_requests_due; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7153,6 +7182,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260807120000'),
 ('20260807090000'),
 ('20260806110000'),
 ('20260806100000'),
