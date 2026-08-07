@@ -64,9 +64,25 @@
   <% if (explanation = App::Crawls::EVALUATION_REASONS[@evaluation["reason"]]) %>
     <p class="hint"><%= explanation %></p>
   <% end %>
+  <% if @evaluation["readiness_status"].present? %>
+    <dl class="facts">
+      <dt>Inputs</dt>
+      <dd><%= @evaluation["readiness_status"] %> (<%= @evaluation["successful_count"] %> parsed,
+          <%= @evaluation["failed_count"] %> failed)</dd>
+    </dl>
+  <% end %>
   <% if %w[pending running].include?(@evaluation["state"]) %>
     <p class="aside">
-      While this evaluation is unresolved the project accepts no further crawls.
+      <%# The two reasons an evaluation is unresolved are different things, and telling them
+          apart is the difference between "your crawl gave us nothing" and "we have your
+          content and the analysis step does not exist yet". %>
+      <% if @evaluation["readiness_status"].to_s.start_with?("ready") %>
+        This crawl's content is parsed and ready to analyse. Analysis itself is a later
+        build step, so the evaluation stays open and the project accepts no further crawls
+        for now.
+      <% else %>
+        While this evaluation is unresolved the project accepts no further crawls.
+      <% end %>
     </p>
   <% end %>
 <% end %>

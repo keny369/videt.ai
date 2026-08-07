@@ -1189,6 +1189,20 @@ $$;
 
 
 --
+-- Name: f1_evaluation_input_snapshots_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_evaluation_input_snapshots_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'evaluation_input_snapshot_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
 -- Name: f1_evaluation_orchestration_contexts_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1641,6 +1655,61 @@ BEGIN
       USING ERRCODE = 'raise_exception';
   END IF;
 
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_parsed_artifacts_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_parsed_artifacts_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'parsed_artifact_immutable' USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_parsing_jobs_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_parsing_jobs_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+  allowed text[];
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'parsing_job_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.document_id IS DISTINCT FROM OLD.document_id
+     OR NEW.content_digest IS DISTINCT FROM OLD.content_digest
+     OR NEW.parser_definition_version IS DISTINCT FROM OLD.parser_definition_version
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'parsing_job_facts_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- :475 "Parsed Artifact content never mutates": once a job names its Artifact that
+  -- link is final, so a later attempt cannot silently repoint a success at other bytes.
+  IF OLD.parsed_artifact_id IS NOT NULL AND NEW.parsed_artifact_id IS DISTINCT FROM OLD.parsed_artifact_id THEN
+    RAISE EXCEPTION 'parsing_job_artifact_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    SELECT e.tos INTO allowed FROM (VALUES ('queued', ARRAY['running']), ('running', ARRAY['succeeded', 'failed']), ('failed', ARRAY['queued', 'dead_letter']), ('dead_letter', ARRAY['queued'])) AS e(from_state, tos)
+      WHERE e.from_state = OLD.status;
+    IF allowed IS NULL OR NOT (NEW.status = ANY (allowed)) THEN
+      RAISE EXCEPTION 'parsing_job_transition_unavailable % -> %', OLD.status, NEW.status
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -3079,6 +3148,50 @@ ALTER TABLE ONLY public.entitlement_reservations FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: evaluation_input_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evaluation_input_snapshots (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    crawl_coverage_status text,
+    crawl_completion_reason text,
+    parser_policy_version text,
+    parser_definition_version text,
+    normalization_schema_version text,
+    manifest jsonb NOT NULL,
+    failed_entries jsonb NOT NULL,
+    readiness_status text NOT NULL,
+    coverage_status text NOT NULL,
+    blocked_predicate text,
+    successful_count integer NOT NULL,
+    failed_count integer NOT NULL,
+    source_roots_total integer NOT NULL,
+    source_roots_succeeded integer NOT NULL,
+    content_sha256 bytea NOT NULL,
+    CONSTRAINT evaluation_input_snapshots_blocked_shape CHECK (((readiness_status <> 'blocked'::text) OR ((coverage_status = 'partial'::text) AND (blocked_predicate IS NOT NULL)))),
+    CONSTRAINT evaluation_input_snapshots_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT evaluation_input_snapshots_coverage_status_check CHECK ((coverage_status = ANY (ARRAY['full'::text, 'partial'::text]))),
+    CONSTRAINT evaluation_input_snapshots_crawl_coverage_status_check CHECK (((crawl_coverage_status IS NULL) OR (crawl_coverage_status = ANY (ARRAY['full'::text, 'partial'::text])))),
+    CONSTRAINT evaluation_input_snapshots_failed_count_check CHECK ((failed_count >= 0)),
+    CONSTRAINT evaluation_input_snapshots_readiness_status_check CHECK ((readiness_status = ANY (ARRAY['blocked'::text, 'ready_full'::text, 'ready_partial'::text]))),
+    CONSTRAINT evaluation_input_snapshots_ready_full_shape CHECK (((readiness_status <> 'ready_full'::text) OR ((coverage_status = 'full'::text) AND (failed_count = 0) AND (blocked_predicate IS NULL)))),
+    CONSTRAINT evaluation_input_snapshots_ready_partial_shape CHECK (((readiness_status <> 'ready_partial'::text) OR ((coverage_status = 'partial'::text) AND (successful_count > 0) AND (blocked_predicate IS NULL)))),
+    CONSTRAINT evaluation_input_snapshots_source_roots_succeeded_check CHECK ((source_roots_succeeded >= 0)),
+    CONSTRAINT evaluation_input_snapshots_source_roots_total_check CHECK ((source_roots_total >= 0)),
+    CONSTRAINT evaluation_input_snapshots_successful_count_check CHECK ((successful_count >= 0))
+);
+
+ALTER TABLE ONLY public.evaluation_input_snapshots FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: evaluation_orchestration_contexts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3690,6 +3803,100 @@ CREATE TABLE public.organizations (
 );
 
 ALTER TABLE ONLY public.organizations FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: parsed_artifacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parsed_artifacts (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    document_id uuid NOT NULL,
+    parsing_job_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    source_root boolean NOT NULL,
+    input_media_type text NOT NULL,
+    input_content_digest bytea NOT NULL,
+    parser_definition_version text NOT NULL,
+    normalization_schema_version text NOT NULL,
+    normalized_payload_reference text NOT NULL,
+    normalized_payload_sha256 bytea NOT NULL,
+    data_classification text NOT NULL,
+    CONSTRAINT parsed_artifacts_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT parsed_artifacts_data_classification_check CHECK ((data_classification = ANY (ARRAY['public'::text, 'internal'::text, 'confidential'::text, 'restricted'::text]))),
+    CONSTRAINT parsed_artifacts_input_content_digest_check CHECK ((octet_length(input_content_digest) = 32)),
+    CONSTRAINT parsed_artifacts_input_media_type_check CHECK (((length(input_media_type) >= 1) AND (length(input_media_type) <= 255))),
+    CONSTRAINT parsed_artifacts_normalization_schema_version_check CHECK (((length(normalization_schema_version) >= 1) AND (length(normalization_schema_version) <= 120))),
+    CONSTRAINT parsed_artifacts_normalized_payload_reference_check CHECK (((length(normalized_payload_reference) >= 1) AND (length(normalized_payload_reference) <= 512))),
+    CONSTRAINT parsed_artifacts_normalized_payload_sha256_check CHECK ((octet_length(normalized_payload_sha256) = 32)),
+    CONSTRAINT parsed_artifacts_parser_definition_version_check CHECK (((length(parser_definition_version) >= 1) AND (length(parser_definition_version) <= 120)))
+);
+
+ALTER TABLE ONLY public.parsed_artifacts FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: parsing_jobs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parsing_jobs (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    lock_version bigint DEFAULT 0 NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    causation_id uuid NOT NULL,
+    command_id uuid,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    source_id uuid NOT NULL,
+    crawl_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    document_id uuid NOT NULL,
+    ingestion_job_id uuid NOT NULL,
+    input_evidence_id uuid NOT NULL,
+    canonical_url text NOT NULL,
+    source_root boolean NOT NULL,
+    media_type text NOT NULL,
+    content_digest bytea NOT NULL,
+    data_classification text NOT NULL,
+    parser_definition_version text NOT NULL,
+    normalization_schema_version text NOT NULL,
+    status text NOT NULL,
+    attempt_number integer NOT NULL,
+    last_reason_code text,
+    parsed_artifact_id uuid,
+    parsed_artifact_digest bytea,
+    idempotency_key text NOT NULL,
+    replay_generation integer DEFAULT 0 NOT NULL,
+    queued_at timestamp(6) with time zone NOT NULL,
+    started_at timestamp(6) with time zone,
+    completed_at timestamp(6) with time zone,
+    CONSTRAINT parsing_jobs_attempt_number_check CHECK (((attempt_number >= 1) AND (attempt_number <= 3))),
+    CONSTRAINT parsing_jobs_canonical_url_check CHECK (((length(canonical_url) >= 1) AND (length(canonical_url) <= 8192))),
+    CONSTRAINT parsing_jobs_content_digest_check CHECK ((octet_length(content_digest) = 32)),
+    CONSTRAINT parsing_jobs_data_classification_check CHECK ((data_classification = ANY (ARRAY['public'::text, 'internal'::text, 'confidential'::text, 'restricted'::text]))),
+    CONSTRAINT parsing_jobs_failure_has_reason CHECK (((status <> ALL (ARRAY['failed'::text, 'dead_letter'::text])) OR (last_reason_code IS NOT NULL))),
+    CONSTRAINT parsing_jobs_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 255))),
+    CONSTRAINT parsing_jobs_last_reason_code_check CHECK ((last_reason_code = ANY (ARRAY['tenant_mismatch'::text, 'input_quarantined'::text, 'input_bytes_missing'::text, 'input_digest_mismatch'::text, 'unsupported_media_type'::text, 'parser_policy_unavailable'::text, 'parser_timeout'::text, 'parser_dependency_unavailable'::text, 'normalized_output_invalid'::text]))),
+    CONSTRAINT parsing_jobs_media_type_check CHECK (((length(media_type) >= 1) AND (length(media_type) <= 255))),
+    CONSTRAINT parsing_jobs_normalization_schema_version_check CHECK (((length(normalization_schema_version) >= 1) AND (length(normalization_schema_version) <= 120))),
+    CONSTRAINT parsing_jobs_parsed_artifact_digest_check CHECK (((parsed_artifact_digest IS NULL) OR (octet_length(parsed_artifact_digest) = 32))),
+    CONSTRAINT parsing_jobs_parser_definition_version_check CHECK (((length(parser_definition_version) >= 1) AND (length(parser_definition_version) <= 120))),
+    CONSTRAINT parsing_jobs_replay_generation_check CHECK ((replay_generation >= 0)),
+    CONSTRAINT parsing_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'dead_letter'::text]))),
+    CONSTRAINT parsing_jobs_success_has_artifact CHECK (((status <> 'succeeded'::text) OR ((parsed_artifact_id IS NOT NULL) AND (parsed_artifact_digest IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.parsing_jobs FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -4743,6 +4950,22 @@ ALTER TABLE ONLY public.entitlement_reservations
 
 
 --
+-- Name: evaluation_input_snapshots evaluation_input_snapshots_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_input_snapshots
+    ADD CONSTRAINT evaluation_input_snapshots_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: evaluation_input_snapshots evaluation_input_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_input_snapshots
+    ADD CONSTRAINT evaluation_input_snapshots_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_evaluation_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5028,6 +5251,46 @@ ALTER TABLE ONLY public.role_expiry_block_decisions
 
 ALTER TABLE ONLY public.organizations
     ADD CONSTRAINT organizations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parsed_artifacts parsed_artifacts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsed_artifacts
+    ADD CONSTRAINT parsed_artifacts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: parsed_artifacts parsed_artifacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsed_artifacts
+    ADD CONSTRAINT parsed_artifacts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_pkey PRIMARY KEY (id);
 
 
 --
@@ -5402,6 +5665,13 @@ CREATE INDEX entitlement_reservations_window_state ON public.entitlement_reserva
 
 
 --
+-- Name: evaluation_input_snapshots_evaluation_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX evaluation_input_snapshots_evaluation_unique ON public.evaluation_input_snapshots USING btree (evaluation_id);
+
+
+--
 -- Name: evaluations_initial_per_crawl_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5588,6 +5858,41 @@ CREATE UNIQUE INDEX one_nonclosed_billing_entity_per_org ON public.billing_entit
 --
 
 CREATE UNIQUE INDEX one_open_invitation_per_preimage ON public.invitations USING btree (organization_id, open_uniqueness_sha256) WHERE (state = ANY (ARRAY['pending_approval'::text, 'active'::text]));
+
+
+--
+-- Name: parsed_artifacts_document; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parsed_artifacts_document ON public.parsed_artifacts USING btree (organization_id, document_id);
+
+
+--
+-- Name: parsed_artifacts_job_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX parsed_artifacts_job_unique ON public.parsed_artifacts USING btree (parsing_job_id);
+
+
+--
+-- Name: parsing_jobs_crawl; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parsing_jobs_crawl ON public.parsing_jobs USING btree (organization_id, crawl_id);
+
+
+--
+-- Name: parsing_jobs_evaluation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parsing_jobs_evaluation ON public.parsing_jobs USING btree (organization_id, evaluation_id, status);
+
+
+--
+-- Name: parsing_jobs_identity_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX parsing_jobs_identity_unique ON public.parsing_jobs USING btree (document_id, content_digest, parser_definition_version);
 
 
 --
@@ -5836,6 +6141,13 @@ CREATE TRIGGER entitlement_reservations_guard BEFORE DELETE OR UPDATE ON public.
 
 
 --
+-- Name: evaluation_input_snapshots evaluation_input_snapshots_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER evaluation_input_snapshots_guard BEFORE DELETE OR UPDATE ON public.evaluation_input_snapshots FOR EACH ROW EXECUTE FUNCTION public.f1_evaluation_input_snapshots_guard();
+
+
+--
 -- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -5896,6 +6208,20 @@ CREATE TRIGGER ingestion_jobs_terminal_closure AFTER INSERT ON public.ingestion_
 --
 
 CREATE TRIGGER organizations_lifecycle_guard BEFORE UPDATE ON public.organizations FOR EACH ROW EXECUTE FUNCTION public.f1_organizations_lifecycle_guard();
+
+
+--
+-- Name: parsed_artifacts parsed_artifacts_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER parsed_artifacts_guard BEFORE DELETE OR UPDATE ON public.parsed_artifacts FOR EACH ROW EXECUTE FUNCTION public.f1_parsed_artifacts_guard();
+
+
+--
+-- Name: parsing_jobs parsing_jobs_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER parsing_jobs_guard BEFORE DELETE OR UPDATE ON public.parsing_jobs FOR EACH ROW EXECUTE FUNCTION public.f1_parsing_jobs_guard();
 
 
 --
@@ -6266,6 +6592,14 @@ ALTER TABLE ONLY public.entitlement_reservations
 
 
 --
+-- Name: evaluation_input_snapshots evaluation_input_snapshots_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evaluation_input_snapshots
+    ADD CONSTRAINT evaluation_input_snapshots_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
 -- Name: evaluation_orchestration_contexts evaluation_orchestration_contexts_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6439,6 +6773,46 @@ ALTER TABLE ONLY public.ingestion_jobs
 
 ALTER TABLE ONLY public.ingestion_jobs
     ADD CONSTRAINT ingestion_jobs_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: parsed_artifacts parsed_artifacts_document_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsed_artifacts
+    ADD CONSTRAINT parsed_artifacts_document_fk FOREIGN KEY (organization_id, project_id, document_id) REFERENCES public.documents(organization_id, project_id, id);
+
+
+--
+-- Name: parsed_artifacts parsed_artifacts_job_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsed_artifacts
+    ADD CONSTRAINT parsed_artifacts_job_fk FOREIGN KEY (organization_id, parsing_job_id) REFERENCES public.parsing_jobs(organization_id, id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_document_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_document_fk FOREIGN KEY (organization_id, project_id, document_id) REFERENCES public.documents(organization_id, project_id, id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: parsing_jobs parsing_jobs_org_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parsing_jobs
+    ADD CONSTRAINT parsing_jobs_org_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
 
 
 --
@@ -6841,6 +7215,19 @@ CREATE POLICY entitlement_reservations_context ON public.entitlement_reservation
 
 
 --
+-- Name: evaluation_input_snapshots; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.evaluation_input_snapshots ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: evaluation_input_snapshots evaluation_input_snapshots_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY evaluation_input_snapshots_context ON public.evaluation_input_snapshots USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: evaluation_orchestration_contexts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -6993,6 +7380,32 @@ ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY organizations_context ON public.organizations USING ((id = public.f1_current_context_org())) WITH CHECK ((id = public.f1_current_context_org()));
+
+
+--
+-- Name: parsed_artifacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.parsed_artifacts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: parsed_artifacts parsed_artifacts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY parsed_artifacts_context ON public.parsed_artifacts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: parsing_jobs; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.parsing_jobs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: parsing_jobs parsing_jobs_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY parsing_jobs_context ON public.parsing_jobs USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -7197,6 +7610,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260807150000'),
 ('20260807140000'),
 ('20260807130000'),
 ('20260807120000'),

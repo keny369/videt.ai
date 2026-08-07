@@ -2,40 +2,38 @@
 
 module Workflows
   module Wf006
-    # Whether a parser policy version can be resolved for a Project — the second of the
-    # four ratified blocked predicates (WORKFLOW_SPECIFICATIONS.md :505, "`blocked` when
-    # the manifest is invalid, PARSER POLICY IS UNAVAILABLE, zero Parsed Artifacts
-    # succeeded, or zero Source-root Parsed Artifacts succeeded").
+    # Whether a parser policy version can be resolved for a Project — the second of the four
+    # ratified blocked predicates (WORKFLOW_SPECIFICATIONS.md :505, "`blocked` when the
+    # manifest is invalid, PARSER POLICY IS UNAVAILABLE, zero Parsed Artifacts succeeded, or
+    # zero Source-root Parsed Artifacts succeeded").
     #
-    # IT IS UNAVAILABLE, AND THAT IS A FACT ABOUT THIS BUILD RATHER THAN A PLACEHOLDER.
-    # A parse manifest is turned into Parsed Artifacts by the WF-006 parsing pipeline
-    # (contracts/S-08.json): ParsingJob, Parsed Artifact, the `parsed-observation-v1`
-    # normalization schema and the parser definition/policy versions the snapshot must
-    # record. None of them exists — there is no `parsing_jobs`, `parsed_artifacts` or
-    # `evaluation_input_snapshots` table in the schema — so there is no parser policy
-    # version to resolve and no Parsed Artifact can succeed. Two of the four blocked
-    # predicates therefore hold, truthfully, for every Evaluation this build creates.
+    # IT IS NOW AVAILABLE, AND THAT IS AGAIN A FACT ABOUT THIS BUILD. Until the S-08 parsing
+    # limb landed there was no ParsingJob, no Parsed Artifact and no normalization schema, so
+    # no policy version existed to name and two of the four predicates held for every
+    # Evaluation. The parser, its definition version and the `parsed-observation-v1` schema
+    # now exist, so the honest answer changed with the code rather than with a decision.
     #
-    # This is deliberately a NAMED FACT rather than a `false` buried inside the readiness
-    # handler. It is the single line that changes when the parsing pipeline lands, it
-    # says why it reads as it does, and a reader looking for "why did my evaluation
-    # fail" finds the answer here instead of inferring it from an absent branch.
+    # WHAT IT STILL DOES NOT CLAIM. The versions below name a parser and a normalization
+    # schema, nothing else. Check semantics, scoring and recommendations remain unresolved
+    # and unimplemented; a resolvable parser policy only means a Document's bytes can become
+    # a Parsed Artifact, which is exactly what the predicate asks.
     #
-    # What it is NOT: a decision about scoring, checks, issues or recommendations. Those
-    # semantics stay unresolved and unfabricated. This only answers whether the inputs a
-    # Check would consume can be produced today, and they cannot.
+    # `html-parser-interim-v1` is an INTERIM in the same sense as `source-scope-interim-v1`
+    # and `ingestion-interim-v1`: baseline media types only (`text/html` and
+    # `application/xhtml+xml`, :480), and no owner decision is pre-empted by it.
     module ParserPolicy
       module_function
 
-      # The reason surfaced to a person reading the Evaluation, in their terms rather
-      # than the contract's predicate name.
-      UNAVAILABLE_EXPLANATION =
-        "Content analysis is not part of this build yet, so the crawl's documents cannot be turned " \
-        "into evaluation inputs."
+      DEFINITION_VERSION = ParsedObservation::PARSER_DEFINITION_VERSION
+      NORMALIZATION_SCHEMA_VERSION = ParsedObservation::SCHEMA_VERSION
+      POLICY_VERSION = "parser-policy-interim-v1"
 
-      def available?(_organization_id = nil, _project_id = nil) = false
+      # Not per-Project today: one parser definition serves every tenant, and there is no
+      # per-Project parser configuration to resolve. The arguments are accepted so the
+      # callers do not change when there is.
+      def available?(_organization_id = nil, _project_id = nil) = true
 
-      def version = nil
+      def version = POLICY_VERSION
     end
   end
 end

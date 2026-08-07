@@ -72,23 +72,39 @@ RSpec.describe Workflows::Wf006::EvaluationInputReadiness, type: :model do
   end
 
   describe "what this build actually derives" do
-    # The two predicates that hold today, read from the named fact rather than assumed.
-    it "is blocked, because no parser policy resolves and no Parsed Artifact can succeed" do
+    # These two examples track a FACT ABOUT THE BUILD, and the fact changed when the S-08
+    # parsing limb landed: a parser policy now resolves, so the predicate that used to hold
+    # for every Evaluation no longer does. They are kept rather than deleted because the
+    # value is in pinning what the derivation reads from, not in the answer of the day.
+    it "resolves a parser policy, so that predicate no longer blocks" do
+      expect(Workflows::Wf006::ParserPolicy.available?).to be(true)
+      expect(Workflows::Wf006::ParserPolicy.version).to eq("parser-policy-interim-v1")
+    end
+
+    it "is still blocked when the manifest produced no Parsed Artifact" do
       result = described_class.derive(
         manifest_valid: true,
         parser_policy_available: Workflows::Wf006::ParserPolicy.available?,
         parsed_artifacts_succeeded: 0, source_root_artifacts_succeeded: 0,
-        manifest_entries: 1, jobs_succeeded: 1, crawl_coverage: "full"
+        manifest_entries: 1, jobs_succeeded: 0, crawl_coverage: "full"
       )
 
       expect(result).to be_blocked
-      expect(result.blocked_predicate).to eq("parser_policy_unavailable")
+      expect(result.blocked_predicate).to eq("no_parsed_artifact_succeeded")
       expect(result.reason).to eq("evaluation_inputs_unavailable")
     end
 
-    it "keeps the parser policy genuinely unavailable rather than stubbed to a version" do
-      expect(Workflows::Wf006::ParserPolicy.available?).to be(false)
-      expect(Workflows::Wf006::ParserPolicy.version).to be_nil
+    it "is READY when the parser produced a Source-root Artifact for a fully covered crawl" do
+      result = described_class.derive(
+        manifest_valid: true,
+        parser_policy_available: Workflows::Wf006::ParserPolicy.available?,
+        parsed_artifacts_succeeded: 1, source_root_artifacts_succeeded: 1,
+        manifest_entries: 1, jobs_succeeded: 1, crawl_coverage: "full"
+      )
+
+      expect(result).to be_ready
+      expect(result.readiness_status).to eq("ready_full")
+      expect(result.reason).to be_nil
     end
   end
 end

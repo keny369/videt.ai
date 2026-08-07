@@ -138,6 +138,14 @@ module F1
       "ingestion_jobs"                    => "SELECT, INSERT, UPDATE",
       # T-CHK, insert-then-terminalise, exactly like `fetch_attempts` above.
       "ingestion_attempts"                => "SELECT, INSERT, UPDATE",
+      # S-08 parsing (WORKFLOW_SPECIFICATIONS.md :474-476, :501). Additive new-table grants
+      # (Foundation Consumption Rule / ADR-029): no existing grant changes and FORCE RLS is
+      # preserved on all three. The job row is reused across attempts and replay generations
+      # so it needs UPDATE; the Artifact and the Snapshot are T-IMM and get neither UPDATE nor
+      # DELETE, which is defence in depth behind triggers that refuse both outright.
+      "parsing_jobs"                      => "SELECT, INSERT, UPDATE",
+      "parsed_artifacts"                  => "SELECT, INSERT",
+      "evaluation_input_snapshots"        => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

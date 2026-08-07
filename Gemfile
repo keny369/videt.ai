@@ -21,6 +21,13 @@ gem "sidekiq", "8.1.6"
 gem "redis-client", "0.30.0"
 gem "connection_pool", "3.0.2"
 
+# WF-006 HTML/XHTML parsing. Declared directly rather than leaned on through Rails'
+# sanitizer dependency: `parsed-observation-v1` is a product contract, so the library that
+# implements it is a product dependency and its version must be ours to pin. It parses
+# attacker-controlled bytes, so every use disables DTDs and external entities and never
+# fetches a remote context.
+gem "nokogiri"
+
 # Asset pipeline: Propshaft + Importmap. No Node runtime, no JS bundler.
 gem "propshaft"
 gem "importmap-rails"

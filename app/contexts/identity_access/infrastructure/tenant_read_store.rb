@@ -195,10 +195,13 @@ module IdentityAccess
       # reason code, never a sentence composed in SQL.
       def crawl_evaluation(organization_id:, crawl_id:)
         exec(<<~SQL, [organization_id, crawl_id]).to_a.first
-          SELECT id, kind, state, reason, created_at, started_at, completed_at, failed_at
-          FROM evaluations
-          WHERE organization_id = $1::uuid AND crawl_id = $2::uuid AND kind = 'initial'
-          ORDER BY created_at ASC, id ASC LIMIT 1
+          SELECT e.id, e.kind, e.state, e.reason, e.created_at, e.started_at, e.completed_at, e.failed_at,
+                 s.readiness_status, s.coverage_status, s.successful_count, s.failed_count
+          FROM evaluations e
+          LEFT JOIN evaluation_input_snapshots s
+            ON s.evaluation_id = e.id AND s.organization_id = e.organization_id
+          WHERE e.organization_id = $1::uuid AND e.crawl_id = $2::uuid AND e.kind = 'initial'
+          ORDER BY e.created_at ASC, e.id ASC LIMIT 1
         SQL
       end
 

@@ -17,8 +17,14 @@ module IdentityAccess
     # already calls for is the right fix and is still deferred, because doing it here
     # would edit three merged stores for no behaviour change.
     class EvaluationInputStore
+      # The raw connection, exposed so a caller can schedule F-04 work on THIS transaction.
+      # `Platform::ScheduledActions::Store` takes a connection, and a schedule that opened its
+      # own would commit independently of the rows it describes.
+      attr_reader :connection
+
       def initialize(pg_connection)
         @pg = pg_connection
+        @connection = pg_connection
       end
 
       def enter_org_context(org:, correlation_id:)
@@ -118,6 +124,234 @@ module IdentityAccess
               failed_at = $3::timestamptz, reason = $4
           WHERE id = $1::uuid AND state = 'running' AND state_version = $2
         SQL
+      end
+
+      # ---- S-08 parse manifest -----------------------------------------------------
+
+      # The candidate manifest tuples: every distinct Document whose IngestionJob reached
+      # `succeeded` for this Crawl, with the members :470 requires each tuple to contain.
+      # `document_content_digest` is read ALONGSIDE the job's digest rather than instead of
+      # it, because the manifest/content-digest mismatch predicate compares the two.
+      def manifest_rows(crawl_id)
+        exec(<<~SQL, [crawl_id]).to_a
+          SELECT j.organization_id, j.project_id, j.source_id, j.crawl_id,
+                 j.id AS ingestion_job_id, j.document_id, j.evidence_id AS input_evidence_id,
+                 d.canonical_url, j.media_type, encode(j.fetched_body_sha256, 'hex') AS content_digest,
+                 encode(d.content_sha256, 'hex') AS document_content_digest,
+                 j.data_classification,
+                 (d.canonical_url = cs.canonical_root_uri) AS source_root
+          FROM ingestion_jobs j
+          JOIN documents d ON d.id = j.document_id AND d.organization_id = j.organization_id
+          JOIN crawl_sources cs ON cs.crawl_id = j.crawl_id AND cs.source_id = j.source_id
+          WHERE j.crawl_id = $1::uuid AND j.state = 'succeeded' AND j.document_id IS NOT NULL
+        SQL
+      end
+
+      # Read separately and compared against the manifest, so an omission is detectable.
+      def succeeded_ingestion_job_ids(crawl_id)
+        exec(<<~SQL, [crawl_id]).to_a.map { |r| r["id"] }
+          SELECT id FROM ingestion_jobs
+          WHERE crawl_id = $1::uuid AND state = 'succeeded' AND document_id IS NOT NULL
+        SQL
+      end
+
+      # The sealed per-URL terminal outcomes a Source-root payload must agree with.
+      #
+      # THE TWO VOCABULARIES ARE NOT THE SAME AND MUST BE TRANSLATED. `crawl_terminal_outcomes`
+      # records the run's own outcome — `document_created`, `content_absent`,
+      # `content_fetch_failed`, `policy_excluded`, `limit_discarded`,
+      # `robots_unavailable_fail_closed` — while :476 admits exactly four values in the
+      # parsed-observation map: `document_valid`, `content_absent`, `content_fetch_failed`,
+      # `policy_excluded`. A crawl outcome with no parsed-observation equivalent
+      # (`limit_discarded`, `robots_unavailable_fail_closed`) names a URL the run never
+      # covered, so it is ABSENT from the map rather than translated to a near-miss: the map
+      # describes what was observed, and "we stopped before this one" is not an observation.
+      CRAWL_TO_OBSERVED_OUTCOME = {
+        "document_created" => "document_valid",
+        "content_absent" => "content_absent",
+        "content_fetch_failed" => "content_fetch_failed",
+        "policy_excluded" => "policy_excluded"
+      }.freeze
+
+      def crawl_terminal_outcome_map(crawl_id)
+        exec(<<~SQL, [crawl_id]).to_a.each_with_object({}) do |row, map|
+          SELECT t.outcome, d.canonical_url
+          FROM crawl_terminal_outcomes t
+          LEFT JOIN documents d ON d.id = t.document_id
+          WHERE t.crawl_id = $1::uuid AND d.canonical_url IS NOT NULL
+        SQL
+          observed = CRAWL_TO_OBSERVED_OUTCOME[row["outcome"]]
+          map[row["canonical_url"]] = observed if observed
+        end
+      end
+
+      # The active scope policy versions a Source's links are canonicalized against. These
+      # are the FROZEN ones the Crawl pinned, read through `crawl_sources`, so the parser and
+      # the frontier cannot disagree about what is in scope.
+      def source_scope_policies(crawl_id, source_id)
+        exec(<<~SQL, [crawl_id, source_id]).to_a
+          SELECT p.canonical_host, p.allowed_schemes, p.allowed_ports,
+                 p.include_prefixes, p.exclude_prefixes, p.query_handling
+          FROM crawl_sources cs
+          JOIN source_scope_policies p ON p.id = cs.scope_policy_id
+          WHERE cs.crawl_id = $1::uuid AND cs.source_id = $2::uuid
+        SQL
+      end
+
+      # ---- S-08 parsing jobs -------------------------------------------------------
+
+      def insert_parsing_job(row)
+        params = [row[:id], iso(row[:now]), row[:correlation_id], row[:causation_id], row[:command_id],
+                  row[:organization_id], row[:project_id], row[:source_id], row[:crawl_id],
+                  row[:evaluation_id], row[:document_id], row[:ingestion_job_id], row[:input_evidence_id],
+                  row[:canonical_url], row[:source_root], row[:media_type], hexbytea(row[:content_digest]),
+                  row[:data_classification], row[:parser_definition_version],
+                  row[:normalization_schema_version], row[:idempotency_key], row[:schema_version]]
+        exec(<<~SQL, params)
+          INSERT INTO parsing_jobs
+            (id, schema_version, created_at, updated_at, correlation_id, causation_id, command_id,
+             organization_id, project_id, source_id, crawl_id, evaluation_id, document_id,
+             ingestion_job_id, input_evidence_id, canonical_url, source_root, media_type,
+             content_digest, data_classification, parser_definition_version,
+             normalization_schema_version, status, attempt_number, idempotency_key, queued_at)
+          VALUES ($1::uuid,$22,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,
+                  $6::uuid,$7::uuid,$8::uuid,$9::uuid,$10::uuid,$11::uuid,
+                  $12::uuid,$13::uuid,$14,$15,$16,
+                  $17,$18,$19,
+                  $20,'queued',1,$21,$2::timestamptz)
+          ON CONFLICT (document_id, content_digest, parser_definition_version) DO NOTHING
+        SQL
+      end
+
+      def parsing_jobs_for_evaluation(evaluation_id)
+        exec(<<~SQL, [evaluation_id]).to_a
+          SELECT id, document_id, source_id, status, attempt_number, last_reason_code,
+                 parsed_artifact_id, source_root, canonical_url
+          FROM parsing_jobs WHERE evaluation_id = $1::uuid
+          ORDER BY source_id, canonical_url, document_id
+        SQL
+      end
+
+      def read_parsing_job(id)
+        exec(<<~SQL, [id]).to_a.first
+          SELECT * FROM parsing_jobs WHERE id = $1::uuid
+        SQL
+      end
+
+      def lock_parsing_job(id)
+        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["parsing-job:#{id}"])
+      end
+
+      def start_parsing_job(id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE parsing_jobs
+          SET status = 'running', state_version = state_version + 1, updated_at = $3::timestamptz,
+              started_at = $3::timestamptz
+          WHERE id = $1::uuid AND status = 'queued' AND state_version = $2
+        SQL
+      end
+
+      def succeed_parsing_job(id, expected_version, now, artifact_id, artifact_digest)
+        exec(<<~SQL, [id, expected_version, iso(now), artifact_id, bytea(artifact_digest)]).cmd_tuples
+          UPDATE parsing_jobs
+          SET status = 'succeeded', state_version = state_version + 1, updated_at = $3::timestamptz,
+              completed_at = $3::timestamptz, parsed_artifact_id = $4::uuid, parsed_artifact_digest = $5
+          WHERE id = $1::uuid AND status = 'running' AND state_version = $2
+        SQL
+      end
+
+      # `running -> failed` then, for a nonretryable reason or an exhausted retry,
+      # `failed -> dead_letter` at the SAME serialized checkpoint (:483). Two statements
+      # because the guard admits the two edges and refuses the shortcut.
+      def fail_parsing_job(id, expected_version, now, reason, dead_letter:)
+        affected = exec(<<~SQL, [id, expected_version, iso(now), reason]).cmd_tuples
+          UPDATE parsing_jobs
+          SET status = 'failed', state_version = state_version + 1, updated_at = $3::timestamptz,
+              completed_at = $3::timestamptz, last_reason_code = $4
+          WHERE id = $1::uuid AND status = 'running' AND state_version = $2
+        SQL
+        return 0 if affected.to_i.zero? || !dead_letter
+
+        exec(<<~SQL, [id, expected_version.to_i + 1, iso(now)]).cmd_tuples
+          UPDATE parsing_jobs
+          SET status = 'dead_letter', state_version = state_version + 1, updated_at = $3::timestamptz
+          WHERE id = $1::uuid AND status = 'failed' AND state_version = $2
+        SQL
+      end
+
+      # A retryable failure returns the SAME job to `queued` at the next attempt number.
+      def requeue_parsing_job(id, expected_version, now)
+        exec(<<~SQL, [id, expected_version, iso(now)]).cmd_tuples
+          UPDATE parsing_jobs
+          SET status = 'queued', state_version = state_version + 1, updated_at = $3::timestamptz,
+              attempt_number = attempt_number + 1, started_at = NULL, completed_at = NULL
+          WHERE id = $1::uuid AND status = 'failed' AND state_version = $2
+        SQL
+      end
+
+      def insert_parsed_artifact(row)
+        params = [row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+                  row[:source_id], row[:document_id], row[:parsing_job_id], row[:canonical_url],
+                  row[:source_root], row[:input_media_type], hexbytea(row[:input_content_digest]),
+                  row[:parser_definition_version], row[:normalization_schema_version],
+                  row[:normalized_payload_reference], bytea(row[:normalized_payload_sha256]),
+                  row[:data_classification], row[:schema_version]]
+        exec(<<~SQL, params)
+          INSERT INTO parsed_artifacts
+            (id, schema_version, created_at, correlation_id, organization_id, project_id, source_id,
+             document_id, parsing_job_id, canonical_url, source_root, input_media_type,
+             input_content_digest, parser_definition_version, normalization_schema_version,
+             normalized_payload_reference, normalized_payload_sha256, data_classification)
+          VALUES ($1::uuid,$18,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6::uuid,
+                  $7::uuid,$8::uuid,$9,$10,$11,
+                  $12,$13,$14,
+                  $15,$16,$17)
+        SQL
+      end
+
+      # :475 "changes the same-version Document from ingested to parsed". Guarded on
+      # `ingested`, so a Document already advanced is left alone and the caller replays.
+      def mark_document_parsed(id, now)
+        exec(<<~SQL, [id, iso(now)]).cmd_tuples
+          UPDATE documents
+          SET state = 'parsed', state_version = state_version + 1, updated_at = $2::timestamptz,
+              parsed_at = $2::timestamptz
+          WHERE id = $1::uuid AND state = 'ingested'
+        SQL
+      end
+
+      def read_evidence(id)
+        exec("SELECT id, payload_reference, validation_status FROM evidence WHERE id = $1::uuid", [id]).to_a.first
+      end
+
+      # ---- S-08 evaluation input snapshot ------------------------------------------
+
+      def insert_evaluation_input_snapshot(row)
+        params = [row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+                  row[:evaluation_id], row[:crawl_id], row[:crawl_coverage_status], row[:crawl_completion_reason],
+                  row[:parser_policy_version], row[:parser_definition_version], row[:normalization_schema_version],
+                  row[:manifest], row[:failed_entries], row[:readiness_status], row[:coverage_status],
+                  row[:blocked_predicate], row[:successful_count], row[:failed_count],
+                  row[:source_roots_total], row[:source_roots_succeeded], bytea(row[:content_sha256]),
+                  row[:schema_version]]
+        exec(<<~SQL, params)
+          INSERT INTO evaluation_input_snapshots
+            (id, schema_version, created_at, correlation_id, organization_id, project_id, evaluation_id,
+             crawl_id, crawl_coverage_status, crawl_completion_reason, parser_policy_version,
+             parser_definition_version, normalization_schema_version, manifest, failed_entries,
+             readiness_status, coverage_status, blocked_predicate, successful_count, failed_count,
+             source_roots_total, source_roots_succeeded, content_sha256)
+          VALUES ($1::uuid,$23,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,$6::uuid,
+                  $7::uuid,$8,$9,$10,
+                  $11,$12,$13::jsonb,$14::jsonb,
+                  $15,$16,$17,$18,$19,
+                  $20,$21,$22)
+          ON CONFLICT (evaluation_id) DO NOTHING
+        SQL
+      end
+
+      def read_snapshot(evaluation_id)
+        exec("SELECT * FROM evaluation_input_snapshots WHERE evaluation_id = $1::uuid", [evaluation_id]).to_a.first
       end
 
       # ---- ledger writers ---------------------------------------------------------
@@ -236,6 +470,8 @@ module IdentityAccess
 
       def exec(sql, params) = @pg.exec_params(sql, params)
       def bytea(bytes) = bytes && { value: bytes, format: 1 }
+      # The manifest carries digests as hex (it is canonical JSON), the columns are `bytea`.
+      def hexbytea(hex) = hex && bytea([hex].pack("H*"))
       def iso(time) = time&.getutc&.iso8601(6)
     end
   end

@@ -108,4 +108,15 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf006::Handlers::SealEvaluationInputs,
     command: Workflows::Wf006::Commands::SealEvaluationInputs
   )
+  # One ParsingJob attempt. `parsing_attempt_due` is a SPECIALIZED work type (`parse`,
+  # BACKGROUND_PROCESSING.md :199), so it is absent from the generic dispatch table and the
+  # registry's operation cross-check does not apply. One operation only: :481 gives an
+  # attempt a single execution path, and its retry is another delivery of the same kind.
+  registry.register(
+    action_kind: "parsing_attempt_due",
+    action_schema_version: "1.0",
+    operation: "ExecuteParsingJob",
+    handler: Workflows::Wf006::Handlers::ExecuteParsingJob,
+    command: Workflows::Wf006::Commands::ExecuteParsingJob
+  )
 end

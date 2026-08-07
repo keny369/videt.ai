@@ -390,6 +390,7 @@ DEPENDENCIES
   debug
   factory_bot_rails (= 6.5.1)
   importmap-rails
+  nokogiri
   packwerk (= 3.3.0)
   pg (= 1.6.3)
   propshaft
