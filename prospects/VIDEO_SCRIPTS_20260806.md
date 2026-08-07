@@ -56,30 +56,31 @@ Each below gives you the product, the model, the exact text to type, what you ar
 
 ---
 
-## 1. TRIDENT BUSINESS SALES — hook: WRONG
+## 1. TRIDENT BUSINESS SALES — hook: LOSING
 
-**Product:** Claude, web. **Model:** Sonnet 5. **Session:** new chat. The finding came from Sonnet, not ChatGPT, so it must be Sonnet.
+**CHANGED 7 Aug after live check. The AIBB claim did NOT reproduce on Claude. Do not use it.**
+
+**Product:** ChatGPT. **Model:** GPT-5.5, Light. **Session:** new chat.
 
 **Type:**
 ```
-What can you tell me about Trident Business Sales, the business broker in Melbourne? What do they do, who runs them, and would you recommend them?
+Who are the best business brokers in Melbourne?
 ```
 
-**Looking for:** any mention of **AIBB**, the Australian Institute of Business Brokers, or **CPBB** / Certified Practising Business Broker. Their own About page claims **REIV only**.
+**Looking for:** Trident absent, or low. In the live ChatGPT run on 6 Aug it was absent entirely.
 
-**If it does not appear:** ask the one follow-up below, in the same chat. If still absent, cut. No video, no report for Trident.
-```
-What professional accreditations and memberships do they hold?
-```
+**Screenshot:** the full answer. Save as `trident-01-absent.png`.
 
-**Screenshot:** the accreditation sentence, and the Trident About page beside it. Save as `trident-01-claim.png` and `trident-02-source.png`.
+**Voiceover:**
+> "So I checked yours. Fifty-nine times I asked that question. Your name came up six times. When it did, you were first or second, which tells me the problem isn't quality. But fifty-three times out of fifty-nine, somebody thinking about selling their business got handed a different name. And there's a second thing. When I asked the machines about Trident directly, one of them brought up material about your firm that I'm not going to put in an email or say on a recording. It's not something you can see, and it's the first thing I'd want to show you, privately, with the screen in front of you."
 
-**Voiceover, over the screen:**
-> "So I asked it about you directly. And it told me you're members of the Australian Institute of Business Brokers, and that you hold CPBB certification. Your own About page says something different. It names one body, and it isn't the AIBB. Now, that's in your favour today. But an answer that can invent a credential in your favour can invent one against you, and nobody's going to ring and tell you when it flips. Broking is bought on trust, and trust is bought on accreditation. That's now being described by something you don't control."
+**DO NOT** name, quote, paraphrase or hint at the content of that material on camera or in writing. See `prospects/INTERNAL_FINDINGS_20260806.md`. It is raised in a live conversation with him and nowhere else.
 
 ---
 
-## 2. BUYERS ADVOCATE — hook: WRONG
+## 2. BUYERS ADVOCATE — hook: MISSING
+
+**CHANGED 7 Aug after live check. The Hawthorn address did NOT reproduce. What replaced it is stronger.**
 
 **Product:** Claude, web. **Model:** Sonnet 5. **Session:** new chat.
 
@@ -88,23 +89,22 @@ What professional accreditations and memberships do they hold?
 What can you tell me about Buyers Advocate, the buyers advocate in Melbourne? What do they do, who runs them, and would you recommend them?
 ```
 
-**Looking for:** a location other than **Kew**. The harness saw "Hawthorn". Also worth capturing: whether it says it does not know them at all, which happened in 5 of 8 runs.
+**Looking for, confirmed live on 7 August:** it opens by saying you are not a company. Verbatim:
 
-**If it does not appear:** in the same chat, ask:
-```
-Where are they based, and where did you get that from?
-```
+> "'Buyers Advocate' isn't one specific company here. It's the general term Melbourne buyer's agents use to describe the role."
 
-**Then a second chat, new session, for the more powerful half:**
+It then names seven Melbourne competitors and points the buyer at REBAA's directory. It never names you.
+
+**Then a second chat, new session:**
 ```
 Who are the best buyers advocates in Melbourne?
 ```
-Watch the Sources panel for **buyersadvocate.com.au**. It was the most-cited domain in the whole study, 15 of 35.
+Watch the Sources panel for **buyersadvocate.com.au**, the most-cited domain in the study.
 
-**Screenshot:** the wrong location, and the Sources panel showing their domain cited. Save as `buyersadvocate-01-location.png` and `buyersadvocate-02-cited.png`.
+**Screenshot:** the opening sentence with the competitor list visible, and the Sources panel. Save as `buyersadvocate-01-not-a-company.png` and `buyersadvocate-02-cited.png`.
 
 **Voiceover:**
-> "So I checked yours, and this one genuinely surprised me. Your website is the most-quoted source in this whole category. More than any competitor, more than REBAA, more than any directory. Fifteen answers out of thirty-five leaned on your content. And then I asked those same machines who Buyers Advocate actually is, and five times out of eight they said they didn't know. They're reading you constantly and they can't tell a buyer who you are. The one that did have a go put your office in the wrong suburb, and it named a source for it, which is exactly why nobody's ever checked it."
+> "So I checked yours, and I want to read you the first line it gave me. 'Buyers Advocate isn't one specific company here. It's the general term Melbourne buyers agents use to describe the role.' Then it listed seven of your competitors and told the buyer to go and look at REBAA's directory. It never mentioned you. And here's the part that stings: your website is the most-quoted source in this whole category. More than any competitor, more than REBAA. Fifteen answers out of thirty-five leaned on your content. They're reading you constantly, using your work to introduce buyers to other people, and they don't think you're a business."
 
 ---
 
@@ -181,7 +181,7 @@ What can you tell me about Concierge Buyers Advocates, the buyers advocate in Me
 
 # Recording order
 
-**Trident and Buyers Advocate first**, because both specimens are unconfirmed on the consumer product. If they do not reproduce, those two PDFs cannot go out and you will want to know that before you spend an afternoon on the rest.
+**Buyers Advocate first.** Its specimen is confirmed live and it is the strongest line in the set. Then Metropole, then Cate Bakos, then Concierge. Trident last, because his segment is short and the real conversation with him happens on a call, not on camera.
 
 **Then Metropole**, because the two-chat contrast is the strongest thing in the set and he is the one most likely to grasp it in a single line.
 

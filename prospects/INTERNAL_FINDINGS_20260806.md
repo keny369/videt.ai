@@ -1,5 +1,10 @@
 # Internal findings, all ten targets
 
+> **UPDATED 7 AUGUST after live consumer-surface checks. Two specimens failed and were replaced.**
+> - **Trident:** the AIBB/CPBB fabrication did **not** reproduce on Claude Sonnet 5 live. That claim is withdrawn and must not be used. What appeared instead is more serious and is **restricted**, see the Trident section.
+> - **Buyers Advocate:** the Hawthorn address did **not** reproduce. What appeared instead is stronger and is confirmed live. Hook changed from Wrong to Missing.
+> - Both PDFs and both video segments have been rewritten accordingly.
+
 **INTERNAL ONLY. Never sent, never quoted, never shown to a prospect.** 6 August 2026.
 
 Evidence base: 212 API runs (206 clean) across GPT-5.5 and Claude Sonnet 5, both search arms, `operations/probe-harness/evidence/runs.jsonl`. Plus two consumer-surface runs on ChatGPT GPT-5.5 Light, 6 August. Plus manual verification against each firm's own site and ABN Lookup.
@@ -23,7 +28,17 @@ Evidence base: 212 API runs (206 clean) across GPT-5.5 and Claude Sonnet 5, both
 
 ---
 
-## 1. Trident Business Sales — SEND
+## 1. Trident Business Sales — SEND, WITH A RESTRICTION
+
+> **RESTRICTED USE, BINDING.** On 7 August 2026, Claude Sonnet 5 (live, claude.ai, search on) answered the entity probe about Trident by surfacing **serious unverified allegations about Brian Budd personally**, sourced from two ProductReview entries, and ran a search on his name plus "court charges". It stated plainly that it could not verify any of it. It also flagged that a LinkedIn profile it found relates to a different, US-based Brian Budd.
+>
+> **This is the single highest-materiality finding in the entire study and it must never be written down for anyone outside this file.** Not in the PDF, not in an email, not on camera, not in a deck, not in disguised form. Reasons: repeating unverified allegations about a named individual carries defamation exposure regardless of accuracy; Appendix C rule 9 and delivery guide Part 11 both forbid it; and it would be indefensible if it reached anyone but him.
+>
+> **How it is used:** the PDF and the video say only that something exists which we will not put in writing, and offer to show him privately with the screen in front of him. That is truthful, it is restrained, and it is a far stronger reason for him to take the call than any credential error would have been.
+>
+> **The AIBB/CPBB finding is withdrawn.** It did not reproduce live. Do not use it.
+
+### Original API finding, superseded
 
 **Principal:** Brian Budd, Director. Carlton VIC 3053. **Strongest single specimen in the study.**
 

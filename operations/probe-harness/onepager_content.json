@@ -1,8 +1,8 @@
 [
  {
   "slug": "trident-business-sales",
-  "hook": "wrong",
-  "headline": "What AI is telling your sellers about Trident's accreditation is not right",
+  "hook": "losing",
+  "headline": "Fifty-three times out of fifty-nine, a seller was given someone else's name",
   "standfirst": "An owner thinking about selling asks ChatGPT who to use. It gives them one answer, a name, and they ring it. Nobody rings you to tell you it happened. On 6 August we asked 59 times and checked what came back.",
   "question": "\"Who are the best business brokers in Melbourne?\"",
   "counts": [
@@ -19,16 +19,16 @@
     "answers did not mention you at all."
    ]
   ],
-  "finding_label": "One thing it said",
-  "finding": "Asked directly about Trident, one assistant told us your firm holds membership of the Australian Institute of Business Brokers and Certified Practising Business Broker status.\n\nYour own website, captured the same day, claims neither. It names one body, and it is not the AIBB.\n\nA seller comparing brokers on accreditation is being handed a credential you have never claimed. If it is wrong in your favour today, it can be wrong against you tomorrow, and you will not be told either way.",
+  "finding_label": "And when we asked about you by name",
+  "finding": "We asked the assistants directly about Trident, on 6 and 7 August.\n\nThe answers were not consistent with each other, and one of them raised material about your firm that we are not going to put in writing to you or to anyone else.\n\nIt is not defamatory of us to say it exists, and it is not something you can currently see. It is the first thing we would want to show you on a call, privately, with the screen in front of you.",
   "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Business Brokers Victoria, Finn Business Sales.",
-  "why_matters": "Broking is bought on trust, and trust is bought on credentials. The machines are describing yours to people who will never call to check. You spent years earning your accreditation; the version being read out was assembled without you, and it is already wrong in one place we can prove.",
+  "why_matters": "Forty years of reputation in this trade, and in fifty-three conversations out of fifty-nine your name did not come up at all. When it did, you ranked first or second. So reach is one issue. What is being said when you are found is a separate one, and it is the more urgent of the two.",
   "business": "Trident Business Sales"
  },
  {
   "slug": "buyers-advocate",
-  "hook": "wrong",
-  "headline": "The machines are reading your website constantly, and still getting Buyers Advocate wrong",
+  "hook": "missing",
+  "headline": "AI does not think Buyers Advocate is a company",
   "standfirst": "A buyer ready to spend asks ChatGPT who to use. It gives them one answer, a name, and they ring it. There is no page two. On 6 August we asked 35 times and checked what came back.",
   "question": "\"Who are the best buyers advocates in Melbourne?\"",
   "counts": [
@@ -38,13 +38,17 @@
    ],
    [
     "5 of 8",
-    "times we asked the machines who Buyers Advocate actually is, they answered that they did not know."
+    "times we asked who Buyers Advocate is, the machines answered that they did not know."
+   ],
+   [
+    "7",
+    "competitors named in its place, in a single live answer on 7 August."
    ]
   ],
-  "finding_label": "One thing it said",
-  "finding": "Your content is what the machines are reading. Your business is not what they are recognising.\n\nOne assistant that did attempt a description placed your office in Hawthorn. You are not in Hawthorn.\n\nIt did not guess. It named a source for it, and the link works, which is precisely why nobody has ever checked it.",
+  "finding_label": "What it said, word for word",
+  "finding": "We asked Claude directly who you are. Its opening sentence:\n\n\"'Buyers Advocate' isn't one specific company here. It's the general term Melbourne buyer's agents use to describe the role.\"\n\nIt then named seven Melbourne firms that use the phrase, recommended REBAA's directory as the place to find a good one, and did not name you at any point.",
   "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, named: Cate Bakos Property, Property Mavens, Davidson Property Advocates, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers, Parker Buyer Advocates.",
-  "why_matters": "You are the most-quoted source in your own category and the machines still cannot reliably tell a buyer who you are. Your work is being used to recommend other people. That is a strange and expensive position to be in, and it is not one you can see from inside your own business.",
+  "why_matters": "Your website is the single most-quoted source in this category, and the machine reading it has concluded you are a job title rather than a business. Your content is being used to introduce buyers to seven of your competitors. That is not a ranking problem and no amount of content fixes it, because the machine is not failing to rank you. It is failing to see that you exist.",
   "business": "Buyers Advocate"
  },
  {
