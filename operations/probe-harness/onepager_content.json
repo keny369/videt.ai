@@ -1,0 +1,255 @@
+[
+ {
+  "slug": "trident-business-sales",
+  "hook": "wrong",
+  "headline": "What AI is telling your sellers about Trident's accreditation is not right",
+  "standfirst": "An owner thinking about selling asks ChatGPT who to use. It gives them one answer, a name, and they ring it. Nobody rings you to tell you it happened. On 6 August we asked 59 times and checked what came back.",
+  "question": "\"Who are the best business brokers in Melbourne?\"",
+  "counts": [
+   [
+    "6 of 59",
+    "sampled answers named Trident Business Sales."
+   ],
+   [
+    "1, 2, 2, 3, 4",
+    "the positions you held when named. When you appear, you appear near the top."
+   ],
+   [
+    "53",
+    "answers did not mention you at all."
+   ]
+  ],
+  "finding_label": "One thing it said",
+  "finding": "Asked directly about Trident, one assistant told us your firm holds membership of the Australian Institute of Business Brokers and Certified Practising Business Broker status.\n\nYour own website, captured the same day, claims neither. It names one body, and it is not the AIBB.\n\nA seller comparing brokers on accreditation is being handed a credential you have never claimed. If it is wrong in your favour today, it can be wrong against you tomorrow, and you will not be told either way.",
+  "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Business Brokers Victoria, Finn Business Sales.",
+  "why_matters": "Broking is bought on trust, and trust is bought on credentials. The machines are describing yours to people who will never call to check. You spent years earning your accreditation; the version being read out was assembled without you, and it is already wrong in one place we can prove.",
+  "business": "Trident Business Sales"
+ },
+ {
+  "slug": "buyers-advocate",
+  "hook": "wrong",
+  "headline": "The machines are reading your website constantly, and still getting Buyers Advocate wrong",
+  "standfirst": "A buyer ready to spend asks ChatGPT who to use. It gives them one answer, a name, and they ring it. There is no page two. On 6 August we asked 35 times and checked what came back.",
+  "question": "\"Who are the best buyers advocates in Melbourne?\"",
+  "counts": [
+   [
+    "15 of 35",
+    "sampled answers used your website as a source. More than any other website in the study, including every competitor and every industry body."
+   ],
+   [
+    "5 of 8",
+    "times we asked the machines who Buyers Advocate actually is, they answered that they did not know."
+   ]
+  ],
+  "finding_label": "One thing it said",
+  "finding": "Your content is what the machines are reading. Your business is not what they are recognising.\n\nOne assistant that did attempt a description placed your office in Hawthorn. You are not in Hawthorn.\n\nIt did not guess. It named a source for it, and the link works, which is precisely why nobody has ever checked it.",
+  "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, named: Cate Bakos Property, Property Mavens, Davidson Property Advocates, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers, Parker Buyer Advocates.",
+  "why_matters": "You are the most-quoted source in your own category and the machines still cannot reliably tell a buyer who you are. Your work is being used to recommend other people. That is a strange and expensive position to be in, and it is not one you can see from inside your own business.",
+  "business": "Buyers Advocate"
+ },
+ {
+  "slug": "mercury-business-sales",
+  "hook": "wrong",
+  "hold": "verify both ABNs and whether Fred Zheng exists",
+  "headline": "AI has given Mercury a leadership structure you never published",
+  "standfirst": "An owner thinking about selling asks ChatGPT who to use, and rings the name it gives. On 6 August we asked 59 times, and you did better than most. This is about what is said once you are found.",
+  "question": "\"Who are the best business brokers in Melbourne?\"",
+  "counts": [
+   [
+    "5 of 59",
+    "sampled answers named Mercury, at positions 5 to 8."
+   ],
+   [
+    "10 of 59",
+    "answers used your website as a source, one of the more-cited broker sites in the study."
+   ],
+   [
+    "5th",
+    "your position on the ChatGPT app, in a shortlist of eight."
+   ]
+  ],
+  "finding_label": "One thing it said",
+  "finding": "Asked about Mercury, the assistants supplied a full leadership structure: who founded the firm, who is senior, who reports to whom.\n\nYour people are real and correctly named. Your website gives none of them a job title.\n\nSo the hierarchy a prospective seller is being told about your firm did not come from you. Separately, two runs on the same afternoon gave two different ABNs for your business.",
+  "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, also named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Trident Business Sales.",
+  "why_matters": "You are being found, which puts you ahead of most of the firms we screened. But someone selling a business they have built for twenty years wants to know exactly who will handle it. Right now that answer is being written by something other than you, and it has already invented one detail we can show you.",
+  "business": "Mercury Business Sales and Valuation"
+ },
+ {
+  "slug": "expert-business-brokers",
+  "hook": "wrong",
+  "hold": "check the qualifications are assigned to the right people",
+  "headline": "AI added a person to your team who does not exist",
+  "standfirst": "An owner thinking about selling asks ChatGPT who to use, and rings the name it gives. On 6 August we asked 59 times and checked what came back.",
+  "question": "\"Who are the best business brokers in Melbourne?\"",
+  "counts": [
+   [
+    "0 of 59",
+    "sampled answers named Expert Business Brokers."
+   ],
+   [
+    "4 of 59",
+    "answers used your website as a source."
+   ]
+  ],
+  "finding_label": "One thing it said",
+  "finding": "Asked directly about your firm, one assistant listed six people on your team.\n\nFive of them are yours. The sixth does not exist, and never has.\n\nThe invented name sat in the same sentence, in the same confident tone, as the five real ones. Nothing in the answer distinguished them, and a seller reading it has no way to tell which is which.",
+  "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Trident Business Sales, Finn Business Sales.",
+  "why_matters": "That is the part worth sitting with. The machine was right five times out of six, in one breath, with no change in tone. Confidence is not evidence of accuracy, and your buyers have no way to tell the difference. Neither did we, until we checked.",
+  "business": "Expert Business Brokers"
+ },
+ {
+  "slug": "metropole-melbourne",
+  "hook": "missing",
+  "headline": "Metropole Melbourne did not come up. Not once in thirty-five answers.",
+  "standfirst": "A buyer ready to spend asks ChatGPT or Claude who to use. It gives them one answer, a name, and they ring it. There is no page two. On 6 August we asked 35 times, in fresh sessions, from Melbourne.",
+  "question": "\"Who are the best buyers advocates in Melbourne?\"",
+  "counts": [
+   [
+    "0 of 35",
+    "sampled answers named Metropole Melbourne."
+   ],
+   [
+    "0 of 35",
+    "answers contained the name Yardney."
+   ],
+   [
+    "0 of 35",
+    "answers used your Melbourne page as a source."
+   ]
+  ],
+  "finding_label": "And here is the part that should bother you",
+  "finding": "We then asked the same machines about Metropole by name. They answered accurately and in detail: the founding year, the offices, your Brighton address correct to the street number, and nine of your people by name and role.\n\nSo they are not missing information about you. They have it, and it is right.\n\nThey simply never reach for it when somebody is asking who to use.",
+  "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, named: Cate Bakos Property, Property Mavens, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers, Davidson Property Advocates, Empower Wealth.",
+  "why_matters": "You have spent decades building one of the largest content operations in Australian property. That work is in the machines. It is accurate. And in thirty-five attempts it did not once turn into a recommendation. Being known and being chosen are two different things, and only one of them books a client.",
+  "business": "Metropole Melbourne"
+ },
+ {
+  "slug": "vision-brokers-and-advisors",
+  "hook": "missing",
+  "hold": "verify all three ABNs on ABN Lookup first",
+  "headline": "Vision Brokers did not come up once in fifty-nine answers",
+  "standfirst": "An owner thinking about selling asks ChatGPT who to use, and rings the name it gives. Nobody rings you to tell you it happened. On 6 August we asked 59 times, in fresh sessions, from Melbourne.",
+  "question": "\"Who are the best business brokers in Melbourne?\"",
+  "counts": [
+   [
+    "0 of 59",
+    "sampled answers named Vision Brokers and Advisors."
+   ],
+   [
+    "0 of 59",
+    "answers used your website as a source."
+   ],
+   [
+    "1 of 10",
+    "firms we screened scored nothing on every measure. It was yours."
+   ]
+  ],
+  "finding_label": "And when we asked about you by name",
+  "finding": "The assistants did answer. They just did not agree with each other.\n\nAcross the sampled runs they gave three different company registration numbers for your business, and one placed your head office at an address that is not yours.\n\nDifferent answers to the same question, on the same afternoon. A seller sees exactly one of them, and has no way to know there were others.",
+  "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Finn Business Sales.",
+  "why_matters": "Four offices, deals to twenty-five million, and in fifty-nine attempts a Melbourne seller was never once pointed at you. That is not a marketing problem you can see in your analytics, because there is no impression, no click and no record. Just a conversation you were never in.",
+  "business": "Vision Brokers and Advisors"
+ },
+ {
+  "slug": "melbourne-buyers-advocates",
+  "hook": "missing",
+  "hold": "four claims about Paul Garson need checking",
+  "headline": "The machines are reading your site and cannot tell that it is yours",
+  "standfirst": "A buyer ready to spend asks ChatGPT who to use, and rings the name it gives. There is no page two. On 6 August we asked 35 times and checked what came back.",
+  "question": "\"Who are the best buyers advocates in Melbourne?\"",
+  "counts": [
+   [
+    "9 of 35",
+    "sampled answers used your website as a source."
+   ],
+   [
+    "0",
+    "answers named you as a recommended firm that we could attribute to you with confidence."
+   ]
+  ],
+  "finding_label": "The problem, and it is not carelessness on your part",
+  "finding": "Your business name is also the phrase every buyer types. When an assistant writes those three words, neither a reader nor the machine can tell whether it means your firm or the whole category.\n\nWe can show you this precisely. A competing Melbourne firm carries your exact business name as the title of its homepage.\n\nTwo different businesses, one string. In the sampled answers, facts about each appeared under wording that could have described either.",
+  "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, named: Cate Bakos Property, Property Mavens, Concierge Buyers Advocates, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers.",
+  "why_matters": "Your content is being read nine times in thirty-five and is not reliably being attached to you. Every enquiry that starts in an AI answer is invisible in your funnel: no impression, no click, no record, just a buyer you never met. The name that once helped you be found is now the reason you cannot be identified.",
+  "business": "Melbourne Buyers Advocates"
+ },
+ {
+  "slug": "cate-bakos-property",
+  "hook": "losing",
+  "headline": "You won ten of thirty-five. Someone else won the other twenty-five.",
+  "standfirst": "A buyer ready to spend asks ChatGPT who to use. It gives them one answer, a name, and they ring it. On 6 August we asked 35 times, and you performed better than anyone else we screened. This is about the gap.",
+  "question": "\"Who are the best buyers advocates in Melbourne?\"",
+  "counts": [
+   [
+    "10 of 35",
+    "sampled answers named Cate Bakos Property. More than any other firm in the study."
+   ],
+   [
+    "5",
+    "times you were listed first."
+   ],
+   [
+    "25 of 35",
+    "answers did not name you at all. Same question, same day, fresh session each time."
+   ]
+  ],
+  "finding_label": "What that actually means",
+  "finding": "Your details came back right. Your team names were correct. We would rather tell you that than invent a problem.\n\nBut twenty-five times out of thirty-five, a buyer asking the single most valuable question in your category was handed somebody else's name.\n\nNot because anything is wrong. Because the machine chose differently that time, and nothing you can see tells you when or why.",
+  "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, also named: Property Mavens, Davidson Property Advocates, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers, Parker Buyer Advocates.",
+  "why_matters": "You are the most visible buyer's advocate in Melbourne and you are still absent from seven answers in ten. Every other line in your marketing has a before and an after. This one does not. You have the most to lose here precisely because you are currently winning, and you would be the last to know if that moved.",
+  "business": "Cate Bakos Property"
+ },
+ {
+  "slug": "concierge-buyers-advocates",
+  "hook": "losing",
+  "headline": "Twenty-eight times out of thirty-five, a buyer was given someone else's name",
+  "standfirst": "A buyer ready to spend asks ChatGPT who to use, and rings the name it gives. There is no page two. On 6 August we asked 35 times, and for a firm with no shopfront you did respectably.",
+  "question": "\"Who are the best buyers advocates in Melbourne?\"",
+  "counts": [
+   [
+    "7 of 35",
+    "sampled answers named Concierge Buyers Advocates, at positions 4 and 7."
+   ],
+   [
+    "9 of 35",
+    "answers used your website as a source."
+   ],
+   [
+    "28 of 35",
+    "answers named somebody else and not you."
+   ]
+  ],
+  "finding_label": "And something you should know about",
+  "finding": "Your website does not name a principal and does not publish an address. When we asked the machines who runs Concierge, they answered anyway.\n\nThey produced a founder, a founding year, staff first names, and two performance figures.\n\nSome of it is right. We checked. But none of it came from you, because you publish none of it. The account of who you are, being read to buyers today, was assembled entirely by other people.",
+  "named_instead": "ChatGPT and Claude, sampled 35 times on 6 August 2026, also named: Cate Bakos Property, Property Mavens, Property Home Base, Wakelin Property Advisory, BuyerX, National Property Buyers, Davidson Property Advocates.",
+  "why_matters": "You built a flat-fee, no-storefront model deliberately, and it works. But it has left the machines to write your introduction for you, from sources you did not choose and cannot see. Four times in five, the buyer heard a competitor's name instead of yours, and nobody rang to tell you.",
+  "business": "Concierge Buyers Advocates"
+ },
+ {
+  "slug": "lloyds-business-brokers",
+  "hook": "losing",
+  "hold": "verify the Elsternwick address and the Brisbane attribution",
+  "headline": "Fifty-five times out of fifty-nine, a seller was given someone else's name",
+  "standfirst": "An owner thinking about selling asks ChatGPT who to use, and rings the name it gives. Nobody rings you to tell you it happened. On 6 August we asked 59 times, in fresh sessions, from Melbourne.",
+  "question": "\"Who are the best business brokers in Melbourne?\"",
+  "counts": [
+   [
+    "4 of 59",
+    "sampled answers named Lloyds Business Brokers."
+   ],
+   [
+    "2, 2, 4",
+    "the positions you held when named. High when you are there."
+   ],
+   [
+    "55",
+    "answers did not mention you at all."
+   ]
+  ],
+  "finding_label": "And one thing it told us about itself",
+  "finding": "Asked directly about Lloyds, one assistant placed your Managing Director in the wrong state.\n\nAnother named nobody at all, and said plainly that it was working from your company name rather than from anything it actually knew about the firm.\n\nThat second answer is the more useful one. It is the machine admitting it is producing something plausible rather than something known. A seller reading the polished version never sees that line.",
+  "named_instead": "ChatGPT and Claude, sampled 59 times on 6 August 2026, named: LINK Business Brokers, Benchmark Business Sales, Xcllusive Business Sales, Aussie Business Sales, VIC Brokers, Morgan Business Sales, Trident Business Sales.",
+  "why_matters": "Forty years in corporate sales, and in fifty-five conversations out of fifty-nine your name did not come up. When it did, you ranked second. So this is not a quality problem, it is a reach problem, and it is happening in a channel where you have no impressions, no clicks and no record to look at.",
+  "business": "Lloyds Business Brokers"
+ }
+]

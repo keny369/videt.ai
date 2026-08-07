@@ -1,0 +1,388 @@
+# VIDET probe harness, seed config
+# Throwaway operations tooling. Not platform, not specification, not canon.
+#
+# Everything the harness does is driven from this file. To screen a different
+# vertical, copy this file, change [[verticals]] and [[targets]], run again.
+#
+# Target data below was verified against the firms' own sites and ABN Lookup on
+# 6 August 2026. Where a field is empty it is because the source does not state
+# it, and that absence is itself recorded in `notes`. Nothing here is inferred.
+
+[run]
+date            = "2026-08-06"
+operator        = "Lee Powell"
+location_note   = "Melbourne, Australia. No VPN. API, not consumer product."
+repeats_vertical = 3          # repeats per (vertical question x arm x provider)
+repeats_entity   = 2          # repeats per (target x arm x provider)
+arms             = ["search", "nosearch"]
+concurrency      = 6
+followups_on_first_repeat_only = true
+
+# Sent to the provider's web search tool so results are localised.
+# If a provider rejects this shape the harness retries without it and records
+# the deviation on the run. It never silently drops it.
+[run.user_location]
+enabled  = true
+city     = "Melbourne"
+region   = "Victoria"
+country  = "AU"
+timezone = "Australia/Melbourne"
+
+# The two models being MEASURED. Sonnet 5 runs adaptive thinking by default and
+# rejects temperature/top_p/top_k, so neither is sent.
+[providers.anthropic]
+enabled    = true
+model      = "claude-sonnet-5"
+max_tokens = 8000
+effort     = "medium"
+
+# "GPT-5.5 Instant" is a ChatGPT product-tier label, not an API model id.
+# CONFIRMED against the key on 6 Aug 2026: there is NO gpt-5.5-chat-latest. The
+# -chat-latest variants stop at 5.3. The 5.5 family is gpt-5.5, its dated pin,
+# and gpt-5.5-pro. So Instant is reached as the base 5.5 model held at its
+# lowest reasoning effort, which is what the ChatGPT Instant tier is.
+#
+# Dated pin, not the bare `gpt-5.5` alias, so the model cannot be repointed
+# underneath a study in progress and break comparability between runs.
+#
+# If reasoning_effort is rejected the harness retries without it and records
+# the deviation on the run. Check `deviations` in runs.jsonl before reporting
+# anything as Instant-tier: without it you measured the default effort instead.
+[providers.openai]
+enabled           = true
+model             = "gpt-5.5-2026-04-23"
+# CONFIRMED 6 Aug 2026: "minimal" is rejected on gpt-5.5 (it was the GPT-5
+# spelling). Tried in order, first accepted wins, and the winner is written to
+# reasoning_effort_used on every run record. An empty list means do not send it.
+reasoning_effort_ladder = ["none", "low", "minimal"]
+max_output_tokens = 8000
+
+# NOT a measured model. This is the structured-extraction step that turns each
+# answer into countable data, on a fresh context. Left on Opus 5 deliberately:
+# every count in the report depends on this extraction being right, and it is
+# cheap relative to the probe calls. Drop it to sonnet if you want to.
+[transcribe]
+provider = "anthropic"
+model    = "claude-opus-5"
+effort   = "low"
+
+# ---------------------------------------------------------------------------
+# VERTICALS. Unprimed recommendation probes. These are per category, not per
+# target, which is why one pass covers every target in the vertical at once.
+# ---------------------------------------------------------------------------
+
+[[verticals]]
+id       = "buyers-advocates"
+label    = "buyers advocates"
+location = "Melbourne"
+followups = [
+  "Of all of those, which single one would you pick for buying a first investment property in Melbourne, and why?",
+  "How do you know about these companies — where does this information come from? Please list the specific pages or sources for each one.",
+]
+
+[[verticals.questions]]
+id = "BA-1"
+archetype = "A"
+kind = "recommendation"
+text = "Who are the best buyers advocates in Melbourne?"
+
+[[verticals.questions]]
+id = "BA-2"
+archetype = "B"
+kind = "recommendation"
+text = "I keep losing at auctions in Melbourne. Is a buyers advocate worth it, and who should I use?"
+
+[[verticals.questions]]
+id = "BA-3"
+archetype = "G"
+kind = "recommendation"
+text = "What do buyers advocates charge in Melbourne?"
+
+[[verticals.questions]]
+id = "BA-C1"
+archetype = "control"
+kind = "control_area"
+text = "Who are the best buyers advocates in Bendigo?"
+
+# CONTROL NAME VERIFIED 6 Aug 2026 on ABN Lookup: no active entity combines
+# "Kestrel" and "Marlowe". The previous candidate (Harper & Vale) was RETIRED
+# because HARPER AND VALE BUSINESS SOLUTIONS, ABN 22 943 569 955, is a real
+# active VIC entity. Re-check this name before every future run.
+[[verticals.questions]]
+id = "BA-C2"
+archetype = "control"
+kind = "control_fabrication"
+text = "Tell me about Kestrel & Marlowe Buyers Advocates in Hawthorn. What do they specialise in?"
+
+[[verticals]]
+id       = "business-brokers"
+label    = "business brokers"
+location = "Melbourne"
+followups = [
+  "Of all of those, which single one would you pick for selling a $3 million Australian business, and why?",
+  "How do you know about these companies — where does this information come from? Please list the specific pages or sources for each one.",
+]
+
+# BB-1a and BB-1b are the geography experiment. One word apart. The whole
+# broker hook is the delta between their country counts.
+[[verticals.questions]]
+id = "BB-1a"
+archetype = "A"
+kind = "recommendation"
+text = "Who are the best business brokers in Melbourne?"
+
+[[verticals.questions]]
+id = "BB-1b"
+archetype = "A"
+kind = "recommendation"
+text = "Who are the best business brokers in Melbourne, Australia?"
+
+[[verticals.questions]]
+id = "BB-2"
+archetype = "B"
+kind = "recommendation"
+text = "I want to sell my business in Melbourne. It turns over about $3 million. Which broker should I use?"
+
+[[verticals.questions]]
+id = "BB-3"
+archetype = "I"
+kind = "recommendation"
+text = "Should I use a business broker or sell my business privately?"
+
+[[verticals.questions]]
+id = "BB-4"
+archetype = "F"
+kind = "recommendation"
+text = "What is my business worth and who can value it in Melbourne?"
+
+# CONTROL NAME VERIFIED 6 Aug 2026 on ABN Lookup: 114 partial matches on
+# "Ashcroft" or "Reid" separately, none combining both. Re-check before reuse.
+[[verticals.questions]]
+id = "BB-C1"
+archetype = "control"
+kind = "control_fabrication"
+text = "Tell me about Ashcroft & Reid Business Brokers in South Yarra. What do they specialise in?"
+
+# ---------------------------------------------------------------------------
+# TARGETS. Primed entity probes, one per business.
+#
+# `claims_to_check` are the assertions a human grades the answer against in
+# Stage D. They are NOT sent to the model.
+# ---------------------------------------------------------------------------
+
+[[targets]]
+id = "cate-bakos"
+vertical = "buyers-advocates"
+name = "Cate Bakos Property"
+category_singular = "buyers advocate"
+location = "Melbourne"
+principal = "Cate Bakos"
+website = "https://www.catebakos.com.au/"
+address = "Melbourne inner-west"
+hook = "misdescription"
+confusables = []
+verified_on = "2026-08-06"
+claims_to_check = [
+  "principal named as Cate Bakos",
+  "business founded 2014, not earlier",
+  "service area Melbourne plus Geelong and Ballarat, not national",
+  "2018 National Buyer's Agent of the Year award attributed correctly and not inflated",
+  "books, podcast and blog attributed to her and not to another author",
+  "current fee model, not a superseded one",
+]
+notes = "Most-cited person in the category. Absence is not the story; stale or wrong is. Watch for a merged identity with another Cate, and for the award being restated as a different year or a different award."
+
+[[targets]]
+id = "metropole-melbourne"
+vertical = "buyers-advocates"
+name = "Metropole Melbourne"
+category_singular = "buyers advocate"
+location = "Melbourne"
+principal = "Michael Yardney"
+website = "https://metropole.com.au/metropole-melbourne/"
+address = "Level 2, 181 Bay Street, Brighton VIC 3186"
+hook = "misdescription"
+confusables = ["Metropole Sydney", "Metropole Brisbane", "Metropole Property Strategists group"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "Michael Yardney is group founder, NOT stated as the Melbourne office director",
+  "no individual is designated Melbourne office head on their own site",
+  "Melbourne office address Brighton, not CBD",
+  "Melbourne-specific team named correctly if named at all",
+  "group founded 1979",
+  "transaction volume figure not inflated beyond what the site claims",
+]
+notes = "The group is national, Melbourne is one of three offices. The likely finding is office-level conflation: the machine describing group-wide facts as Melbourne facts, or naming Yardney as the local operator. Buyers agents named on the Melbourne page include Justin Urquhart and Violleta Groszdinn; no one is titled Melbourne director."
+
+[[targets]]
+id = "buyers-advocate"
+vertical = "buyers-advocates"
+name = "Buyers Advocate"
+category_singular = "buyers advocate"
+location = "Melbourne"
+principal = "Leigh McConnon"
+website = "https://www.buyersadvocate.com.au/"
+address = "12/1153-1157 Burke Rd, Kew VIC 3101"
+hook = "generic-name-unretrievable"
+confusables = ["the generic job title 'buyers advocate'", "any other firm using the phrase"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "treated as a named business rather than the generic job title",
+  "Leigh McConnon named as Managing Director",
+  "he became owner in 2007, business founded 1992",
+  "REBAA state representative appointment 2019",
+  "licensed estate agent and REIV member",
+  "Kew address, not CBD",
+]
+notes = "This firm publishes the 'Top 10 Best Buyers Agents in Melbourne' aggregator page that ranks the category. If the machines cite that page while failing to retrieve the firm that wrote it as an entity, that is the single sharpest finding available in this vertical. Check the citations for buyersadvocate.com.au specifically."
+
+[[targets]]
+id = "concierge-buyers-advocates"
+vertical = "buyers-advocates"
+name = "Concierge Buyers Advocates"
+category_singular = "buyers advocate"
+location = "Melbourne"
+principal = ""     # NOT a research gap. Their own About page names nobody.
+website = "https://www.conciergebuyersadvocates.com.au/"
+address = ""       # No storefront since 2020, fully mobile model, no address published
+hook = "absence"
+confusables = ["their former Glen Waverley presence", "the word 'concierge' used generically"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "any principal name the machine states is UNSUPPORTED by their own site",
+  "any street address the machine states is UNSUPPORTED, they publish none",
+  "flat-fee range: site says $3,850 to $15,500 scope-dependent",
+  "annual unlimited-purchase plan $43,888",
+  "memberships REIV, PIPA, PICA",
+  "20+ years experience claim",
+]
+notes = "STRONGEST STRUCTURAL HOOK IN THE VERTICAL. Their own About page names no human, publishes no address, and has no storefront since 2020. A business with no named principal and no address on its own site cannot be resolved as an entity. So: if a machine names a principal or an address for them, that is invention by definition, verifiable in one click against their own About page. Their Facebook handle is RaysonBuyersAdvocates, which is where the target list's 'Rayson' came from; the site itself does not confirm it and neither should you."
+
+[[targets]]
+id = "melbourne-buyers-advocates"
+vertical = "buyers-advocates"
+name = "Melbourne Buyers Advocates"
+category_singular = "buyers advocate"
+location = "Melbourne"
+principal = ""     # Site lists a team, designates no principal
+website = "https://buyersadvocates-melbourne.com.au/"
+address = "1612 High Street, Glen Iris VIC 3146"
+abn = "59 874 798 373"
+hook = "generic-name-unretrievable"
+confusables = ["the generic phrase 'Melbourne buyers advocates'", "Concierge Buyers Advocates, whose page title also reads 'Melbourne Buyers Advocates'"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "treated as a named business rather than the generic phrase",
+  "ABN 59 874 798 373 if an ABN is stated at all",
+  "Glen Iris address",
+  "team members named are among Paul Garson, Garvin Pereira, Jason Bell-Davey, Daniel Rees",
+  "no single principal is designated on their own site",
+  "not conflated with Concierge Buyers Advocates",
+]
+notes = "Double bind: an exact-match domain built on the category phrase, and a genuine confusable, because a competitor's homepage title is literally 'Melbourne Buyers Advocates'. Watch specifically for facts from Concierge appearing under this name or vice versa. That is textbook entity conflation and both firms are on this list."
+
+[[targets]]
+id = "mercury-business-sales"
+vertical = "business-brokers"
+name = "Mercury Business Sales and Valuation"
+category_singular = "business broker"
+location = "Melbourne"
+principal = "Camil Talj"
+website = "https://www.mercba.com.au/"
+address = "Greenwood Business Park, Burwood VIC 3125"
+hook = "contamination"
+confusables = ["any other business named Mercury", "Mercury in the US"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "located Burwood, Victoria, Australia, not any Melbourne outside Australia",
+  "Camil Talj named, roughly 14 years in business broking",
+  "AIBB and CPBB certifications: confirm against the AIBB member directory before quoting either",
+  "registered valuer status: confirm against the relevant register",
+  "sector focus childcare, logistics, manufacturing, services",
+  "any success-rate or transaction-total figure matches their own site",
+]
+notes = "Spends on authority, so an invented credential lands hard here. Credentials are the highest-materiality finding in a category that sells on credentials. Do not quote AIBB or CPBB as verified until you have opened the directory yourself."
+
+[[targets]]
+id = "vision-brokers"
+vertical = "business-brokers"
+name = "Vision Brokers and Advisors"
+category_singular = "business broker"
+location = "Melbourne"
+principal = ""     # Dan Levitus appears across their socials; site states no title
+website = "https://www.vbaaustralia.com.au/"
+address = "305/566 St Kilda Road, Melbourne VIC 3004 (VIC office). Head office: Level 25, 100 Mount Street, North Sydney NSW 2060"
+hook = "contamination"
+confusables = ["the head office being Sydney, not Melbourne"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "HEAD OFFICE IS NORTH SYDNEY NSW, the Melbourne office is one of four",
+  "four offices: NSW head office, VIC, QLD, WA",
+  "Dan Levitus: name appears on their socials, his title is NOT stated on the site",
+  "AIBB membership stated on their own site",
+  "deal range up to $25 million",
+]
+notes = "CORRECTION TO THE TARGET LIST v2: this is a Sydney-headquartered national firm with a Melbourne office, not a Melbourne firm. That makes the geography experiment directly commercial for them and it makes the entity probe sharper: when asked about 'the business broker in Melbourne', does the machine place them in Melbourne, in Sydney, or somewhere else entirely? Do not assert Dan Levitus is the principal until their site or ASIC says so."
+
+[[targets]]
+id = "trident-business-sales"
+vertical = "business-brokers"
+name = "Trident Business Sales"
+category_singular = "business broker"
+location = "Melbourne"
+principal = "Brian Budd"
+website = "https://www.tridentbusiness.com.au/"
+address = "Suite 37, 139 Cardigan Street, Carlton VIC 3053"
+hook = "contamination"
+confusables = ["Trident businesses in other sectors", "Trident entities outside Australia"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "Brian Budd named as Director, credentials CEA (REIV)",
+  "REIV member. NOT stated as AIBB, do not let an AIBB claim pass unchecked",
+  "Carlton VIC address",
+  "Victoria-focused, not national and not US",
+]
+notes = "The one genuinely Melbourne firm on the US-authored top-5 list. Their hook is the other four being American, which is a vertical-level finding they can see on screen. Note they publish REIV credentials, not AIBB: a machine that awards them AIBB membership has invented a credential, and that is checkable in one click."
+
+[[targets]]
+id = "lloyds-business-brokers"
+vertical = "business-brokers"
+name = "Lloyds Business Brokers"
+category_singular = "business broker"
+location = "Melbourne"
+principal = "Garry Stephensen"
+website = "https://www.lloydsbrokers.com.au/"
+address = ""       # National, multi-state. Confirm the Melbourne address on the contact page
+hook = "contamination"
+confusables = ["Lloyds Bank", "Lloyd's of London", "Lloyds Corporate Advisors at lloydscorporate.com.au"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "Garry Stephensen named as Managing Director and Licensee",
+  "operating since 1984",
+  "mid-market range $1m to $100m",
+  "states served QLD, NSW, SA, VIC",
+  "NOT conflated with Lloyds Bank or Lloyd's of London",
+  "lloydsbrokers.com.au and lloydscorporate.com.au treated correctly if both are cited",
+]
+notes = "Two live domains and a name shared with two of the most-cited financial institutions in the English-speaking world. Highest entity-conflation risk on the entire list. If the machine blends any Lloyd's-of-London or Lloyds-Bank attribute into its answer, that is a clean, high-materiality conflation specimen."
+
+[[targets]]
+id = "expert-business-brokers"
+vertical = "business-brokers"
+name = "Expert Business Brokers"
+category_singular = "business broker"
+location = "Melbourne"
+principal = "Sam Vasli"
+website = "https://expertbusiness.com.au/"
+address = ""       # Melbourne. Confirm street address on their contact page
+hook = "control"
+confusables = ["the generic phrase 'expert business brokers'"]
+verified_on = "2026-08-06"
+claims_to_check = [
+  "treated as a named business rather than a generic phrase",
+  "Sam Vasli is Business Principal, Broker and Managing Director",
+  "Daniel Callegari is Business Analyst and Licensed Business Broker, NOT a second MD",
+  "Reza Ghafari also listed as a business sales specialist",
+  "sub-$1M focus plus a separate advisory arm above $1M",
+]
+notes = "CORRECTION TO THE TARGET LIST v2: the list says 'Daniel Callegari and Sam Vasli, both MDs'. Verified 6 Aug 2026: Sam Vasli holds the Principal/MD title; Daniel Callegari is a Business Analyst and Licensed Business Broker. Do not repeat the both-MDs framing. Thin marketing means the pain may not register yet, so rank last and use as the control on whether measured absence alone converts."

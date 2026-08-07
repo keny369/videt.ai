@@ -134,6 +134,30 @@ Three things that corpus makes possible, and nothing else does:
 
 **One dependency I am dealing with now:** the right to aggregate. Client engagement terms must grant permission to use measurements in anonymised, aggregated form for benchmarking and research. That is being drafted with counsel before the first cohort signs, because getting it wrong in the first twenty contracts would mean holding a corpus I am not permitted to use.
 
+## 6a. Who else is in this, and where I actually sit
+
+Stated plainly, because the honest version is more useful than a flattering one.
+
+**The category is real, it is filling, and some of it is well resourced.** Conductor, a long-established New York enterprise platform, has repositioned as an AI search visibility and answer-engine-optimisation platform. Their stack is substantial: content generation trained on a decade of search data, AEO and SEO visibility reporting, 24/7 site monitoring, and an agent layer with a data API, an MCP server and official apps for ChatGPT, Claude and Copilot. They collect through **official LLM APIs rather than scraping**, which gives them consistency and captures personalisation and geography. They hold ISO 27001, SOC 2 Type 2, GDPR and ISO 42001. In May 2026 they partnered with Clutch to put visibility measurement in front of 430,000 B2B providers. Profound, Peec AI, Scrunch AI and Bluefish are also funded and building nearby.
+
+**I am not first, I am not the biggest, and I would not claim either.**
+
+**Where they are ahead of me.** Engineering resources, enterprise security credentials, and official API access, which is a genuine advantage: it is more consistent than manual observation and it settles the terms-of-service question that currently limits me to human-scale querying.
+
+**The one gap, confirmed from their own materials.** Their platform documentation and their own competitor comparison both describe presence, citation and ranking measurement. Neither addresses **factual verification or hallucination detection**. They can tell a business it was mentioned. They cannot tell it that the machine gave out a disconnected number, confused it with another firm, or invented a credential, because there is no ground truth in the system to check against. The fabricated company in section 1 could not surface from that stack.
+
+That is the whole of my position, and it is narrow but real:
+
+1. **Accuracy, not just presence.** I establish what is true about a business first, then measure what the machines say against it. Wrong costs a business more than absent, and nobody in this category is measuring wrong.
+2. **Independence.** When the party selling the remedy also supplies the scoreboard, the scoreboard is marketing. On the Clutch dashboard every recommended action is an action on Clutch, including "upgrade your sponsorship".
+3. **Segment and delivery.** Enterprise platforms sell software to marketing teams. A flooring contractor in Preston or a dental practice in Carlton will never log into one, and would not know what to do with the output. I deliver a diagnosis, in person, in their language.
+
+**An open strategic question I have not answered.** Conductor exposes a data API. That raises a fair build-versus-buy question: whether I should build measurement rails at all, or consume someone else's and concentrate entirely on the verification layer, the accuracy findings and the customer relationship, which is where my differentiation actually sits. It depends on their pricing and terms, and I would value a view on it.
+
+**What this changes about the plan.** It compresses the timetable rather than altering the direction, and it argues against competing on measurement engineering, which I would lose. It is also part of why I am selling in August rather than building until Christmas.
+
+**A live data point.** My own advisory business appears on Clutch's dashboard with zero citations, ranked 404th, bottom 0% of providers. A competitor's tool, measuring my business, confirming the problem exists. I would rather show you that than a testimonial.
+
 ## 7. Exit thinking, and the multiples
 
 Stated as ranges, because anything more precise would be invention.
