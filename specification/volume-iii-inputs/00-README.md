@@ -13,6 +13,15 @@ Nothing here overrides the frozen manual, the Accepted `governance/CUSTOMER_VALU
 | `VOL3-INPUT-intervention-fix.md` | The fix system as executable spec: two-layer clock taxonomy, fix catalogue mapped 1:1 to canonical intervention types, verified competitor patterns, the Intervention Plan aggregate, the refuse-to-sell guardrails (INV-IP-2) | FUTURE-WORKFLOW-001 intervention types; Intervention Plan aggregate |
 | `VOL3-INPUT-truth-claims-evidence.md` | The platform's epistemology: the claim-class taxonomy, provenance/authority hierarchy, the source-elicitation-and-verify invariant (the Clutch confabulation case), evidence codification | The accepted "Truth & Claims Specification" (artifact map); Evidence model; citation-policy-v1; OD-003 |
 
+## Later candidate inputs (added after the 28 July authoring pass)
+
+These are **not** part of the four-module set above and are **not** covered by its reconciliation backlog. Each was written from a specific, dated piece of evidence and records a gap so it is not lost and does not get smuggled into a ratified artifact. Same front door: an owner decision in the register, in the manner of OD-010.
+
+| File | Records | Written from |
+|---|---|---|
+| `VOL3-INPUT-ai-misrepresentation-catalog.md` | A product requirement `check-catalog-v1` does not cover: measuring what AI gets wrong about a business | Two manual measurement runs — 476 conversations, 20 Melbourne businesses, two verticals (8 Aug 2026) |
+| `VOL3-INPUT-external-pillar-evidence-gap.md` | What `CHK-SP-001` and `CHK-AS-001` would each require field by field, whether it is obtainable, what it costs per business per run, and the `CHK-LP-001` applicability question — plus the `CHK-TI-001` `policy_excluded` residual | The frozen `external-observation-v1` contract, OD-010's approval package, and measurement against the live `xirconhomes.com.au` crawl (8 Aug 2026) |
+
 ## Reconciliation backlog — RESOLVE BEFORE ADR FILING (binding)
 
 The reconciler found the following. These are **known defects in these drafts**, recorded so no one mistakes them for reconciled canon. Each is an owner/ADR decision, not a silent edit.
