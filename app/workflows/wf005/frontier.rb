@@ -16,8 +16,8 @@ module Workflows
     #
     # Scope of THIS tranche: the frontier structure, the canonical order, deduplication with
     # collision handling, the discovered-queue bound, ROOT seeding, and the dequeue claim. Sitemap
-    # candidates (S-07-006) and link candidates (S-07-007) enter through the same `offer` surface
-    # when those tranches build discovery; robots admission (S-07-005) fills the two nullable
+    # candidates (S-07-006) and link candidates (S-07-007, `LinkDiscovery`) both enter through the
+    # same `offer` surface — both are now built; robots admission (S-07-005) fills the two nullable
     # `robots_*` columns. No fetch happens here and no network call exists on this path.
     class Frontier
       # `crawl-policy-v1` discovered-queue hard bound (WORKFLOW_SPECIFICATIONS.md :425-438, :454).

@@ -42,9 +42,10 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
 
   def about_page = "<html><head><title>About Acme</title></head><body>hello</body></html>"
 
-  # A run seeded from the sitemap, so every linked URL is actually observed. IN-CRAWL LINK
-  # DISCOVERY IS NOT BUILT (S-07-007), so without this seeding CHK-TI-001 has an unobserved
-  # target and correctly reports coverage-incomplete — which is asserted separately below.
+  # A run seeded from the sitemap, so every linked URL is actually observed. Since S-07-007
+  # in-crawl link discovery, the run would reach `/about` and `/gone` from the root page anyway;
+  # the seeding is retained because it makes the observed target set independent of traversal
+  # order, which is what these examples are about rather than what discovery is about.
   def evaluated_run(pages: nil, sitemap: %w[https://shop.acme.example/about https://shop.acme.example/gone])
     ctx = crawlable(sitemap:)
     run_to_evaluated(ctx, outbound_pages(pages || default_pages))
@@ -553,14 +554,35 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
 
   # =====================================================================================
   describe "the coverage-incomplete branch, when the crawl did not observe every target" do
-    # IN-CRAWL LINK DISCOVERY IS NOT BUILT (S-07-007), so a run seeded only from the Source
-    # root links to URLs it never fetched. CHK-TI-001's contract is exact about this: the
-    # error PRECEDES failed and pass evaluation, so it reports coverage-incomplete rather
-    # than a broken-link finding over a set it did not see.
-    it "reports coverage-incomplete rather than a finding it cannot support" do
+    # THE CAUSE THIS PINS IS THE ONE A LIVE SITE ACTUALLY HITS, and it survives in-crawl link
+    # discovery (S-07-007) rather than being repaired by it.
+    #
+    # :478 derives CHK-TI-001's targets from EVERY in-scope `link_edges` target, and `link_edges`
+    # covers `<link href>` as well as `<a href>`. :452 records an unsupported media type as
+    # `policy_excluded` and puts it OUTSIDE the coverage denominator — so the CRAWL is `full`.
+    # But :294's target reason vocabulary has no token for `policy_excluded`, so the derivation
+    # can only call such a target `unobserved`, and CHK-TI-001 evaluates the error BEFORE failed
+    # and pass. A same-host stylesheet therefore leaves the Check indeterminate over a crawl that
+    # observed everything it was asked to observe.
+    #
+    # That is every page built by every mainstream CMS: measured on the real subject site, the
+    # `xirconhomes.com.au` home page alone names 79 distinct in-scope targets of which 37 are
+    # stylesheets, fonts, images or JSON endpoints. The repair is a Volume I decision about
+    # whether `policy_excluded` belongs in the target set at all; it is recorded here, not made.
+    it "reports coverage-incomplete for a target the crawl observed but could not document" do
       ctx = crawlable
-      run_to_evaluated(ctx, outbound_pages("/" => { body: root_page }))
+      run_to_evaluated(ctx, outbound_pages(
+                              "/" => { body: '<html><head><title>Acme Supplies</title>' \
+                                             '<link rel="stylesheet" href="/s.css"></head><body>hi</body></html>' },
+                              "/s.css" => { body: "a{}", type: "text/css" }
+                            ))
       ti = results_by_definition(evaluation_for(ctx[:crawl_id])["id"])["CHK-TI-001"].sole
+
+      # THE CRAWL IS COMPLETE. This is the half that makes the Check's error surprising, and it
+      # is asserted first so a later reader cannot mistake the error for a failed crawl.
+      expect(crawl_row(ctx[:crawl_id])["coverage_status"]).to eq("full")
+      expect(terminal_outcomes(ctx[:crawl_id]).map { |o| o["outcome"] })
+        .to contain_exactly("document_created", "policy_excluded")
 
       expect(ti["execution_status"]).to eq("error")
       expect(ti["outcome_code"]).to eq("internal_link_coverage_incomplete")
@@ -569,6 +591,21 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
       # An error creates NO Issue and makes its pillar insufficient.
       expect(issues_of(evaluation_for(ctx[:crawl_id])["id"]).map { |i| i["check_definition_id"] })
         .not_to include("CHK-TI-001")
+    end
+
+    # AND THE OTHER HALF, so the example above cannot be read as "CHK-TI-001 never passes". With
+    # every in-scope target a real page, discovery alone carries the run to a decision-grade pass
+    # — no sitemap seeding, no help.
+    it "reaches a decision-grade pass when discovery observed every target" do
+      ctx = crawlable
+      run_to_evaluated(ctx, outbound_pages("/" => { body: root_page },
+                                           "/about" => { body: about_page },
+                                           "/gone" => { body: about_page }))
+      ti = results_by_definition(evaluation_for(ctx[:crawl_id])["id"])["CHK-TI-001"].sole
+
+      expect(ti["execution_status"]).to eq("passed")
+      expect(ti["outcome_code"]).to eq("internal_links_resolve")
+      expect(ti["subject_set_complete"]).to eq("t")
     end
   end
 end

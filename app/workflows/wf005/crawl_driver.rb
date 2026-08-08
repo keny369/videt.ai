@@ -479,12 +479,28 @@ module Workflows
                                             entry["state_version"].to_i, now).positive?
 
           produced = handoff.produce(pg: raw, organization_id:, crawl:, entry:, result:, now:)
+          # :440'S FOLLOWED CONTENT LINKS, IN THE TRANSACTION THAT RETIRES THEIR PARENT. It has to be
+          # this one. The entry has just been terminalized, so if it was the last non-terminal entry
+          # at its depth then :454's seal has released and depth `d+1` is selectable the instant this
+          # commits — and a discovery committed one transaction LATER would arrive after the run had
+          # already decided the frontier was drained and taken its terminal checkpoint. The frontier
+          # lock is held for both, so the retirement and the candidates it produced are one atomic
+          # fact: never a page whose links were lost, never a candidate whose parent is not terminal.
+          #
+          # WHAT IT DISCOVERED IS NOT CARRIED BACK on the `Pass`, and that is deliberate rather than
+          # an omission: `crawl_frontier_entries` (origin `link`) and `crawl_frontier_occurrences`
+          # ARE the record the contract puts it in, they are written by this transaction, and a
+          # count echoed onto the ledger as well would be a second, maintained copy of a number the
+          # database already answers exactly.
+          link_discovery.discover(pg: raw, organization_id:, crawl:, entry:, result:, now:)
           { outcome: record_outcome(raw, organization_id, crawl, entry, decision, now, produced),
             produced: }
         end
       end
 
       def handoff = @handoff ||= IngestionHandoff.new(ids: @ids, correlation_id: @correlation_id)
+
+      def link_discovery = @link_discovery ||= LinkDiscovery.new(ids: @ids, correlation_id: @correlation_id)
 
       # Re-read, never re-used: `crawl` was loaded at the top of the pass, BEFORE the network call, so
       # it cannot answer a question about what committed during it. Through the same accepted reader

@@ -94,12 +94,12 @@ module Wf006ParseChain
 
   # A run whose robots and sitemap records are terminal and whose rate window is clear.
   #
-  # `sitemap:` seeds additional in-scope URLs into the frontier. It matters for CHK-TI-001:
-  # IN-CRAWL LINK DISCOVERY IS NOT BUILT (S-07-007 — `Wf005::Frontier` says link candidates
-  # "enter through the same `offer` surface WHEN THOSE TRANCHES BUILD DISCOVERY"), so a run
-  # seeded only from the Source root observes no linked URL, and CHK-TI-001 correctly reports
-  # `error/internal_link_coverage_incomplete` over a set it did not see. Seeding the sitemap
-  # is how a spec reaches the decision-grade pass and fail branches.
+  # `sitemap:` seeds additional in-scope URLs into the frontier. IN-CRAWL LINK DISCOVERY IS NOW
+  # BUILT (S-07-007), so a run seeded only from the Source root DOES follow the links its pages
+  # name, and seeding is no longer what makes CHK-TI-001 reachable. It is still useful, and for a
+  # different reason: a sitemap-seeded URL is admitted at depth 1 with `origin_rank` `sitemap`,
+  # so a spec that wants a target present in the frontier BEFORE its referring page is parsed
+  # asks for it here rather than depending on traversal order to produce it.
   def crawlable(hosts: ["shop.acme.example"], at: start_now, sitemap: nil)
     prepare_run(running_crawl(hosts:, at:).merge(sitemap:), at:, sitemap:)
   end

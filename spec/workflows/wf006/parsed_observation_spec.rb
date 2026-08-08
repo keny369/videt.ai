@@ -121,6 +121,35 @@ RSpec.describe Workflows::Wf006::ParsedObservation, type: :model do
       expect(payload["link_edges"].first["relation_tokens"]).to eq(%w[noopener nofollow].sort)
     end
 
+    # S-07-007's IN-CRAWL DISCOVERY READS THIS EXTRACTION, NOT ITS OWN. `Wf005::LinkDiscovery`
+    # calls `link_targets` so that the set the crawl follows and the set `CHK-TI-001` asks about
+    # are the SAME set by construction: :478 derives the Check's targets from `link_edges`, so a
+    # URL one admits and the other misses is a permanently `unobserved` target and an
+    # indeterminate Check. This pins the equality directly — every admitted edge, no more and no
+    # fewer, with its own zero-based position — because that is the property, not "it returns
+    # some links".
+    it "exposes exactly `link_edges`' admitted targets to in-crawl discovery, with positions" do
+      html = '<html><head><link rel="stylesheet" href="/s.css"></head>' \
+             '<body><a href="/about">x</a><a href="https://elsewhere.test/x">y</a>' \
+             '<a href="">z</a><a href="mailto:a@b.c">m</a></body></html>'
+      payload = build(html)
+      targets = described_class.link_targets(bytes: html, canonical_document_url: "https://example.com/",
+                                             media_type: "text/html", scope_policies: [policy])
+
+      admitted = payload["link_edges"].reject { |e| e["target_canonical_url"].nil? }
+      expect(targets.map { |t| t["canonical_url"] }).to eq(admitted.map { |e| e["target_canonical_url"] })
+      expect(targets.map { |t| t["link_position"] }).to eq(admitted.map { |e| e["position"] })
+      # And concretely: the stylesheet IS a target (which is why CHK-TI-001 stays indeterminate on
+      # a real CMS page), while the off-host, empty and non-HTTP hrefs are not.
+      expect(targets.map { |t| t["canonical_url"] })
+        .to eq(["https://example.com/s.css", "https://example.com/about"])
+    end
+
+    it "yields no discovery targets for a media type the crawl never accepts" do
+      expect(described_class.link_targets(bytes: '<a href="/a">x</a>', canonical_document_url: "https://example.com/",
+                                          media_type: "text/css", scope_policies: [policy])).to eq([])
+    end
+
     it "includes <link> elements alongside anchors, in document order" do
       payload = build('<html><head><link href="/feed" rel="alternate"></head><body><a href="/a">a</a></body></html>')
 

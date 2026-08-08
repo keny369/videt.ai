@@ -76,6 +76,32 @@ module Workflows
         payload
       end
 
+      # THE IN-SCOPE TARGETS OF ONE DOCUMENT BODY, in document order, as the frontier's
+      # `(link_position, canonical_url)` pairs — `build`'s OWN `link_edges`, narrowed to the
+      # edges that resolved to an admitted target.
+      #
+      # IT EXISTS SO THE SCOPE PREDICATE AND THE EXTRACTION CANNOT FORK. `resolve_target`
+      # already claims that "a link the crawl would have followed and a link the parser calls
+      # in-scope cannot disagree", and until S-07-007 that claim was vacuous: nothing followed
+      # links at all. In-crawl discovery is the caller that makes it load-bearing, and it calls
+      # THIS rather than re-deriving the target set, because the two sets are the SAME set by
+      # contract — :478 derives `CHK-TI-001`'s targets from `link_edges`, so any URL this
+      # extraction admits and the crawl did not fetch is a permanently `unobserved` target and
+      # an indeterminate Check. A second extractor in WF-005 would be exactly that defect with
+      # a second place to introduce it.
+      #
+      # An unsupported media type yields no targets rather than raising: only an accepted page
+      # has a body to traverse, and :436 already refused everything else.
+      def link_targets(bytes:, canonical_document_url:, media_type:, scope_policies:)
+        return [] unless supported_media_type?(media_type)
+
+        link_edges(parse(bytes, media_type), canonical_document_url, scope_policies)
+          .filter_map do |edge|
+            url = edge["target_canonical_url"]
+            url && { "link_position" => edge["position"], "canonical_url" => url }
+          end
+      end
+
       def supported_media_type?(media_type) = SUPPORTED_MEDIA_TYPES.include?(bare_media_type(media_type))
 
       # Media-type parameters are stripped before the comparison, per :480's "before
