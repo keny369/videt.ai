@@ -478,7 +478,6 @@ module Workflows
           next nil unless store.terminalize(organization_id, entry["id"],
                                             entry["state_version"].to_i, now).positive?
 
-          produced = handoff.produce(pg: raw, organization_id:, crawl:, entry:, result:, now:)
           # :440'S FOLLOWED CONTENT LINKS, IN THE TRANSACTION THAT RETIRES THEIR PARENT. It has to be
           # this one. The entry has just been terminalized, so if it was the last non-terminal entry
           # at its depth then :454's seal has released and depth `d+1` is selectable the instant this
@@ -487,12 +486,21 @@ module Workflows
           # lock is held for both, so the retirement and the candidates it produced are one atomic
           # fact: never a page whose links were lost, never a candidate whose parent is not terminal.
           #
+          # BEFORE `produce`, AND THE ORDER IS THE POINT. `handoff.produce` takes the per-URL
+          # document-line advisory lock and then holds it, plus `FOR KEY SHARE` on the new Document,
+          # for the rest of the transaction. Discovery is the expensive half — a real page names
+          # ~124 in-scope targets and each one is a dedup read and an occurrence or an insert, about
+          # half a second of database work — and it needs NEITHER of those locks. Running it first
+          # shrinks the document-line hold from the whole of that back to the milliseconds `produce`
+          # itself takes, so this pass's widest lock and its longest work no longer overlap.
+          #
           # WHAT IT DISCOVERED IS NOT CARRIED BACK on the `Pass`, and that is deliberate rather than
           # an omission: `crawl_frontier_entries` (origin `link`) and `crawl_frontier_occurrences`
           # ARE the record the contract puts it in, they are written by this transaction, and a
           # count echoed onto the ledger as well would be a second, maintained copy of a number the
           # database already answers exactly.
           link_discovery.discover(pg: raw, organization_id:, crawl:, entry:, result:, now:)
+          produced = handoff.produce(pg: raw, organization_id:, crawl:, entry:, result:, now:)
           { outcome: record_outcome(raw, organization_id, crawl, entry, decision, now, produced),
             produced: }
         end
