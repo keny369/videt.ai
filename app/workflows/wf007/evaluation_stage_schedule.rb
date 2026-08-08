@@ -51,28 +51,8 @@ module Workflows
       end
     end
 
-    # One `check_attempt_due` per materialized expected key. The Slot is the target, because
-    # the Slot is what the attempt terminalizes and what its retry would reuse.
-    module CheckAttemptSchedule
-      module_function
-
-      ACTION_KIND = "check_attempt_due"
-      ACTION_SCHEMA_VERSION = "1.0"
-      TARGET_TYPE = "check_result_slot"
-
-      def schedule(pg:, organization_id:, project_id:, slot_id:, due_at:, now:, correlation_id:,
-                   causation_id: nil, command_id: nil, attempt_number: 1)
-        Platform::ScheduledActions::Store.new(pg).create(
-          id: Platform::Ids.system.generate, action_kind: ACTION_KIND,
-          action_schema_version: ACTION_SCHEMA_VERSION, organization_id:, project_id:,
-          target_type: TARGET_TYPE, target_id: slot_id,
-          # The attempt number is the product generation, so the single permitted retry is a
-          # DISTINCT action rather than a redelivery of the first.
-          product_generation: attempt_number, schedule_generation: 1,
-          due_at:, now:, correlation_id:, causation_id: causation_id || correlation_id,
-          command_id:, executing_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor
-        )[:id]
-      end
-    end
+    # `CheckAttemptSchedule` — the other half of this chain — lives in its own
+    # `check_attempt_schedule.rb`. It used to be declared here as a sibling, where Zeitwerk had
+    # no path implying it and could not autoload it; see that file for what that cost.
   end
 end
