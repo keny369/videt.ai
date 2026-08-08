@@ -27,7 +27,7 @@ RSpec.describe "Measurement set staging", type: :request do
     post "/start/bootstrap-grant", params: { email: }
     post "/start/bootstrap-organization",
          params: { organization_display_name: "Acme Discoverability", project_display_name: "Acme Website",
-                   project_objective: "Improve discoverability" }
+                   local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
   end
 
   def project = DbInspector.all("SELECT * FROM projects ORDER BY created_at").first

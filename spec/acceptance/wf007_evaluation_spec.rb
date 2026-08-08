@@ -133,7 +133,17 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
       end
       expect(measurement.length).to eq(4)
       expect(measurement.map { |e| JSON.parse(e["selected_evidence"]) }.uniq).to eq([[]])
-      expect(measurement.map { |e| e["applicable"] }.uniq).to eq(["t"])
+
+      # Three of the four stay applicable and select nothing. CHK-LP-001 is the exception,
+      # and for a different reason: the genesis Project this chain creates carries a validly
+      # false local-presence decision, so the entry is INAPPLICABLE and selects nothing
+      # because there is nothing to select — not because the input is missing. The two are
+      # distinguished here so a regression cannot silently convert one into the other.
+      by_id = measurement.to_h { |e| [e["check_definition_id"], e] }
+      expect(by_id.values_at("CHK-SP-001", "CHK-AIP-001", "CHK-AS-001").map { |e| e["applicable"] })
+        .to eq(%w[t t t])
+      expect(by_id["CHK-LP-001"]["applicable"]).to eq("f")
+      expect(by_id["CHK-LP-001"]["inapplicable_reason"]).to eq(GenesisProjectProfile::DEFAULT_REASON)
     end
   end
 
@@ -224,12 +234,15 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
       expect(tr["impact_band"]).to eq("medium")
     end
 
-    # THE APPROVED BASELINE, asserted as the expected outcome.
+    # THE APPROVED BASELINE, asserted as the expected outcome. CHK-LP-001 is NOT in this
+    # list: it is the one Definition for which `not_applicable` is valid, and the genesis
+    # Project validly declares local presence inapplicable, so it never reaches an error.
+    # Its own outcome is asserted immediately below.
     it "persists a handled one-attempt input_evidence_missing on each measurement Definition" do
       ctx = evaluated_run
       by_definition = results_by_definition(evaluation_for(ctx[:crawl_id])["id"])
 
-      %w[CHK-SP-001 CHK-AIP-001 CHK-AS-001 CHK-LP-001].each do |id|
+      %w[CHK-SP-001 CHK-AIP-001 CHK-AS-001].each do |id|
         result = by_definition[id].sole
         expect(result["execution_status"]).to eq("error"), "#{id} should be a handled error"
         expect(result["error_reason_code"]).to eq("input_evidence_missing")
@@ -240,6 +253,40 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
         expect(result["confidence_band"]).to eq("low")
         expect(result["subject_set_complete"]).to eq("f")
       end
+    end
+
+    # SCORE_EVIDENCE_MODEL.md :207 `not_applicable` "is valid only for `CHK-LP-001`"; :273
+    # it is inapplicable "only when the frozen Project profile validly records
+    # `local_presence_applicable=false` and its nonblank reason".
+    #
+    # The Project this chain evaluates is created by WF-001 genesis, and it now carries that
+    # decision. Before it did, the row was the all-NULL profile shape — legal, but not a
+    # valid false — and this Result was `error / local_profiles_absent /
+    # input_evidence_missing`, which blocked the pillar by omission rather than by a
+    # decision anyone made.
+    it "reaches not_applicable on CHK-LP-001 from the genesis Project's own declared-false profile" do
+      ctx = evaluated_run
+      result = results_by_definition(evaluation_for(ctx[:crawl_id])["id"])["CHK-LP-001"].sole
+
+      expect(result["execution_status"]).to eq("not_applicable")
+      expect(result["outcome_code"]).to eq("local_presence_not_applicable")
+      expect(result["error_reason_code"]).to be_nil
+
+      profile = DbInspector.all(<<~SQL, [ctx[:g][:project_id]]).sole
+        SELECT project_profile_schema_version, local_presence_applicable, local_presence_reason,
+               local_business_profile, local_business_profile_content_sha256,
+               profile_attesting_account_id, profile_committed_at
+        FROM projects WHERE id = $1::uuid
+      SQL
+      expect(profile["project_profile_schema_version"]).to eq("project-profile-v1")
+      expect(profile["local_presence_applicable"]).to eq("f")
+      expect(profile["local_presence_reason"]).to eq(GenesisProjectProfile::DEFAULT_REASON)
+      # ":657 when local presence is false ... `local_business_profile` is null" — and the
+      # `projects_local_profile_shape` CHECK pairs the attestation with the decision.
+      expect(profile["local_business_profile"]).to be_nil
+      expect(profile["local_business_profile_content_sha256"]).to be_nil
+      expect(profile["profile_attesting_account_id"]).not_to be_nil
+      expect(profile["profile_committed_at"]).not_to be_nil
     end
 
     # "no implementation invents a query, intent, listing directory, prompt, provider,
@@ -501,7 +548,15 @@ RSpec.describe "WF-007 evaluation", type: :acceptance,
       eid = evaluation_for(ctx[:crawl_id])["id"]
       insufficient = check_results(eid).select { |r| r["execution_status"] == "error" }
                                        .map { |r| r["pillar_id"] }.uniq
-      expect(insufficient).to include("search_presence", "ai_presence", "authority_signals", "local_presence")
+      # THREE blocking pillars, not four. Local Presence is validly not applicable and so
+      # cannot make the score unavailable (:678 "an inapplicable pillar ... has null score,
+      # weight `0/1`"). `not_to include` is the load-bearing half: if the genesis profile
+      # regressed to the all-NULL shape this pillar would rejoin the list.
+      expect(insufficient).to contain_exactly("search_presence", "ai_presence", "authority_signals")
+      expect(insufficient).not_to include("local_presence")
+      # THE SCORE IS STILL UNAVAILABLE, and removing one blocker does not change that. Three
+      # of the four owner decisions in VOL3-INPUT-external-pillar-evidence-gap stand between
+      # here and a number.
       expect(evaluation_row(eid)["state"]).to eq("completed")
       expect(evaluation_row(eid)["reason"]).to be_nil
     end

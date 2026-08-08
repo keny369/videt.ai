@@ -43,7 +43,7 @@ RSpec.describe "WF-001 bootstrap reachability", type: :acceptance,
     boot = Workflows::Wf001::Commands::BootstrapOrganization.new(
       command_id: SecureRandom.uuid_v7, idempotency_key: "b", schema_version: "1.0",
       receipt_digest: boot_receipt[:receipt_digest], expected_grant_version: 0,
-      organization_display_name: "Genesis Co", project_display_name: "Genesis Site", project_objective: nil,
+      organization_display_name: "Genesis Co", first_project: GenesisProjectProfile.body("Genesis Site"),
       access_policy_content_sha256: bc.access_policy_sha256,
       entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
       requested_at_utc: fixed_now

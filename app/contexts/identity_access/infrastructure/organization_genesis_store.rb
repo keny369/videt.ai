@@ -201,14 +201,28 @@ module IdentityAccess
         SQL
       end
 
+      # The first draft Project with its immutable creation profile, the same shape
+      # ProjectStore writes for WF-002. `profile_committed_at` is the server commit
+      # instant, the same value as created_at, and the attesting Account is the first
+      # OrganizationAdmin created earlier in this transaction. The three columns the
+      # `projects_local_profile_shape` CHECK pairs with applicability are supplied
+      # together or not at all; the caller's normalized profile decides which.
       def insert_project(row)
+        lbp = row[:local_business_profile]
         params = [row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id],
-                  row[:display_name], row[:locale], row[:time_zone], row[:objective]]
+                  row[:display_name], row[:locale], row[:time_zone], row[:objective],
+                  row[:project_profile_schema_version], row[:local_presence_applicable],
+                  row[:local_presence_reason], (lbp ? JSON.generate(lbp) : nil),
+                  bytea(row[:local_business_profile_content_sha256]), row[:profile_attesting_account_id]]
         exec(<<~SQL, params)
           INSERT INTO projects
             (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
-             display_name, locale, time_zone, objective, state, source_set_version)
-          VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5,$6,$7,$8,'draft',0)
+             display_name, locale, time_zone, objective, state, source_set_version,
+             project_profile_schema_version, local_presence_applicable, local_presence_reason,
+             local_business_profile, local_business_profile_content_sha256,
+             profile_attesting_account_id, profile_committed_at)
+          VALUES ($1,0,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5,$6,$7,$8,'draft',0,
+                  $9,$10::boolean,$11,$12::jsonb,$13,$14::uuid,$2::timestamptz)
         SQL
       end
 

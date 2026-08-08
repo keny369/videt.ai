@@ -45,7 +45,7 @@ module Platform
       # baseline content-hash mismatches are input-shape -> F1-VALIDATION-400; a
       # missing/expired grant is a domain-state failure -> F1-DOMAIN-409.
       "organization_profile_invalid"      => "F1-VALIDATION-400",
-      "project_body_invalid"              => "F1-VALIDATION-400",
+      "project_profile_invalid"           => "F1-VALIDATION-400",
       "access_policy_hash_mismatch"       => "F1-VALIDATION-400",
       "entitlement_policy_hash_mismatch"  => "F1-VALIDATION-400",
       "plan_hash_mismatch"                => "F1-VALIDATION-400",

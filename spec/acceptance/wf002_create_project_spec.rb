@@ -49,8 +49,7 @@ RSpec.describe "WF-002 create project", type: :acceptance,
       command: Workflows::Wf001::Commands::BootstrapOrganization.new(
         command_id: SecureRandom.uuid_v7, idempotency_key: "boot-#{SecureRandom.hex(4)}", schema_version: "1.0",
         receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-        organization_display_name: org_display_name, project_display_name: "Genesis Site",
-        project_objective: "discoverability_assessment", access_policy_content_sha256: bc.access_policy_sha256,
+        organization_display_name: org_display_name, first_project: GenesisProjectProfile.body("Genesis Site"), access_policy_content_sha256: bc.access_policy_sha256,
         entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
         requested_at_utc: fixed_now
       ), request_context: service_ctx(fixed_now)
@@ -196,7 +195,13 @@ RSpec.describe "WF-002 create project", type: :acceptance,
       expect(projects.size).to eq(1)
       genesis_project = project(g[:project_id])
       expect(genesis_project["state"]).to eq("draft")
-      expect(genesis_project["local_presence_applicable"]).to be_nil # the reduced genesis body
+      # The genesis body is the SAME `project-profile-v1` body WF-002 takes (:621), so the
+      # genesis Project is fully profiled rather than a reduced one. Both doors produce a
+      # Project whose local-presence claim is decided, which is what stops the two paths
+      # producing customer-visible results that differ by which door was used.
+      expect(genesis_project["project_profile_schema_version"]).to eq("project-profile-v1")
+      expect(genesis_project["local_presence_applicable"]).to eq("f")
+      expect(genesis_project["local_presence_reason"]).not_to be_nil
 
       create(session_id: g[:session_id], organization_id: g[:organization_id], profile: reason_profile)
       expect(projects.size).to eq(2)

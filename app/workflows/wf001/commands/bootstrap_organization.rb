@@ -14,9 +14,18 @@ module Workflows
       # version and the three baseline content hashes it approves. It never chooses
       # generated identifiers, lifecycle branches, baseline permissions, entitlement
       # contents or genesis sequencing — those are the commit's own.
+      #
+      # `first_project` is the complete `ProjectProfile` of API_CONTRACTS.md :371 —
+      # the same `project-profile-v1` body WF-002 takes — because :621 makes the
+      # self-service precondition "complete `organization-profile-v1` plus WF-002
+      # first-Project body" and ATTR-BootstrapOrganization (:408) names it
+      # `first_project: object<ProjectProfile>`. A display name and a free-text
+      # objective are not that body: the profile also carries the fixed locale, time
+      # zone and objective, and the local-presence applicability decision on which
+      # `CHK-LP-001` turns.
       BootstrapOrganization = Data.define(
         :command_id, :idempotency_key, :schema_version, :receipt_digest, :expected_grant_version,
-        :organization_display_name, :project_display_name, :project_objective,
+        :organization_display_name, :first_project,
         :access_policy_content_sha256, :entitlement_policy_content_sha256, :plan_content_sha256,
         :requested_at_utc
       )

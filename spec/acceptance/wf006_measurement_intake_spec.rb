@@ -571,9 +571,15 @@ RSpec.describe "WF-006 external measurement intake", type: :acceptance,
       results = check_results(evaluation_for(ctx[:crawl_id])["id"]).index_by { |r| r["check_definition_id"] }
       # Approving an AI-presence set says nothing about search or authority, and the platform
       # does not infer one measurement from another.
-      %w[CHK-SP-001 CHK-AS-001 CHK-LP-001].each do |id|
+      %w[CHK-SP-001 CHK-AS-001].each do |id|
         expect(results[id]["error_reason_code"]).to eq("input_evidence_missing"), "#{id} must stay unmeasured"
       end
+      # CHK-LP-001 is unmeasured for a DIFFERENT reason, and the difference is the point:
+      # the genesis Project validly declares local presence inapplicable, so the Check is
+      # `not_applicable` rather than a handled error. An approved AI-presence set does not
+      # reach across and measure it either.
+      expect(results["CHK-LP-001"]["execution_status"]).to eq("not_applicable")
+      expect(results["CHK-LP-001"]["error_reason_code"]).to be_nil
     end
   end
 end

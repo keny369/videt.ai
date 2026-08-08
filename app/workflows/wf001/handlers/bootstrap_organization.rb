@@ -35,7 +35,7 @@ module Workflows
           ctx = request_context
           return schema_failure(command, ctx) unless supported_schema?(command.schema_version)
 
-          reason = validate_inputs(command)
+          reason, project_profile = validate_inputs(command)
           return in_memory_failure(command, ctx, reason) if reason
 
           Platform::UnitOfWork.run do |conn|
@@ -45,7 +45,7 @@ module Workflows
                                                        organization_id:, correlation_id: ctx.correlation_id)
             return in_memory_failure(command, ctx, "identity_receipt_invalid") if receipt.nil?
 
-            bootstrap(command:, ctx:, store:, organization_id:, receipt:)
+            bootstrap(command:, ctx:, store:, organization_id:, receipt:, project_profile:)
           end
         end
 
@@ -53,14 +53,32 @@ module Workflows
 
         # ---- input validation (before any context) ------------------------------
 
+        # ":627 validate ... Organization profile, exact first-Project fields, ... content
+        # hashes". Returns the first-match reason, or nil plus the normalized
+        # `project-profile-v1` body the commit persists.
+        #
+        # The first-Project body is decided by WF-002's own shared validator rather than
+        # by a second copy of the :657 rule here. :621 makes the precondition the "WF-002
+        # first-Project body", so the two Project-creation paths must not be able to
+        # drift: if they did, a Project's local-presence claim would depend on which door
+        # it came through. Every predicate in that validator is decided from the caller's
+        # input alone except the business-name cross-check, and the Organization it
+        # cross-checks against is the one this same command carries.
         def validate_inputs(command)
-          return "organization_profile_invalid" unless valid_display_name?(command.organization_display_name)
-          return "project_body_invalid" unless valid_display_name?(command.project_display_name)
-          return "access_policy_hash_mismatch" unless command.access_policy_content_sha256 == Platform::BaselineContent.access_policy_sha256
-          return "entitlement_policy_hash_mismatch" unless command.entitlement_policy_content_sha256 == Platform::BaselineContent.entitlement_policy_sha256
-          return "plan_hash_mismatch" unless command.plan_content_sha256 == Platform::BaselineContent.plan_sha256
+          return ["organization_profile_invalid", nil] unless valid_display_name?(command.organization_display_name)
 
-          nil
+          creation = Workflows::Wf002::ProjectCreation
+          outcome = creation.validate(command.first_project)
+          return ["project_profile_invalid", nil] unless outcome.ok?
+          unless creation.business_name_matches?(outcome.profile, command.organization_display_name)
+            return ["project_profile_invalid", nil]
+          end
+
+          return ["access_policy_hash_mismatch", nil] unless command.access_policy_content_sha256 == Platform::BaselineContent.access_policy_sha256
+          return ["entitlement_policy_hash_mismatch", nil] unless command.entitlement_policy_content_sha256 == Platform::BaselineContent.entitlement_policy_sha256
+          return ["plan_hash_mismatch", nil] unless command.plan_content_sha256 == Platform::BaselineContent.plan_sha256
+
+          [nil, outcome.profile]
         end
 
         # ":230 display name normalized to trimmed Unicode NFC with 1-120 scalar
@@ -74,15 +92,15 @@ module Workflows
 
         # ---- main branch, under proved principal+Organization context -----------
 
-        def bootstrap(command:, ctx:, store:, organization_id:, receipt:)
+        def bootstrap(command:, ctx:, store:, organization_id:, receipt:, project_profile:)
           principal_hex = receipt["principal_hex"]
           now = ctx.now_utc.floor(6)
-          d = { command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now: }
+          d = { command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now:, project_profile: }
 
           store.lock_principal(principal_hex)
 
           key_digest = Digest::SHA256.digest(command.idempotency_key)
-          request_sha256 = request_hash(command, ctx, principal_hex)
+          request_sha256 = request_hash(command, ctx, principal_hex, project_profile)
           existing = store.find_idempotency(principal_hex:, command_type: command.command_type, key_digest:)
           if existing
             return replay(store, existing, command) if existing["request_hex"] == hex(request_sha256)
@@ -107,7 +125,7 @@ module Workflows
 
         # ---- the atomic genesis --------------------------------------------------
 
-        def commit(command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now:, grant:, key_digest:, request_sha256:)
+        def commit(command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now:, project_profile:, grant:, key_digest:, request_sha256:)
           ids = genesis_ids(ctx)
           ids[:organization] = organization_id
           bc = Platform::BaselineContent
@@ -146,9 +164,24 @@ module Workflows
           store.insert_entitlement_policy(id: ids[:entitlement_policy], now:, correlation_id: ctx.correlation_id,
                                           organization_id:, semantic_version: bc::ENTITLEMENT_POLICY_VERSION,
                                           plan_version: bc::PLAN_VERSION, content_sha256: bc.entitlement_policy_sha256)
+          # The genesis Project carries its complete creation profile, exactly as a
+          # WF-002 Project does. The attesting Account is the first OrganizationAdmin,
+          # created two rows above in this same commit: the human who submitted this
+          # command is the one whose declaration the profile records, which is what
+          # SCORE_EVIDENCE_MODEL.md :587 requires of a `local_presence_applicable=false`
+          # Project. Without it the row is the all-NULL shape, which is legal but is not
+          # a valid false, and `CHK-LP-001` then blocks the score by omission.
           store.insert_project(id: ids[:project], now:, correlation_id: ctx.correlation_id, organization_id:,
-                               display_name: command.project_display_name, locale: bc::DEFAULT_LOCALE,
-                               time_zone: bc::REPORTING_TIME_ZONE, objective: command.project_objective)
+                               display_name: project_profile["display_name"],
+                               locale: project_profile["default_locale"],
+                               time_zone: project_profile["reporting_time_zone"],
+                               objective: project_profile["objective"],
+                               project_profile_schema_version: project_profile["project_profile_schema_version"],
+                               local_presence_applicable: project_profile["local_presence_applicable"],
+                               local_presence_reason: project_profile["local_presence_reason"],
+                               local_business_profile: project_profile["local_business_profile"],
+                               local_business_profile_content_sha256: Workflows::Wf002::ProjectCreation.content_sha256(project_profile),
+                               profile_attesting_account_id: ids[:account])
 
           # Activations, in order (:628).
           store.activate_billing_entity(ids[:billing], ids[:plan], now)
@@ -280,12 +313,12 @@ module Workflows
 
         # ---- audited denial (no tenant record) ----------------------------------
 
-        def reject(command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now:, reason:)
+        def reject(command:, ctx:, store:, organization_id:, receipt:, principal_hex:, now:, project_profile:, reason:)
           execution_id = ctx.generate_id
           audit_id = ctx.generate_id
           result_id = ctx.generate_id
           key_digest = Digest::SHA256.digest(command.idempotency_key)
-          request_sha256 = request_hash(command, ctx, principal_hex)
+          request_sha256 = request_hash(command, ctx, principal_hex, project_profile)
 
           write_execution(store, command, ctx, organization_id, principal_hex, execution_id, key_digest,
                           request_sha256, now)
@@ -405,7 +438,11 @@ module Workflows
 
         def receipt_email(receipt) = receipt["normalized_email"] || "user-#{receipt["receipt_id"]}@example.com"
 
-        def request_hash(command, ctx, principal_hex)
+        # The replay fingerprint covers the WHOLE normalized first-Project body, not
+        # just its display name: two commands under one idempotency key that declare
+        # different local-presence applicability are different commands, and the second
+        # must be `idempotency_conflict` rather than a silent replay of the first.
+        def request_hash(command, ctx, principal_hex, project_profile)
           Platform::CanonicalJson.digest({
             "action" => ACTION, "bootstrap_principal" => principal_hex,
             "command_schema_version" => command.schema_version, "command_type" => command.command_type,
@@ -413,7 +450,7 @@ module Workflows
             "policy_versions" => [POLICY_VERSION], "service_identity_id" => SERVICE,
             "command_payload" => {
               "organization_display_name" => command.organization_display_name.to_s.unicode_normalize(:nfc).strip,
-              "project_display_name" => command.project_display_name.to_s.unicode_normalize(:nfc).strip,
+              "first_project" => project_profile,
               "access_policy_content" => hex(command.access_policy_content_sha256),
               "entitlement_policy_content" => hex(command.entitlement_policy_content_sha256),
               "plan_content" => hex(command.plan_content_sha256)

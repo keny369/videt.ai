@@ -83,7 +83,7 @@ module Start
     "identity_receipt_expired" => "That took too long to confirm. Start again.",
     "identity_email_unverified" => "That address is not verified.",
     "organization_profile_invalid" => "Enter an organization name between 1 and 120 characters.",
-    "project_body_invalid" => "Enter a project name between 1 and 120 characters.",
+    "project_profile_invalid" => "Check the first project's name and the reason it has no local presence.",
     "account_not_found" => "No account for that address. Create an organization instead.",
     "organization_inactive" => "That organization is not active.",
     "account_inactive" => "That account is not active."

@@ -36,7 +36,7 @@ RSpec.describe "Registration and access", type: :request do
 
     post "/start/bootstrap-organization",
          params: { organization_display_name: organization, project_display_name: project,
-                   project_objective: "Improve discoverability" }
+                   local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
   end
 
   describe "creating an organization" do
@@ -74,10 +74,46 @@ RSpec.describe "Registration and access", type: :request do
     it "refuses a name outside the ratified length without creating anything" do
       post "/start/bootstrap-grant", params: { email: }
       post "/start/bootstrap-organization",
-           params: { organization_display_name: "", project_display_name: "Acme Website" }
+           params: { organization_display_name: "", project_display_name: "Acme Website",
+                     local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(DbInspector.all("SELECT id FROM organizations")).to be_empty
+    end
+
+    # WEB-003 (FRONTEND_ARCHITECTURE.md :51) is "render and submit Organization plus
+    # first-Project body", and the body :621 requires includes the local-presence decision.
+    # The registrant's own words reach the Project; the screen does not compose them, and it
+    # cannot proceed without them — WORKFLOW_SPECIFICATIONS.md :657 puts the floor at 20
+    # characters and SCORE_EVIDENCE_MODEL.md :587 requires a person to record it.
+    it "carries the registrant's stated local-presence reason onto the genesis Project" do
+      post "/start/bootstrap-grant", params: { email: }
+      follow_redirect!
+      # The screen asks the question; it does not answer it on the registrant's behalf.
+      expect(response.body).to include("no local presence")
+
+      reason = "We trade entirely online and have no premises any customer visits."
+      post "/start/bootstrap-organization",
+           params: { organization_display_name: "Acme Discoverability",
+                     project_display_name: "Acme Website", local_presence_reason: reason }
+      expect(response).to redirect_to("/app")
+
+      row = DbInspector.all("SELECT * FROM projects").sole
+      expect(row["project_profile_schema_version"]).to eq("project-profile-v1")
+      expect(row["local_presence_applicable"]).to eq("f")
+      expect(row["local_presence_reason"]).to eq(reason)
+      expect(row["objective"]).to eq("discoverability_assessment")
+    end
+
+    it "refuses a reason below the ratified floor without creating anything" do
+      post "/start/bootstrap-grant", params: { email: }
+      post "/start/bootstrap-organization",
+           params: { organization_display_name: "Acme Discoverability",
+                     project_display_name: "Acme Website", local_presence_reason: "too short" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(DbInspector.all("SELECT id FROM organizations")).to be_empty
+      expect(DbInspector.all("SELECT id FROM projects")).to be_empty
     end
 
     it "will not reach the genesis form without a confirmed identity" do
@@ -167,7 +203,8 @@ RSpec.describe "Registration and access", type: :request do
       other_email = "other-#{SecureRandom.hex(4)}@example.com"
       post "/start/bootstrap-grant", params: { email: other_email }
       post "/start/bootstrap-organization",
-           params: { organization_display_name: "Second Tenant", project_display_name: "Second Site" }
+           params: { organization_display_name: "Second Tenant", project_display_name: "Second Site",
+                     local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
       second_project = DbInspector.all("SELECT id FROM projects ORDER BY created_at").last["id"]
       expect(second_project).not_to eq(first_project)
 
@@ -240,7 +277,8 @@ RSpec.describe "Registration and access", type: :request do
       other_email = "other-#{SecureRandom.hex(4)}@example.com"
       post "/start/bootstrap-grant", params: { email: other_email }
       post "/start/bootstrap-organization",
-           params: { organization_display_name: "Second Tenant", project_display_name: "Second Site" }
+           params: { organization_display_name: "Second Tenant", project_display_name: "Second Site",
+                     local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
 
       cookies[ApplicationController::SESSION_COOKIE] = first_token
       get "/app/projects"

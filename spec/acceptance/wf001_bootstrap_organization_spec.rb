@@ -57,8 +57,9 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
     cmd = Workflows::Wf001::Commands::BootstrapOrganization.new(**{
       command_id: SecureRandom.uuid_v7, idempotency_key: "boot-#{SecureRandom.hex(4)}", schema_version: "1.0",
       receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-      organization_display_name: "Acme Discoverability", project_display_name: "Acme Website",
-      project_objective: "Improve discoverability", access_policy_content_sha256: bc.access_policy_sha256,
+      organization_display_name: "Acme Discoverability",
+      first_project: GenesisProjectProfile.body("Acme Website"),
+      access_policy_content_sha256: bc.access_policy_sha256,
       entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
       requested_at_utc: fixed_now
     }.merge(overrides))
@@ -95,6 +96,60 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       expect(DbInspector.one("SELECT status FROM role_assignments WHERE id = $1::uuid", [p[:role_assignment_id]])["status"]).to eq("active")
       expect(DbInspector.one("SELECT state FROM projects WHERE id = $1::uuid", [p[:project_id]])["state"]).to eq("draft")
       expect(DbInspector.one("SELECT status FROM sessions WHERE id = $1::uuid", [p[:session_id]])["status"]).to eq("active")
+    end
+
+    # ":621 Self-service requires ... complete `organization-profile-v1` plus WF-002
+    # first-Project body"; API_CONTRACTS.md :408 names it `first_project:
+    # object<ProjectProfile>`. The genesis Project is therefore a fully profiled Project,
+    # not a bare display name — and the profile it carries is what lets `CHK-LP-001` reach
+    # a decision instead of erroring on an absent one (SCORE_EVIDENCE_MODEL.md :273).
+    it "commits the first-Project body as the genesis Project's immutable creation profile" do
+      result = bootstrap
+      p = result.payload
+      row = DbInspector.one("SELECT * FROM projects WHERE id = $1::uuid", [p[:project_id]])
+
+      expect(row["display_name"]).to eq("Acme Website")
+      expect(row["locale"]).to eq("en-AU")
+      expect(row["time_zone"]).to eq("UTC")
+      # The objective is fixed by the ratified profile, never free text.
+      expect(row["objective"]).to eq("discoverability_assessment")
+
+      expect(row["project_profile_schema_version"]).to eq("project-profile-v1")
+      expect(row["local_presence_applicable"]).to eq("f")
+      expect(row["local_presence_reason"]).to eq(GenesisProjectProfile::DEFAULT_REASON)
+      expect(row["local_business_profile"]).to be_nil
+      expect(row["local_business_profile_content_sha256"]).to be_nil
+      # ":587 an OrganizationAdmin or MarketingOperator records a nonblank reason" — the
+      # attesting Account is the first OrganizationAdmin, created in this same commit, so
+      # the declaration is attributed to the human who made it rather than to the service.
+      expect(row["profile_attesting_account_id"]).to eq(p[:account_id])
+      expect(row["profile_committed_at"]).to eq(row["created_at"])
+    end
+
+    # The true branch is not a WF-002-only capability. The Local Business Profile's business
+    # name must equal the exact normalized Organization display name, and in genesis that
+    # Organization is created by this same command.
+    it "commits an asserted local presence, and refuses one whose business name is not the Organization's" do
+      lbp = {
+        "schema_version" => "local-business-profile-v1", "business_name" => "Acme Discoverability",
+        "address_text" => "1 Example Street, Melbourne VIC 3000", "telephone_e164" => "+61390000000",
+        "service_areas" => ["Melbourne"]
+      }
+      asserted = GenesisProjectProfile.body("Acme Website").merge(
+        "local_presence_applicable" => true, "local_presence_reason" => nil, "local_business_profile" => lbp
+      )
+
+      mismatched = asserted.merge("local_business_profile" => lbp.merge("business_name" => "Someone Else"))
+      expect(bootstrap(first_project: mismatched).reason_code).to eq("project_profile_invalid")
+      expect(DbInspector.count("organizations")).to eq(0)
+
+      result = bootstrap(first_project: asserted)
+      expect(result).to be_success
+      row = DbInspector.one("SELECT * FROM projects WHERE id = $1::uuid", [result.payload[:project_id]])
+      expect(row["local_presence_applicable"]).to eq("t")
+      expect(row["local_presence_reason"]).to be_nil
+      expect(JSON.parse(row["local_business_profile"])).to eq(lbp)
+      expect(row["local_business_profile_content_sha256"]).not_to be_nil
     end
 
     it "emits exactly the thirteen ordered events, service-attributed with a null actor" do
@@ -184,6 +239,44 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       expect(bootstrap(organization_display_name: "x" * 121).reason_code).to eq("organization_profile_invalid")
       expect(DbInspector.count("organizations")).to eq(0)
     end
+
+    # ":252 the exhaustive grant, bootstrap, and Invitation failure reasons are ...
+    # `organization_profile_invalid`, `project_profile_invalid`, ..." — one token for the
+    # whole first-Project body, not WF-002's eight granular creation reasons, because :252
+    # is exhaustive for this branch. Every case below is a distinct way the ratified
+    # `project-profile-v1` shape can be wrong, and all of them arrive as that one reason.
+    it "rejects every malformed first-Project body as project_profile_invalid, creating nothing" do
+      valid = GenesisProjectProfile.body("Acme Website")
+      [
+        nil,
+        valid.merge("project_profile_schema_version" => "project-profile-v2"),
+        valid.merge("display_name" => ""),
+        valid.merge("display_name" => "x" * 121),
+        valid.merge("default_locale" => "en-GB"),
+        valid.merge("reporting_time_zone" => "Australia/Melbourne"),
+        valid.merge("objective" => "brand_lift"),
+        valid.merge("local_presence_applicable" => nil),
+        # ":657 when local presence is false, `local_presence_reason` is 20-500" — the
+        # 19/501 boundaries, and a false decision with no reason at all.
+        valid.merge("local_presence_reason" => "x" * 19),
+        valid.merge("local_presence_reason" => "x" * 501),
+        valid.merge("local_presence_reason" => nil),
+        # A false decision may not also carry a Local Business Profile.
+        valid.merge("local_business_profile" => { "schema_version" => "local-business-profile-v1" })
+      ].each do |body|
+        expect(bootstrap(first_project: body).reason_code).to eq("project_profile_invalid"),
+                                                              "#{body.inspect} should be project_profile_invalid"
+      end
+      expect(DbInspector.count("organizations")).to eq(0)
+      expect(DbInspector.count("projects")).to eq(0)
+    end
+
+    # The 20 and 500 boundaries are INSIDE the range: the rejections above would also pass
+    # if the implementation were simply stricter than the contract.
+    it "accepts the exact reason boundaries the contract admits" do
+      body = GenesisProjectProfile.body("Acme Website", reason: "x" * 20)
+      expect(bootstrap(first_project: body)).to be_success
+    end
   end
 
   describe "grant and replay" do
@@ -192,7 +285,7 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       cmd = Workflows::Wf001::Commands::BootstrapOrganization.new(
         command_id: SecureRandom.uuid_v7, idempotency_key: "nogrant", schema_version: "1.0",
         receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-        organization_display_name: "No Grant", project_display_name: "P", project_objective: nil,
+        organization_display_name: "No Grant", first_project: GenesisProjectProfile.body("P"),
         access_policy_content_sha256: bc.access_policy_sha256,
         entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
         requested_at_utc: fixed_now
@@ -208,7 +301,7 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       def cmd_for(receipt) = Workflows::Wf001::Commands::BootstrapOrganization.new(
         command_id: SecureRandom.uuid_v7, idempotency_key: "same", schema_version: "1.0",
         receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-        organization_display_name: "Acme", project_display_name: "Site", project_objective: nil,
+        organization_display_name: "Acme", first_project: GenesisProjectProfile.body("Site"),
         access_policy_content_sha256: Platform::BaselineContent.access_policy_sha256,
         entitlement_policy_content_sha256: Platform::BaselineContent.entitlement_policy_sha256,
         plan_content_sha256: Platform::BaselineContent.plan_sha256, requested_at_utc: fixed_now
@@ -223,6 +316,46 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       expect(events.count("OrganizationActivated")).to eq(1)
     end
 
+    # The replay fingerprint covers the whole normalized first-Project body. Two commands
+    # under one idempotency key that declare DIFFERENT local-presence applicability are
+    # different commands; replaying the first would hand back a Project whose customer-
+    # visible local-presence decision is not the one the second command stated.
+    it "treats a changed first-Project body under the same key as a conflict, not a replay" do
+      issue_grant
+      receipt = ReceiptMinter.mint_self_service_receipt(validated_at: fixed_now, **identity)
+      def cmd_with(receipt, body) = Workflows::Wf001::Commands::BootstrapOrganization.new(
+        command_id: SecureRandom.uuid_v7, idempotency_key: "same-key", schema_version: "1.0",
+        receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
+        organization_display_name: "Acme", first_project: body,
+        access_policy_content_sha256: Platform::BaselineContent.access_policy_sha256,
+        entitlement_policy_content_sha256: Platform::BaselineContent.entitlement_policy_sha256,
+        plan_content_sha256: Platform::BaselineContent.plan_sha256, requested_at_utc: fixed_now
+      )
+      declared_false = GenesisProjectProfile.body("Site")
+      asserted = declared_false.merge(
+        "local_presence_applicable" => true, "local_presence_reason" => nil,
+        "local_business_profile" => {
+          "schema_version" => "local-business-profile-v1", "business_name" => "Acme",
+          "address_text" => "1 Example Street", "telephone_e164" => "+61390000000",
+          "service_areas" => ["Melbourne"]
+        }
+      )
+
+      first = Workflows::Wf001::Handlers::BootstrapOrganization.new.call(
+        command: cmd_with(receipt, declared_false), request_context: ctx
+      )
+      expect(first).to be_success
+
+      second = Workflows::Wf001::Handlers::BootstrapOrganization.new.call(
+        command: cmd_with(receipt, asserted), request_context: ctx
+      )
+      expect(second.reason_code).to eq("idempotency_conflict")
+      expect(second.replayed).not_to be(true)
+      expect(DbInspector.count("organizations")).to eq(1)
+      expect(DbInspector.one("SELECT local_presence_applicable FROM projects WHERE id = $1::uuid",
+                             [first.payload[:project_id]])["local_presence_applicable"]).to eq("f")
+    end
+
     it "refuses a second bootstrap once the principal's grant is consumed" do
       bootstrap
       # A second grant cannot be issued (bootstrap_already_completed), and a
@@ -231,7 +364,7 @@ RSpec.describe "WF-001 bootstrap organization", type: :acceptance,
       cmd = Workflows::Wf001::Commands::BootstrapOrganization.new(
         command_id: SecureRandom.uuid_v7, idempotency_key: "second", schema_version: "1.0",
         receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-        organization_display_name: "Second", project_display_name: "P", project_objective: nil,
+        organization_display_name: "Second", first_project: GenesisProjectProfile.body("P"),
         access_policy_content_sha256: bc.access_policy_sha256,
         entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
         requested_at_utc: fixed_now

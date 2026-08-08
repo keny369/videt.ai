@@ -46,7 +46,7 @@ RSpec.describe "WF-001 bootstrap concurrency", type: :acceptance,
     cmd = Workflows::Wf001::Commands::BootstrapOrganization.new(
       command_id: SecureRandom.uuid_v7, idempotency_key: key, schema_version: "1.0",
       receipt_digest: receipt[:receipt_digest], expected_grant_version: 0,
-      organization_display_name: display, project_display_name: "Site", project_objective: nil,
+      organization_display_name: display, first_project: GenesisProjectProfile.body("Site"),
       access_policy_content_sha256: bc.access_policy_sha256,
       entitlement_policy_content_sha256: bc.entitlement_policy_sha256, plan_content_sha256: bc.plan_sha256,
       requested_at_utc: fixed_now
