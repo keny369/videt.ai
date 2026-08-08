@@ -196,7 +196,8 @@ module Workflows
           Workflows::Wf006::EvaluationStageSchedule.schedule(
             pg: d[:pg], organization_id: org, project_id: pid, crawl_id: crawl["id"],
             terminal_at: now, now:, correlation_id: ctx.correlation_id,
-            command_id: command.command_id, state_version: new_version
+            command_id: command.command_id,
+            schedule_generation: Workflows::Wf006::EvaluationStageSchedule::VISIT_CRAWL_TERMINAL
           )
 
           metering = settle_reservation(d, crawl, selection, ids)

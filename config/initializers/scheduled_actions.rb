@@ -93,20 +93,29 @@ Rails.application.config.to_prepare do
     handler: Workflows::Wf005::Handlers::CompleteCrawl,
     command: Workflows::Wf005::Commands::CompleteCrawl
   )
-  # The Evaluation input gate. `evaluation_stage_advance` is a SPECIALIZED work type whose
+  # The Evaluation stage chain. `evaluation_stage_advance` is a SPECIALIZED work type whose
   # cell in the generic `scheduled_action_dispatch` table is deliberately blank because
   # :245 fixes its work type from the Evaluation stage registry instead, so the registry's
-  # operation cross-check does not apply. One stage is registered — `seal_input_snapshot`,
-  # whose ratified outcome is the "immutable snapshot/blocked result transaction" (:439).
-  # The remaining four stages need the parsing and Check pipelines and have no handler, so
-  # an action naming them quarantines as `scheduled_work_mapping_mismatch` rather than
-  # being dispatched to this one.
+  # operation cross-check does not apply.
+  #
+  # ONE KIND, ONE REGISTERED PAIR, TWO WORKFLOWS. The ratified catalogue gives the whole
+  # chain one kind, and the chain spans two: WF-006 owns `seal_input_snapshot` and WF-007
+  # owns `materialize_applicability`, `materialize_check_result_keys` and `seal_issue_set`.
+  # `EvaluationStage::Router` is the registered pair and routes on the action's own target
+  # type over a closed two-branch table; an unrecognized target type fails closed there in
+  # the same shape the registry itself fails closed on an unregistered kind.
+  #
+  # `resolve_adjudication_gate` still has no handler. That is not an omission: under the
+  # ratified baseline every failed Result carries valid `high` confidence, so no Issue enters
+  # `review_required` and there is no gate to resolve. An action naming it quarantines as
+  # `scheduled_work_mapping_mismatch` rather than being dispatched to a stage that would have
+  # to invent an adjudication outcome.
   registry.register(
     action_kind: "evaluation_stage_advance",
     action_schema_version: "1.0",
-    operation: "SealEvaluationInputs",
-    handler: Workflows::Wf006::Handlers::SealEvaluationInputs,
-    command: Workflows::Wf006::Commands::SealEvaluationInputs
+    operation: "AdvanceEvaluationStage",
+    handler: Workflows::EvaluationStage::Router,
+    command: Workflows::EvaluationStage::Command
   )
   # One ParsingJob attempt. `parsing_attempt_due` is a SPECIALIZED work type (`parse`,
   # BACKGROUND_PROCESSING.md :199), so it is absent from the generic dispatch table and the
@@ -118,5 +127,16 @@ Rails.application.config.to_prepare do
     operation: "ExecuteParsingJob",
     handler: Workflows::Wf006::Handlers::ExecuteParsingJob,
     command: Workflows::Wf006::Commands::ExecuteParsingJob
+  )
+  # One Check attempt, per materialized expected key. `check_attempt_due` is the ratified
+  # SPECIALIZED work type (`check_execute`, BACKGROUND_PROCESSING.md), so it too is absent
+  # from the generic dispatch table. The Slot is the target because the Slot exists before
+  # execution and carries the preallocated Check Result identity.
+  registry.register(
+    action_kind: "check_attempt_due",
+    action_schema_version: "1.0",
+    operation: "ExecuteCheckAttempt",
+    handler: Workflows::Wf007::Handlers::ExecuteCheckAttempt,
+    command: Workflows::Wf007::Commands::ExecuteCheckAttempt
   )
 end

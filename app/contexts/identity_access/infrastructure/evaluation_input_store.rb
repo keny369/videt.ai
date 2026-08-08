@@ -34,8 +34,26 @@ module IdentityAccess
       # Serialize on the Evaluation: the readiness derivation and the transition it
       # decides are one critical section, so two deliveries of the same action cannot
       # both read `pending`.
+      #
+      # NOTE THE PREFIX. This method composes `evaluation:<id>` from what it is given, so
+      # `lock_evaluation("crawl:abc")` takes the key `evaluation:crawl:abc`. That is fine for
+      # its callers, which all pass a bare identifier, and it is a trap for anyone who passes
+      # a composed key — `lock` below exists so a caller that needs an exact key can say so.
       def lock_evaluation(id)
         exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["evaluation:#{id}"])
+      end
+
+      # The same transaction-scoped advisory lock, on the key VERBATIM. Callers that name a
+      # key which another component also names — a spec probing the real lock, or a second
+      # handler serializing against the same subject — need the key to be exactly what they
+      # wrote, not what a helper composed around it.
+      #
+      # Named `serialize_on` rather than `lock` because `lock` is an ActiveRecord SQL method,
+      # and a static analyser reading `lock("...#{value}...")` reports SQL injection on what
+      # is in fact a BOUND PARAMETER. A rename is the honest fix; suppressing the warning
+      # would train the next reader to ignore the one that is real.
+      def serialize_on(name)
+        exec("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [name])
       end
 
       def read_evaluation(id)
@@ -324,6 +342,198 @@ module IdentityAccess
         exec("SELECT id, payload_reference, validation_status FROM evidence WHERE id = $1::uuid", [id]).to_a.first
       end
 
+      # ---- S-08 derived-observation inputs -----------------------------------------
+      #
+      # The three baseline platform-derived Evidence payloads are built from these three
+      # reads and nothing else. Each is deliberately narrow: a Check that consumes the
+      # resulting Evidence performs no read of its own, so whatever is not gathered here is
+      # not available to it, and an over-broad read here would be an input a Check could
+      # come to depend on without its applicability entry naming it.
+
+      # Every Parsed Artifact of the Evaluation, in a stable order. The order matters: the
+      # link-observation payload's referrer lists are built by walking these, and an unstable
+      # order would produce two different canonical payloads for the same run.
+      def parsed_artifacts_for_evaluation(evaluation_id)
+        exec(<<~SQL, [evaluation_id]).to_a
+          SELECT a.*
+          FROM parsed_artifacts a
+          JOIN parsing_jobs j ON j.id = a.parsing_job_id
+          WHERE j.evaluation_id = $1::uuid AND j.status = 'succeeded'
+          ORDER BY a.source_id, a.canonical_url, a.id
+        SQL
+      end
+
+      # The ACTIVE Sources the Crawl pinned, which is the applicability set's authority — not
+      # the Project's current Sources, which may have changed since the run.
+      def active_crawl_sources(crawl_id)
+        exec(<<~SQL, [crawl_id]).to_a
+          SELECT s.id, s.organization_id, s.project_id, s.canonical_root_uri, s.canonical_host, s.state,
+                 cs.canonical_root_uri AS pinned_root_uri
+          FROM crawl_sources cs
+          JOIN sources s ON s.id = cs.source_id
+          WHERE cs.crawl_id = $1::uuid AND s.state = 'active'
+          ORDER BY s.id
+        SQL
+      end
+
+      # The run's terminal outcome per canonical URL, joined through the frontier entry
+      # because `crawl_terminal_outcomes` names the entry rather than the URL and carries a
+      # Document only for `document_created`. This is the CRAWL-side vocabulary: the
+      # translation into a target status/reason pair is `EvidenceDerivation::TARGET_OUTCOME`,
+      # and doing it there rather than here keeps one binding of the pair instead of two.
+      def crawl_url_outcomes(crawl_id)
+        exec(<<~SQL, [crawl_id]).to_a.each_with_object({}) do
+          SELECT e.canonical_url, t.outcome
+          FROM crawl_terminal_outcomes t
+          JOIN crawl_frontier_entries e ON e.id = t.crawl_frontier_entry_id
+          WHERE t.crawl_id = $1::uuid
+          ORDER BY t.commit_order
+        SQL
+          |row, map| map[row["canonical_url"]] = row["outcome"]
+        end
+      end
+
+      # ---- S-08 external-measurement intake ----------------------------------------
+      #
+      # Every read here is keyed on content or on the ratified uniqueness tuple, never on
+      # "the most recent" — an intake boundary that picked the newest matching row would
+      # accept a package the owner had not signed the moment a second one was staged.
+
+      def measurement_set_by_digest(organization_id, digest)
+        exec(<<~SQL, [organization_id, bytea(digest)]).to_a.first
+          SELECT * FROM measurement_sets
+          WHERE organization_id = $1::uuid AND package_sha256 = $2
+        SQL
+      end
+
+      def measurement_set_by_version(organization_id, set_id, version)
+        exec(<<~SQL, [organization_id, set_id, version]).to_a.first
+          SELECT * FROM measurement_sets
+          WHERE organization_id = $1::uuid AND measurement_set_id = $2 AND measurement_set_version = $3
+        SQL
+      end
+
+      # THE active set for this subject and kind. A Project-scoped set wins over an
+      # Organization-wide one, because the narrower approval is the more specific statement of
+      # what the owner approved for that Project.
+      def active_measurement_set(organization_id, project_id, kind)
+        exec(<<~SQL, [organization_id, project_id, kind]).to_a.first
+          SELECT * FROM measurement_sets
+          WHERE organization_id = $1::uuid AND measurement_kind = $3 AND status = 'active'
+            AND (project_id = $2::uuid OR project_id IS NULL)
+          ORDER BY project_id NULLS LAST
+          LIMIT 1
+        SQL
+      end
+
+      def measurement_sets_for(organization_id)
+        exec(<<~SQL, [organization_id]).to_a
+          SELECT id, measurement_set_id, measurement_set_version, measurement_kind, status,
+                 project_id, encode(package_sha256,'hex') AS package_sha256, expected_keys,
+                 collector_adapter_id, collector_adapter_version, created_at, activated_at,
+                 proposed_effective_at, retention_location
+          FROM measurement_sets WHERE organization_id = $1::uuid
+          ORDER BY created_at DESC
+        SQL
+      end
+
+      def insert_measurement_set(row)
+        params = [row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
+                  row[:package_schema_version], row[:measurement_set_id], row[:measurement_set_version],
+                  row[:measurement_kind], iso_of(row[:package_created_at]), iso_of(row[:proposed_effective_at]),
+                  row[:package_reference], bytea(row[:package_sha256]), row[:provider_identities],
+                  row[:collector_adapter_id], row[:collector_adapter_version],
+                  bytea(row[:collector_adapter_sha256]), row[:expected_keys], row[:key_content],
+                  row[:locale], row[:time_zone], row[:max_evidence_age_seconds],
+                  row[:bound_catalog_version], bytea(row[:bound_catalog_sha256]), row[:bound_definition_id],
+                  row[:bound_definition_version], bytea(row[:bound_definition_sha256]),
+                  row[:retention_location], row[:status]]
+        exec(<<~SQL, params).to_a.first
+          INSERT INTO measurement_sets
+            (id, state_version, created_at, updated_at, correlation_id, organization_id, project_id,
+             package_schema_version, measurement_set_id, measurement_set_version, measurement_kind,
+             package_created_at, proposed_effective_at, package_reference, package_sha256,
+             provider_identities, collector_adapter_id, collector_adapter_version,
+             collector_adapter_sha256, expected_keys, key_content, locale, time_zone,
+             max_evidence_age_seconds, bound_catalog_version, bound_catalog_sha256,
+             bound_definition_id, bound_definition_version, bound_definition_sha256,
+             retention_location, status)
+          VALUES ($1::uuid,0,$2::timestamptz,$2::timestamptz,$3::uuid,$4::uuid,$5::uuid,
+                  $6,$7,$8,$9,
+                  $10::timestamptz,$11::timestamptz,$12,$13,
+                  $14::jsonb,$15,$16,
+                  $17,$18::jsonb,$19::jsonb,$20,$21,
+                  $22,$23,$24,
+                  $25,$26,$27,
+                  $28,$29)
+          RETURNING *
+        SQL
+      end
+
+      # The ONLY transition into `active`. Guarded on the expected version and on `proposed`, and
+      # the database CHECK independently refuses an active row whose signatures are absent — so
+      # this statement cannot activate a set even if a caller passed nulls.
+      def activate_measurement_set(id:, expected_version:, now:, correlation_id:, product_signature:,
+                                   architect_signature:, owner_approval_reference:)
+        # The argument list is bound BEFORE the call: a heredoc begins its body on the next
+        # physical line, so a multi-line argument list after `<<~SQL` is swallowed into the SQL.
+        params = [id, expected_version, iso(now), product_signature, architect_signature,
+                  owner_approval_reference, correlation_id]
+        exec(<<~SQL, params).to_a.first
+          UPDATE measurement_sets
+          SET status = 'active', activated_at = $3::timestamptz, product_signature = $4::jsonb,
+              architect_signature = $5::jsonb, owner_approval_reference = $6,
+              state_version = state_version + 1, updated_at = $3::timestamptz, correlation_id = $7::uuid
+          WHERE id = $1::uuid AND status = 'proposed' AND state_version = $2
+          RETURNING *
+        SQL
+      end
+
+      def measurement_submission_for(evaluation_id, kind, set_version)
+        exec(<<~SQL, [evaluation_id, kind, set_version]).to_a.first
+          SELECT *, encode(payload_sha256,'hex') AS payload_sha256 FROM external_measurement_submissions
+          WHERE evaluation_id = $1::uuid AND measurement_kind = $2 AND measurement_set_version = $3
+        SQL
+      end
+
+      def measurement_submission_kind_exists?(evaluation_id, kind)
+        exec(<<~SQL, [evaluation_id, kind]).to_a.first["n"].to_i.positive?
+          SELECT count(*) AS n FROM external_measurement_submissions
+          WHERE evaluation_id = $1::uuid AND measurement_kind = $2
+        SQL
+      end
+
+      def insert_measurement_submission(row)
+        params = [row[:id], row[:schema_version], iso(row[:now]), row[:correlation_id],
+                  row[:organization_id], row[:project_id], row[:evaluation_id], row[:measurement_kind],
+                  row[:measurement_set_row_id], row[:measurement_set_id], row[:measurement_set_version],
+                  bytea(row[:measurement_set_sha256]), row[:collector_adapter_id],
+                  row[:collector_adapter_version], row[:payload_reference], bytea(row[:payload_sha256]),
+                  iso(row[:observed_at]), iso(row[:captured_at]), iso(row[:fresh_until]),
+                  row[:coverage_status], row[:data_classification], row[:evidence_id]]
+        exec(<<~SQL, params).to_a.first
+          INSERT INTO external_measurement_submissions
+            (id, schema_version, created_at, correlation_id, organization_id, project_id,
+             evaluation_id, measurement_kind, measurement_set_row_id, measurement_set_id,
+             measurement_set_version, measurement_set_sha256, collector_adapter_id,
+             collector_adapter_version, payload_reference, payload_sha256, observed_at, captured_at,
+             fresh_until, coverage_status, data_classification, payload_retention_class,
+             evidence_id, outcome)
+          VALUES ($1::uuid,$2,$3::timestamptz,$4::uuid,$5::uuid,$6::uuid,
+                  $7::uuid,$8,$9::uuid,$10,
+                  $11,$12,$13,
+                  $14,$15,$16,$17::timestamptz,$18::timestamptz,
+                  $19::timestamptz,$20,$21,'product_evidence_payload',
+                  $22::uuid,'accepted')
+          RETURNING *
+        SQL
+      end
+
+      def organization_display_name(organization_id)
+        exec("SELECT display_name FROM organizations WHERE id = $1::uuid", [organization_id])
+          .to_a.first&.fetch("display_name")
+      end
+
       # ---- S-08 evaluation input snapshot ------------------------------------------
 
       def insert_evaluation_input_snapshot(row)
@@ -473,6 +683,9 @@ module IdentityAccess
       # The manifest carries digests as hex (it is canonical JSON), the columns are `bytea`.
       def hexbytea(hex) = hex && bytea([hex].pack("H*"))
       def iso(time) = time&.getutc&.iso8601(6)
+      # A package carries its instants as ISO strings; a handler carries them as Time. Both
+      # reach the same column, so both are normalized here rather than at each call site.
+      def iso_of(value) = value.is_a?(::String) ? value : iso(value)
     end
   end
 end

@@ -41,6 +41,12 @@ Rails.application.routes.draw do
 
       # `show` is WEB-017 QRY-023 CrawlDetail: what one run actually did.
       resources :crawls, only: %i[index create show]
+
+      # Staging an owner-approval Measurement Set package. `index` and `create` ONLY: there is
+      # deliberately no activate route, because the permission baseline denies
+      # `measurement_set.activate` to every human role and reserves it for the owner-approval
+      # release service. An action that does not exist cannot be reached by guessing a URL.
+      resources :measurements, only: %i[index create]
     end
 
     # WEB-005: a Session with no effective access has somewhere deterministic to land.

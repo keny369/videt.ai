@@ -537,6 +537,10 @@ RSpec.describe "Source ownership verification", type: :request do
         expect(evaluation_for(crawl)["state"]).to eq("pending")
       end
 
+      # This run never fetched anything, so its inputs really were unavailable — and the
+      # screen says WHOSE problem that is. The sentence used to blame an unbuilt analysis
+      # step; now that WF-007 exists, the honest sentence is that the crawl produced nothing
+      # to analyse, and it points at the per-URL outcomes rather than at the source.
       it "shows the resolved evaluation on the crawl, in terms that do not blame the source" do
         prepared_project
         post "/app/projects/#{project_id}/crawls"
@@ -548,8 +552,9 @@ RSpec.describe "Source ownership verification", type: :request do
 
         expect(response.body).to include("Evaluation")
         expect(response.body).to include("evaluation_inputs_unavailable")
-        expect(response.body).to include("content analysis is not part of this build yet")
-        expect(response.body).to include("Nothing is wrong with the source")
+        expect(response.body).to include("produced nothing that could be analysed")
+        expect(response.body).to include("say what the run actually reached")
+                            .or include("say what the run actually reached.")
       end
     end
 

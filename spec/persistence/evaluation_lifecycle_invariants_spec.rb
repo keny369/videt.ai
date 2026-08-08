@@ -91,23 +91,39 @@ RSpec.describe "Evaluation lifecycle invariants", type: :persistence do
     end
   end
 
-  describe "the edges no workflow in this build may perform" do
-    it "refuses the pending -> failed shortcut, so `running` is always recorded" do
-      id = seeded_evaluation
-
-      expect { transition(id, "failed", failed_at: :now) }
-        .to raise_error(PG::RaiseException, /evaluation_transition_unavailable pending -> failed/)
-      expect(state_of(id)).to eq("pending")
-    end
-
-    it "refuses running -> completed, which is WF-007's unbuilt Issue-set seal" do
+  # WF-007 now exists, so two more edges are admitted — and only two. `running -> completed`
+  # is its Issue-set seal, and `pending -> failed` is the boundary failure it can reach
+  # BEFORE it starts an Evaluation: a Catalog, applicability, tenant-integrity or
+  # result-identity failure has no running state to fail from.
+  describe "the two edges WF-007 performs" do
+    it "admits running -> completed when the instant is stamped with it" do
       id = seeded_evaluation
       transition(id, "running", started_at: :now)
 
-      expect { transition(id, "completed", completed_at: :now) }
-        .to raise_error(PG::RaiseException, /evaluation_transition_unavailable running -> completed/)
+      transition(id, "completed", completed_at: :now)
+
+      expect(state_of(id)).to eq("completed")
     end
 
+    it "admits pending -> failed for a boundary failure reached before the start" do
+      id = seeded_evaluation
+
+      transition(id, "failed", failed_at: :now)
+
+      expect(state_of(id)).to eq("failed")
+    end
+
+    it "refuses completing without stamping the instant" do
+      id = seeded_evaluation
+      transition(id, "running", started_at: :now)
+
+      expect { transition(id, "completed", completed_at: nil) }
+        .to raise_error(PG::RaiseException, /evaluation_transition_instant_required completed/)
+      expect(state_of(id)).to eq("running")
+    end
+  end
+
+  describe "the edges no workflow in this build may perform" do
     it "refuses -> superseded, which is WF-011's unbuilt reassessment path" do
       id = seeded_evaluation
 

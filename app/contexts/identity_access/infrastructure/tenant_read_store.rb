@@ -234,6 +234,64 @@ module IdentityAccess
         SQL
       end
 
+      # ---- WF-007 evaluation output -------------------------------------------------
+      #
+      # Read as PERSISTED, with no derivation in SQL. The screen's job is to state what the
+      # Evaluation decided; recomputing an outcome, a band or a score here would create a
+      # second answer to a question the Check Result already answers, and the two could
+      # disagree.
+
+      # Every terminal Check Result, in the Catalog's own order. `execution_status` and
+      # `error_reason_code` are returned unmodified because they are the exact distinction
+      # the screen has to draw: a `failed` Result is a finding, an `error` is evidence that
+      # was missing or indeterminate, and `not_applicable` is neither.
+      def evaluation_check_results(organization_id:, evaluation_id:)
+        exec(<<~SQL, [organization_id, evaluation_id]).to_a
+          SELECT r.check_definition_id, r.check_definition_version, r.pillar_id, r.execution_status,
+                 r.outcome_code, r.error_reason_code, r.impact_band, r.effort_band, r.effort_basis,
+                 r.confidence_value, r.confidence_band, r.confidence_status, r.subject_set_complete,
+                 r.canonical_subject_type, r.canonical_subject_key, r.normalized_observation,
+                 r.recommendation_template_id, r.produced_at, e.ordering
+          FROM check_results r
+          JOIN check_applicability_entries e ON e.id = r.applicability_entry_id
+          WHERE r.organization_id = $1::uuid AND r.evaluation_id = $2::uuid
+          ORDER BY e.ordering
+        SQL
+      end
+
+      # The applicability seal's own count of what was EXPECTED, so the screen can say
+      # "7 of 7 checks ran" from two independent numbers rather than from one it assumes.
+      def evaluation_applicability(organization_id:, evaluation_id:)
+        exec(<<~SQL, [organization_id, evaluation_id]).to_a.first
+          SELECT id, check_catalog_version, entry_count, local_presence_applicable,
+                 local_presence_reason, project_profile_version, sealed_at
+          FROM check_applicability_snapshots
+          WHERE organization_id = $1::uuid AND evaluation_id = $2::uuid
+        SQL
+      end
+
+      def evaluation_issues(organization_id:, evaluation_id:)
+        exec(<<~SQL, [organization_id, evaluation_id]).to_a
+          SELECT id, issue_type, check_definition_id, pillar_id, canonical_subject_type,
+                 canonical_subject_key, impact_band, effort_band, confidence_band, confidence_status,
+                 state, adjudication_status, publication_status, recommendation_template_id, created_at
+          FROM issues
+          WHERE organization_id = $1::uuid AND evaluation_id = $2::uuid
+          ORDER BY
+            CASE impact_band WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
+                             WHEN 'low' THEN 3 ELSE 4 END,
+            check_definition_id, canonical_subject_key
+        SQL
+      end
+
+      def evaluation_issue_set(organization_id:, evaluation_id:)
+        exec(<<~SQL, [organization_id, evaluation_id]).to_a.first
+          SELECT id, member_count, current_leaf_count, sealed_at
+          FROM issue_sets
+          WHERE organization_id = $1::uuid AND evaluation_id = $2::uuid
+        SQL
+      end
+
       private
 
       def exec(sql, params) = @pg.exec_params(sql, params)

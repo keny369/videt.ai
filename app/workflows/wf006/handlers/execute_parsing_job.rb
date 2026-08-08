@@ -212,9 +212,18 @@ module Workflows
         # THE HANDOFF BACK TO THE INPUT GATE. When this attempt was the last outstanding one,
         # schedule the stage checkpoint that seals the snapshot. Scheduling it from the LAST
         # job rather than from every job means one checkpoint per completed manifest instead
-        # of one per Document, and the read is under this transaction's lock so "last" is a
-        # decided fact rather than a race.
+        # of one per Document.
+        #
+        # "LAST" IS ONLY A FACT UNDER A LOCK ON THE EVALUATION. The parse queue runs five
+        # workers, so several jobs of one manifest commit at once; without this lock each
+        # transaction reads a snapshot in which the others are still uncommitted, every one
+        # counts an outstanding sibling, and NOBODY schedules the seal — leaving a fully
+        # parsed Evaluation pending for ever behind the OD-018 guard. This was found by
+        # running the Check pipeline, where seven concurrent attempts made it reproducible;
+        # the same shape is here and the same lock fixes it. It serializes only the decision,
+        # never the parse.
         def advance_evaluation_if_last(d, job)
+          d[:store].serialize_on("evaluation:#{job['evaluation_id']}")
           jobs = d[:store].parsing_jobs_for_evaluation(job["evaluation_id"])
           outstanding = jobs.reject { |row| row["id"] == job["id"] }
                             .count { |row| !%w[succeeded dead_letter].include?(row["status"]) }
@@ -224,7 +233,7 @@ module Workflows
             pg: d[:store].connection, organization_id: d[:org], project_id: job["project_id"],
             crawl_id: job["crawl_id"], terminal_at: d[:now], now: d[:now],
             correlation_id: d[:ctx].correlation_id, command_id: d[:command].command_id,
-            state_version: jobs.length
+            schedule_generation: EvaluationStageSchedule::VISIT_PARSING_COMPLETE
           )
         end
 

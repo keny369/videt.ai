@@ -135,6 +135,51 @@ $$;
 
 
 --
+-- Name: f1_check_immutable_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_check_immutable_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  RAISE EXCEPTION '% is immutable', TG_TABLE_NAME USING ERRCODE = 'raise_exception';
+END;
+$$;
+
+
+--
+-- Name: f1_check_result_slots_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_check_result_slots_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'check_result_slot_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.evaluation_id IS DISTINCT FROM OLD.evaluation_id
+     OR NEW.applicability_entry_id IS DISTINCT FROM OLD.applicability_entry_id
+     OR NEW.check_result_key_id IS DISTINCT FROM OLD.check_result_key_id
+     OR NEW.check_result_id IS DISTINCT FROM OLD.check_result_id THEN
+    RAISE EXCEPTION 'check_result_slot_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF OLD.state = 'terminal' AND NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION 'check_result_slot_terminal' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.attempt_count < OLD.attempt_count THEN
+    RAISE EXCEPTION 'check_result_slot_attempts_monotonic' USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_claim_due_scheduled_actions(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1248,7 +1293,17 @@ BEGIN
         RAISE EXCEPTION 'evaluation_transition_instant_required failed'
           USING ERRCODE = 'raise_exception';
       END IF;
-    ELSE
+    ELSIF OLD.state = 'running' AND NEW.state = 'completed' THEN
+  IF NEW.completed_at IS NULL THEN
+    RAISE EXCEPTION 'evaluation_transition_instant_required completed'
+      USING ERRCODE = 'raise_exception';
+  END IF;
+ELSIF OLD.state = 'pending' AND NEW.state = 'failed' THEN
+  IF NEW.failed_at IS NULL THEN
+    RAISE EXCEPTION 'evaluation_transition_instant_required failed'
+      USING ERRCODE = 'raise_exception';
+  END IF;
+ELSE
       RAISE EXCEPTION 'evaluation_transition_unavailable % -> %', OLD.state, NEW.state
         USING ERRCODE = 'raise_exception';
     END IF;
@@ -1611,6 +1666,78 @@ BEGIN
     RAISE EXCEPTION 'ingestion_job_replay_generation_immutable' USING ERRCODE = 'raise_exception';
   END IF;
 
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_issues_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_issues_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'issue_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.evaluation_id IS DISTINCT FROM OLD.evaluation_id
+     OR NEW.check_result_id IS DISTINCT FROM OLD.check_result_id
+     OR NEW.dedup_key_id IS DISTINCT FROM OLD.dedup_key_id
+     OR NEW.fingerprint_preimage IS DISTINCT FROM OLD.fingerprint_preimage
+     OR NEW.fingerprint_sha256 IS DISTINCT FROM OLD.fingerprint_sha256
+     OR NEW.issue_type IS DISTINCT FROM OLD.issue_type
+     OR NEW.canonical_subject_key IS DISTINCT FROM OLD.canonical_subject_key THEN
+    RAISE EXCEPTION 'issue_identity_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.impact_band IS DISTINCT FROM OLD.impact_band
+     OR NEW.confidence_value IS DISTINCT FROM OLD.confidence_value
+     OR NEW.confidence_band IS DISTINCT FROM OLD.confidence_band
+     OR NEW.confidence_status IS DISTINCT FROM OLD.confidence_status THEN
+    RAISE EXCEPTION 'issue_impact_metadata_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: f1_measurement_sets_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_measurement_sets_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'measurement_set_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.organization_id IS DISTINCT FROM OLD.organization_id
+     OR NEW.project_id IS DISTINCT FROM OLD.project_id
+     OR NEW.measurement_set_id IS DISTINCT FROM OLD.measurement_set_id
+     OR NEW.measurement_set_version IS DISTINCT FROM OLD.measurement_set_version
+     OR NEW.measurement_kind IS DISTINCT FROM OLD.measurement_kind
+     OR NEW.package_sha256 IS DISTINCT FROM OLD.package_sha256
+     OR NEW.package_reference IS DISTINCT FROM OLD.package_reference
+     OR NEW.expected_keys IS DISTINCT FROM OLD.expected_keys
+     OR NEW.key_content IS DISTINCT FROM OLD.key_content
+     OR NEW.collector_adapter_id IS DISTINCT FROM OLD.collector_adapter_id
+     OR NEW.collector_adapter_version IS DISTINCT FROM OLD.collector_adapter_version
+     OR NEW.max_evidence_age_seconds IS DISTINCT FROM OLD.max_evidence_age_seconds THEN
+    RAISE EXCEPTION 'measurement_set_bytes_immutable' USING ERRCODE = 'raise_exception';
+  END IF;
+  -- A set never returns from a terminal state; reactivation of unapproved bytes is exactly
+  -- what OD-010 says rollback must NOT be.
+  IF OLD.status IN ('superseded','rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'measurement_set_terminal' USING ERRCODE = 'raise_exception';
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -2428,6 +2555,343 @@ ALTER TABLE ONLY public.bootstrap_grants FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: check_applicability_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_applicability_entries (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    snapshot_id uuid NOT NULL,
+    catalog_entry_id uuid NOT NULL,
+    check_definition_row_id uuid NOT NULL,
+    check_definition_id text NOT NULL,
+    definition_version text NOT NULL,
+    pillar_id text NOT NULL,
+    subject_scope text NOT NULL,
+    canonical_subject_type text NOT NULL,
+    canonical_subject_key text NOT NULL,
+    source_id uuid,
+    document_id uuid,
+    applicable boolean NOT NULL,
+    inapplicable_reason text,
+    absence_selector jsonb NOT NULL,
+    selected_evidence jsonb NOT NULL,
+    expected_key_preimage bytea NOT NULL,
+    expected_key_sha256 bytea NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT check_applicability_entries_canonical_subject_key_check CHECK (((length(canonical_subject_key) >= 1) AND (length(canonical_subject_key) <= 8192))),
+    CONSTRAINT check_applicability_entries_canonical_subject_type_check CHECK ((canonical_subject_type = ANY (ARRAY['project'::text, 'source'::text, 'url'::text]))),
+    CONSTRAINT check_applicability_entries_expected_key_sha256_check CHECK ((octet_length(expected_key_sha256) = 32)),
+    CONSTRAINT check_applicability_entries_inapplicable_has_reason CHECK ((applicable OR ((inapplicable_reason IS NOT NULL) AND (length(btrim(inapplicable_reason)) > 0)))),
+    CONSTRAINT check_applicability_entries_ordering_check CHECK ((ordering >= 1)),
+    CONSTRAINT check_applicability_entries_pillar_id_check CHECK ((pillar_id = ANY (ARRAY['technical_integrity'::text, 'content_quality'::text, 'trust_signals'::text, 'search_presence'::text, 'ai_presence'::text, 'authority_signals'::text, 'local_presence'::text]))),
+    CONSTRAINT check_applicability_entries_subject_scope_check CHECK ((subject_scope = ANY (ARRAY['project'::text, 'source'::text, 'document'::text]))),
+    CONSTRAINT check_applicability_entries_subject_shape CHECK ((((subject_scope = 'project'::text) AND (source_id IS NULL) AND (document_id IS NULL)) OR ((subject_scope = 'source'::text) AND (source_id IS NOT NULL) AND (document_id IS NULL)) OR ((subject_scope = 'document'::text) AND (source_id IS NOT NULL) AND (document_id IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.check_applicability_entries FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_applicability_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_applicability_snapshots (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    evaluation_input_snapshot_id uuid NOT NULL,
+    check_catalog_id uuid NOT NULL,
+    check_catalog_version text NOT NULL,
+    check_catalog_sha256 bytea NOT NULL,
+    project_profile_version text,
+    local_presence_applicable boolean,
+    local_presence_reason text,
+    source_set_version bigint NOT NULL,
+    active_source_ids uuid[] NOT NULL,
+    crawl_coverage_status text NOT NULL,
+    readiness_status text NOT NULL,
+    entry_count integer NOT NULL,
+    content_sha256 bytea NOT NULL,
+    sealed_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT check_applicability_snapshots_check_catalog_sha256_check CHECK ((octet_length(check_catalog_sha256) = 32)),
+    CONSTRAINT check_applicability_snapshots_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT check_applicability_snapshots_entry_count_check CHECK ((entry_count >= 0)),
+    CONSTRAINT check_applicability_snapshots_false_has_reason CHECK (((local_presence_applicable IS DISTINCT FROM false) OR ((local_presence_reason IS NOT NULL) AND (length(btrim(local_presence_reason)) > 0))))
+);
+
+ALTER TABLE ONLY public.check_applicability_snapshots FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_attempts (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    slot_id uuid NOT NULL,
+    attempt_number integer NOT NULL,
+    retry_of_attempt_number integer,
+    check_catalog_version text NOT NULL,
+    check_definition_id text NOT NULL,
+    definition_version text NOT NULL,
+    applicability_sha256 bytea NOT NULL,
+    result_key_sha256 bytea NOT NULL,
+    deterministic_input_sha256 bytea NOT NULL,
+    scheduled_at timestamp(6) with time zone NOT NULL,
+    started_at timestamp(6) with time zone NOT NULL,
+    completed_at timestamp(6) with time zone,
+    deadline_at timestamp(6) with time zone NOT NULL,
+    produced_check_result_id uuid,
+    output_sha256 bytea,
+    execution_status text,
+    elapsed_ms integer,
+    reason_code text,
+    CONSTRAINT check_attempts_applicability_sha256_check CHECK ((octet_length(applicability_sha256) = 32)),
+    CONSTRAINT check_attempts_attempt_number_check CHECK (((attempt_number >= 1) AND (attempt_number <= 2))),
+    CONSTRAINT check_attempts_deterministic_input_sha256_check CHECK ((octet_length(deterministic_input_sha256) = 32)),
+    CONSTRAINT check_attempts_elapsed_ms_check CHECK (((elapsed_ms IS NULL) OR (elapsed_ms >= 0))),
+    CONSTRAINT check_attempts_execution_status_check CHECK (((execution_status IS NULL) OR (execution_status = ANY (ARRAY['passed'::text, 'failed'::text, 'not_applicable'::text, 'error'::text])))),
+    CONSTRAINT check_attempts_output_sha256_check CHECK (((output_sha256 IS NULL) OR (octet_length(output_sha256) = 32))),
+    CONSTRAINT check_attempts_result_key_sha256_check CHECK ((octet_length(result_key_sha256) = 32)),
+    CONSTRAINT check_attempts_retry_lineage CHECK (((attempt_number = 1) = (retry_of_attempt_number IS NULL))),
+    CONSTRAINT check_attempts_retry_of_attempt_number_check CHECK (((retry_of_attempt_number IS NULL) OR (retry_of_attempt_number >= 1)))
+);
+
+ALTER TABLE ONLY public.check_attempts FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_catalog_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_catalog_entries (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    catalog_id uuid NOT NULL,
+    check_definition_row_id uuid NOT NULL,
+    check_definition_id text NOT NULL,
+    definition_version text NOT NULL,
+    definition_sha256 bytea NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT check_catalog_entries_definition_sha256_check CHECK ((octet_length(definition_sha256) = 32)),
+    CONSTRAINT check_catalog_entries_ordering_check CHECK ((ordering >= 1))
+);
+
+
+--
+-- Name: check_catalogs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_catalogs (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    catalog_version text NOT NULL,
+    owner text NOT NULL,
+    released_at timestamp(6) with time zone NOT NULL,
+    state text NOT NULL,
+    executor_policy_version text NOT NULL,
+    external_measurement_policy_version text NOT NULL,
+    effort_policy_version text NOT NULL,
+    content_sha256 bytea NOT NULL,
+    superseded_catalog_id uuid,
+    activated_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT check_catalogs_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT check_catalogs_state_check CHECK ((state = ANY (ARRAY['active'::text, 'superseded'::text])))
+);
+
+
+--
+-- Name: check_definitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_definitions (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    definition_id text NOT NULL,
+    semantic_version text NOT NULL,
+    pillar_id text NOT NULL,
+    capability_id text NOT NULL,
+    owner text NOT NULL,
+    released_at timestamp(6) with time zone NOT NULL,
+    score_capable boolean DEFAULT true NOT NULL,
+    rule_or_model_version text NOT NULL,
+    impact_rule_version text NOT NULL,
+    effort_policy_version text NOT NULL,
+    confidence_policy_version text NOT NULL,
+    executor_policy_version text NOT NULL,
+    absence_proof_mode text NOT NULL,
+    contract jsonb NOT NULL,
+    content_sha256 bytea NOT NULL,
+    CONSTRAINT check_definitions_absence_proof_mode_check CHECK ((absence_proof_mode = 'check_pass_resolves_all'::text)),
+    CONSTRAINT check_definitions_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT check_definitions_definition_id_check CHECK ((definition_id ~ '^CHK-[A-Z]+-[0-9]{3}$'::text)),
+    CONSTRAINT check_definitions_pillar_id_check CHECK ((pillar_id = ANY (ARRAY['technical_integrity'::text, 'content_quality'::text, 'trust_signals'::text, 'search_presence'::text, 'ai_presence'::text, 'authority_signals'::text, 'local_presence'::text]))),
+    CONSTRAINT check_definitions_score_capable_check CHECK (score_capable),
+    CONSTRAINT check_definitions_semantic_version_check CHECK ((semantic_version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'::text))
+);
+
+
+--
+-- Name: check_result_evidences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_result_evidences (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    check_result_id uuid NOT NULL,
+    evidence_id uuid NOT NULL,
+    evidence_sha256 bytea NOT NULL,
+    validation_decision_id uuid,
+    validation_status text NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT check_result_evidences_evidence_sha256_check CHECK ((octet_length(evidence_sha256) = 32)),
+    CONSTRAINT check_result_evidences_ordering_check CHECK ((ordering >= 1))
+);
+
+ALTER TABLE ONLY public.check_result_evidences FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_result_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_result_keys (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    applicability_entry_id uuid NOT NULL,
+    key_preimage bytea NOT NULL,
+    check_result_key_sha256 bytea NOT NULL,
+    collision_ordinal integer DEFAULT 0 NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT check_result_keys_check_result_key_sha256_check CHECK ((octet_length(check_result_key_sha256) = 32)),
+    CONSTRAINT check_result_keys_collision_ordinal_check CHECK ((collision_ordinal >= 0)),
+    CONSTRAINT check_result_keys_ordering_check CHECK ((ordering >= 1))
+);
+
+ALTER TABLE ONLY public.check_result_keys FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_result_slots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_result_slots (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    applicability_entry_id uuid NOT NULL,
+    check_result_key_id uuid NOT NULL,
+    check_result_id uuid NOT NULL,
+    ordering integer NOT NULL,
+    state text NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    terminal_result_id uuid,
+    CONSTRAINT check_result_slots_attempt_count_check CHECK (((attempt_count >= 0) AND (attempt_count <= 2))),
+    CONSTRAINT check_result_slots_ordering_check CHECK ((ordering >= 1)),
+    CONSTRAINT check_result_slots_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'running'::text, 'terminal'::text]))),
+    CONSTRAINT check_result_slots_terminal_identity CHECK (((terminal_result_id IS NULL) OR (terminal_result_id = check_result_id))),
+    CONSTRAINT check_result_slots_terminal_shape CHECK (((state = 'terminal'::text) = (terminal_result_id IS NOT NULL)))
+);
+
+ALTER TABLE ONLY public.check_result_slots FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: check_results; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.check_results (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    evaluation_input_snapshot_id uuid NOT NULL,
+    applicability_snapshot_id uuid NOT NULL,
+    applicability_entry_id uuid NOT NULL,
+    slot_id uuid NOT NULL,
+    check_result_key_id uuid NOT NULL,
+    check_result_key_sha256 bytea NOT NULL,
+    check_result_key_preimage bytea NOT NULL,
+    check_catalog_version text NOT NULL,
+    check_definition_row_id uuid NOT NULL,
+    check_definition_id text NOT NULL,
+    check_definition_version text NOT NULL,
+    pillar_id text NOT NULL,
+    subject_scope text NOT NULL,
+    canonical_subject_type text NOT NULL,
+    canonical_subject_key text NOT NULL,
+    source_id uuid,
+    document_id uuid,
+    absence_coverage_selector jsonb NOT NULL,
+    subject_set_complete boolean NOT NULL,
+    evidence_set_sha256 bytea NOT NULL,
+    execution_status text NOT NULL,
+    outcome_code text NOT NULL,
+    error_reason_code text,
+    normalized_observation jsonb NOT NULL,
+    impact_band text,
+    impact_rule_version text NOT NULL,
+    confidence_value numeric(5,4),
+    confidence_status text NOT NULL,
+    confidence_band text NOT NULL,
+    confidence_policy_version text NOT NULL,
+    effort_band text,
+    effort_basis text,
+    recommendation_template_id text,
+    rule_or_model_version text NOT NULL,
+    execution_attempt_count integer NOT NULL,
+    deterministic_input_sha256 bytea NOT NULL,
+    deterministic_output_sha256 bytea NOT NULL,
+    produced_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT check_results_canonical_subject_type_check CHECK ((canonical_subject_type = ANY (ARRAY['project'::text, 'source'::text, 'url'::text]))),
+    CONSTRAINT check_results_check_result_key_sha256_check CHECK ((octet_length(check_result_key_sha256) = 32)),
+    CONSTRAINT check_results_confidence_band_check CHECK ((confidence_band = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text]))),
+    CONSTRAINT check_results_confidence_shape CHECK (((confidence_status = 'valid'::text) = (confidence_value IS NOT NULL))),
+    CONSTRAINT check_results_confidence_status_check CHECK ((confidence_status = ANY (ARRAY['valid'::text, 'missing'::text, 'invalid'::text]))),
+    CONSTRAINT check_results_confidence_value_check CHECK (((confidence_value IS NULL) OR ((confidence_value >= (0)::numeric) AND (confidence_value <= (1)::numeric)))),
+    CONSTRAINT check_results_deterministic_input_sha256_check CHECK ((octet_length(deterministic_input_sha256) = 32)),
+    CONSTRAINT check_results_deterministic_output_sha256_check CHECK ((octet_length(deterministic_output_sha256) = 32)),
+    CONSTRAINT check_results_effort_band_check CHECK (((effort_band IS NULL) OR (effort_band = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text])))),
+    CONSTRAINT check_results_error_reason_code_check CHECK (((error_reason_code IS NULL) OR (error_reason_code = ANY (ARRAY['input_evidence_missing'::text, 'input_evidence_stale'::text, 'input_evidence_indeterminate'::text, 'input_evidence_invalid'::text, 'normalized_input_invalid'::text, 'output_schema_invalid'::text, 'check_dependency_unavailable'::text, 'check_internal_timeout'::text])))),
+    CONSTRAINT check_results_error_shape CHECK (((execution_status = 'error'::text) = (error_reason_code IS NOT NULL))),
+    CONSTRAINT check_results_evidence_set_sha256_check CHECK ((octet_length(evidence_set_sha256) = 32)),
+    CONSTRAINT check_results_execution_attempt_count_check CHECK ((execution_attempt_count = ANY (ARRAY[1, 2]))),
+    CONSTRAINT check_results_execution_status_check CHECK ((execution_status = ANY (ARRAY['passed'::text, 'failed'::text, 'not_applicable'::text, 'error'::text]))),
+    CONSTRAINT check_results_impact_band_check CHECK (((impact_band IS NULL) OR (impact_band = ANY (ARRAY['informational'::text, 'low'::text, 'medium'::text, 'high'::text, 'critical'::text])))),
+    CONSTRAINT check_results_impact_shape CHECK (((execution_status = 'failed'::text) = (impact_band IS NOT NULL))),
+    CONSTRAINT check_results_not_applicable_owner CHECK (((execution_status <> 'not_applicable'::text) OR (check_definition_id = 'CHK-LP-001'::text))),
+    CONSTRAINT check_results_pillar_id_check CHECK ((pillar_id = ANY (ARRAY['technical_integrity'::text, 'content_quality'::text, 'trust_signals'::text, 'search_presence'::text, 'ai_presence'::text, 'authority_signals'::text, 'local_presence'::text]))),
+    CONSTRAINT check_results_subject_scope_check CHECK ((subject_scope = ANY (ARRAY['project'::text, 'source'::text, 'document'::text]))),
+    CONSTRAINT check_results_subject_shape CHECK ((((subject_scope = 'project'::text) AND (source_id IS NULL) AND (document_id IS NULL)) OR ((subject_scope = 'source'::text) AND (source_id IS NOT NULL) AND (document_id IS NULL)) OR ((subject_scope = 'document'::text) AND (source_id IS NOT NULL) AND (document_id IS NOT NULL))))
+);
+
+ALTER TABLE ONLY public.check_results FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: command_executions; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2913,6 +3377,27 @@ ALTER TABLE ONLY public.crawls FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: deduplication_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.deduplication_keys (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    namespace text NOT NULL,
+    digest bytea NOT NULL,
+    preimage bytea NOT NULL,
+    collision_ordinal integer DEFAULT 0 NOT NULL,
+    allocated_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT deduplication_keys_collision_ordinal_check CHECK ((collision_ordinal >= 0)),
+    CONSTRAINT deduplication_keys_digest_check CHECK ((octet_length(digest) = 32))
+);
+
+ALTER TABLE ONLY public.deduplication_keys FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: documents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3335,6 +3820,49 @@ ALTER TABLE ONLY public.evidence FORCE ROW LEVEL SECURITY;
 
 
 --
+-- Name: external_measurement_submissions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.external_measurement_submissions (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    measurement_kind text NOT NULL,
+    measurement_set_row_id uuid NOT NULL,
+    measurement_set_id text NOT NULL,
+    measurement_set_version text NOT NULL,
+    measurement_set_sha256 bytea NOT NULL,
+    collector_adapter_id text NOT NULL,
+    collector_adapter_version text NOT NULL,
+    payload_reference text NOT NULL,
+    payload_sha256 bytea NOT NULL,
+    observed_at timestamp(6) with time zone NOT NULL,
+    captured_at timestamp(6) with time zone NOT NULL,
+    fresh_until timestamp(6) with time zone NOT NULL,
+    coverage_status text NOT NULL,
+    data_classification text NOT NULL,
+    payload_retention_class text NOT NULL,
+    evidence_id uuid NOT NULL,
+    outcome text NOT NULL,
+    CONSTRAINT external_measurement_submissions_capture_window CHECK (((captured_at >= observed_at) AND (captured_at < fresh_until))),
+    CONSTRAINT external_measurement_submissions_coverage_status_check CHECK ((coverage_status = ANY (ARRAY['complete'::text, 'partial'::text, 'indeterminate'::text]))),
+    CONSTRAINT external_measurement_submissions_data_classification_check CHECK ((data_classification = ANY (ARRAY['public'::text, 'internal'::text, 'confidential'::text, 'restricted'::text]))),
+    CONSTRAINT external_measurement_submissions_freshness CHECK ((fresh_until = (observed_at + '24:00:00'::interval))),
+    CONSTRAINT external_measurement_submissions_measurement_kind_check CHECK ((measurement_kind = ANY (ARRAY['search_index_presence'::text, 'ai_answer_presence'::text, 'authority_reference_set'::text, 'local_profile_consistency'::text]))),
+    CONSTRAINT external_measurement_submissions_measurement_set_sha256_check CHECK ((octet_length(measurement_set_sha256) = 32)),
+    CONSTRAINT external_measurement_submissions_outcome_check CHECK ((outcome = 'accepted'::text)),
+    CONSTRAINT external_measurement_submissions_payload_retention_class_check CHECK ((payload_retention_class = 'product_evidence_payload'::text)),
+    CONSTRAINT external_measurement_submissions_payload_sha256_check CHECK ((octet_length(payload_sha256) = 32))
+);
+
+ALTER TABLE ONLY public.external_measurement_submissions FORCE ROW LEVEL SECURITY;
+
+
+--
 -- Name: f1_context_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3477,6 +4005,49 @@ CREATE TABLE public.fetch_attempts (
 );
 
 ALTER TABLE ONLY public.fetch_attempts FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: fingerprint_collision_decisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fingerprint_collision_decisions (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    fingerprint_kind text NOT NULL,
+    fingerprint_sha256 bytea NOT NULL,
+    existing_record_type text NOT NULL,
+    existing_record_id uuid NOT NULL,
+    conflicting_record_type text NOT NULL,
+    conflicting_record_id uuid NOT NULL,
+    detecting_service_identity_id uuid NOT NULL,
+    definition_versions jsonb NOT NULL,
+    input_sha256 bytea NOT NULL,
+    output_sha256 bytea NOT NULL,
+    decision_type text NOT NULL,
+    decision_value text NOT NULL,
+    decision_status text NOT NULL,
+    decision_reason_code text,
+    collision_detected_at timestamp(6) with time zone NOT NULL,
+    collision_identity_sha256 bytea NOT NULL,
+    CONSTRAINT fingerprint_collision_decisions_collision_identity_sha256_check CHECK ((octet_length(collision_identity_sha256) = 32)),
+    CONSTRAINT fingerprint_collision_decisions_decision_reason_code_check CHECK ((decision_reason_code IS NULL)),
+    CONSTRAINT fingerprint_collision_decisions_decision_status_check CHECK ((decision_status = 'final'::text)),
+    CONSTRAINT fingerprint_collision_decisions_decision_type_check CHECK ((decision_type = 'fingerprint_collision'::text)),
+    CONSTRAINT fingerprint_collision_decisions_decision_value_check CHECK ((decision_value = 'collision_detected'::text)),
+    CONSTRAINT fingerprint_collision_decisions_distinct CHECK ((existing_record_id <> conflicting_record_id)),
+    CONSTRAINT fingerprint_collision_decisions_fingerprint_kind_check CHECK ((fingerprint_kind = ANY (ARRAY['check_result'::text, 'issue'::text, 'ai_response'::text, 'citation'::text]))),
+    CONSTRAINT fingerprint_collision_decisions_fingerprint_sha256_check CHECK ((octet_length(fingerprint_sha256) = 32)),
+    CONSTRAINT fingerprint_collision_decisions_input_sha256_check CHECK ((octet_length(input_sha256) = 32)),
+    CONSTRAINT fingerprint_collision_decisions_output_sha256_check CHECK ((octet_length(output_sha256) = 32)),
+    CONSTRAINT fingerprint_collision_decisions_same_type CHECK (((existing_record_type = conflicting_record_type) AND (existing_record_type = fingerprint_kind)))
+);
+
+ALTER TABLE ONLY public.fingerprint_collision_decisions FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -3766,6 +4337,220 @@ CREATE TABLE public.invitations (
 );
 
 ALTER TABLE ONLY public.invitations FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: issue_evidences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.issue_evidences (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    issue_id uuid NOT NULL,
+    evidence_id uuid NOT NULL,
+    evidence_sha256 bytea NOT NULL,
+    role text NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT issue_evidences_evidence_sha256_check CHECK ((octet_length(evidence_sha256) = 32)),
+    CONSTRAINT issue_evidences_ordering_check CHECK ((ordering >= 1))
+);
+
+ALTER TABLE ONLY public.issue_evidences FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: issue_lineage_heads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.issue_lineage_heads (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    dedup_key_id uuid NOT NULL,
+    current_issue_id uuid NOT NULL
+);
+
+ALTER TABLE ONLY public.issue_lineage_heads FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: issue_set_memberships; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.issue_set_memberships (
+    id uuid NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    issue_set_id uuid NOT NULL,
+    issue_id uuid NOT NULL,
+    current_leaf boolean NOT NULL,
+    frozen_state text NOT NULL,
+    frozen_state_version bigint NOT NULL,
+    ordering integer NOT NULL,
+    CONSTRAINT issue_set_memberships_frozen_state_check CHECK ((frozen_state = ANY (ARRAY['candidate'::text, 'open'::text, 'resolved'::text, 'dismissed'::text, 'superseded'::text]))),
+    CONSTRAINT issue_set_memberships_ordering_check CHECK ((ordering >= 1))
+);
+
+ALTER TABLE ONLY public.issue_set_memberships FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: issue_sets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.issue_sets (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    member_count integer NOT NULL,
+    current_leaf_count integer NOT NULL,
+    membership_root_sha256 bytea NOT NULL,
+    content_sha256 bytea NOT NULL,
+    sealed_at timestamp(6) with time zone NOT NULL,
+    CONSTRAINT issue_sets_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT issue_sets_current_leaf_count_check CHECK ((current_leaf_count >= 0)),
+    CONSTRAINT issue_sets_leaf_subset CHECK ((current_leaf_count <= member_count)),
+    CONSTRAINT issue_sets_member_count_check CHECK ((member_count >= 0)),
+    CONSTRAINT issue_sets_membership_root_sha256_check CHECK ((octet_length(membership_root_sha256) = 32))
+);
+
+ALTER TABLE ONLY public.issue_sets FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: issues; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.issues (
+    id uuid NOT NULL,
+    schema_version text NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    evaluation_id uuid NOT NULL,
+    check_result_id uuid NOT NULL,
+    source_id uuid,
+    dedup_key_id uuid NOT NULL,
+    issue_type text NOT NULL,
+    fingerprint_version text NOT NULL,
+    fingerprint_preimage bytea NOT NULL,
+    fingerprint_sha256 bytea NOT NULL,
+    canonical_subject_type text NOT NULL,
+    canonical_subject_key text NOT NULL,
+    check_definition_id text NOT NULL,
+    pillar_id text NOT NULL,
+    impact_band text NOT NULL,
+    confidence_value numeric(5,4),
+    confidence_band text NOT NULL,
+    confidence_status text NOT NULL,
+    effort_band text,
+    effort_basis text,
+    recommendation_template_id text,
+    state text NOT NULL,
+    adjudication_status text NOT NULL,
+    publication_status text NOT NULL,
+    predecessor_issue_id uuid,
+    successor_issue_id uuid,
+    published_at timestamp(6) with time zone,
+    suppressed_at timestamp(6) with time zone,
+    terminal_at timestamp(6) with time zone,
+    terminal_reason text,
+    CONSTRAINT issues_adjudication_status_check CHECK ((adjudication_status = ANY (ARRAY['not_required'::text, 'review_required'::text, 'disputed'::text, 'in_review'::text, 'upheld'::text, 'rejected'::text, 'withdrawn'::text, 'dismissed'::text]))),
+    CONSTRAINT issues_canonical_subject_type_check CHECK ((canonical_subject_type = ANY (ARRAY['project'::text, 'source'::text, 'url'::text]))),
+    CONSTRAINT issues_confidence_band_check CHECK ((confidence_band = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text]))),
+    CONSTRAINT issues_confidence_status_check CHECK ((confidence_status = ANY (ARRAY['valid'::text, 'missing'::text, 'invalid'::text]))),
+    CONSTRAINT issues_effort_band_check CHECK (((effort_band IS NULL) OR (effort_band = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text])))),
+    CONSTRAINT issues_fingerprint_sha256_check CHECK ((octet_length(fingerprint_sha256) = 32)),
+    CONSTRAINT issues_fingerprint_version_check CHECK ((fingerprint_version = 'issue-fingerprint-v1'::text)),
+    CONSTRAINT issues_impact_band_check CHECK ((impact_band = ANY (ARRAY['informational'::text, 'low'::text, 'medium'::text, 'high'::text, 'critical'::text]))),
+    CONSTRAINT issues_pillar_id_check CHECK ((pillar_id = ANY (ARRAY['technical_integrity'::text, 'content_quality'::text, 'trust_signals'::text, 'search_presence'::text, 'ai_presence'::text, 'authority_signals'::text, 'local_presence'::text]))),
+    CONSTRAINT issues_publication_status_check CHECK ((publication_status = ANY (ARRAY['published'::text, 'withheld'::text, 'suppressed'::text]))),
+    CONSTRAINT issues_published_shape CHECK (((publication_status <> 'published'::text) OR ((state = 'open'::text) AND (confidence_status = 'valid'::text) AND (confidence_band = ANY (ARRAY['medium'::text, 'high'::text])) AND (published_at IS NOT NULL)))),
+    CONSTRAINT issues_state_check CHECK ((state = ANY (ARRAY['candidate'::text, 'open'::text, 'resolved'::text, 'dismissed'::text, 'superseded'::text]))),
+    CONSTRAINT issues_withheld_shape CHECK (((publication_status <> 'withheld'::text) OR ((state = 'candidate'::text) AND (adjudication_status = 'review_required'::text))))
+);
+
+ALTER TABLE ONLY public.issues FORCE ROW LEVEL SECURITY;
+
+
+--
+-- Name: measurement_sets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.measurement_sets (
+    id uuid NOT NULL,
+    state_version bigint DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone NOT NULL,
+    updated_at timestamp(6) with time zone NOT NULL,
+    correlation_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    project_id uuid,
+    package_schema_version text NOT NULL,
+    measurement_set_id text NOT NULL,
+    measurement_set_version text NOT NULL,
+    measurement_kind text NOT NULL,
+    supersedes_id uuid,
+    package_created_at timestamp(6) with time zone NOT NULL,
+    proposed_effective_at timestamp(6) with time zone NOT NULL,
+    package_reference text NOT NULL,
+    package_sha256 bytea NOT NULL,
+    provider_identities jsonb NOT NULL,
+    collector_adapter_id text NOT NULL,
+    collector_adapter_version text NOT NULL,
+    collector_adapter_sha256 bytea NOT NULL,
+    expected_keys jsonb NOT NULL,
+    key_content jsonb NOT NULL,
+    locale text NOT NULL,
+    time_zone text NOT NULL,
+    max_evidence_age_seconds integer NOT NULL,
+    bound_catalog_version text NOT NULL,
+    bound_catalog_sha256 bytea NOT NULL,
+    bound_definition_id text NOT NULL,
+    bound_definition_version text NOT NULL,
+    bound_definition_sha256 bytea NOT NULL,
+    retention_location text NOT NULL,
+    product_signature jsonb,
+    architect_signature jsonb,
+    owner_approval_reference text,
+    status text NOT NULL,
+    activated_at timestamp(6) with time zone,
+    superseded_at timestamp(6) with time zone,
+    rejected_reason text,
+    CONSTRAINT measurement_sets_activation_requires_both_signatures CHECK (((status <> 'active'::text) OR ((product_signature IS NOT NULL) AND (architect_signature IS NOT NULL) AND (owner_approval_reference IS NOT NULL) AND (activated_at IS NOT NULL)))),
+    CONSTRAINT measurement_sets_bound_catalog_sha256_check CHECK ((octet_length(bound_catalog_sha256) = 32)),
+    CONSTRAINT measurement_sets_bound_definition_sha256_check CHECK ((octet_length(bound_definition_sha256) = 32)),
+    CONSTRAINT measurement_sets_collector_adapter_id_check CHECK (((length(collector_adapter_id) >= 1) AND (length(collector_adapter_id) <= 120))),
+    CONSTRAINT measurement_sets_collector_adapter_sha256_check CHECK ((octet_length(collector_adapter_sha256) = 32)),
+    CONSTRAINT measurement_sets_collector_adapter_version_check CHECK (((length(collector_adapter_version) >= 1) AND (length(collector_adapter_version) <= 120))),
+    CONSTRAINT measurement_sets_locale_check CHECK ((locale = 'en-AU'::text)),
+    CONSTRAINT measurement_sets_max_evidence_age_seconds_check CHECK ((max_evidence_age_seconds = 86400)),
+    CONSTRAINT measurement_sets_measurement_kind_check CHECK ((measurement_kind = ANY (ARRAY['search_index_presence'::text, 'ai_answer_presence'::text, 'authority_reference_set'::text, 'local_profile_consistency'::text]))),
+    CONSTRAINT measurement_sets_measurement_set_id_check CHECK ((measurement_set_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'::text)),
+    CONSTRAINT measurement_sets_measurement_set_version_check CHECK ((measurement_set_version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'::text)),
+    CONSTRAINT measurement_sets_package_reference_check CHECK (((length(package_reference) >= 1) AND (length(package_reference) <= 512))),
+    CONSTRAINT measurement_sets_package_schema_version_check CHECK ((package_schema_version = 'measurement-set-package-v1'::text)),
+    CONSTRAINT measurement_sets_package_sha256_check CHECK ((octet_length(package_sha256) = 32)),
+    CONSTRAINT measurement_sets_rejected_has_reason CHECK (((status = 'rejected'::text) = (rejected_reason IS NOT NULL))),
+    CONSTRAINT measurement_sets_retention_location_check CHECK (((length(retention_location) >= 1) AND (length(retention_location) <= 512))),
+    CONSTRAINT measurement_sets_status_check CHECK ((status = ANY (ARRAY['proposed'::text, 'active'::text, 'superseded'::text, 'rejected'::text]))),
+    CONSTRAINT measurement_sets_superseded_has_time CHECK (((status = 'superseded'::text) = (superseded_at IS NOT NULL))),
+    CONSTRAINT measurement_sets_time_zone_check CHECK ((time_zone = 'UTC'::text))
+);
+
+ALTER TABLE ONLY public.measurement_sets FORCE ROW LEVEL SECURITY;
 
 
 --
@@ -4558,6 +5343,270 @@ ALTER TABLE ONLY public.bootstrap_grants
 
 
 --
+-- Name: check_applicability_entries check_applicability_entries_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_order_unique UNIQUE (snapshot_id, ordering);
+
+
+--
+-- Name: check_applicability_entries check_applicability_entries_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_applicability_entries check_applicability_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_snapshots
+    ADD CONSTRAINT check_applicability_snapshots_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_snapshots
+    ADD CONSTRAINT check_applicability_snapshots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_attempts check_attempts_number_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_attempts
+    ADD CONSTRAINT check_attempts_number_unique UNIQUE (slot_id, attempt_number);
+
+
+--
+-- Name: check_attempts check_attempts_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_attempts
+    ADD CONSTRAINT check_attempts_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_attempts check_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_attempts
+    ADD CONSTRAINT check_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_definition_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_definition_unique UNIQUE (catalog_id, check_definition_id, definition_version);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_order_unique UNIQUE (catalog_id, ordering);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_catalogs check_catalogs_hash_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalogs
+    ADD CONSTRAINT check_catalogs_hash_unique UNIQUE (content_sha256);
+
+
+--
+-- Name: check_catalogs check_catalogs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalogs
+    ADD CONSTRAINT check_catalogs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_catalogs check_catalogs_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalogs
+    ADD CONSTRAINT check_catalogs_version_unique UNIQUE (catalog_version);
+
+
+--
+-- Name: check_definitions check_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_definitions
+    ADD CONSTRAINT check_definitions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_definitions check_definitions_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_definitions
+    ADD CONSTRAINT check_definitions_version_unique UNIQUE (definition_id, semantic_version);
+
+
+--
+-- Name: check_result_evidences check_result_evidences_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_evidences
+    ADD CONSTRAINT check_result_evidences_order_unique UNIQUE (check_result_id, ordering);
+
+
+--
+-- Name: check_result_evidences check_result_evidences_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_evidences
+    ADD CONSTRAINT check_result_evidences_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_result_evidences check_result_evidences_pair_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_evidences
+    ADD CONSTRAINT check_result_evidences_pair_unique UNIQUE (check_result_id, evidence_id);
+
+
+--
+-- Name: check_result_evidences check_result_evidences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_evidences
+    ADD CONSTRAINT check_result_evidences_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_result_keys check_result_keys_entry_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_keys
+    ADD CONSTRAINT check_result_keys_entry_unique UNIQUE (applicability_entry_id);
+
+
+--
+-- Name: check_result_keys check_result_keys_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_keys
+    ADD CONSTRAINT check_result_keys_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_result_keys check_result_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_keys
+    ADD CONSTRAINT check_result_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_result_slots check_result_slots_entry_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_entry_unique UNIQUE (applicability_entry_id);
+
+
+--
+-- Name: check_result_slots check_result_slots_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_key_unique UNIQUE (check_result_key_id);
+
+
+--
+-- Name: check_result_slots check_result_slots_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_result_slots check_result_slots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_result_slots check_result_slots_result_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_result_unique UNIQUE (check_result_id);
+
+
+--
+-- Name: check_results check_results_entry_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_entry_unique UNIQUE (applicability_entry_id);
+
+
+--
+-- Name: check_results check_results_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_key_unique UNIQUE (check_result_key_id);
+
+
+--
+-- Name: check_results check_results_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: check_results check_results_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: check_results check_results_slot_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_slot_unique UNIQUE (slot_id);
+
+
+--
 -- Name: command_executions command_executions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4838,6 +5887,30 @@ ALTER TABLE ONLY public.crawls
 
 
 --
+-- Name: deduplication_keys deduplication_keys_identity_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.deduplication_keys
+    ADD CONSTRAINT deduplication_keys_identity_unique UNIQUE (organization_id, namespace, digest, collision_ordinal);
+
+
+--
+-- Name: deduplication_keys deduplication_keys_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.deduplication_keys
+    ADD CONSTRAINT deduplication_keys_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: deduplication_keys deduplication_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.deduplication_keys
+    ADD CONSTRAINT deduplication_keys_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: documents documents_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5046,6 +6119,30 @@ ALTER TABLE ONLY public.evidence
 
 
 --
+-- Name: external_measurement_submissions external_measurement_submissions_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_measurement_submissions
+    ADD CONSTRAINT external_measurement_submissions_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: external_measurement_submissions external_measurement_submissions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_measurement_submissions
+    ADD CONSTRAINT external_measurement_submissions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: external_measurement_submissions external_measurement_submissions_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_measurement_submissions
+    ADD CONSTRAINT external_measurement_submissions_unique UNIQUE (evaluation_id, measurement_kind, measurement_set_version);
+
+
+--
 -- Name: f1_context_keys f1_context_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5099,6 +6196,30 @@ ALTER TABLE ONLY public.fetch_attempts
 
 ALTER TABLE ONLY public.fetch_attempts
     ADD CONSTRAINT fetch_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fingerprint_collision_decisions
+    ADD CONSTRAINT fingerprint_collision_decisions_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fingerprint_collision_decisions
+    ADD CONSTRAINT fingerprint_collision_decisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fingerprint_collision_decisions
+    ADD CONSTRAINT fingerprint_collision_decisions_unique UNIQUE (organization_id, project_id, fingerprint_kind, fingerprint_sha256, existing_record_id, conflicting_record_id);
 
 
 --
@@ -5235,6 +6356,166 @@ ALTER TABLE ONLY public.invitations
 
 ALTER TABLE ONLY public.invitations
     ADD CONSTRAINT invitations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: issue_evidences issue_evidences_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_evidences
+    ADD CONSTRAINT issue_evidences_order_unique UNIQUE (issue_id, ordering);
+
+
+--
+-- Name: issue_evidences issue_evidences_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_evidences
+    ADD CONSTRAINT issue_evidences_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: issue_evidences issue_evidences_pair_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_evidences
+    ADD CONSTRAINT issue_evidences_pair_unique UNIQUE (issue_id, evidence_id);
+
+
+--
+-- Name: issue_evidences issue_evidences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_evidences
+    ADD CONSTRAINT issue_evidences_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_lineage_heads
+    ADD CONSTRAINT issue_lineage_heads_key_unique UNIQUE (dedup_key_id);
+
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_lineage_heads
+    ADD CONSTRAINT issue_lineage_heads_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_lineage_heads
+    ADD CONSTRAINT issue_lineage_heads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_order_unique UNIQUE (issue_set_id, ordering);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_pair_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_pair_unique UNIQUE (issue_set_id, issue_id);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: issue_sets issue_sets_evaluation_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_sets
+    ADD CONSTRAINT issue_sets_evaluation_unique UNIQUE (evaluation_id);
+
+
+--
+-- Name: issue_sets issue_sets_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_sets
+    ADD CONSTRAINT issue_sets_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: issue_sets issue_sets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_sets
+    ADD CONSTRAINT issue_sets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: issues issues_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issues
+    ADD CONSTRAINT issues_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: issues issues_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issues
+    ADD CONSTRAINT issues_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: measurement_sets measurement_sets_digest_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_digest_unique UNIQUE (organization_id, package_sha256);
+
+
+--
+-- Name: measurement_sets measurement_sets_org_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_org_id_unique UNIQUE (organization_id, id);
+
+
+--
+-- Name: measurement_sets measurement_sets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: measurement_sets measurement_sets_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_version_unique UNIQUE (organization_id, measurement_set_id, measurement_set_version);
 
 
 --
@@ -5518,6 +6799,48 @@ ALTER TABLE ONLY public.work_dispatch_bindings
 
 
 --
+-- Name: check_applicability_entries_subject_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX check_applicability_entries_subject_unique ON public.check_applicability_entries USING btree (snapshot_id, check_definition_id, definition_version, canonical_subject_type, canonical_subject_key);
+
+
+--
+-- Name: check_applicability_snapshots_evaluation_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX check_applicability_snapshots_evaluation_unique ON public.check_applicability_snapshots USING btree (evaluation_id);
+
+
+--
+-- Name: check_definitions_semantic_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX check_definitions_semantic_identity ON public.check_definitions USING btree (id, definition_id, semantic_version, content_sha256);
+
+
+--
+-- Name: check_result_keys_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX check_result_keys_hash ON public.check_result_keys USING btree (evaluation_id, check_result_key_sha256);
+
+
+--
+-- Name: check_result_keys_preimage_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX check_result_keys_preimage_unique ON public.check_result_keys USING btree (evaluation_id, key_preimage);
+
+
+--
+-- Name: check_results_evaluation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX check_results_evaluation ON public.check_results USING btree (organization_id, evaluation_id, check_definition_id);
+
+
+--
 -- Name: crawl_frontier_entries_crawl_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5616,6 +6939,13 @@ CREATE INDEX crawls_project_state ON public.crawls USING btree (organization_id,
 
 
 --
+-- Name: deduplication_keys_preimage_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX deduplication_keys_preimage_unique ON public.deduplication_keys USING btree (organization_id, namespace, preimage);
+
+
+--
 -- Name: documents_crawl; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5707,6 +7037,13 @@ CREATE INDEX evidence_content_hash_lookup ON public.evidence USING btree (organi
 
 
 --
+-- Name: external_measurement_submissions_evaluation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX external_measurement_submissions_evaluation ON public.external_measurement_submissions USING btree (organization_id, evaluation_id, measurement_kind);
+
+
+--
 -- Name: f1_encrypted_records_by_wrapping_version; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5774,6 +7111,41 @@ CREATE INDEX ingestion_jobs_due ON public.ingestion_jobs USING btree (organizati
 --
 
 CREATE INDEX ingestion_jobs_staging_live ON public.ingestion_jobs USING btree (organization_id, staging_expires_at) WHERE (staged_body_reference IS NOT NULL);
+
+
+--
+-- Name: issues_evaluation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX issues_evaluation ON public.issues USING btree (organization_id, evaluation_id);
+
+
+--
+-- Name: issues_fingerprint_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX issues_fingerprint_hash ON public.issues USING btree (organization_id, project_id, fingerprint_sha256);
+
+
+--
+-- Name: issues_fingerprint_preimage_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX issues_fingerprint_preimage_unique ON public.issues USING btree (evaluation_id, fingerprint_version, fingerprint_preimage);
+
+
+--
+-- Name: issues_successor_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX issues_successor_unique ON public.issues USING btree (predecessor_issue_id) WHERE (predecessor_issue_id IS NOT NULL);
+
+
+--
+-- Name: measurement_sets_one_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX measurement_sets_one_active ON public.measurement_sets USING btree (organization_id, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), measurement_kind) WHERE (status = 'active'::text);
 
 
 --
@@ -5973,6 +7345,48 @@ CREATE TRIGGER billing_entities_guard BEFORE INSERT OR UPDATE ON public.billing_
 
 
 --
+-- Name: check_applicability_entries check_applicability_entries_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_applicability_entries_guard BEFORE DELETE OR UPDATE ON public.check_applicability_entries FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_applicability_snapshots_guard BEFORE DELETE OR UPDATE ON public.check_applicability_snapshots FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: check_result_evidences check_result_evidences_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_result_evidences_guard BEFORE DELETE OR UPDATE ON public.check_result_evidences FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: check_result_keys check_result_keys_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_result_keys_guard BEFORE DELETE OR UPDATE ON public.check_result_keys FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: check_result_slots check_result_slots_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_result_slots_guard BEFORE DELETE OR UPDATE ON public.check_result_slots FOR EACH ROW EXECUTE FUNCTION public.f1_check_result_slots_guard();
+
+
+--
+-- Name: check_results check_results_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER check_results_guard BEFORE DELETE OR UPDATE ON public.check_results FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
 -- Name: crawl_budget_counters crawl_budget_counters_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -6092,6 +7506,13 @@ CREATE TRIGGER crawls_guard BEFORE DELETE OR UPDATE ON public.crawls FOR EACH RO
 
 
 --
+-- Name: deduplication_keys deduplication_keys_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER deduplication_keys_guard BEFORE DELETE OR UPDATE ON public.deduplication_keys FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
 -- Name: documents documents_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -6169,10 +7590,24 @@ CREATE TRIGGER evidence_append_only BEFORE DELETE OR UPDATE ON public.evidence F
 
 
 --
+-- Name: external_measurement_submissions external_measurement_submissions_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER external_measurement_submissions_guard BEFORE DELETE OR UPDATE ON public.external_measurement_submissions FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
 -- Name: fetch_attempts fetch_attempts_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER fetch_attempts_guard BEFORE DELETE OR UPDATE ON public.fetch_attempts FOR EACH ROW EXECUTE FUNCTION public.f1_fetch_attempts_guard();
+
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER fingerprint_collision_decisions_guard BEFORE DELETE OR UPDATE ON public.fingerprint_collision_decisions FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
 
 
 --
@@ -6201,6 +7636,41 @@ CREATE TRIGGER ingestion_jobs_lifecycle_guard BEFORE UPDATE ON public.ingestion_
 --
 
 CREATE TRIGGER ingestion_jobs_terminal_closure AFTER INSERT ON public.ingestion_jobs FOR EACH ROW EXECUTE FUNCTION public.f1_crawl_child_fact_closed();
+
+
+--
+-- Name: issue_evidences issue_evidences_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER issue_evidences_guard BEFORE DELETE OR UPDATE ON public.issue_evidences FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER issue_set_memberships_guard BEFORE DELETE OR UPDATE ON public.issue_set_memberships FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: issue_sets issue_sets_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER issue_sets_guard BEFORE DELETE OR UPDATE ON public.issue_sets FOR EACH ROW EXECUTE FUNCTION public.f1_check_immutable_guard();
+
+
+--
+-- Name: issues issues_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER issues_guard BEFORE DELETE OR UPDATE ON public.issues FOR EACH ROW EXECUTE FUNCTION public.f1_issues_guard();
+
+
+--
+-- Name: measurement_sets measurement_sets_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER measurement_sets_guard BEFORE DELETE OR UPDATE ON public.measurement_sets FOR EACH ROW EXECUTE FUNCTION public.f1_measurement_sets_guard();
 
 
 --
@@ -6301,6 +7771,126 @@ ALTER TABLE ONLY public.audit_record_registry
 
 ALTER TABLE ONLY public.bootstrap_grants
     ADD CONSTRAINT bootstrap_grants_issuer_service_identity_fkey FOREIGN KEY (issuer_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
+-- Name: check_applicability_entries check_applicability_entries_catalog_entry_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_catalog_entry_id_fkey FOREIGN KEY (catalog_entry_id) REFERENCES public.check_catalog_entries(id);
+
+
+--
+-- Name: check_applicability_entries check_applicability_entries_check_definition_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_check_definition_row_id_fkey FOREIGN KEY (check_definition_row_id) REFERENCES public.check_definitions(id);
+
+
+--
+-- Name: check_applicability_entries check_applicability_entries_snapshot_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_entries
+    ADD CONSTRAINT check_applicability_entries_snapshot_fk FOREIGN KEY (organization_id, snapshot_id) REFERENCES public.check_applicability_snapshots(organization_id, id);
+
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_check_catalog_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_snapshots
+    ADD CONSTRAINT check_applicability_snapshots_check_catalog_id_fkey FOREIGN KEY (check_catalog_id) REFERENCES public.check_catalogs(id);
+
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_applicability_snapshots
+    ADD CONSTRAINT check_applicability_snapshots_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: check_attempts check_attempts_slot_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_attempts
+    ADD CONSTRAINT check_attempts_slot_fk FOREIGN KEY (organization_id, slot_id) REFERENCES public.check_result_slots(organization_id, id);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_catalog_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_catalog_id_fkey FOREIGN KEY (catalog_id) REFERENCES public.check_catalogs(id);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_check_definition_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_check_definition_row_id_fkey FOREIGN KEY (check_definition_row_id) REFERENCES public.check_definitions(id);
+
+
+--
+-- Name: check_catalog_entries check_catalog_entries_definition_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalog_entries
+    ADD CONSTRAINT check_catalog_entries_definition_fk FOREIGN KEY (check_definition_row_id, check_definition_id, definition_version, definition_sha256) REFERENCES public.check_definitions(id, definition_id, semantic_version, content_sha256);
+
+
+--
+-- Name: check_catalogs check_catalogs_superseded_catalog_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_catalogs
+    ADD CONSTRAINT check_catalogs_superseded_catalog_id_fkey FOREIGN KEY (superseded_catalog_id) REFERENCES public.check_catalogs(id);
+
+
+--
+-- Name: check_result_evidences check_result_evidences_result_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_evidences
+    ADD CONSTRAINT check_result_evidences_result_fk FOREIGN KEY (organization_id, check_result_id) REFERENCES public.check_results(organization_id, id);
+
+
+--
+-- Name: check_result_slots check_result_slots_key_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_result_slots
+    ADD CONSTRAINT check_result_slots_key_fk FOREIGN KEY (organization_id, check_result_key_id) REFERENCES public.check_result_keys(organization_id, id);
+
+
+--
+-- Name: check_results check_results_check_definition_row_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_check_definition_row_id_fkey FOREIGN KEY (check_definition_row_id) REFERENCES public.check_definitions(id);
+
+
+--
+-- Name: check_results check_results_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: check_results check_results_slot_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.check_results
+    ADD CONSTRAINT check_results_slot_fk FOREIGN KEY (organization_id, slot_id) REFERENCES public.check_result_slots(organization_id, id);
 
 
 --
@@ -6680,6 +8270,22 @@ ALTER TABLE ONLY public.evidence
 
 
 --
+-- Name: external_measurement_submissions external_measurement_submissions_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_measurement_submissions
+    ADD CONSTRAINT external_measurement_submissions_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: external_measurement_submissions external_measurement_submissions_set_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.external_measurement_submissions
+    ADD CONSTRAINT external_measurement_submissions_set_fk FOREIGN KEY (organization_id, measurement_set_row_id) REFERENCES public.measurement_sets(organization_id, id);
+
+
+--
 -- Name: fetch_attempts fetch_attempts_crawl_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6773,6 +8379,94 @@ ALTER TABLE ONLY public.ingestion_jobs
 
 ALTER TABLE ONLY public.ingestion_jobs
     ADD CONSTRAINT ingestion_jobs_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: issue_evidences issue_evidences_issue_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_evidences
+    ADD CONSTRAINT issue_evidences_issue_fk FOREIGN KEY (organization_id, issue_id) REFERENCES public.issues(organization_id, id);
+
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_issue_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_lineage_heads
+    ADD CONSTRAINT issue_lineage_heads_issue_fk FOREIGN KEY (organization_id, current_issue_id) REFERENCES public.issues(organization_id, id);
+
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_key_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_lineage_heads
+    ADD CONSTRAINT issue_lineage_heads_key_fk FOREIGN KEY (organization_id, dedup_key_id) REFERENCES public.deduplication_keys(organization_id, id);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_issue_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_issue_fk FOREIGN KEY (organization_id, issue_id) REFERENCES public.issues(organization_id, id);
+
+
+--
+-- Name: issue_set_memberships issue_set_memberships_set_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_set_memberships
+    ADD CONSTRAINT issue_set_memberships_set_fk FOREIGN KEY (organization_id, issue_set_id) REFERENCES public.issue_sets(organization_id, id);
+
+
+--
+-- Name: issue_sets issue_sets_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issue_sets
+    ADD CONSTRAINT issue_sets_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: issues issues_check_result_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issues
+    ADD CONSTRAINT issues_check_result_fk FOREIGN KEY (organization_id, check_result_id) REFERENCES public.check_results(organization_id, id);
+
+
+--
+-- Name: issues issues_dedup_key_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issues
+    ADD CONSTRAINT issues_dedup_key_fk FOREIGN KEY (organization_id, dedup_key_id) REFERENCES public.deduplication_keys(organization_id, id);
+
+
+--
+-- Name: issues issues_evaluation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.issues
+    ADD CONSTRAINT issues_evaluation_fk FOREIGN KEY (organization_id, project_id, evaluation_id) REFERENCES public.evaluations(organization_id, project_id, id);
+
+
+--
+-- Name: measurement_sets measurement_sets_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_project_fk FOREIGN KEY (organization_id, project_id) REFERENCES public.projects(organization_id, id);
+
+
+--
+-- Name: measurement_sets measurement_sets_supersedes_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.measurement_sets
+    ADD CONSTRAINT measurement_sets_supersedes_id_fkey FOREIGN KEY (supersedes_id) REFERENCES public.measurement_sets(id);
 
 
 --
@@ -6966,6 +8660,97 @@ CREATE POLICY bootstrap_grants_context ON public.bootstrap_grants USING ((bootst
 
 
 --
+-- Name: check_applicability_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_applicability_entries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_applicability_entries check_applicability_entries_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_applicability_entries_context ON public.check_applicability_entries USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_applicability_snapshots; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_applicability_snapshots ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_applicability_snapshots check_applicability_snapshots_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_applicability_snapshots_context ON public.check_applicability_snapshots USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_attempts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_attempts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_attempts check_attempts_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_attempts_context ON public.check_attempts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_result_evidences; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_result_evidences ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_result_evidences check_result_evidences_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_result_evidences_context ON public.check_result_evidences USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_result_keys; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_result_keys ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_result_keys check_result_keys_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_result_keys_context ON public.check_result_keys USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_result_slots; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_result_slots ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_result_slots check_result_slots_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_result_slots_context ON public.check_result_slots USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: check_results; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.check_results ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: check_results check_results_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY check_results_context ON public.check_results USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: command_executions; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -7121,6 +8906,19 @@ ALTER TABLE public.crawls ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY crawls_context ON public.crawls USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: deduplication_keys; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.deduplication_keys ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: deduplication_keys deduplication_keys_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY deduplication_keys_context ON public.deduplication_keys USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -7280,6 +9078,19 @@ CREATE POLICY evidence_context ON public.evidence USING ((organization_id = publ
 
 
 --
+-- Name: external_measurement_submissions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.external_measurement_submissions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: external_measurement_submissions external_measurement_submissions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY external_measurement_submissions_context ON public.external_measurement_submissions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
 -- Name: fetch_attempts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -7290,6 +9101,19 @@ ALTER TABLE public.fetch_attempts ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY fetch_attempts_context ON public.fetch_attempts USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: fingerprint_collision_decisions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fingerprint_collision_decisions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY fingerprint_collision_decisions_context ON public.fingerprint_collision_decisions USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -7367,6 +9191,84 @@ ALTER TABLE public.invitations ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY invitations_context ON public.invitations USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: issue_evidences; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.issue_evidences ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: issue_evidences issue_evidences_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY issue_evidences_context ON public.issue_evidences USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: issue_lineage_heads; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.issue_lineage_heads ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: issue_lineage_heads issue_lineage_heads_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY issue_lineage_heads_context ON public.issue_lineage_heads USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: issue_set_memberships; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.issue_set_memberships ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: issue_set_memberships issue_set_memberships_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY issue_set_memberships_context ON public.issue_set_memberships USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: issue_sets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.issue_sets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: issue_sets issue_sets_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY issue_sets_context ON public.issue_sets USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: issues; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.issues ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: issues issues_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY issues_context ON public.issues USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
+
+
+--
+-- Name: measurement_sets; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.measurement_sets ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: measurement_sets measurement_sets_context; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY measurement_sets_context ON public.measurement_sets USING ((organization_id = public.f1_current_context_org())) WITH CHECK ((organization_id = public.f1_current_context_org()));
 
 
 --
@@ -7610,6 +9512,9 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260808120000'),
+('20260808110000'),
+('20260808100000'),
 ('20260807150000'),
 ('20260807140000'),
 ('20260807130000'),

@@ -146,6 +146,52 @@ module F1
       "parsing_jobs"                      => "SELECT, INSERT, UPDATE",
       "parsed_artifacts"                  => "SELECT, INSERT",
       "evaluation_input_snapshots"        => "SELECT, INSERT",
+      # S-09 the ratified `check-catalog-v1` (SCORE_EVIDENCE_MODEL.md Check Definition And
+      # Check Catalog Contract). SELECT ONLY, and that is the point: "Tenant actors cannot
+      # create, edit, disable, remap, or reorder a Definition", so the runtime holds no INSERT
+      # and no UPDATE on any of the three. The seven Definitions and the Catalog are seeded
+      # through the owner connection, which no tenant request path can obtain. These tables
+      # are GLOBAL — no `organization_id`, no row level security — because a Check Definition
+      # belongs to the product, not to a tenant.
+      "check_definitions"                 => "SELECT",
+      "check_catalogs"                    => "SELECT",
+      "check_catalog_entries"             => "SELECT",
+      # S-09 the frozen applicability seal and Check Result identity. The Snapshot, its
+      # entries and the result keys are T-IMM (SELECT/INSERT; immutability triggers refuse
+      # UPDATE/DELETE and the missing grant is defence in depth). The Slot is the one mutable
+      # member — it transitions pending -> running -> terminal and counts attempts — so it
+      # carries UPDATE; nothing here ever carries DELETE, because a materialized key that
+      # could be removed would let a second Result be created for the same preimage.
+      "check_applicability_snapshots"     => "SELECT, INSERT",
+      "check_applicability_entries"       => "SELECT, INSERT",
+      "check_result_keys"                 => "SELECT, INSERT",
+      "check_result_slots"                => "SELECT, INSERT, UPDATE",
+      "check_attempts"                    => "SELECT, INSERT, UPDATE",
+      "check_results"                     => "SELECT, INSERT",
+      "check_result_evidences"            => "SELECT, INSERT",
+      # The fail-closed collision record for both ratified branches (PRULE-010's
+      # `check_result_key_collision` and OD-017's Issue collision). T-IMM.
+      "fingerprint_collision_decisions"   => "SELECT, INSERT",
+      # S-12 Issues. The dedup key, the Evidence links, the sealed set and its memberships are
+      # T-IMM; the Issue and its lineage head are T-MUT (lifecycle and adjudication status
+      # transition in place, and a trigger refuses any change to the origin, the fingerprint
+      # or the impact/confidence metadata). No DELETE: an Issue leaves product use through a
+      # terminal state, never through row removal.
+      "deduplication_keys"                => "SELECT, INSERT",
+      "issues"                            => "SELECT, INSERT, UPDATE",
+      "issue_evidences"                   => "SELECT, INSERT",
+      "issue_lineage_heads"               => "SELECT, INSERT, UPDATE",
+      "issue_sets"                        => "SELECT, INSERT",
+      "issue_set_memberships"             => "SELECT, INSERT",
+      # S-08 external-measurement intake (WORKFLOW_SPECIFICATIONS.md :480-482). The Measurement
+      # Set package is written once and then transitions only along its checked activation tuple,
+      # so it carries UPDATE; the guard refuses any change to its identity, bytes or keys, and a
+      # CHECK constraint refuses activation without BOTH owner signatures — the runtime holding
+      # UPDATE therefore cannot activate anything it has not been given signed bytes for. The
+      # accepted observation is T-IMM: SELECT/INSERT only. No DELETE on either; an unapproved
+      # package is rejected in place, never removed.
+      "measurement_sets"                  => "SELECT, INSERT, UPDATE",
+      "external_measurement_submissions"  => "SELECT, INSERT",
       # F-05 entitlement reservation subsystem (entitlement-interim-v1; DECISIONS ADR-069).
       # Additive new-table grants (Foundation Consumption Rule / ADR-029): no existing grant
       # changes and FORCE RLS is preserved. The counter windows accumulate (UPDATE the counter

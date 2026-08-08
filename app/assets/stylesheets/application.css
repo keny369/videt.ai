@@ -261,3 +261,51 @@ button,
 .breadcrumb a:hover { text-decoration: underline; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+/* ---------------------------------------------------------------- WF-007 findings
+   The four check states are told apart by their WORD first; the tint only reinforces it,
+   which is why `not measured` and `not applicable` share the neutral treatment rather than
+   borrowing the failure tint. An unmeasured check is not a fault, and colouring it red would
+   accuse the site of something it has not done. */
+.state--check-passed { background: var(--ok-bg); border-color: var(--ok-line); }
+.state--check-failed { background: var(--bad-bg); border-color: var(--bad-line); }
+.state--check-error,
+.state--check-not_applicable { background: transparent; border-style: dashed; color: var(--ink-soft); }
+
+.muted { color: var(--ink-soft); font-size: 0.85rem; display: block; }
+
+/* The score panel states an absence, so it is styled as a statement rather than as an
+   alert: no warning tint, no red, no icon. "Unavailable" is the approved baseline outcome. */
+.score-summary {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0;
+}
+.score-value { margin: 0; font-size: 1.05rem; }
+
+.impact {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+.impact--critical,
+.impact--high { background: var(--bad-bg); border-color: var(--bad-line); }
+.impact--medium { background: var(--warn-bg); border-color: var(--warn-line); }
+
+/* Measurement set staging. `proposed` is deliberately neutral rather than warning-tinted: a
+   staged package is not a problem, it is simply not measuring anything yet. */
+.state--set-proposed { background: transparent; border-style: dashed; color: var(--ink-soft); }
+.state--set-active { background: var(--ok-bg); border-color: var(--ok-line); }
+.state--set-rejected,
+.state--set-superseded { background: var(--bad-bg); border-color: var(--bad-line); }
+.digest { font-size: 0.75rem; word-break: break-all; color: var(--ink-soft); }
+.field { margin: 1rem 0; }
+.field textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+
+/* The failing subjects inside a grouped check row. Small, and never longer than the ten that
+   fit: a list that scrolls off the row stops being a summary. */
+.subjects { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.85rem; color: var(--ink-soft); }
+.subjects li { margin: 0.1rem 0; word-break: break-word; }

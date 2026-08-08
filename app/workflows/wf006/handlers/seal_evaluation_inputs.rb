@@ -16,26 +16,20 @@ module Workflows
       # its last: the guard latched and never released. This is the limb that resolves it.
       #
       # WHAT IT DECIDES, AND WHAT IT REFUSES TO DECIDE. It runs exactly the ratified
-      # readiness derivation over persisted facts. Today that derivation returns `blocked`
-      # — truthfully, on two of its four predicates: no parser policy version can be
-      # resolved and no Parsed Artifact has succeeded, because the parsing pipeline is not
-      # in this build (see `Wf006::ParserPolicy`). `blocked` has its own fully specified
-      # terminal transaction, and that transaction is all this runs:
+      # readiness derivation over persisted facts, and every branch of that derivation is
+      # now reachable:
       #
-      #     atomically Pending -> Running -> Failed, emitting one EvaluationStarted, one
+      #   * `blocked` runs its own fully specified terminal transaction — atomically
+      #     Pending -> Running -> Failed, emitting one EvaluationStarted, one
       #     EvaluationInputsBlocked and one EvaluationFailed with
-      #     `evaluation_inputs_unavailable`, and performing NO Check or provider side
-      #     effect.
+      #     `evaluation_inputs_unavailable`, and performing NO Check or provider side effect.
+      #   * `ready_full`/`ready_partial` seal the immutable snapshot, freeze the three
+      #     baseline platform-derived Evidence payloads S-09's Checks consume, schedule
+      #     WF-007's first stage, and LEAVE THE EVALUATION PENDING (:510). Starting it here
+      #     would take WF-007's single start transition away from it.
       #
-      # So no check is executed, no Issue is derived, no score is computed and no
-      # recommendation is generated — none of which has resolved semantics, and none of
-      # which is invented here. The Evaluation reaches a terminal state on the strength of
-      # a fact about its inputs, which is the one thing that can be said honestly today.
-      #
-      # WHEN THE PARSER LANDS. `ready_full`/`ready_partial` become reachable and this
-      # handler must NOT be the thing that acts on them: sealing a real snapshot is S-08's
-      # transaction and starting the Evaluation is WF-007's single start. Reaching a ready
-      # status here therefore raises rather than guessing — see `unreachable_ready`.
+      # It still decides nothing about a Check, an Issue or a score. Those are WF-007's, and
+      # the boundary is what keeps this stage a statement about INPUTS.
       class SealEvaluationInputs
         SUPPORTED_SCHEMA_MAJOR = "1"
         TARGET_TYPE = "crawl"
@@ -293,20 +287,93 @@ module Workflows
         # ---- the ready seal ------------------------------------------------------------
 
         # :510 "`ready_full` or `ready_partial` LEAVES IT PENDING for WF-007's single start
-        # transition." So this seals the snapshot and stops. Starting the Evaluation here
-        # would be taking WF-007's one start away from it, and there is no WF-007 yet.
+        # transition." So this seals the snapshot, freezes the derived Evidence, schedules
+        # WF-007's first stage — and stops. Starting the Evaluation here would be taking
+        # WF-007's one start away from it.
         def seal_ready(d, crawl, evaluation, manifest, jobs, readiness, key_digest)
           failed = jobs.reject { |job| job["status"] == "succeeded" }
                        .map { |job| { "document_id" => job["document_id"], "reason" => job["last_reason_code"] } }
           snapshot_id = seal_snapshot(d, crawl, evaluation, manifest, readiness, failed)
+          # BEFORE the Evaluation can be evaluated, not after: a Check is a pure function of
+          # frozen Evidence, so the observations it will read must exist and be immutable by
+          # the time WF-007's first stage can run. They are produced on THIS transaction,
+          # beside the snapshot they describe.
+          evidence = derive_evidence(d, crawl, evaluation, snapshot_id)
+          Wf007::EvaluationStageSchedule.schedule_applicability(
+            pg: d[:store].connection, organization_id: d[:org], project_id: evaluation["project_id"],
+            evaluation_id: evaluation["id"], due_at: d[:now], now: d[:now],
+            correlation_id: d[:ctx].correlation_id, command_id: d[:command].command_id
+          )
 
           record_checkpoint(d, evaluation, key_digest, reason: readiness.readiness_status, extra: {
             "outcome" => "inputs_ready", "evaluation_input_snapshot_id" => snapshot_id,
             "readiness_status" => readiness.readiness_status, "coverage_status" => readiness.coverage_status,
             "manifest_entries" => manifest.size,
             "parsed_artifacts_succeeded" => jobs.count { |job| job["status"] == "succeeded" },
-            "failed_count" => failed.length
+            "failed_count" => failed.length, "derived_evidence" => evidence
           })
+        end
+
+        # The three baseline platform-derived payloads (SCORE_EVIDENCE_MODEL.md § Baseline
+        # Platform-Derived Evidence Payloads). NO `external_measurement` is derived, because
+        # `external-measurement-v1` bundles no query, intent, listing, provider or adapter set
+        # and OD-010 ratified that state together with its consequence. Returns the produced
+        # counts, so the checkpoint records what was frozen rather than that something was.
+        def derive_evidence(d, crawl, evaluation, snapshot_id)
+          store = d[:store]
+          artifacts = store.parsed_artifacts_for_evaluation(evaluation["id"])
+                           .map { |a| [a, EvidenceDerivation.artifact_payload(a)] }
+          sources = store.active_crawl_sources(crawl["id"])
+          outcomes = store.crawl_url_outcomes(crawl["id"])
+          org_name = store.organization_display_name(d[:org])
+          counts = Hash.new(0)
+
+          common = { evaluation_id: evaluation["id"], organization_id: d[:org],
+                     project_id: evaluation["project_id"], observed_at: d[:now], captured_at: d[:now],
+                     correlation_id: d[:ctx].correlation_id }
+
+          artifacts.each do |artifact, payload|
+            EvidenceDerivation.produce(
+              **common, source_id: artifact["source_id"], evidence_type: "parsed_content",
+              schema_version: EvidenceDerivation::TITLE_SCHEMA, subject_key: artifact["canonical_url"],
+              data_classification: artifact["data_classification"],
+              payload: EvidenceDerivation.title_observation(artifact:, payload:, evaluation_id: evaluation["id"])
+            )
+            counts["document_title"] += 1
+          end
+
+          sources.each do |source|
+            of_source = artifacts.select { |a, _| a["source_id"] == source["id"] }
+            EvidenceDerivation.produce(
+              **common, source_id: source["id"], evidence_type: "crawl_observation",
+              schema_version: EvidenceDerivation::LINK_SCHEMA, subject_key: source["id"],
+              payload: EvidenceDerivation.link_observation(
+                source:, artifacts: of_source, evaluation_id: evaluation["id"], crawl_id: crawl["id"],
+                crawl_coverage: crawl["coverage_status"], outcomes:
+              )
+            )
+            counts["internal_link"] += 1
+
+            # A Source whose ROOT was not parsed produces no identity observation at all,
+            # which is not an omission: CHK-TR-001 still has an expected entry for that
+            # Source and reaches an explicit handled `input_evidence_missing` error rather
+            # than disappearing from the applicability set.
+            root = of_source.find { |a, _| truthy(a["source_root"]) }
+            next if root.nil?
+
+            EvidenceDerivation.produce(
+              **common, source_id: source["id"], evidence_type: "parsed_content",
+              schema_version: EvidenceDerivation::IDENTITY_SCHEMA, subject_key: source["id"],
+              data_classification: root[0]["data_classification"],
+              payload: EvidenceDerivation.identity_observation(
+                artifact: root[0], payload: root[1], evaluation_id: evaluation["id"],
+                organization_name: org_name, canonical_root: source["canonical_root_uri"]
+              )
+            )
+            counts["organization_identity"] += 1
+          end
+
+          counts.merge("evaluation_input_snapshot_id" => snapshot_id)
         end
 
         # The immutable snapshot :501 requires, with the canonical hash over its own content

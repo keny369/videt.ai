@@ -1,0 +1,90 @@
+<% content_for :title, "Measurement sets" %>
+
+<nav aria-label="Breadcrumb" class="breadcrumb">
+  <%= link_to "Projects", app_projects_path %> &rsaquo;
+  <%= link_to @project["display_name"], app_project_sources_path(@project["id"]) %> &rsaquo;
+  <span aria-current="page">Measurement sets</span>
+</nav>
+
+<div class="page-heading">
+  <h1>Measurement sets</h1>
+</div>
+
+<p class="aside">
+  External checks &mdash; search presence, AI answer presence, authority references and local
+  profiles &mdash; measure against an owner-approved Measurement Set. Until one is active for a
+  kind, that check reports <strong>not measured</strong> rather than guessing a result.
+</p>
+
+<h2>Staged packages</h2>
+<% if @sets.empty? %>
+  <p class="empty">
+    No package has been staged. Nothing external is measured, and the four external checks will
+    report that plainly.
+  </p>
+<% else %>
+  <table class="collection">
+    <caption class="visually-hidden">Measurement Set packages staged for this organization</caption>
+    <thead>
+      <tr>
+        <th scope="col">Set</th>
+        <th scope="col">Measures</th>
+        <th scope="col">Keys</th>
+        <th scope="col">Status</th>
+        <th scope="col">Package SHA-256</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @sets.each do |set| %>
+        <tr>
+          <th scope="row">
+            <%= set["measurement_set_id"] %>
+            <span class="muted">version <%= set["measurement_set_version"] %> &middot;
+              adapter <%= set["collector_adapter_id"] %> <%= set["collector_adapter_version"] %></span>
+          </th>
+          <td><%= set["measurement_kind"].tr("_", " ") %></td>
+          <td><%= JSON.parse(set["expected_keys"]).length %></td>
+          <td>
+            <span class="state state--set-<%= set["status"] %>"><%= set["status"] %></span>
+            <%# A proposed package is not a half-active one. It measures nothing at all, and the
+                screen says so rather than implying it is on its way in. %>
+            <% if set["status"] == "proposed" %>
+              <p class="hint">
+                Measures nothing. Both Chief Product and Chief Architect must sign this exact
+                digest before it can be activated; one signature, or a signature over different
+                bytes, authorizes nothing.
+              </p>
+            <% end %>
+          </td>
+          <td><code class="digest"><%= set["package_sha256"] %></code></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<h2>Stage a package</h2>
+<p class="aside">
+  Paste an owner-approval package. It is validated against OD-010's required content and against
+  the active check catalogue's digests, then stored as <strong>proposed</strong>.
+  <strong>This screen cannot activate a set.</strong> Activation is the owner-approval release
+  service's, on bytes both owners have signed.
+</p>
+
+<%= form_with url: app_project_measurements_path(@project["id"]), method: :post, data: { turbo: false } do |f| %>
+  <div class="field">
+    <%= f.label :package, "Measurement Set package (JSON)" %>
+    <%= f.text_area :package, rows: 12, spellcheck: false, required: true,
+                    "aria-describedby": "package-hint" %>
+    <p class="hint" id="package-hint">
+      Built from a probe run by
+      <code>operations/probe-harness/build_measurement_package.py</code>. The digest it prints is
+      the value the owners sign.
+    </p>
+  </div>
+  <%= f.submit "Stage package for approval", class: "button" %>
+<% end %>
+
+<p class="aside">
+  <%= link_to "Back to crawls", app_project_crawls_path(@project["id"]) %>
+</p>

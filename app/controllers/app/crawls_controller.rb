@@ -64,6 +64,10 @@ module App
       @fetch_attempts = outcome.value[:fetch_attempts]
       @terminal_outcomes = outcome.value[:terminal_outcomes]
       @documents = outcome.value[:documents]
+      @applicability = outcome.value[:applicability]
+      @check_results = outcome.value[:check_results]
+      @issues = outcome.value[:issues]
+      @issue_set = outcome.value[:issue_set]
     end
 
     def create
@@ -89,12 +93,26 @@ module App
       crawl = store.crawl(organization_id: org, project_id: params[:project_id], crawl_id: params[:id])
       return nil if project.nil? || crawl.nil?
 
-      { project:, crawl:,
-        evaluation: store.crawl_evaluation(organization_id: org, crawl_id: params[:id]),
+      evaluation = store.crawl_evaluation(organization_id: org, crawl_id: params[:id])
+      { project:, crawl:, evaluation:,
         sources: store.crawl_sources(organization_id: org, crawl_id: params[:id]),
         fetch_attempts: store.fetch_attempts(organization_id: org, crawl_id: params[:id]),
         terminal_outcomes: store.crawl_terminal_outcomes(organization_id: org, crawl_id: params[:id]),
         documents: store.crawl_documents(organization_id: org, crawl_id: params[:id]) }
+        .merge(evaluation_output(store, org, evaluation))
+    end
+
+    # WF-007's output, read only when there is an Evaluation to read it for. An Evaluation
+    # that never started has no applicability seal and therefore no Check Results, which is a
+    # different thing from an Evaluation whose checks all reported nothing — and the screen
+    # has to be able to tell those apart.
+    def evaluation_output(store, org, evaluation)
+      return { applicability: nil, check_results: [], issues: [], issue_set: nil } if evaluation.nil?
+
+      { applicability: store.evaluation_applicability(organization_id: org, evaluation_id: evaluation["id"]),
+        check_results: store.evaluation_check_results(organization_id: org, evaluation_id: evaluation["id"]),
+        issues: store.evaluation_issues(organization_id: org, evaluation_id: evaluation["id"]),
+        issue_set: store.evaluation_issue_set(organization_id: org, evaluation_id: evaluation["id"]) }
     end
 
     def submit_queue(organization_id, project_id)
@@ -126,15 +144,22 @@ module App
   end
 
   module Crawls
-    # The Evaluation reason codes this build can produce, as a sentence. There is exactly
-    # one today, and it is not a fault in the crawled site: the WF-006 input gate derives
-    # `blocked` because no parser policy can be resolved and no Parsed Artifact can
-    # succeed, so the honest sentence names the missing capability rather than implying
-    # the source failed.
+    # The Evaluation reason codes this build can produce, as a sentence. Each names whose
+    # problem it is: a run that produced nothing to analyse is not the same as a platform
+    # that could not analyse it, and a reader deserves to know which happened.
     EVALUATION_REASONS = {
       "evaluation_inputs_unavailable" =>
-        "The crawl's documents could not be turned into evaluation inputs, because content " \
-        "analysis is not part of this build yet. Nothing is wrong with the source."
+        "This crawl produced nothing that could be analysed, so the evaluation closed without " \
+        "running any checks. The per-URL outcomes below say what the run actually reached.",
+      "check_catalog_unavailable" =>
+        "The check catalogue could not be loaded, so no check was run. This is a platform " \
+        "fault, not a fault in your site.",
+      "check_catalog_integrity_failure" =>
+        "The check catalogue failed its integrity validation, so no check was run. This is a " \
+        "platform fault, not a fault in your site.",
+      "check_result_set_incomplete" =>
+        "Some checks did not produce a result, so the evaluation closed rather than publishing " \
+        "a partial set."
     }.freeze
 
     REASONS = {

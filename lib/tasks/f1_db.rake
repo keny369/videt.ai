@@ -239,5 +239,11 @@ end
     F1DbProvision.ensure_context_key(conn)
     F1DbProvision.ensure_encryption_key(conn)
     F1DbProvision.ensure_service_identities(conn)
+    # The ratified `check-catalog-v1`. Provisioned here for exactly the reason the reserved
+    # Service Identities are: db/structure.sql carries no data, so a migration-time INSERT
+    # never runs on the structure-load route, and WF-007 would then find no active Catalog
+    # and fail every Evaluation `check_catalog_unavailable`. Identities are derived from
+    # content, so this is a no-op on every run after the first.
+    Workflows::Wf007::CheckCatalog.seed!(conn)
   end
 end

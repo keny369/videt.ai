@@ -74,17 +74,155 @@
   <% if %w[pending running].include?(@evaluation["state"]) %>
     <p class="aside">
       <%# The two reasons an evaluation is unresolved are different things, and telling them
-          apart is the difference between "your crawl gave us nothing" and "we have your
-          content and the analysis step does not exist yet". %>
+          apart is the difference between "your crawl gave us nothing" and "the checks are
+          still running". %>
       <% if @evaluation["readiness_status"].to_s.start_with?("ready") %>
-        This crawl's content is parsed and ready to analyse. Analysis itself is a later
-        build step, so the evaluation stays open and the project accepts no further crawls
-        for now.
+        This crawl's content is parsed and its checks are running. While the evaluation is
+        unresolved the project accepts no further crawls.
       <% else %>
         While this evaluation is unresolved the project accepts no further crawls.
       <% end %>
     </p>
   <% end %>
+<% end %>
+
+<%# ============================================================================ findings %>
+<% if @check_results.any? %>
+  <h2>Checks</h2>
+
+  <%# THE SCORE IS SHOWN AS UNAVAILABLE, NOT AS AN ERROR. Under the ratified baseline the
+      four measurement checks have no measurement set to read, so their pillars have
+      insufficient evidence and no overall number can be supported. Saying that plainly is
+      the honest screen; showing a zero, or a red failure, would be a fabricated number and a
+      false accusation respectively. %>
+  <div class="score-summary">
+    <p class="score-value">Overall score: <strong>unavailable</strong></p>
+    <p class="hint"><%= score_unavailable_sentence(@check_results) %></p>
+  </div>
+
+  <p class="aside">
+    <%= @check_results.length %> of <%= @applicability ? @applicability["entry_count"] : @check_results.length %>
+    expected checks ran, from catalogue
+    <%= @applicability ? @applicability["check_catalog_version"] : "check-catalog-v1" %>.
+  </p>
+
+  <table class="collection">
+    <caption class="visually-hidden">Every check this evaluation ran, and what it decided</caption>
+    <thead>
+      <tr>
+        <th scope="col">Check</th>
+        <th scope="col">Observed</th>
+        <th scope="col">Result</th>
+        <th scope="col">Impact</th>
+      </tr>
+    </thead>
+    <tbody>
+      <%# One row per check, worst first. A per-page check runs once per Document, and one row
+          per Result would be a 226-row table that buries the single page that failed. %>
+      <% check_groups(@check_results).each do |group| %>
+        <% result = group.worst %>
+        <tr class="check check--<%= result["execution_status"] %>">
+          <th scope="row">
+            <%= check_name(group.definition_id) %>
+            <span class="muted"><%= group.definition_id %> &middot; <%= pillar_name(group.pillar_id) %><%=
+              " · #{group.count} pages" if group.count > 1 %></span>
+            <% if (reason = why_it_matters(group.definition_id)) %>
+              <p class="hint"><%= reason %></p>
+            <% end %>
+          </th>
+          <td>
+            <%= group_observed(group) %>
+            <%# The failing subjects, named. A tally alone tells a reader something is wrong
+                without telling them where. %>
+            <% if group.failures.any? && group.count > 1 %>
+              <ul class="subjects">
+                <% group.failures.first(10).each do |failure| %>
+                  <li><%= finding_subject(failure) %> &mdash; <%= failure["outcome_code"] %></li>
+                <% end %>
+              </ul>
+              <% if group.failures.length > 10 %>
+                <p class="hint"><%= group.failures.length - 10 %> more.</p>
+              <% end %>
+            <% end %>
+            <% if (items = measured_items(result)).any? %>
+              <p class="hint">
+                Not found for:
+                <%= items.first(5).map { |i| i.is_a?(Hash) ? i.values.first : i }.join(", ") %><%= "…" if items.length > 5 %>
+              </p>
+            <% end %>
+          </td>
+          <td>
+            <span class="state state--check-<%= result["execution_status"] %>">
+              <%= freshness_label(result) || finding_status_label(result["execution_status"]) %>
+            </span>
+            <% if result["execution_status"] == "error" %>
+              <p class="hint"><%= not_measured_reason(result["error_reason_code"]) %></p>
+            <% elsif result["execution_status"] == "not_applicable" %>
+              <p class="hint">
+                This project has recorded that local presence does not apply to it, so this
+                check was not run and counts neither for nor against it.
+              </p>
+            <% else %>
+              <span class="muted"><%= result["outcome_code"] %></span>
+            <% end %>
+          </td>
+          <td><%= result["impact_band"].presence || "—" %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <% if @issues.empty? %>
+    <p class="empty">
+      No findings. Every check that could be measured was met.
+    </p>
+  <% else %>
+    <p class="aside">
+      <%= @issues.length %> <%= "finding".pluralize(@issues.length) %> from this evaluation.
+      <% if @issue_set %>
+        The finding set was sealed with <%= @issue_set["member_count"] %>
+        <%= "member".pluralize(@issue_set["member_count"].to_i) %>.
+      <% end %>
+    </p>
+    <table class="collection">
+      <caption class="visually-hidden">Findings this evaluation produced</caption>
+      <thead>
+        <tr>
+          <th scope="col">Finding</th>
+          <th scope="col">Applies to</th>
+          <th scope="col">Impact</th>
+          <th scope="col">Effort</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @issues.each do |issue| %>
+          <tr class="issue issue--<%= issue["impact_band"] %>">
+            <th scope="row">
+              <%= issue["issue_type"].tr("_", " ").capitalize %>
+              <span class="muted"><%= check_name(issue["check_definition_id"]) %></span>
+            </th>
+            <td><%= finding_subject(issue) %></td>
+            <td><span class="impact impact--<%= issue["impact_band"] %>"><%= issue["impact_band"] %></span></td>
+            <td><%= issue["effort_band"].presence || "—" %></td>
+            <td>
+              <%# A withheld candidate is NOT a published finding, and the screen says which
+                  it is. Under the ratified baseline every finding carries valid high
+                  confidence and publishes, so a withheld one here would be a real signal. %>
+              <%= issue["publication_status"] == "published" ? "Open" : "Held for review" %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+<% elsif @evaluation && @evaluation["state"] == "running" %>
+  <h2>Checks</h2>
+  <p class="empty">
+    The checks for this evaluation are running.
+    <%= link_to "Reload", app_project_crawl_path(@project["id"], @crawl["id"]) %> to see them.
+  </p>
 <% end %>
 
 <h2>Sources</h2>
