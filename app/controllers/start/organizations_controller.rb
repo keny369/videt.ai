@@ -11,12 +11,14 @@ module Start
   # a Session exists, and the only thing left for the transport to do is put its bearer
   # token in the cookie.
   class OrganizationsController < BaseController
+    include LocalPresenceForm
+
     before_action :require_remembered_identity
 
     def new
       @organization_display_name = ""
       @project_display_name = ""
-      @local_presence_reason = ""
+      assign_local_presence_form
     end
 
     def create
@@ -47,22 +49,19 @@ module Start
     def assign_form
       @organization_display_name = params[:organization_display_name].to_s.strip
       @project_display_name = params[:project_display_name].to_s.strip
-      @local_presence_reason = params[:local_presence_reason].to_s.strip
+      assign_local_presence_form
     end
 
     # Field validation before a command is built. WF-001 validates these too and is the
     # authority; checking here is only so the form can point at the offending control
     # instead of showing a committed failure.
     def form_invalid?
-      creation = Workflows::Wf002::ProjectCreation
       @field_errors = {}
       @field_errors[:organization_display_name] = "Enter a name of 1 to 120 characters." unless
         display_name_ok?(@organization_display_name)
       @field_errors[:project_display_name] = "Enter a name of 1 to 120 characters." unless
         display_name_ok?(@project_display_name)
-      @field_errors[:local_presence_reason] =
-        "Enter a reason of #{creation::REASON_MIN} to #{creation::REASON_MAX} characters." if
-        creation.normalized_reason(@local_presence_reason).nil?
+      @field_errors.merge!(local_presence_field_errors)
       @field_errors.any?
     end
 
@@ -75,12 +74,9 @@ module Start
     # The locale, time zone and objective are fixed by the ratified profile rather than
     # offered as choices, so the form asks only for what the schema leaves open.
     #
-    # As on the WF-002 screen, this slice creates the genesis Project without a
-    # local-presence claim: the branch that asserts one requires a complete
-    # local-business-profile body, which has no form yet on either path. Declaring false
-    # with a stated reason is the honest half, and it is the half that lets `CHK-LP-001`
-    # reach `not_applicable` instead of erroring on an absent profile. The reason is the
-    # registrant's own words; nothing here derives it.
+    # Both local-presence branches are reachable here. The Local Business Profile's
+    # business name is the Organization name typed one control above, because :657
+    # requires exactly that value and the handler refuses anything else.
     def first_project
       creation = Workflows::Wf002::ProjectCreation
       {
@@ -88,11 +84,8 @@ module Start
         "display_name" => @project_display_name,
         "default_locale" => creation::DEFAULT_LOCALE,
         "reporting_time_zone" => creation::REPORTING_TIME_ZONE,
-        "objective" => creation::OBJECTIVE,
-        "local_presence_applicable" => false,
-        "local_presence_reason" => @local_presence_reason,
-        "local_business_profile" => nil
-      }
+        "objective" => creation::OBJECTIVE
+      }.merge(local_presence_profile_fields(@organization_display_name))
     end
 
     def bootstrap(receipt)

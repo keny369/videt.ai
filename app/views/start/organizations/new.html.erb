@@ -46,21 +46,16 @@
       </p>
     </div>
 
-    <div class="field">
-      <%= label_tag :local_presence_reason, "Why this project has no local presence" %>
-      <%= text_area_tag :local_presence_reason, @local_presence_reason, required: true,
-                        minlength: Workflows::Wf002::ProjectCreation::REASON_MIN,
-                        maxlength: Workflows::Wf002::ProjectCreation::REASON_MAX, rows: 3,
-                        "aria-invalid": @field_errors&.key?(:local_presence_reason),
-                        "aria-describedby": "local_presence_reason_hint" %>
-      <p class="hint" id="local_presence_reason_hint">
-        Local presence is assessed only for businesses customers reach at a place, so we
-        need your own statement of why this one is not. For example: online-only trader,
-        or a fully remote service business with no premises customers visit.
-        <%= Workflows::Wf002::ProjectCreation::REASON_MIN %> to
-        <%= Workflows::Wf002::ProjectCreation::REASON_MAX %> characters.
-      </p>
-    </div>
+    <%# The business name is the organization name typed above, which is exactly what
+        :657 requires of it, so this screen never asks for it twice. %>
+    <%= render "shared/local_presence_fields",
+               business_name: @organization_display_name.presence || "your organization",
+               local_presence_applicable: @local_presence_applicable,
+               local_presence_reason: @local_presence_reason,
+               local_presence_address: @local_presence_address,
+               local_presence_telephone: @local_presence_telephone,
+               local_presence_service_areas: @local_presence_service_areas,
+               field_errors: @field_errors %>
 
     <button type="submit">Create organization</button>
   <% end %>

@@ -15,6 +15,8 @@ module App
   # authenticates the Session inside it, so the controller only locates the candidate
   # Session id and hands the handler a command.
   class ProjectsController < ApplicationController
+    include LocalPresenceForm
+
     def index
       outcome = authorize!("project.read") do |actor, conn|
         IdentityAccess::Infrastructure::TenantReadStore.new(conn.raw_connection)
@@ -29,25 +31,34 @@ module App
     end
 
     def new
-      outcome = authorize!("project.create")
+      outcome = authorize!("project.create") { |actor, conn| organization_display_name(actor, conn) }
       return if outcome.nil?
 
       @organization_id = outcome.actor.organization_id
+      @organization_display_name = outcome.value
       @display_name = ""
-      @local_presence_reason = ""
+      assign_local_presence_form
     end
 
     def create
       @display_name = params[:display_name].to_s.strip
-      @local_presence_reason = params[:local_presence_reason].to_s.strip
+      assign_local_presence_form
 
       # The create form is itself permission-gated, so this authorizes before building a
       # command. The handler authorizes again under its own locks; this is not a
       # substitute for that, it is what stops an unauthorized actor reaching the form.
-      gate = authorize!("project.create")
+      #
+      # The Organization display name is read in the same authorized transaction because
+      # :657 fixes the Local Business Profile's business name to exactly that value. The
+      # screen must not accept a name for it, and the handler cross-checks what is sent.
+      gate = authorize!("project.create") { |actor, conn| organization_display_name(actor, conn) }
       return if gate.nil?
 
       @organization_id = gate.actor.organization_id
+      @organization_display_name = gate.value
+      @field_errors = local_presence_field_errors
+      return render(:new, status: :unprocessable_content) if @field_errors.any?
+
       result = submit_create(gate.actor.organization_id)
       return render(:new, status: :unprocessable_content) if result.nil?
 
@@ -116,6 +127,15 @@ module App
       outcome&.value
     end
 
+    # QRY-001 already names the Organization display name as a disclosed field of the
+    # authenticated shell, so this discloses nothing new; it reads it on the same
+    # authorized connection rather than trusting a value round-tripped through the form.
+    def organization_display_name(actor, conn)
+      IdentityAccess::Infrastructure::TenantReadStore.new(conn.raw_connection)
+                                                     .organization_home(actor.organization_id)
+                                                     &.fetch("display_name")
+    end
+
     # The complete `project-profile-v1` body WF-002 requires. The locale, time zone and
     # objective are fixed by the ratified profile rather than offered as choices, so the
     # form asks only for what the schema leaves open.
@@ -126,14 +146,8 @@ module App
         "display_name" => @display_name,
         "default_locale" => creation::DEFAULT_LOCALE,
         "reporting_time_zone" => creation::REPORTING_TIME_ZONE,
-        # This slice creates Projects without a local-presence claim: the branch that
-        # asserts one requires a complete local-business-profile body, which has no form
-        # yet. Declaring false with a stated reason is the honest half to build first.
-        "local_presence_applicable" => false,
-        "local_presence_reason" => @local_presence_reason,
-        "local_business_profile" => nil,
         "objective" => creation::OBJECTIVE
-      }
+      }.merge(local_presence_profile_fields(@organization_display_name))
     end
 
     def actor_context = Platform::RequestContext.for_actor(correlation_id: correlation_id)

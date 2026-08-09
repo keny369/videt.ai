@@ -59,18 +59,35 @@ RSpec.describe "Test-harness connection bounds", type: :model do
       .to raise_error(ArgumentError, /work_mem.*PERMITTED/m)
   end
 
+  # FU-56 (round-19 concurrency finding R19-CONC-6). `RaceHarness.open_connection` was a bare
+  # `PG.connect` carrying `statement_timeout = 0`, and three waits in the WF-005 lock-order spec
+  # ran on it with no bound of any kind. It was exempted above on the reasoning that this harness
+  # exists to make connections block against each other — but a statement timeout does not stop
+  # them blocking, it only stops them blocking for ever, and `database.yml` declares no
+  # `lock_timeout` that could disarm the contention itself.
+  it "gives RaceHarness's per-example connections a bounded statement timeout too" do
+    conn = RaceHarness.open_connection
+    expect(timeout_of(conn)).not_to eq("0")
+    # Carrying the SAME bound the rest of the suite carries, not merely some bound — which is
+    # what routing through PgTestConnection buys and what a re-raw'd connection would lose.
+    expect(timeout_of(conn)).to eq(timeout_of(DbInspector.connection))
+  ensure
+    conn&.close
+  end
+
   it "opens every MEMOIZED harness connection through PgTestConnection" do
     # The class of defect, not just its two instances — but scoped to the kind that is dangerous.
     # A process-wide memoized connection outlives every example and is shared by all of them, so an
-    # unbounded wait on it stops the run. The two exempt files open a connection PER EXAMPLE and
-    # close it in an `ensure`, and `race_harness` exists precisely to make connections block against
-    # each other: bounding those would change deliberate concurrency semantics rather than protect
-    # cleanup. Exemptions are named individually so a NEW memoized raw connection still fails.
+    # unbounded wait on it stops the run. The one remaining exempt file opens a connection PER
+    # EXAMPLE and closes it in an `ensure`; `race_harness.rb` was exempt on the same ground and no
+    # longer needs to be, because FU-56 routed it through `PgTestConnection` and bounding it did
+    # not change any deliberate concurrency semantics. Exemptions are named individually so a NEW
+    # memoized raw connection still fails.
     #
     # COMMENTS ARE STRIPPED BEFORE MATCHING. The first form of this check read raw source and so
     # flagged the very comment explaining why the call had been removed — a check that fails on its
     # own documentation is a check nobody will keep.
-    per_example = %w[race_harness.rb scheduled_action_harness.rb pg_test_connection.rb]
+    per_example = %w[scheduled_action_harness.rb pg_test_connection.rb]
     offenders = Rails.root.glob("spec/support/**/*.rb")
                     .reject { |f| per_example.include?(f.basename.to_s) }
                     .select { |f| f.readlines.map { |l| l.sub(/#.*/, "") }.any? { |l| l.match?(/\bPG\.connect\b/) } }

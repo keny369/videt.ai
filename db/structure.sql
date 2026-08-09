@@ -1968,6 +1968,28 @@ $$;
 
 
 --
+-- Name: f1_role_assignments_insert_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.f1_role_assignments_insert_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+  -- ":314 sorted explicit protected-permission allowlist" is populated at the
+  -- moment the grant becomes effective, and :333 makes that moment the
+  -- approval. An inserted row has had no approval, whatever its status says.
+  IF jsonb_array_length(NEW.protected_permission_allowlist) <> 0 THEN
+    RAISE EXCEPTION 'role_assignment_allowlist_requires_activation'
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: f1_role_assignments_lifecycle_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -7702,6 +7724,13 @@ CREATE TRIGGER projects_lifecycle_guard BEFORE UPDATE ON public.projects FOR EAC
 
 
 --
+-- Name: role_assignments role_assignments_insert_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER role_assignments_insert_guard BEFORE INSERT ON public.role_assignments FOR EACH ROW EXECUTE FUNCTION public.f1_role_assignments_insert_guard();
+
+
+--
 -- Name: role_assignments role_assignments_lifecycle_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -9512,6 +9541,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260809100000'),
 ('20260808120000'),
 ('20260808110000'),
 ('20260808100000'),

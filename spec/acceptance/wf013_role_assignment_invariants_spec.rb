@@ -116,15 +116,47 @@ RSpec.describe "WF-013 role assignment invariants", type: :acceptance,
       %w[pending active rejected revoked expired].each { |s| expect(vocabulary).to include("'#{s}'") }
     end
 
+    # FU-59 (round-19 adversarial finding R-ADV-3). `role_assignments` carried a
+    # BEFORE UPDATE trigger and nothing else, so an INSERT could mint a row already
+    # holding approved protected authority — `status='active'` with all 15 PROTECTED
+    # keys — having passed through no approval at all. Round 19 cited this guard as an
+    # INDEPENDENT ground for the safety of the unbound protected limb; it was not one,
+    # because dual control at insert time was enforced in Ruby alone.
+    #
+    # Asserted at INSERT for the same reason the vocabulary is: the UPDATE path has the
+    # lifecycle guard, which would mask an unguarded INSERT entirely.
+    it "will not let a Role Assignment be born holding approved protected authority" do
+      # `pending` is deliberately excluded: `role_assignment_pending_has_no_allowlist`
+      # already refuses it, and including it here would let that CHECK stand in for the
+      # trigger and hide a regression in the four statuses only the trigger covers.
+      %w[active rejected revoked expired].each do |status|
+        expect { insert_assignment(status:, allowlist: '["role.manage"]') }
+          .to raise_error(PG::RaiseException, /role_assignment_allowlist_requires_activation/)
+      end
+
+      # The whole PROTECTED set, which is what the finding actually reached for.
+      whole_set = Platform::PermissionBaseline.protected_permission_preview("OrganizationAdmin")
+      expect(whole_set).not_to be_empty
+      expect { insert_assignment(status: "active", allowlist: JSON.generate(whole_set)) }
+        .to raise_error(PG::RaiseException, /role_assignment_allowlist_requires_activation/)
+
+      # And the trigger is an INSERT trigger, not a re-reading of the UPDATE one.
+      triggers = owner.exec(<<~SQL).values.flatten
+        SELECT tgname FROM pg_trigger
+        WHERE tgrelid = 'role_assignments'::regclass AND NOT tgisinternal
+      SQL
+      expect(triggers).to include("role_assignments_insert_guard")
+    end
+
     # A raw INSERT, so a CHECK is proved by the CHECK.
-    def insert_assignment(status:, account_id: nil)
-      params = [SecureRandom.uuid_v7, org, account_id || account("raw"), status, t0.iso8601(6)]
+    def insert_assignment(status:, account_id: nil, allowlist: "[]")
+      params = [SecureRandom.uuid_v7, org, account_id || account("raw"), status, t0.iso8601(6), allowlist]
       owner.exec_params(<<~SQL, params)
         INSERT INTO role_assignments
           (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
            account_id, canonical_role, permission_mode, status, effective_at, protected_permission_allowlist)
         VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'MarketingOperator','standard',
-                $4,$5::timestamptz,'[]'::jsonb)
+                $4,$5::timestamptz,$6::jsonb)
       SQL
     end
 
@@ -165,8 +197,11 @@ RSpec.describe "WF-013 role assignment invariants", type: :acceptance,
       expect(authorizes?(session_for(assignment(id)["account_id"]), "invitation.approve")).to be(true)
     end
 
+    # `revoked` and `expired` are states a grant reaches AFTER it held authority, so
+    # each is seeded through the real `pending -> active -> terminal` route and still
+    # carries its allowlist. The authorizer must ignore it on status alone.
     it "confers nothing in any inactive state" do
-      %w[rejected revoked expired].each do |terminal|
+      %w[revoked expired].each do |terminal|
         target = account("holder-#{terminal}")
         id = TenantSeeder.create_role_assignment(
           organization_id: org, account_id: target, canonical_role: "OrganizationAdmin",
@@ -174,8 +209,32 @@ RSpec.describe "WF-013 role assignment invariants", type: :acceptance,
           protected_permission_allowlist: Platform::PermissionBaseline.protected_permission_preview("OrganizationAdmin")
         )
         expect(assignment(id)["status"]).to eq(terminal)
+        expect(JSON.parse(assignment(id)["protected_permission_allowlist"])).not_to be_empty
         expect(authorizes?(session_for(target), "role.manage")).to be(false)
       end
+    end
+
+    # `rejected` is different in kind, and since FU-59 the database says so. A rejected
+    # Assignment never became effective, so it never reached the one edge that may write
+    # an allowlist: `pending -> active`. There is therefore no such row to ignore, which
+    # is stronger than the authorizer declining to honour one.
+    it "leaves a rejected Assignment no way to hold protected authority at all" do
+      target = account("holder-rejected")
+      id = TenantSeeder.create_role_assignment(
+        organization_id: org, account_id: target, canonical_role: "OrganizationAdmin",
+        scope_sha256: org_scope, status: "rejected", effective_at: t0
+      )
+      expect(assignment(id)["status"]).to eq("rejected")
+      expect(JSON.parse(assignment(id)["protected_permission_allowlist"])).to be_empty
+      expect(authorizes?(session_for(target), "role.manage")).to be(false)
+
+      # It cannot be given one afterwards, and it cannot be born with one.
+      expect do
+        owner_update("UPDATE role_assignments SET protected_permission_allowlist = $2::jsonb WHERE id = $1::uuid",
+                     [id, '["role.manage"]'])
+      end.to raise_error(PG::RaiseException, /role_assignment_allowlist_immutable/)
+      expect { insert_assignment(status: "rejected", allowlist: '["role.manage"]') }
+        .to raise_error(PG::RaiseException, /role_assignment_allowlist_requires_activation/)
     end
 
     # Run the real effective-permission checkpoint for one Session.
@@ -345,17 +404,31 @@ RSpec.describe "WF-013 role assignment invariants", type: :acceptance,
       expect(grant(role: "OrganizationAdmin", expires_at: nil).reason_code).to eq("role_expiry_required")
 
       # … and so does the database, for an Assignment carrying protected authority.
+      #
+      # Asserted on the ACTIVATION edge rather than at INSERT. Since FU-59 a row cannot
+      # be born holding an allowlist at all, so `pending -> active` is the only moment
+      # the 30-day rule has anything to bite on — which is also the moment that matters,
+      # because that is where the authority becomes real.
       target = account("beyond")
+      id = SecureRandom.uuid_v7
+      owner.exec_params(<<~SQL, [id, org, target, (t0 + (31 * 24 * 3600)).iso8601(6)])
+        INSERT INTO role_assignments
+          (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+           account_id, canonical_role, permission_mode, status, expires_at,
+           protected_permission_allowlist)
+        VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'OrganizationAdmin','standard',
+                'pending',$4::timestamptz,'[]'::jsonb)
+      SQL
+
       expect do
-        owner.exec_params(<<~SQL, [SecureRandom.uuid_v7, org, target, t0.iso8601(6), (t0 + (31 * 24 * 3600)).iso8601(6)])
-          INSERT INTO role_assignments
-            (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
-             account_id, canonical_role, permission_mode, status, effective_at, expires_at,
-             protected_permission_allowlist)
-          VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,'OrganizationAdmin','standard',
-                  'active',$4::timestamptz,$5::timestamptz,'["role.manage"]'::jsonb)
+        owner_update(<<~SQL, [id, t0.iso8601(6)])
+          UPDATE role_assignments
+          SET status = 'active', effective_at = $2::timestamptz,
+              protected_permission_allowlist = '["role.manage"]'::jsonb
+          WHERE id = $1::uuid
         SQL
       end.to raise_error(PG::CheckViolation, /role_assignment_protected_expiry_within_30_days/)
+      expect(assignment(id)["status"]).to eq("pending")
     end
 
     it "gives an active expiring Assignment exactly one timer" do

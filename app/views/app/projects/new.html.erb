@@ -9,6 +9,17 @@
   </div>
 <% end %>
 
+<% if @field_errors.present? %>
+  <div class="errors" role="alert" tabindex="-1">
+    <h2>Check the following</h2>
+    <ul>
+      <% @field_errors.each do |field, message| %>
+        <li><%= link_to message, "##{field}" %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
 <%= form_with url: app_projects_path, method: :post, data: { turbo: false }, class: "form" do %>
   <div class="field">
     <%= label_tag :display_name, "Project name" %>
@@ -17,16 +28,14 @@
     <p class="hint" id="display_name_hint">1 to 120 characters.</p>
   </div>
 
-  <div class="field">
-    <%= label_tag :local_presence_reason, "Why this project has no local presence" %>
-    <%= text_area_tag :local_presence_reason, @local_presence_reason, rows: 3,
-                      required: true, minlength: 20, maxlength: 500,
-                      "aria-describedby": "local_presence_reason_hint" %>
-    <p class="hint" id="local_presence_reason_hint">
-      20 to 500 characters. Projects that do claim a local presence need a full local
-      business profile, which this screen does not yet collect.
-    </p>
-  </div>
+  <%= render "shared/local_presence_fields",
+             business_name: @organization_display_name,
+             local_presence_applicable: @local_presence_applicable,
+             local_presence_reason: @local_presence_reason,
+             local_presence_address: @local_presence_address,
+             local_presence_telephone: @local_presence_telephone,
+             local_presence_service_areas: @local_presence_service_areas,
+             field_errors: @field_errors %>
 
   <button type="submit">Create project</button>
   <%= link_to "Cancel", app_projects_path, class: "button button--quiet" %>

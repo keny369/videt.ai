@@ -45,7 +45,7 @@ RSpec.describe "Source ownership verification", type: :request do
     post "/start/bootstrap-grant", params: { email: }
     post "/start/bootstrap-organization",
          params: { organization_display_name: organization, project_display_name: project,
-                   local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
+                   **GenesisProjectProfile.form_params }
   end
 
   def project_id = DbInspector.all("SELECT id FROM projects ORDER BY created_at").first["id"]
@@ -572,7 +572,7 @@ RSpec.describe "Source ownership verification", type: :request do
       post "/start/bootstrap-grant", params: { email: "other-#{SecureRandom.hex(4)}@example.com" }
       post "/start/bootstrap-organization",
            params: { organization_display_name: "Second Tenant", project_display_name: "Second Site",
-                     local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
+                     **GenesisProjectProfile.form_params }
 
       get "/app/projects/#{first_project}/crawls/#{first_crawl}"
 
@@ -602,7 +602,7 @@ RSpec.describe "Source ownership verification", type: :request do
       post "/start/bootstrap-grant", params: { email: "other-#{SecureRandom.hex(4)}@example.com" }
       post "/start/bootstrap-organization",
            params: { organization_display_name: "Second Tenant", project_display_name: "Second Site",
-                     local_presence_reason: GenesisProjectProfile::DEFAULT_REASON }
+                     **GenesisProjectProfile.form_params }
 
       get verification_path(first_project, first_source)
       expect(response).to have_http_status(:not_found)

@@ -60,23 +60,61 @@ module TenantSeeder
 
   # effective_at defaults well before any sign-in fixed clock so the Assignment is
   # effective; pass status/expiry to build an ineffective or expired Assignment.
+  #
+  # An Assignment carrying approved protected authority is seeded through the SAME
+  # `pending -> active` edge the product uses, because FU-59's INSERT guard now
+  # refuses a row born holding an allowlist. That guard closed a real gap: dual
+  # control at insert time used to be enforced in Ruby alone. It also removed this
+  # fixture's shortcut, and the honest replacement is the ratified route rather than
+  # a way around it — which is the stronger fixture anyway, since the seeded row now
+  # has the same history as a granted one.
   def create_role_assignment(organization_id:, account_id:, canonical_role: "OrganizationAdmin",
                              id: SecureRandom.uuid_v7, permission_mode: "standard", persona: nil,
                              status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil,
                              scope_sha256: nil, protected_permission_allowlist: [],
                              bootstrap_admin_exception: false)
+    approved = !protected_permission_allowlist.empty?
+    # A pending row may not be effective (`role_assignment_pending_is_not_effective`)
+    # and may not hold an allowlist; both arrive on the activation edge below.
+    insert_role_assignment(
+      id:, organization_id:, account_id:, canonical_role:, permission_mode:, persona:,
+      status: (approved ? "pending" : status),
+      effective_at: (approved ? nil : effective_at), expires_at:, scope_sha256:,
+      bootstrap_admin_exception:
+    )
+    return id unless approved
+
+    activate_seeded_assignment(id, effective_at:, allowlist: protected_permission_allowlist)
+    # `pending -> active` is the only edge that may write the allowlist, so a terminal
+    # status is reached afterwards, by the transition the guard permits from active.
+    conn.exec_params("UPDATE role_assignments SET status = $2 WHERE id = $1::uuid", [id, status]) unless
+      status == "active"
+    id
+  end
+
+  def insert_role_assignment(id:, organization_id:, account_id:, canonical_role:, permission_mode:,
+                             persona:, status:, effective_at:, expires_at:, scope_sha256:,
+                             bootstrap_admin_exception:)
     params = [id, organization_id, account_id, canonical_role, permission_mode, persona,
               status, (effective_at ? ts(effective_at) : nil), (expires_at ? ts(expires_at) : nil),
-              (scope_sha256 ? bytea(scope_sha256) : nil), JSON.generate(protected_permission_allowlist),
-              bootstrap_admin_exception]
+              (scope_sha256 ? bytea(scope_sha256) : nil), bootstrap_admin_exception]
     conn.exec_params(<<~SQL, params)
       INSERT INTO role_assignments
         (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id, account_id,
          canonical_role, permission_mode, persona, status, effective_at, expires_at, scope_sha256,
          protected_permission_allowlist, bootstrap_admin_exception)
-      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10,$11::jsonb,$12)
+      VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10,'[]'::jsonb,$11)
     SQL
-    id
+  end
+
+  # The canonical activation edge: the one transition `f1_role_assignments_lifecycle_guard`
+  # allows the allowlist to be written on.
+  def activate_seeded_assignment(id, effective_at:, allowlist:)
+    conn.exec_params(<<~SQL, [id, (effective_at ? ts(effective_at) : nil), JSON.generate(allowlist)])
+      UPDATE role_assignments
+      SET status = 'active', effective_at = $2::timestamptz, protected_permission_allowlist = $3::jsonb
+      WHERE id = $1::uuid
+    SQL
   end
 
   # Seeds an active Invitation (WF-001 § invitation) plus its global reference

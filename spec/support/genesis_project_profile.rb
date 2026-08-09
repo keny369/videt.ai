@@ -17,6 +17,14 @@ module GenesisProjectProfile
 
   DEFAULT_REASON = "Fixture project for an online-only trader with no premises customers visit."
 
+  # The same declared-false decision expressed as the controls both Project-creation
+  # SCREENS submit. Neither screen preselects an applicability, so a fixture that
+  # posts only a reason is refused rather than assumed to mean `false` — which is the
+  # whole point of the control, and is why this is stated in one place too.
+  def form_params(reason: DEFAULT_REASON)
+    { local_presence_applicable: "false", local_presence_reason: reason }
+  end
+
   def body(display_name = "Genesis Site", reason: DEFAULT_REASON)
     {
       "project_profile_schema_version" => "project-profile-v1",

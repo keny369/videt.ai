@@ -16,7 +16,7 @@ candidate_range: 780b1a4..8f55c9e
 frozen_path_changes: 1
 frozen_paths:
   - lib/f1/runtime_grants.rb
-suite_examples: 2940
+suite_examples: 2950
 review_rounds: 0
 ```
 
@@ -190,7 +190,7 @@ new proof rather than by a weaker expectation**:
 
 | Gate | Result |
 | --- | --- |
-| `bundle exec rspec` | `2940 examples, 0 failures` (2584 at this tranche; +29 from the registration-access transport work, then +61 from the WF-003 verification surface, the crawl-detail screen and the two outbound-transport defects, +73 from the WF-006 evaluation input gate and the S-08 parsing pipeline, +170 from the S-09/S-12 WF-007 check-catalogue slice and the S-08 external-measurement intake boundary, +15 from S-07-007's in-crawl link discovery and the autoloadable-constant guard, and +8 from giving WF-001 the ratified first-Project body so the genesis Project carries a local-presence decision, all of which followed it) |
+| `bundle exec rspec` | `2950 examples, 0 failures` (2584 at this tranche; +29 from the registration-access transport work, then +61 from the WF-003 verification surface, the crawl-detail screen and the two outbound-transport defects, +73 from the WF-006 evaluation input gate and the S-08 parsing pipeline, +170 from the S-09/S-12 WF-007 check-catalogue slice and the S-08 external-measurement intake boundary, +15 from S-07-007's in-crawl link discovery and the autoloadable-constant guard, +8 from giving WF-001 the ratified first-Project body so the genesis Project carries a local-presence decision, +5 from FU-72 making both Project-creation forms able to assert a local presence, +2 from FU-59's Role Assignment INSERT guard, +1 from FU-56 bounding RaceHarness's connections and +2 from FU-42's spec-constant-scope check, all of which followed it) |
 | `bundle exec rspec spec/architecture` | 245 examples, 0 failures |
 | `bundle exec brakeman -q --no-pager -z` | 0 warnings, 0 errors |
 | `bin/packwerk check` | no offenses, no stale violations |

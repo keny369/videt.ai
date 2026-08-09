@@ -24,7 +24,18 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
   self.use_transactional_tests = false
   after { ReceiptMinter.truncate_all }
 
-  ROBOTS_ALLOW_ALL = "User-agent: *\nAllow: /\n"
+  # A METHOD, NOT A CONSTANT (FU-42). `wf005_document_ingestion_spec.rb` declares this same
+  # name at describe level, so both landed on `Object` and the two files shared one binding,
+  # with load order deciding which body won. Identical values made it harmless; a change to
+  # either would not have been.
+  #
+  # ONLY THIS SIDE MOVED, and deliberately. That file is bound by 120 rows of
+  # `S-07-010_MUTATION_LEDGER.json`, which record their killed examples by FILE:LINE — so
+  # inserting even a comment there makes the ledger describe a proof that no longer exists,
+  # and re-sealing it means replaying the mutations rather than editing a digest. One side is
+  # enough: the collision needs two writers, and `spec/architecture/spec_constant_scope_spec.rb`
+  # now fails the run if a second one ever reappears.
+  def robots_allow_all = "User-agent: *\nAllow: /\n"
 
   # A stub of the frozen F-01 facade dispatching on the request PATH. A path absent from the map is an
   # UNEXPECTED request and fails loudly, which is what makes "this pass made no request" assertable.
@@ -52,7 +63,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     )
   end
 
-  def robots_allow = html(body: ROBOTS_ALLOW_ALL, type: "text/plain", path: "/robots.txt")
+  def robots_allow = html(body: robots_allow_all, type: "text/plain", path: "/robots.txt")
   def sitemap_missing = html(status: 404, body: "", type: "text/plain", path: "/sitemap.xml")
   def sitemap_naming(url) = html(type: "application/xml", path: "/sitemap.xml", body: <<~XML)
     <?xml version="1.0" encoding="UTF-8"?>
@@ -71,7 +82,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
   # because :442 paces host starts over a rolling second and ONE PASS MAKES AT MOST ONE START.
   def fetchable(hosts: ["shop.acme.example"])
     ctx = gated(hosts:)
-    resolve_robots(ctx, outbound_returning(response(status: 200, body: ROBOTS_ALLOW_ALL)))
+    resolve_robots(ctx, outbound_returning(response(status: 200, body: robots_allow_all)))
     resolve_sitemaps(ctx, outbound_returning(response(status: 404, body: "")))
     clear_rate_window_for_crawl(ctx[:crawl_id])
     ctx
@@ -1045,8 +1056,10 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
     # assigned inside a `describe do ... end` block binds to the TOP-LEVEL cref, not to the example
     # group, so a `LEASE` here and the `LEASE` in `spec/platform/scheduled_actions/lease_keeper_spec.rb` are
     # ONE global constant. Under `config.order = :random` whichever file loaded last won, so these
-    # examples passed alone and failed in the suite with a 30-second lease. `ROBOTS_ALLOW_ALL` above is
-    # the same hazard already in the file; these do not add to it.
+    # examples passed alone and failed in the suite with a 30-second lease. The constant this note
+    # used to call "the same hazard already in the file" is now the method `robots_allow_all` at the
+    # top, and `spec/architecture/spec_constant_scope_spec.rb` fails the run if two spec files ever
+    # write the same top-level constant again (FU-42).
     def cadence = Platform::Entitlement::InterimPolicy::HEARTBEAT_CADENCE_SECONDS
     def lease_seconds = Platform::Entitlement::InterimPolicy::LEASE_RENEWAL_SECONDS
 
@@ -1121,7 +1134,7 @@ RSpec.describe "WF-005 run driver", type: :acceptance,
       # Each pass renews from its own instant, so the run is still admitting where it used to be dead.
       ctx = fetchable(hosts: %w[shop.acme.example zeta.acme.example gamma.acme.example])
       action = first_action(ctx)
-      outbound = outbound_by_path("/" => html, "/robots.txt" => html(body: ROBOTS_ALLOW_ALL, type: "text/plain"),
+      outbound = outbound_by_path("/" => html, "/robots.txt" => html(body: robots_allow_all, type: "text/plain"),
                                   "/sitemap.xml" => sitemap_missing)
       outcomes = []
       6.times do |i|

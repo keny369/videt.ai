@@ -1,0 +1,85 @@
+<%# The local-presence question, on both Project-creation screens (WEB-003 and
+    WEB-012). `business_name` is shown, never asked: WORKFLOW_SPECIFICATIONS.md :657
+    fixes it to the exact Organization display name.
+
+    Neither radio is preselected. SCORE_EVIDENCE_MODEL.md :587 requires a person to
+    record the reason before `local_presence` may be `not_applicable`, so an
+    unanswered form must not submit a `false` on that person's behalf. %>
+<fieldset class="field">
+  <legend>Does this project have a local presence?</legend>
+  <p class="hint" id="local_presence_applicable_hint">
+    Local presence is assessed for businesses customers reach at a place, whether
+    they visit premises or you travel to them.
+  </p>
+
+  <div class="choice">
+    <%= radio_button_tag :local_presence_applicable, "true", local_presence_applicable == true,
+                         required: true, "aria-describedby": "local_presence_applicable_hint" %>
+    <%= label_tag :local_presence_applicable_true,
+                  "Yes. Customers reach #{business_name} at a place." %>
+  </div>
+
+  <div class="choice">
+    <%= radio_button_tag :local_presence_applicable, "false", local_presence_applicable == false,
+                         required: true, "aria-describedby": "local_presence_applicable_hint" %>
+    <%= label_tag :local_presence_applicable_false, "No. There is no place customers reach us at." %>
+  </div>
+</fieldset>
+
+<div class="field" data-local-presence="false">
+  <%= label_tag :local_presence_reason, "Why this project has no local presence" %>
+  <%= text_area_tag :local_presence_reason, local_presence_reason, rows: 3,
+                    minlength: Workflows::Wf002::ProjectCreation::REASON_MIN,
+                    maxlength: Workflows::Wf002::ProjectCreation::REASON_MAX,
+                    "aria-invalid": field_errors&.key?(:local_presence_reason),
+                    "aria-describedby": "local_presence_reason_hint" %>
+  <p class="hint" id="local_presence_reason_hint">
+    Answer this only if you chose No. We need your own statement of why, in your own
+    words. For example: online-only trader, or a fully remote service business with no
+    premises customers visit.
+    <%= Workflows::Wf002::ProjectCreation::REASON_MIN %> to
+    <%= Workflows::Wf002::ProjectCreation::REASON_MAX %> characters.
+  </p>
+</div>
+
+<div class="field" data-local-presence="true">
+  <%= label_tag :local_presence_address, "Address customers visit" %>
+  <%= text_area_tag :local_presence_address, local_presence_address, rows: 3,
+                    maxlength: Workflows::Wf002::ProjectCreation::ADDRESS_MAX,
+                    "aria-invalid": field_errors&.key?(:local_presence_address),
+                    "aria-describedby": "local_presence_address_hint" %>
+  <p class="hint" id="local_presence_address_hint">
+    Answer this and the next two only if you chose Yes. Up to
+    <%= Workflows::Wf002::ProjectCreation::ADDRESS_MAX %> characters.
+  </p>
+</div>
+
+<div class="field" data-local-presence="true">
+  <%= label_tag :local_presence_telephone, "Telephone number" %>
+  <%= telephone_field_tag :local_presence_telephone, local_presence_telephone,
+                          maxlength: 16,
+                          "aria-invalid": field_errors&.key?(:local_presence_telephone),
+                          "aria-describedby": "local_presence_telephone_hint" %>
+  <p class="hint" id="local_presence_telephone_hint">
+    International format, starting with + and the country code. For example
+    +61390000000.
+  </p>
+</div>
+
+<div class="field" data-local-presence="true">
+  <%= label_tag :local_presence_service_areas, "Service areas" %>
+  <%= text_area_tag :local_presence_service_areas, local_presence_service_areas, rows: 5,
+                    "aria-invalid": field_errors&.key?(:local_presence_service_areas),
+                    "aria-describedby": "local_presence_service_areas_hint" %>
+  <p class="hint" id="local_presence_service_areas_hint">
+    One per line: the suburbs, towns or regions this project serves. 1 to
+    <%= Workflows::Wf002::ProjectCreation::SERVICE_AREAS_MAX %> of them, each up to
+    <%= Workflows::Wf002::ProjectCreation::SERVICE_AREA_MAX %> characters. Order does
+    not matter.
+  </p>
+</div>
+
+<p class="hint">
+  The business name on this profile is <strong><%= business_name %></strong>, taken
+  from your organization name. It is not a separate answer.
+</p>

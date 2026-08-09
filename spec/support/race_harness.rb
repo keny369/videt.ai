@@ -193,8 +193,20 @@ module RaceHarness
     end
   end
 
+  # FU-56 (round-19 concurrency finding R19-CONC-6). This was a bare `PG.connect`, so it
+  # carried `statement_timeout = 0` — UNLIMITED — while every `DbInspector` connection
+  # carried `database.yml`'s 15s. That is precisely the defect `PgTestConnection` exists to
+  # remove, and it also made that file's docstring claim to be "the one place the suite
+  # opens a RAW PostgreSQL connection" false. It is true again now.
+  #
+  # THE BOUND DOES NOT DISARM THIS HARNESS. `database.yml` declares `statement_timeout`
+  # alone and no `lock_timeout`, so a gated operation still blocks on a contended lock,
+  # which is the whole point of the file. What changes is only that it cannot block
+  # FOREVER — and `wait_until`'s own deadline is already the same 15 seconds, so no wait
+  # here was ever designed to outlast it. The connections opened here are the lock
+  # HOLDERS, whose statements are uncontended; the waiters run on the pool and were
+  # already bounded.
   def open_connection
-    cfg = ActiveRecord::Base.connection_db_config.configuration_hash
-    PG.connect(host: cfg[:host], port: cfg[:port], dbname: cfg[:database], user: DbInspector.superuser)
+    PgTestConnection.connect(user: DbInspector.superuser)
   end
 end
