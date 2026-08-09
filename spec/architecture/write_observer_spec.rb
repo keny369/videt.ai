@@ -9,8 +9,21 @@ require "rails_helper"
 # recover SQL from the prepared-statement doors, and produced a SIGSEGV in the headline gate. It is
 # deleted. What replaces it is one hook on one door, owned by the sentinel that needs it.
 #
-# These examples are about the HOOK's behaviour, not about the sentinels' rules. The rules are proved
-# elsewhere; this proves that installing the hook does not change how the object under it behaves.
+# WHAT EACH HALF OF THIS FILE PROVES, STATED EXACTLY, BECAUSE THE HEADER USED TO OVERSTATE IT
+# (FU-55).
+#
+# The first half is about PREPENDING as a technique: that a prepended `exec_params` does not change
+# arity, visibility, dispatch, block forwarding, inheritance, nesting, exception propagation, thread
+# attribution or idempotence. Those examples build their own anonymous module over a stand-in class
+# and NEVER TOUCH `GovernedWriteSentinel::Instrumentation`, which is the right shape for what they
+# ask — and it means they say nothing whatever about the production hook. Measured: replacing the
+# production `Instrumentation#exec_params` body with a bare `super`, so it observes nothing at all,
+# left this file at 10 examples / 0 failures while `wf005_closed_fact_set_spec.rb` went 7/7 red. The
+# header claimed to be what binds the instrument, and the acceptance spec was.
+#
+# The second half — "the production hook, on the real door" — is what binds it here. It drives a
+# real statement through the real `PG::Connection` that `arm!` prepended to, and reads the census
+# back. That is the example the gutted hook fails.
 RSpec.describe "the governed-write observer", type: :architecture do
   # A stand-in with the same shape as the door, so dispatch properties can be asserted without
   # driving PostgreSQL for each one.
@@ -148,6 +161,74 @@ RSpec.describe "the governed-write observer", type: :architecture do
     klass.new.exec_params("SELECT 4")
 
     expect(sink).to eq(["SELECT 4"])
+  end
+
+  # ---- the production hook, on the real door (FU-55) ------------------------------------------
+  describe "the production hook, on the real door" do
+    # The census is process-wide and is judged at suite end, so an example that writes into it would
+    # be supplying the very evidence that judgement looks for. It is snapshotted and restored, and
+    # the entry this example makes is `reachable=false` anyway — no WF-005 entry point is on the
+    # stack — so it could not enter the failure set even if it were left behind.
+    around do |example|
+      snapshot = GovernedWriteSentinel.census.dup
+      example.run
+    ensure
+      GovernedWriteSentinel.census.replace(snapshot)
+    end
+
+    it "is installed on `PG::Connection`, ahead of the method it observes" do
+      ancestors = PG::Connection.ancestors
+
+      expect(ancestors).to include(GovernedWriteSentinel::Instrumentation)
+      expect(ancestors.index(GovernedWriteSentinel::Instrumentation))
+        .to be < ancestors.index(PG::Connection),
+            "the module is in the ancestry but BEHIND the class, so its `exec_params` is never the " \
+            "one that runs"
+      expect(GovernedWriteSentinel).to be_armed
+    end
+
+    it "records a governed statement executed through the REAL door" do
+      # A GOVERNED TABLE READ FROM THE CATALOGUE, not named here: the instrument derives its set
+      # from `pg_trigger`, so a table that stops being governed must stop being used by this proof
+      # too, rather than pinning it to a name the rule no longer covers.
+      table = GovernedWriteSentinel.governed_tables.first
+      expect(table).to be_present, "no table carries `f1_crawl_child_fact_closed`, so this example " \
+                                   "has nothing governed to write and would pass vacuously"
+
+      # THE STATEMENT IS REAL AND APPLIES NOTHING. `WHERE false` inserts no row, so no closed-fact
+      # trigger fires and no state moves; what is being proved is that the DOOR saw the statement,
+      # which the census records from the text and the call stack alone.
+      #
+      # The sentinel classifies by ISSUING FRAME, and production's issuers live under
+      # `app/workflows/wf005/`. Pointing `WF005_SOURCE` at this file is what makes this example the
+      # issuer — the alternative is to reach the census only through a WF-005 producer, which would
+      # make this a proof about that producer rather than about the hook.
+      stub_const("GovernedWriteSentinel::WF005_SOURCE", Regexp.new(Regexp.escape(__FILE__)))
+
+      DbInspector.connection.exec_params("INSERT INTO #{table} (id) SELECT NULL::uuid WHERE false", [])
+
+      observed = GovernedWriteSentinel.census.keys.select do |(site, _origin, seen, translated, reachable)|
+        seen == table && site.to_s.include?(File.basename(__FILE__)) && !translated && !reachable
+      end
+
+      expect(observed).not_to be_empty,
+                             "a statement writing a governed table executed through the real " \
+                             "`PG::Connection` and the census did not record it: " \
+                             "`Instrumentation#exec_params` is not observing. This is the exact " \
+                             "state a bare `super` produces, which every other example in this " \
+                             "file survives."
+    end
+
+    it "REFUSES to report success on an empty census, which is what a blind door produces" do
+      # THE ASYMMETRY, DRIVEN. Blinding this instrument makes the run GREENER — "no unclassified
+      # untranslated write" is satisfied perfectly by observing nothing — so the suite-end guard
+      # must fail on an empty census rather than quieten. `AuthoritySentinel.assert_observed!` has
+      # had this since D5; until FU-55 this sentinel had no counterpart.
+      expect { GovernedWriteSentinel.assert_observed!(census: {}) }
+        .to raise_error(/observed ZERO governed writes/)
+      expect { GovernedWriteSentinel.assert_observed!(census: { %w[a b c] => 1 }) }
+        .not_to raise_error
+    end
   end
 
   describe "what it deliberately does NOT claim" do

@@ -170,6 +170,26 @@ module GovernedWriteSentinel
       untranslated_production_sites.reject { |e| CLASSIFIED_UNTRANSLATED.key?(classification_key(e)) }
     end
 
+    # AN EMPTY CENSUS IS NOT SUCCESS (FU-55).
+    #
+    # THE ASYMMETRY THIS CLOSES. Blinding this instrument makes the run GREENER, not redder: the
+    # judgement below is "no unclassified untranslated write", and an instrument that observes
+    # NOTHING satisfies it perfectly. `AuthoritySentinel` has carried `assert_observed!` for exactly
+    # this reason since D5 and this one had no counterpart, so `Instrumentation#exec_params` could
+    # be reduced to a bare `super` — observing nothing at all — and the only thing in the repository
+    # that noticed was a handful of acceptance examples that happen to read `record`'s output.
+    #
+    # It is a callable rather than only a suite hook so it can be PROVED directly, in the shape
+    # `authority_sentinel_spec.rb` already establishes: a guard nothing drives is the same class of
+    # defect as the blindness it guards against.
+    def assert_observed!(census: self.census)
+      return unless census.empty?
+
+      raise "GovernedWriteSentinel observed ZERO governed writes across the entire suite; its door " \
+            "is blind, its census is empty, and 'no unclassified untranslated write' is therefore " \
+            "vacuous rather than true. Owner ruling 2 is not being checked by anything."
+    end
+
     def report(entries)
       entries.map { |(site, origin, table, translated, reachable)|
         "#{table} written at #{site} (entered at #{origin}); translated=#{translated} reachable=#{reachable}"
@@ -257,6 +277,16 @@ RSpec.configure do |config|
   # the run. This is deliberately outside any one example: the defect it catches is a producer nobody
   # thought to write an example for, so no example can be the thing that looks for it.
   config.after(:suite) do
+    # NON-VACUITY FIRST, BECAUSE A BLIND INSTRUMENT PASSES THE JUDGEMENT BELOW (FU-55). Judged only
+    # on the run that certifies a tranche, which is always the FULL suite: one spec file may
+    # legitimately execute no governed write at all, and failing it for that would make the guard
+    # unusable rather than strict. This is the gate `AuthoritySentinel` applies at :427 for the same
+    # reason and in the same shape.
+    if GovernedWriteSentinel.armed? &&
+       RSpec.configuration.files_to_run.length >= Dir[Rails.root.join("spec/**/*_spec.rb")].length
+      GovernedWriteSentinel.assert_observed!
+    end
+
     unclassified = GovernedWriteSentinel.unclassified
     next if unclassified.empty?
 

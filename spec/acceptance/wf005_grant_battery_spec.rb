@@ -60,10 +60,17 @@ require_relative "support/wf005_crawl_chain"
 # the suite stayed green, so this file will not repeat that claim in a wider form. Two of the three
 # populations here ARE derived and cannot drift: the denied ROLES come from the ratified document,
 # and `same_principal?`'s members come from the `Data` class itself (see
-# `wf005_capability_write_authority_spec.rb`). `WRITES` IS STILL A HAND-MAINTAINED LIST. A fifth
-# protected write, or a third policy scope, joins it only when somebody adds it — and the SCOPE
-# totality check at the foot of this file closes that hole for the policy write alone. Enforcing the
-# completeness of `WRITES` itself is FU-61 and remains open.
+# `wf005_capability_write_authority_spec.rb`).
+#
+# AND THE THIRD IS NOW ENFORCED (FU-61). `WRITES` is still WRITTEN by hand — a driver cannot be
+# derived — but it is no longer BELIEVED by hand. It has moved to `spec/support/protected_writes.rb`
+# so that something other than its own consumer can see it, and
+# `spec/architecture/protected_write_completeness_spec.rb` derives the protected-write set from the
+# repository — every statement carrying a `capability_authority` CTE — and fails when it is not
+# exactly what the registry enumerates. A fourth protected write now fails that gate until it is
+# registered, and fails this battery until it is drivable. `crawl.recover` is ratified in WF-005's
+# Recovery Path and is not yet materialized, so that fourth write is scheduled work, not a
+# hypothesis.
 RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance,
                                                               acceptance_ids: ["AC-WF-005", "AC-CAP-007"],
                                                               test_types: %w[TYP-SEC TYP-DATA] do
@@ -89,57 +96,17 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
     g
   end
 
-  # Each write: how to reach it, what capability it spends, THE `required_role` ITS PRODUCTION
-  # CALLER PASSES, how to drive it with a chosen authority, how many rows it applied, and what the
-  # aggregate looks like when it applied none.
+  # THE REGISTRY, NOT A LITERAL (FU-61). `ProtectedWrites::WRITES` carries each write's identity,
+  # capability, production `required_role` and drivers; this file supplies the driver METHODS. It
+  # lives outside this spec so `protected_write_completeness_spec.rb` can compare it against the
+  # repository, which is the whole point: a list only its own consumer can see is a list nothing can
+  # check.
   #
-  # `required_role` IS PART OF THE CONFIGURATION, NOT AN OPTIONAL EXTRA (FU-63 part 2). It is the
-  # ratified `:732`/`:738` scope rule carried to the write, and it is the ONLY axis on which the two
-  # policy configurations differ. Every driver before this round passed `nil` — the value the
-  # cancellation and the queue insert really use — so the policy write was exercised at a value its
-  # production caller can never pass. `ActivateCrawlPolicy` derives it from `SCOPE_ROLE[scope]`, and
-  # `valid_scope_shape?` admits exactly `organization` and `project`, so BOTH rows below are
-  # production configurations and there is no third one. That totality is asserted, not assumed —
-  # see "the two policy configurations are the whole of `SCOPE_ROLE`" at the foot of this file.
-  WRITES = {
-    "the cancellation (CrawlStartStore#cancel)" => {
-      capability: "crawl.cancel",
-      required_role: nil,
-      setup: :setup_cancel,
-      invoke: :invoke_cancel,
-      applied: ->(outcome) { outcome[:moved] },
-      untouched: :cancel_untouched?
-    },
-    "the queue insert (CrawlStore#insert_crawl)" => {
-      capability: "crawl.trigger",
-      required_role: nil,
-      setup: :setup_queue,
-      invoke: :invoke_queue,
-      applied: ->(outcome) { outcome[:inserted] },
-      untouched: :queue_untouched?
-    },
-    "the policy activation at ORGANIZATION scope (CrawlPolicyStore#activate_version)" => {
-      capability: "policy.crawl.manage",
-      required_role: "OrganizationAdmin",
-      setup: :setup_policy,
-      invoke: :invoke_policy,
-      applied: ->(outcome) { outcome[:inserted] },
-      untouched: :policy_untouched?
-    },
-    # THE CONFIGURATION R20-2 FOUND UNPROVED. `:173` gives the MarketingOperator a Project-scope
-    # cell, `SCOPE_ROLE["project"]` transcribes it, and no driver in twenty rounds had ever passed
-    # it. A `read_only_permitted` derived as `!required_role.nil?` is FALSE in every organization-
-    # scope case that existed and TRUE here, which is exactly why the corpus stayed green while a
-    # Read-Only Executive Buyer activated an immutable Project policy.
-    "the policy activation at PROJECT scope (CrawlPolicyStore#activate_version)" => {
-      capability: "policy.crawl.manage",
-      required_role: "MarketingOperator",
-      setup: :setup_policy_project,
-      invoke: :invoke_policy_project,
-      applied: ->(outcome) { outcome[:inserted] },
-      untouched: :policy_untouched?
-    }
-  }.freeze
+  # `ActivateCrawlPolicy` derives `required_role` from `SCOPE_ROLE[scope]`, and `valid_scope_shape?`
+  # admits exactly `organization` and `project`, so BOTH policy rows in the registry are production
+  # configurations and there is no third one. That totality is asserted, not assumed — see "the two
+  # policy configurations are the whole of `SCOPE_ROLE`" at the foot of this file.
+  WRITES = ProtectedWrites::WRITES
 
   # ---- the three writes -------------------------------------------------------
 
@@ -769,6 +736,29 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
   WRITES.each do |name, spec|
     describe name do
       include_examples "a protected write that re-reads the grants its decision relied on", spec
+    end
+  end
+
+  # THE OTHER DIRECTION OF FU-61'S GATE. `protected_write_completeness_spec.rb` fails when the
+  # repository holds a protected write the registry does not name. This fails when the registry
+  # names one THIS BATTERY CANNOT DRIVE — a registration whose drivers are missing or misspelled.
+  #
+  # Without it the two halves would not meet: a fourth write could be added to the registry to
+  # silence the architecture gate while inheriting none of the twelve shared examples, which is
+  # precisely the round-20 demonstration this follow-up exists to close. `send` on a missing symbol
+  # raises inside a shared example at the first case that drives it, naming a `NoMethodError` rather
+  # than an incomplete registration; this names it.
+  it "can drive every write the registry enumerates, so registering one is not enough to satisfy the gate" do
+    ProtectedWrites::WRITES.each do |name, spec|
+      missing = ProtectedWrites::REQUIRED_MEMBERS.reject { |member| spec.key?(member) }
+      expect(missing).to be_empty, "#{name} is registered without #{missing.join(', ')}"
+
+      %i[setup invoke untouched].each do |role|
+        expect(self).to respond_to(spec.fetch(role)),
+                        "#{name} names `#{spec.fetch(role)}` as its #{role}, and this battery has no " \
+                        "such method — the write is registered but undriven"
+      end
+      expect(spec.fetch(:applied)).to respond_to(:call)
     end
   end
 

@@ -784,12 +784,24 @@ RSpec.describe "Repository truth", type: :model do
     it "represents every application table that exists in the database" do
       catalogue = ROOT.join("schemas/POSTGRESQL_SCHEMA.md").read
       # Rails-internal and F-02 key infrastructure are documented in their own foundation records.
-      # The two named gaps are PRE-EXISTING and owned by FU-13; they are listed explicitly so this
-      # check protects against NEW omissions without silently absorbing old ones. Removing a name
-      # from here must mean the catalogue row was written, never that the check was quietened.
+      #
+      # ONE OF FU-13'S TWO GAPS IS CLOSED AND THE OTHER IS NOT, WHICH IS WHY ONLY ONE NAME LEFT THIS
+      # LIST. `role_expiry_block_decisions` now has a catalogue row transcribed from WF-013 `:343`,
+      # which states the Decision's members, retention owner and uniqueness in as many words, so
+      # writing it reconciled two ratified documents rather than inventing a shape.
+      #
+      # `evidence` STAYS, and stays as an OWNER decision rather than an omission. The catalogue
+      # names `evidences`; no table carries that name. So the real table appears under no name and
+      # the catalogue names one that does not exist, and resolving it means deciding WHICH NAME IS
+      # RATIFIED — the migration's or the catalogue's. That is not an implementer's call: renaming
+      # the live table and renaming the catalogue row are both one-line edits and they are opposite
+      # answers to the same question. FU-13 carries it.
+      #
+      # Removing a name from here must mean the catalogue row was written, never that the check was
+      # quietened.
       exempt = %w[ar_internal_metadata schema_migrations
                   f1_context_keys f1_encrypted_records f1_encryption_key_versions
-                  evidence role_expiry_block_decisions]
+                  evidence]
       tables = DbInspector.all(<<~SQL, []).map { |r| r["tablename"] } - exempt
         SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
       SQL
