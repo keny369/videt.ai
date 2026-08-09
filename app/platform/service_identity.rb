@@ -44,6 +44,26 @@ module Platform
     IDENTITY_SERVICE = "0192f100-0000-7000-8000-00001de77001"
     IDENTITY_SERVICE_SUBJECT = "f1.identity_service"
 
+    # Reserved identity of the OWNER-APPROVAL RELEASE SERVICE, the one principal the ratified
+    # Permission Baseline names for `measurement_set.activate`
+    # (WORKFLOW_SPECIFICATIONS.md § Permission Baseline :168 "deny | deny | deny | deny | deny |
+    # deny | owner-approval release service only"; IMPLEMENTATION_MATRIX.md :1579 and
+    # contracts/S-08.json "`measurement_set.activate` for the owner-approval release service").
+    #
+    # IT IS A SEPARATE ROW BECAUSE IT IS A SEPARATE AUTHORITY. Reusing the ScheduledAction
+    # executor would let anything the scheduler runs activate a release artifact, and reusing the
+    # identity service would put activation behind the principal that issues sign-in grants. The
+    # baseline's whole statement about this permission is WHO holds it, so the holder is one
+    # registered row whose `permission_scope` names that permission and nothing else — a
+    # suspension of this identity stops activation without touching any other service path.
+    #
+    # Its scope carries `measurement_set.activate` ALONE. :4485 pairs it with
+    # `integration.policy.activate`, and that limb is deliberately absent: no Integration
+    # policy artifact exists in this build, so granting the scope now would name authority over
+    # a mechanism that cannot be exercised or observed.
+    RELEASE_SERVICE = "0192f100-0000-7000-8000-00002e1ea5e0"
+    RELEASE_SERVICE_SUBJECT = "f1.release_service"
+
     # Reserved rows, seeded by `f1:db:ensure_service_identities` after every
     # schema materialization. Shape: [id, subject, display name, key id, scope].
     RESERVED = [
@@ -52,11 +72,15 @@ module Platform
        '{"scheduled_action":["execute"]}'],
       [IDENTITY_SERVICE, IDENTITY_SERVICE_SUBJECT,
        "F1 approved identity and bootstrap service", "f1-identity-service-v1",
-       '{"identity":["issue_grant","respond_to_invitation","sign_in"]}']
+       '{"identity":["issue_grant","respond_to_invitation","sign_in"]}'],
+      [RELEASE_SERVICE, RELEASE_SERVICE_SUBJECT,
+       "F1 owner-approval release service", "f1-release-service-v1",
+       '{"measurement_set":["activate"]}']
     ].freeze
 
     def scheduled_action_executor = SCHEDULED_ACTION_EXECUTOR
     def identity_service = IDENTITY_SERVICE
+    def release_service = RELEASE_SERVICE
 
     # The execution-boundary status check. Existence is guaranteed by the ledger
     # foreign keys; this answers the separate question of whether the identity is

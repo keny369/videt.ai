@@ -150,7 +150,23 @@ module Platform
       # exists, and an allow nothing consumes is an unexercised one.
       "project.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
       "source.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
-      "crawl.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze
+      "crawl.read" => %w[OrganizationAdmin MarketingOperator TechnicalImplementer].freeze,
+      # ":168 `measurement_set.activate` | deny | deny | deny | deny | deny | deny |
+      # owner-approval release service only". THE EMPTY ALLOW-LIST IS THE WHOLE CELL, and it is
+      # transcribed rather than left unmapped for the reason the READ_ONLY_MODE note below already
+      # states in words: "an empty allow-set that is CONSULTED is a control; an unconsulted one is
+      # what R3-10 found."
+      #
+      # Until now this row was absent, so `permits?` raised `InvariantViolation` on it. That is
+      # fail-closed and it is not the same thing as a transcribed denial: an unmapped capability
+      # reads as "nobody has written this row down yet", and the next person to materialize it has
+      # no ratified cell in front of them. Now the row is here, its six actor columns all deny, and
+      # the three transcription dimensions check it against :168 like every other row.
+      #
+      # The seventh column is not a role and is not expressible here. It names
+      # `Platform::ServiceIdentity::RELEASE_SERVICE`, which `Workflows::Wf006::OwnerApprovalRelease`
+      # executes under — so no value of `roles` makes `permits?` true, for any actor, in any mode.
+      "measurement_set.activate" => [].freeze
     }.freeze
 
     # The ratified protected-grant enumeration (:331-333 "Grants containing … are

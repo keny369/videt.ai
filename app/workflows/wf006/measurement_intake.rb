@@ -119,12 +119,21 @@ module Workflows
         return refused("measurement_set_approval_incomplete", failures) if failures.any?
 
         signatures = package["signatures"]
-        ok(store.activate_measurement_set(
-             id: row["id"], expected_version: row["state_version"].to_i, now:, correlation_id:,
-             product_signature: JSON.generate(signatures["chief_product"]),
-             architect_signature: JSON.generate(signatures["chief_architect"]),
-             owner_approval_reference: package["owner_approval_reference"]
-           ))
+        activated = store.activate_measurement_set(
+          id: row["id"], expected_version: row["state_version"].to_i, now:, correlation_id:,
+          product_signature: JSON.generate(signatures["chief_product"]),
+          architect_signature: JSON.generate(signatures["chief_architect"]),
+          owner_approval_reference: package["owner_approval_reference"]
+        )
+        # ZERO AFFECTED ROWS IS A REFUSAL, NOT A SUCCESS WITH NOTHING IN IT. The UPDATE is guarded
+        # on `status = 'proposed' AND state_version = $2`, so it returns no row when another writer
+        # won the race between the read above and this statement — the loser must not report that
+        # it activated something. Returning `ok(nil)` (which is what this did) made a lost race
+        # indistinguishable from a successful activation to every caller, including one that would
+        # then have gone on to record an approval that never happened.
+        return refused("measurement_set_terminal") if activated.nil?
+
+        ok(activated)
       end
 
       # ---- submission ---------------------------------------------------------------------

@@ -332,7 +332,29 @@ module Platform
       # verification_request_not_pending / challenge_redelivery_unavailable are reused from
       # the issuance/expiry limbs above.
       "verification_attempt_target_mismatch" => "F1-DOMAIN-409",
-      "verification_attempt_not_reserved"    => "F1-DOMAIN-409"
+      "verification_attempt_not_reserved"    => "F1-DOMAIN-409",
+      # S-08 external-measurement intake, the ACTIVATION limb (WORKFLOW_SPECIFICATIONS.md :480,
+      # ":482 unknown/inactive set is `F1-DOMAIN-409 / measurement_set_unavailable`"). Every reason
+      # here already exists in the accepted baseline; only the class binding is new, and only for
+      # the three the owner-approval release service can return.
+      #
+      # `measurement_set_unavailable` is :482's own string and its own class, reused verbatim for
+      # the activation direction: a digest naming no staged row is the same "unknown set" the
+      # submission direction refuses.
+      #
+      # `measurement_set_terminal` is the string the RATIFIED SCHEMA GUARD itself raises
+      # (`f1_measurement_sets_guard`, "a set never returns from a terminal state"), so the command
+      # and the database report the same refusal by the same name. It is a state conflict on the
+      # target — :252's "state conflicts -> F1-DOMAIN-409".
+      #
+      # `measurement_set_approval_incomplete` is a MISSING-AUTHORITY refusal and not a shape one.
+      # ":480 activation requires ... exact OD-010-approved bytes"; one signature, or signatures
+      # over other bytes, means the presented package carries no owner authority to act on. That is
+      # F1-AUTH-403 ("obtain the required authority"), not F1-VALIDATION-400: the package may be
+      # perfectly well formed, and telling a caller to correct their request would be wrong advice.
+      "measurement_set_unavailable"          => "F1-DOMAIN-409",
+      "measurement_set_terminal"             => "F1-DOMAIN-409",
+      "measurement_set_approval_incomplete"  => "F1-AUTH-403"
     }.freeze
 
     # Per-reason recovery_action overrides, for the reasons whose contract mandates a
