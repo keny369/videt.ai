@@ -136,7 +136,7 @@ RSpec.describe "Autonomous controller — synthetic end-to-end proof", type: :mo
     expect(committed).not_to include("BAD")
 
     # Independent review produced exactly one non-blocking observation; none blocking.
-    review = JSON.parse(File.read(File.join(outcome.run_record.dir, "review.json")))
+    review = JSON.parse(File.read(File.join(outcome.run_record.dir, "review_1.json")))
     expect(review["blocking_findings"]).to be_empty
     expect(review["non_blocking_findings"].size).to eq(1)
 
@@ -148,6 +148,76 @@ RSpec.describe "Autonomous controller — synthetic end-to-end proof", type: :mo
 
     # BUILD_STATE was atomically updated to the terminal status.
     expect(AutonomousBuild::BuildState.load(@build_state).status).to eq("ready_for_review")
+  end
+
+  # ---- FU-40: a review that returns NOT ACCEPTED becomes a record ---------------------------------
+  #
+  # `failed_attempts` was a REQUIRED, VALIDATED, append-only-in-intent field whose only caller was its
+  # own unit spec. No controller path wrote it, so it was STRUCTURALLY INCAPABLE of recording a failed
+  # review, and it stayed `[]` through fourteen five-lens rounds that all returned NOT ACCEPTED. This
+  # drives the review-failure transition itself — a reviewer that refuses once and then passes — and
+  # requires the refusal to land in the state file with the range it judged and the count it found.
+  def reviewer_refusing_once
+    finding = {
+      "finding_id" => "F1", "severity" => "high", "classification" => "defect", "location" => "synthetic.txt:1",
+      "violated_requirement" => "no BAD marker", "failure_mode" => "marker present",
+      "evidence" => [], "recommended_correction" => "remove it", "blocks_completion" => true
+    }
+    responses = [
+      ->(inv, _n) do
+        common("reviewer", "changes_required").merge(
+          "reviewed_commit" => inv.context.fetch(:reviewed_commit), "blocking_findings" => [finding],
+          "non_blocking_findings" => [], "architecture_assessment" => "", "security_assessment" => "",
+          "test_assessment" => "", "recommended_action" => "repair"
+        )
+      end,
+      ->(inv, _n) do
+        common("reviewer", "pass").merge(
+          "reviewed_commit" => inv.context.fetch(:reviewed_commit), "blocking_findings" => [],
+          "non_blocking_findings" => [], "architecture_assessment" => "", "security_assessment" => "",
+          "test_assessment" => "", "recommended_action" => "proceed"
+        )
+      end
+    ]
+    AutonomousBuild::Adapters::Fake.new(schema_name: "reviewer", responses:)
+  end
+
+  it "records a review that returned NOT ACCEPTED in failed_attempts, in the declared shape" do
+    outcome = controller(
+      planner: planner_ok, implementer: implementer_writing("GOOD\ncode\n"),
+      repair: repair_writing("GOOD\nbetter\n"), reviewer: reviewer_refusing_once,
+      verifier_factory: no_bad_verifier_factory
+    ).run_tranche(block_id: "SYN", tranche_id: "t", task: "x")
+
+    expect(outcome.status).to eq("ready_for_review")
+
+    attempts = AutonomousBuild::BuildState.load(@build_state)["failed_attempts"]
+    expect(attempts.length).to eq(1), "the refused review left no record in failed_attempts"
+    attempt = attempts.first
+    expect(attempt.keys.sort).to eq(AutonomousBuild::BuildState::FAILED_ATTEMPT_KEYS.sort)
+    expect(attempt["outcome"]).to eq("not_accepted")
+    expect(attempt["tranche"]).to eq("t")
+    expect(attempt["attempt"]).to eq(1)
+    expect(attempt["blocking_findings"]).to eq(1)
+    # The range it actually judged, pinned at both ends — not `..HEAD`, and not the run's base alone.
+    expect(attempt["candidate_range"]).to match(/\A[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}\z/)
+    expect(attempt["record"]).to eq("runs/RUN-SYN/review_0.json")
+    # AND THE SECOND REVIEW EXISTS AT ALL, which it could not while the artifact was named
+    # `review.json`: an append-only run record refused the rewrite and the loop-back branch raised
+    # out of `run_tranche` instead of repairing.
+    expect(File).to exist(File.join(outcome.run_record.dir, "review_0.json"))
+    expect(File).to exist(File.join(outcome.run_record.dir, "review_1.json"))
+  end
+
+  it "leaves failed_attempts empty when no review refused, so the record means something" do
+    # NON-VACUITY. A writer that appended on every review would make the field a run counter and the
+    # example above would pass while proving nothing about failure.
+    controller(planner: planner_ok, implementer: implementer_writing("GOOD\ncode\n"),
+               repair: repair_writing("GOOD\n"), reviewer: AutonomousBuild::Adapters::LocalReviewer.new,
+               verifier_factory: no_bad_verifier_factory)
+      .run_tranche(block_id: "SYN", tranche_id: "t", task: "x")
+
+    expect(AutonomousBuild::BuildState.load(@build_state)["failed_attempts"]).to be_empty
   end
 
   it "rejects malformed agent output (fails closed to controller_error)" do

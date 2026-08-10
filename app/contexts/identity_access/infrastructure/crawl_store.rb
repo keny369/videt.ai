@@ -107,6 +107,11 @@ module IdentityAccess
       # authority limbs failed, and the caller is told which.
       def insert_crawl(row)
         authority = row.fetch(:authority)
+        # THE AUTHORITY'S ORGANIZATION IS THE ONLY ONE THIS STATEMENT MAY REASON ABOUT (FU-50). The
+        # row's organization is still the value INSERTED — it is the Crawl's tenant — but both
+        # authority limbs bind `$22`, which comes from the authenticated Session. See
+        # `WriteAuthority#governs!` for why the equality is refused here rather than left to RLS.
+        authority.governs!(row[:organization_id], at: "CrawlStore#insert_crawl")
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:kind], row[:requested_crawl_policy_id], row[:requested_crawl_policy_version],
@@ -114,19 +119,19 @@ module IdentityAccess
           row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
           authority.epoch, authority.uuid_array, authority.bigint_array, authority.text_array,
           authority.account_id, authority.required_role, authority.allowed_roles_array,
-          authority.read_only_permitted
+          authority.read_only_permitted, authority.organization_id
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
             SELECT 1 FROM organizations
-            WHERE id = $4::uuid AND authorization_epoch = $14::bigint
+            WHERE id = $22::uuid AND authorization_epoch = $14::bigint
             FOR SHARE
           ), capability_authority AS (
             SELECT 1 FROM role_assignments ra
             JOIN unnest($15::uuid[], $16::bigint[], $17::text[]) AS g(id, state_version, scope_hex)
               ON g.id = ra.id AND g.state_version = ra.state_version
              AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')
-            WHERE ra.organization_id = $4::uuid AND ra.account_id = $18::uuid
+            WHERE ra.organization_id = $22::uuid AND ra.account_id = $18::uuid
               AND ra.status = 'active'
               AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz
               AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)

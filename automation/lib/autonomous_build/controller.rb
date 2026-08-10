@@ -164,7 +164,7 @@ module AutonomousBuild
     end
 
     # Returns true when the review is accepted (proceed to report); false to loop back into repair.
-    def do_review(_repairs)
+    def do_review(repairs)
       # The owner's operational rule (ADR-026): an autonomous PRODUCT tranche requires a real
       # independent reviewer; the same-process stub proves orchestration but must never gate real work.
       if @require_independent_review && !@reviewer.independent?
@@ -177,7 +177,14 @@ module AutonomousBuild
 
       review = invoke(@reviewer, "reviewer", brief: "Independently review the committed tranche.",
                       context: { reviewed_commit: @implementation_commit })
-      record_artifact("review.json", review)
+      # NUMBERED BY REPAIR CYCLE, as `verification_repair_n.json` and `repair_n.json` already are.
+      # IT WAS `review.json`, AND THAT MADE THE REVIEW-FAILURE PATH UNREACHABLE: run records are
+      # append-only, so the SECOND review in a run — the only kind that can exist after a review
+      # returns `changes_required` — raised "run-record artifact already exists" out of `run_tranche`,
+      # which rescues Stop, PolicyViolation and SchemaError and not that. Measured, not inferred: the
+      # first FU-40 example written against this path failed exactly there. So the loop-back branch
+      # below has never once completed, which is the deeper reason `failed_attempts` stayed empty.
+      record_artifact(review_artifact(repairs), review)
 
       unless review["reviewed_commit"] == @implementation_commit
         raise Stop.new("controller_error", reason: "reviewed_commit does not match implementation commit")
@@ -186,9 +193,37 @@ module AutonomousBuild
       @review = review
       case review["status"]
       when "pass", "pass_with_observations" then true
-      when "changes_required" then false # loop back: repair the blocking findings
+      when "changes_required"
+        # THE REVIEW-FAILURE TRANSITION, WHICH IS WHERE A FAILED ATTEMPT BECOMES A RECORD (FU-40).
+        # Until now this was a bare `false`: the run looped back into repair and the only trace of a
+        # review that returned NOT ACCEPTED was the run artifact. `failed_attempts` was therefore
+        # structurally incapable of recording a failure, and a reader who trusted it concluded no
+        # review had ever failed while fourteen of them had.
+        record_failed_attempt(review, repairs)
+        false # loop back: repair the blocking findings
       else stop_for_agent_status(review["status"])
       end
+    end
+
+    # Every member comes from what the run already holds — the pinned range it reviewed, the review's
+    # own finding list, the artifact those findings are written to — so nothing here is a summary.
+    def record_failed_attempt(review, repairs)
+      return unless File.exist?(@build_state_path)
+
+      BuildState.load(@build_state_path).append_failed_attempt({
+        "attempt" => repairs + 1,
+        "tranche" => @tranche_id,
+        "candidate_range" => "#{@base}..#{@implementation_commit}",
+        "outcome" => "not_accepted",
+        "mechanism" => "independent_review",
+        "blocking_findings" => Array(review["blocking_findings"]).length,
+        "record" => "runs/#{@run_id}/#{review_artifact(repairs)}"
+      }, now: @clock.call)
+    rescue SchemaError => e
+      # Never let a build-state write failure mask the review outcome — but never let it be SILENT
+      # either, which is the shape that let this field stay empty through fourteen failures.
+      record_event("failed_attempt_not_recorded", { "error" => e.message })
+      nil
     end
 
     def do_repair(cycle)
@@ -312,6 +347,7 @@ module AutonomousBuild
       Outcome.new(status:, run_id: @run_id, report: nil, run_record: @record, worktree: @worktree, details:)
     end
 
+    def review_artifact(repairs) = "review_#{repairs}.json"
     def failed_ids(verification) = verification["checks"].select { |c| c["status"] == "fail" }.map { |c| c["id"] }
     def remaining_risks = (@review ? @review["non_blocking_findings"].map { |f| f["finding_id"] } : [])
     def record_event(type, data = {}) = @record&.append_event(type, data, now: @clock.call)

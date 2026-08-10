@@ -78,25 +78,31 @@ module IdentityAccess
       # transition.
       def activate_version(row)
         authority = row.fetch(:authority)
+        # THE AUTHORITY'S ORGANIZATION IS THE ONLY ONE THIS STATEMENT MAY REASON ABOUT (FU-50). The
+        # row's organization still selects the SCOPE being superseded and is the value inserted; both
+        # authority limbs bind `$21`, which comes from the authenticated Session. See
+        # `WriteAuthority#governs!` for why the equality is refused here rather than left to RLS.
+        authority.governs!(row[:organization_id], at: "CrawlPolicyStore#activate_version")
         params = [
           row[:id], iso(row[:now]), row[:correlation_id], row[:organization_id], row[:project_id],
           row[:scope], row[:policy_version], row[:supersedes_id], row[:activated_by_account_id],
           JSON.generate(row[:normalized_bounds]), bytea(row[:content_sha256]),
           row[:expected_state_version], authority.epoch, authority.uuid_array,
           authority.bigint_array, authority.text_array, authority.account_id,
-          authority.required_role, authority.allowed_roles_array, authority.read_only_permitted
+          authority.required_role, authority.allowed_roles_array, authority.read_only_permitted,
+          authority.organization_id
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
             SELECT 1 FROM organizations
-            WHERE id = $4::uuid AND authorization_epoch = $13::bigint
+            WHERE id = $21::uuid AND authorization_epoch = $13::bigint
             FOR SHARE
           ), capability_authority AS (
             SELECT 1 FROM role_assignments ra
             JOIN unnest($14::uuid[], $15::bigint[], $16::text[]) AS g(id, state_version, scope_hex)
               ON g.id = ra.id AND g.state_version = ra.state_version
              AND g.scope_hex = coalesce(encode(ra.scope_sha256, 'hex'), '')
-            WHERE ra.organization_id = $4::uuid AND ra.account_id = $17::uuid
+            WHERE ra.organization_id = $21::uuid AND ra.account_id = $17::uuid
               AND ra.status = 'active'
               AND ra.effective_at IS NOT NULL AND ra.effective_at <= $2::timestamptz
               AND (ra.expires_at IS NULL OR $2::timestamptz < ra.expires_at)

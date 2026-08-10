@@ -102,6 +102,38 @@ module IdentityAccess
             grant_scopes: grants.map { |g| g["scope_hex"] || NO_SCOPE })
       end
 
+      # THE ORGANIZATION THE AUTHORITY IS FOR, AND THE REFUSAL THAT KEEPS IT THE ONLY ONE (FU-50).
+      #
+      # WHAT WAS OPEN, STATED NARROWLY. Two of the three protected writes bound the ROW's
+      # `organization_id` into the capability CTE's organization slot and one bound the AUTHORITY's.
+      # Traced at every call site, the two values are the same today — `QueueCrawl` and
+      # `ActivateCrawlPolicy` both set `org = actor.organization_id` and build their authority from the
+      # same actor — so the divergence was textual rather than semantic. What was unproved was not that
+      # the writes disagreed but that NOTHING ENFORCED their agreement: a future caller passing a row
+      # organization other than the authenticated one would have had the capability CTE look for grants
+      # in the CALLER-SUPPLIED organization, and no spec, guard or gate would have noticed.
+      #
+      # THE OWNER'S DECISION IS THAT ALL THREE BIND THE AUTHORITY'S, because that value is derived from
+      # the authenticated Session and never from caller input. Binding alone, though, only decides
+      # WHICH value wins — it does not stop the two from differing, and after it the authority limbs
+      # would answer about the authenticated Organization while the row still carried another one.
+      # `crawls_context` and `crawl_policies_context` would then refuse the INSERT, so the divergence
+      # would surface as an RLS error from the database rather than as a broken contract at the store.
+      # This makes the agreement the store's own rule: the write refuses BEFORE the statement, naming
+      # both values.
+      #
+      # IT RAISES RATHER THAN DENYING. A denial is a domain outcome a caller may legitimately provoke;
+      # this is reachable only from an implementation defect, which is precisely what
+      # `Platform::InvariantViolation` is for.
+      def governs!(candidate, at:)
+        return if candidate.to_s == organization_id.to_s
+
+        raise Platform::InvariantViolation,
+              "#{at}: the row names organization #{candidate.inspect} and the authenticated authority " \
+              "is for #{organization_id.inspect}. A protected write derives its organization from the " \
+              "authenticated Session, never from caller input (FU-50)."
+      end
+
       # The three arrays are positional: entry N of each describes one granting Assignment, and the
       # statement joins them with `unnest(...)` so a mismatched length cannot silently pair the wrong
       # version with the wrong Assignment.

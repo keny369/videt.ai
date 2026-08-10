@@ -5178,3 +5178,143 @@ Authority And Precedence:
 Repairs under standing delegation ADR-061 and blocking-defect repair authority ADR-084; the
 non-acceptance under ADR-026's independent-reviewer rule and ADR-080's precedent. Opens FU-68 and
 FU-69 and corrects FU-65. Allocated the next unused number after ADR-143.
+
+---
+
+## ADR-145: FU-13, FU-40 And FU-50 — The Catalogue Names The Table The Database Has, A Failed Review Becomes A Record, And A Protected Write's Organization Comes From The Session
+
+Status: Accepted
+Date: 2026-08-10
+Owner: implementation agent under the owner's three decisions of 2026-08-10 (FU-13 "correct the
+catalogue to `evidence`, the database wins"; FU-40 "a minimal `failed_attempts` record shape and the
+real failures backfilled"; FU-50 "bind `authority.organization_id` at all three protected writes")
+Reversibility: One catalogue row, one controller field shape, one authority predicate and its
+refusal. No frozen foundation changed. No migration. No contract change.
+
+Decision:
+
+Take the three small, already-decided follow-ups that were clearing the record before S-07-011, and
+record what measuring them changed about the record itself.
+
+**FU-13 — THE CATALOGUE NAMED A TABLE THAT DOES NOT EXIST, AND THE DATABASE WINS.**
+`schemas/POSTGRESQL_SCHEMA.md :337` catalogued the Evidence table as `evidences`. No table has ever
+carried that name: the live table is `evidence`, which is what `wf007_evaluation_spec.rb` joins and
+what `runtime_grants.rb` grants on. So the real table appeared under no name and the catalogue named
+one that does not exist. The two available repairs — rename the live table, or rename the catalogue
+row — are opposite answers to the same question, WHICH NAME IS RATIFIED, and that is why the record
+had been left open for an owner. The owner ruled that the database wins. The catalogue row now reads
+`evidence`, and `evidence` has left the exempt list in `repository_truth_spec`'s "represents every
+application table" check, so the catalogue is held to the name rather than excused from it. MEASURED:
+restoring `evidences` fails that example naming `evidence` exactly. The plural forms elsewhere in the
+catalogue — `check_result_evidences`, `issue_evidences`, `recommendation_evidences` and the rest —
+are DIFFERENT TABLES and are untouched, and API_CONTRACTS.md's `/evidences/:id/validation-decisions`
+is an HTTP path in a frozen contract, not a table name, and is untouched too.
+
+**FU-40 — `failed_attempts` HAS A SHAPE, A WRITER AND THE REAL HISTORY; AND THE NUMBER IN THE RECORD
+WAS WRONG.** The field was REQUIRED, VALIDATED AS AN ARRAY and given a dedicated
+`append_failed_attempt`, and it accepted any hash at all, so its only caller in the repository was
+its own unit spec. `BuildState::FAILED_ATTEMPT_KEYS` now names the seven members a reader needs to
+re-derive a failure — attempt, tranche, candidate_range, outcome, mechanism, blocking_findings,
+record — with a closed `outcome` enumeration and a pinned-range check that refuses `..HEAD`.
+Validation runs on LOAD as well as on APPEND, so a row that arrived by a hand edit is checked like
+any other.
+
+FU-40's own note said six failures. THAT NUMBER IS STALE AND WAS NOT COPIED. `S-07-009_ACCEPTANCE_REVIEW.md`
+carries FOURTEEN round headings and every one of them records `VERDICT: FAIL … NOT ACCEPTED`. The
+backfill is those fourteen, each with the candidate range its own section pins and the
+blocking-finding count its own verdict states. Two further checks in `repository_truth_spec` DERIVE
+that set from the review records rather than restating it, so a fifteenth failed round that is not
+recorded fails the gate instead of waiting for a reviewer, and they walk every `*_ACCEPTANCE_REVIEW.md`
+rather than `current_tranche`'s alone — the tranche under review is precisely the one with no review
+record yet. NOT RECONCILED HERE: ADR-142's prose says S-07-009 "returned NOT ACCEPTED eighteen
+recorded five-lens rounds running". The review record's headings are 1..14 and the later rounds it
+discusses in prose are numbered on a different scheme. Fourteen is what the repository holds as
+per-round evidence and is therefore what is recorded; the eighteen is left standing in ADR-142 and
+named here rather than silently overwritten.
+
+**A LATENT CONTROLLER DEFECT WAS FOUND BY WRITING THE FIRST PROOF, AND REPAIRED.** `do_review` wrote
+its result to `review.json`, a fixed name, and run records are APPEND-ONLY. So the SECOND review in a
+run — the only kind that can exist after a review returns `changes_required` — raised "run-record
+artifact already exists" out of `run_tranche`, which rescues `Stop`, `PolicyViolation` and
+`SchemaError` and not that. THE REVIEW-FAILURE LOOP-BACK HAD THEREFORE NEVER ONCE COMPLETED, which is
+the deeper reason the field stayed empty: there was no writer AND no reachable path to one. Measured,
+not inferred — the first FU-40 example written against that path failed exactly there. The artifact
+is now numbered by repair cycle, as `verification_repair_n.json` and `repair_n.json` already were.
+`append_failed_attempt` is called from that branch, and a state-write failure records a
+`failed_attempt_not_recorded` event rather than vanishing.
+
+**FU-50 — ALL THREE PROTECTED WRITES BIND THE AUTHENTICATED AUTHORITY'S ORGANIZATION, AND THE
+DIVERGENCE IS REFUSED RATHER THAN RESOLVED IN SILENCE.** `CrawlStartStore#cancel` bound
+`authority.organization_id`; `CrawlStore#insert_crawl` and `CrawlPolicyStore#activate_version` bound
+`row[:organization_id]`. Re-traced at every call site, those are THE SAME VALUE today — `QueueCrawl#commit`
+and `ActivateCrawlPolicy` both set `org = actor.organization_id` and build their authority from the
+same actor — so what was unproved was never that the writes disagreed. It was that NOTHING ENFORCED
+their agreement, and round 20 had measured `ra.organization_id` as bound by nothing across the whole
+suite. Both authority limbs at both row-bound writes now take a parameter carrying
+`authority.organization_id`; the row's organization remains the value INSERTED and the scope the
+supersession selects, which is what it is for.
+
+THE REBINDING ALONE WOULD HAVE MOVED THE HAZARD RATHER THAN REMOVED IT, and that is why this record
+also carries a refusal the owner's sentence did not name. After the rebinding, a caller passing a
+foreign row organization would have had the authority limbs answer about the AUTHENTICATED
+Organization while the row still carried another one, leaving `crawls_context` /
+`crawl_policies_context` to refuse the write — an RLS error from the database instead of a broken
+contract at the store, and a control held only by a policy this layer does not own.
+`WriteAuthority#governs!` therefore refuses the divergence before the statement, raising
+`Platform::InvariantViolation` — reachable only from an implementation defect, never from a caller's
+legitimate input — and naming both organizations. Nothing reachable today changes: no production
+caller can produce a divergence, which is why this is behaviour-preserving and why it needed proving
+rather than assuming.
+
+WHAT PROVES WHICH HALF, STATED EXACTLY, BECAUSE THEY CANNOT BOTH BE PROVED THE SAME WAY. A
+behavioural proof of the BINDING needs the two values to differ at the write, and the refusal makes
+that unreachable. So the refusal is proved by execution against a real second Organization
+bootstrapped through the real WF-001 chain (`spec/acceptance/wf005_write_authority_organization_spec.rb`,
+five examples, two of them non-vacuity controls that must still commit), and the binding is proved by
+`spec/architecture/capability_cte_equivalence_spec.rb`, which resolves the placeholder each store
+puts in its two organization slots back through the store's own parameter list and requires
+`authority.organization_id`. That closes the half round 19 recorded as R19-ARCH-3: the existing
+equivalence gate normalises every `$n` to `$?` and structurally cannot see an operand.
+
+Evidence:
+
+rspec MEASURED BEFORE AND AFTER, serially, with no dev worker running: 2981 examples / 0 failures /
+1 pending at the branch head before this work; 2997 / 0 / 1 after. Architecture 267/0 before,
+271/0 after. Every behaviour change was reverted individually and its proof required to fail:
+restoring `evidences` fails "represents every application table" naming `evidence`; emptying
+`failed_attempts` fails the derivation against the review records; deleting the queue write's
+`governs!` fails exactly one acceptance example; deleting the policy write's fails exactly two;
+rebinding the queue write's capability CTE to `$4` fails the operand gate naming
+`IdentityAccess::Infrastructure::CrawlStore#insert_crawl` and the expression `row[:organization_id]`.
+brakeman 0; packwerk clean with no stale violations; zeitwerk clean; `bin/f1db f1:db:verify_runtime`
+15 checks with RLS intact; no structure drift.
+
+BUNDLER-AUDIT WAS NOT CLEAN WHEN THIS WORK STARTED, FOR A REASON THAT HAS NOTHING TO DO WITH IT.
+`bundle-audit check --update` pulled advisory database commit `60a4518` (2026-08-09) and reported
+CVE-2026-71847 / GHSA-9hj4-r449-hfvc against `json 2.21.1`: `JSON::ResumableParser#partial_value`
+dereferences a freed input buffer on a truncated duplicate-key stream. The advisory is newer than the
+figure the handover recorded, so the gate went red without a line of this repository changing.
+`bundle update json --conservative` moved the lockfile to `json 2.21.2`, one transitive patch release
+and no other gem, and the suite was re-measured from that state. It is recorded here rather than in a
+tranche record because it is a dependency fact, not a design decision, and none of AUTONOMY_POLICY's
+nineteen escalation triggers covers a patch-level security fix to an existing free gem — it
+strengthens the property trigger 5 protects.
+
+ZERO calls were made to OpenAI, Anthropic, Google or any model provider. No adapter was added, no
+API key was read, and no dormant-adapter guard was touched.
+
+Consequences:
+
+FU-13, FU-40 and FU-50 are resolved. `failed_attempts` is now a governed field: a review that returns
+NOT ACCEPTED lands in it, and the gate refuses a state file whose failures disagree with the review
+records. The mutation ledger for the tranche under review (S-07-010) binds none of the files changed
+here, so no ledger row went stale and none was re-sealed. S-07-010 remains `reviewing` and is NOT
+accepted by this record.
+
+Authority And Precedence:
+The three repairs under the owner's decisions of 2026-08-10 and standing delegation ADR-061. The
+FU-50 refusal is the second of the two repairs FU-50's own note enumerates, taken alongside the
+binding the owner named because the binding alone relocates the hazard onto RLS. The controller
+artifact-naming repair under blocking-defect repair authority ADR-084: it is the reason the decided
+FU-40 writer could not otherwise execute. Corrects FU-40's "six" to the fourteen the review record
+holds. Allocated the next unused number after ADR-144.

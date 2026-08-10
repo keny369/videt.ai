@@ -133,6 +133,88 @@ RSpec.describe "Repository truth", type: :model do
       end
     end
 
+    # ---- FU-40: the failures the repository HAS are the failures it RECORDS -----------------------
+    #
+    # `failed_attempts` was `[]` while `S-07-009_ACCEPTANCE_REVIEW.md` carried fourteen rounds that
+    # every one returned FAIL, so a reader who trusted the structured field concluded the tranche had
+    # never failed. Backfilling it once would only move the staleness forward a year, which is the
+    # exact defect R6-9 named ("a number a human maintains beside a file that changes"). So the rows
+    # are DERIVED HERE from the review records and compared, and a fifteenth failed round that is not
+    # recorded fails this example rather than a reviewer noticing.
+    #
+    # EVERY REVIEW RECORD IN THE REPOSITORY IS WALKED, not `current_tranche`'s alone: the tranche
+    # under review is exactly the one with no review record yet, and a check scoped to it would be
+    # skipped in the state it is meant to govern.
+    ROUND_HEADING = /^#+ ROUND (\d+) —/
+    BLOCKING_COUNT = /(\w+)\s+(?:confirmed-blocking findings|in-candidate blockers)/i
+    COUNT_WORDS = %w[zero one two three four five six seven eight nine ten eleven twelve
+                     thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty].freeze
+
+    # Each round's own section: from its heading to the next one. A round's verdict and its blocking
+    # count both live inside it, so nothing is attributed to the wrong round.
+    def review_rounds(text)
+      headings = text.enum_for(:scan, ROUND_HEADING).map { [Regexp.last_match(1).to_i, Regexp.last_match.begin(0)] }
+      headings.each_with_index.map do |(number, at), i|
+        finish = headings[i + 1]&.last || text.length
+        [number, text[at...finish]]
+      end
+    end
+
+    def blocking_findings(section)
+      word = section[BLOCKING_COUNT, 1].to_s.downcase
+      COUNT_WORDS.index(word) || Integer(word, exception: false)
+    end
+
+    it "records in failed_attempts every review round that returned NOT ACCEPTED" do
+      recorded = BUILD_STATE.fetch("failed_attempts")
+
+      derived = ROOT.glob("*_ACCEPTANCE_REVIEW.md").sort.flat_map do |path|
+        tranche = path.basename.to_s.sub("_ACCEPTANCE_REVIEW.md", "")
+        text = path.read
+        numbers = review_rounds(text).map(&:first)
+        expect(numbers).to eq((1..numbers.length).to_a),
+                           "#{path.basename}'s round headings are not 1..n, so nothing below means anything"
+
+        review_rounds(text).filter_map do |number, section|
+          verdict = section[/\*\*VERDICT:.*?\*\*/m].to_s
+          next unless verdict.match?(/\bFAIL\b/) || verdict.match?(/NOT ACCEPTED/)
+
+          { "tranche" => tranche, "attempt" => number, "blocking_findings" => blocking_findings(section) }
+        end
+      end
+
+      expect(derived).not_to be_empty, "no review record parsed — has the round or verdict format changed?"
+      derived.each do |round|
+        expect(round["blocking_findings"]).not_to be_nil,
+                                                  "#{round['tranche']} round #{round['attempt']} states no " \
+                                                  "blocking-finding count this check can read"
+      end
+
+      comparable = recorded.map { |a| a.slice("tranche", "attempt", "blocking_findings") }
+      expect(comparable).to eq(derived),
+                            "failed_attempts disagrees with the review records it is supposed to carry.\n" \
+                            "  recorded: #{comparable.inspect}\n" \
+                            "  derived:  #{derived.inspect}"
+    end
+
+    it "pins a range for every failed attempt that the review record also pins" do
+      # The RANGE is the member a backfill is most likely to get wrong, and it is the one a reader
+      # needs most: a failed round whose range is not the range that was judged points the next
+      # reviewer at the wrong diff.
+      BUILD_STATE.fetch("failed_attempts").each do |attempt|
+        review = ROOT.join("#{attempt['tranche']}_ACCEPTANCE_REVIEW.md")
+        expect(review).to exist, "#{attempt['tranche']} has a failed attempt and no review record"
+
+        section = review_rounds(review.read).find { |number, _| number == attempt["attempt"] }&.last
+        expect(section).not_to be_nil,
+                               "#{attempt['tranche']} round #{attempt['attempt']} is recorded as failed and " \
+                               "the review record has no such round"
+        expect(section).to include("`#{attempt['candidate_range']}`"),
+                           "#{attempt['tranche']} round #{attempt['attempt']} is recorded against " \
+                           "#{attempt['candidate_range']}, which its own section does not name"
+      end
+    end
+
     it "carries a parseable timestamp that is not in the future" do
       stamp = Time.parse(BUILD_STATE["updated_at"])
       expect(stamp).to be <= Time.now.utc + 60
@@ -785,23 +867,23 @@ RSpec.describe "Repository truth", type: :model do
       catalogue = ROOT.join("schemas/POSTGRESQL_SCHEMA.md").read
       # Rails-internal and F-02 key infrastructure are documented in their own foundation records.
       #
-      # ONE OF FU-13'S TWO GAPS IS CLOSED AND THE OTHER IS NOT, WHICH IS WHY ONLY ONE NAME LEFT THIS
-      # LIST. `role_expiry_block_decisions` now has a catalogue row transcribed from WF-013 `:343`,
-      # which states the Decision's members, retention owner and uniqueness in as many words, so
-      # writing it reconciled two ratified documents rather than inventing a shape.
+      # FU-13 IS CLOSED AND THE EXEMPT LIST IS BACK TO INFRASTRUCTURE ONLY.
+      # `role_expiry_block_decisions` gained a catalogue row transcribed from WF-013 `:343`, which
+      # states the Decision's members, retention owner and uniqueness in as many words, so writing it
+      # reconciled two ratified documents rather than inventing a shape.
       #
-      # `evidence` STAYS, and stays as an OWNER decision rather than an omission. The catalogue
-      # names `evidences`; no table carries that name. So the real table appears under no name and
-      # the catalogue names one that does not exist, and resolving it means deciding WHICH NAME IS
-      # RATIFIED — the migration's or the catalogue's. That is not an implementer's call: renaming
-      # the live table and renaming the catalogue row are both one-line edits and they are opposite
-      # answers to the same question. FU-13 carries it.
+      # `evidence` LEFT THIS LIST BY OWNER DECISION OF 2026-08-10: the catalogue is corrected to the
+      # name the database carries. The catalogue said `evidences` and no table has ever carried that
+      # name, so the real table appeared under no name and the catalogue named one that does not
+      # exist. The two available repairs — rename the live table, or rename the catalogue row — are
+      # opposite answers to the same question, WHICH NAME IS RATIFIED, and the owner ruled that the
+      # database wins. See ADR-145. The row at `schemas/POSTGRESQL_SCHEMA.md :337` now reads
+      # `evidence`, and this check is what holds it there.
       #
       # Removing a name from here must mean the catalogue row was written, never that the check was
       # quietened.
       exempt = %w[ar_internal_metadata schema_migrations
-                  f1_context_keys f1_encrypted_records f1_encryption_key_versions
-                  evidence]
+                  f1_context_keys f1_encrypted_records f1_encryption_key_versions]
       tables = DbInspector.all(<<~SQL, []).map { |r| r["tablename"] } - exempt
         SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename
       SQL

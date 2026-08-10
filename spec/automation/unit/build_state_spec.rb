@@ -62,13 +62,62 @@ RSpec.describe AutonomousBuild::BuildState do
     expect(File.read(@path)).to eq(before) # unchanged
   end
 
+  # A failed attempt in the shape the field now has (FU-40). The old spec appended
+  # `{"attempt" => 1, "reason" => "verification_failed"}` — a shape nothing else in the repository
+  # could read, which is exactly why the field had no production writer.
+  def failed_attempt(**overrides)
+    {
+      "attempt" => 1, "tranche" => "S-07-009", "candidate_range" => "7f043a2..a414f5c",
+      "outcome" => "not_accepted", "mechanism" => "adr_080_five_lens_review",
+      "blocking_findings" => 11, "record" => "S-07-009_ACCEPTANCE_REVIEW.md#round-1"
+    }.merge(overrides.transform_keys(&:to_s))
+  end
+
   it "appends completed blocks and failed attempts without rewriting history" do
     state = described_class.load(@path)
     state.complete_block("S-05")
-    state.append_failed_attempt({ "attempt" => 1, "reason" => "verification_failed" })
+    state.append_failed_attempt(failed_attempt)
     reloaded = described_class.load(@path)
     expect(reloaded.completed_blocks).to eq(%w[F-01 F-02 F-03 F-04 S-05])
     expect(reloaded["failed_attempts"].size).to eq(1)
-    expect(reloaded["failed_attempts"].first["reason"]).to eq("verification_failed")
+    expect(reloaded["failed_attempts"].first["candidate_range"]).to eq("7f043a2..a414f5c")
+  end
+
+  # ---- the shape itself (FU-40) ------------------------------------------------------------------
+  #
+  # `failed_attempts` was REQUIRED and VALIDATED AS AN ARRAY and accepted any hash at all, so its only
+  # caller was this file. These four refuse the ways a row can be uninterpretable, and the fifth
+  # proves the refusal happens on LOAD as well as on APPEND — a row that reached the file by a hand
+  # edit or a backfill is checked like any other.
+  it "refuses a failed attempt whose members are not the declared shape" do
+    state = described_class.load(@path)
+    expect { state.append_failed_attempt({ "attempt" => 1, "reason" => "verification_failed" }) }
+      .to raise_error(AutonomousBuild::SchemaError, /the shape is attempt, tranche/)
+  end
+
+  it "refuses a failed attempt whose outcome is not one of the recognised outcomes" do
+    state = described_class.load(@path)
+    expect { state.append_failed_attempt(failed_attempt(outcome: "went_badly")) }
+      .to raise_error(AutonomousBuild::SchemaError, /"went_badly" is not one of/)
+  end
+
+  it "refuses a failed attempt whose candidate range is not pinned" do
+    # `..HEAD` is the exact shape every acceptance review in this repository is forbidden to use:
+    # a range that means something different every time it is read.
+    state = described_class.load(@path)
+    expect { state.append_failed_attempt(failed_attempt(candidate_range: "7f043a2..HEAD")) }
+      .to raise_error(AutonomousBuild::SchemaError, /is not a pinned base\.\.head range/)
+  end
+
+  it "refuses a failed attempt that names no record of its findings" do
+    state = described_class.load(@path)
+    expect { state.append_failed_attempt(failed_attempt(record: "")) }
+      .to raise_error(AutonomousBuild::SchemaError, /record must be a non-empty string/)
+  end
+
+  it "refuses a malformed failed attempt already present in the file, not merely one being appended" do
+    File.write(@path, JSON.pretty_generate(valid_state(failed_attempts: [{ "attempt" => 1 }])))
+    expect { described_class.load(@path) }
+      .to raise_error(AutonomousBuild::SchemaError, /failed_attempts\[0\] members are attempt/)
   end
 end

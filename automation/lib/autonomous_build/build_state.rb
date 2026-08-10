@@ -20,6 +20,34 @@ module AutonomousBuild
 
     ARRAY_KEYS = %w[open_decisions completed_blocks failed_attempts].freeze
 
+    # THE SHAPE OF A FAILED ATTEMPT (FU-40).
+    #
+    # WHAT WAS OPEN. `failed_attempts` was REQUIRED, VALIDATED AS AN ARRAY and given a dedicated
+    # `append_failed_attempt` writer, and it accepted ANY hash — so its only caller was its own unit
+    # spec, which appended `{"attempt" => 1, "reason" => "verification_failed"}`, a shape nothing else
+    # in the repository knows how to read. A field with no shape has no writer, because there is
+    # nothing for a writer to write. Meanwhile fourteen five-lens rounds returned NOT ACCEPTED against
+    # S-07-009 and every one of them lived in prose, so a reader that trusted only this field
+    # concluded the tranche had never failed.
+    #
+    # THE MEMBERS ARE THE MINIMUM A READER NEEDS TO RE-DERIVE THE FAILURE, and each is answerable from
+    # the review record rather than from recollection: which attempt it was, which tranche it judged,
+    # the range it judged (pinned, never `..HEAD`), what it returned, by what mechanism, how many
+    # blocking findings it confirmed, and where the findings themselves are written down. Nothing
+    # here is a summary or a judgement — `spec/architecture/repository_truth_spec.rb` derives all
+    # seven from the review record and fails when they disagree.
+    FAILED_ATTEMPT_KEYS = %w[attempt tranche candidate_range outcome mechanism
+                             blocking_findings record].freeze
+
+    # A CLOSED ENUMERATION, because "what went wrong" is the one member a writer is tempted to
+    # freetext. `not_accepted` is an ADR-080 review returning FAIL; `verification_failed` is the
+    # objective gate refusing before any review ran. The controller reaches only the first today; the
+    # second exists because `StateMachine` already has that terminal state and a row for it must not
+    # have to invent a word.
+    FAILED_ATTEMPT_OUTCOMES = %w[not_accepted verification_failed].freeze
+
+    RANGE = /\A[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}\z/
+
     attr_reader :path, :data
 
     def self.load(path)
@@ -44,7 +72,39 @@ module AutonomousBuild
       ARRAY_KEYS.each { |k| raise SchemaError, "#{k} must be an array" unless @data[k].is_a?(Array) }
       raise SchemaError, "attempt_number must be a non-negative integer" unless @data["attempt_number"].is_a?(Integer) && @data["attempt_number"] >= 0
 
+      @data["failed_attempts"].each_with_index { |record, i| validate_failed_attempt!(record, i) }
+
       self
+    end
+
+    # Validated here rather than only in the writer, so a row that reached the file by any route —
+    # a hand edit, a backfill, an older controller — is refused on the next load instead of being
+    # trusted because of how it arrived.
+    def validate_failed_attempt!(record, index)
+      raise SchemaError, "failed_attempts[#{index}] must be an object" unless record.is_a?(Hash)
+
+      keys = record.keys.sort
+      unless keys == FAILED_ATTEMPT_KEYS.sort
+        raise SchemaError, "failed_attempts[#{index}] members are #{keys.join(', ')}; " \
+                           "the shape is #{FAILED_ATTEMPT_KEYS.join(', ')}"
+      end
+      unless record["attempt"].is_a?(Integer) && record["attempt"].positive?
+        raise SchemaError, "failed_attempts[#{index}].attempt must be a positive integer"
+      end
+      unless FAILED_ATTEMPT_OUTCOMES.include?(record["outcome"])
+        raise SchemaError, "failed_attempts[#{index}].outcome #{record['outcome'].inspect} is not one of " \
+                           "#{FAILED_ATTEMPT_OUTCOMES.join(', ')}"
+      end
+      unless record["candidate_range"].to_s.match?(RANGE)
+        raise SchemaError, "failed_attempts[#{index}].candidate_range #{record['candidate_range'].inspect} " \
+                           "is not a pinned base..head range"
+      end
+      unless record["blocking_findings"].is_a?(Integer) && !record["blocking_findings"].negative?
+        raise SchemaError, "failed_attempts[#{index}].blocking_findings must be a non-negative integer"
+      end
+      %w[tranche mechanism record].each do |member|
+        raise SchemaError, "failed_attempts[#{index}].#{member} must be a non-empty string" if record[member].to_s.empty?
+      end
     end
 
     def status = @data["status"]

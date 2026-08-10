@@ -295,6 +295,9 @@ module IdentityAccess
       # that moved and a capability that is gone are DOMAIN DENIALS the caller must report; a lost
       # serialized transition is CORRUPTION. All three are computed in the same statement so none can
       # be inferred from another.
+      # `$5` IS THE AUTHORITY'S ORGANIZATION AND NOT A CALLER'S (FU-50). This write takes no row
+      # organization at all, so it has been the compliant one all along; the other two now bind the
+      # same value, and `spec/architecture/capability_cte_equivalence_spec.rb` holds all three to it.
       def cancel(id, expected_version, now, authority:)
         params = [id, expected_version, iso(now), authority.epoch, authority.organization_id,
                   authority.uuid_array, authority.bigint_array, authority.text_array,
