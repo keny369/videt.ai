@@ -502,12 +502,12 @@ blocks:
     scope:
       - a pure PORO classifier (`Workflows::Wf004::ScopeChangeClassification`) given the current active
         policy, a proposed policy and the verified boundary -> :contraction | :expansion | :boundary_violation
-      - base classification (owner Option B / ADR-054): a proposal is a CONTRACTION only when its PRULE-021
+      - "base classification (owner Option B / ADR-054): a proposal is a CONTRACTION only when its PRULE-021
         admitted URL set is a subset of the current active policy's; any non-strict-subset or mixed change is
-        an EXPANSION; fail-closed (inability to prove subset => expansion); PRULE-021 (S-06-001) is the oracle
-      - query handling exception: any query-handling change that can INCREASE distinct crawlable canonical-URL
+        an EXPANSION; fail-closed (inability to prove subset => expansion); PRULE-021 (S-06-001) is the oracle"
+      - "query handling exception: any query-handling change that can INCREASE distinct crawlable canonical-URL
         multiplicity (e.g. allowlist -> retain_all, or widening the retained-key set) is an EXPANSION; a change
-        preserving or reducing multiplicity may remain contraction-eligible
+        preserving or reducing multiplicity may remain contraction-eligible"
       - boundary violations (host/scheme/port beyond the verified boundary) are :boundary_violation, not a
         classification (rejected by the caller through the authoritative failure path)
     out_of_scope:
@@ -551,9 +551,9 @@ blocks:
         scheduled through F-04
       - no temporary weakening of authority rules
     out_of_scope:
-      - atomic contraction activation, Decide, Cancel (S-06-004); Expire execution (S-06-005); Source lifecycle
+      - "atomic contraction activation, Decide, Cancel (S-06-004); Expire execution (S-06-005); Source lifecycle
         (S-06-006); any crawl. INTERIM: a contraction remains pending here (fail-closed; no alternative
-        activation path), resolved in S-06-004
+        activation path), resolved in S-06-004"
       - frozen foundation contract changes, destructive migrations, production deployment, automatic merge
     acceptance_criteria:
       - a proposal persists an immutable pending request; a cross-host/scheme/port change is a boundary
@@ -661,8 +661,8 @@ blocks:
       - ActivateSource/DisableSource/ReactivateSource/RemoveSource; the sources lifecycle guard relaxed for
         exactly verified->active, active->disabled, disabled->active, disabled->removed, each pinning the
         policy version; SourceActivated/Disabled/Removed; unlisted and stale transitions denied AND audited
-      - the affected-run decision record for disable/remove (degenerate/empty pre-S-07: no Crawls exist; the
-        running-Crawl restriction is applied by S-07 at its checkpoint — no crawl machinery is built here)
+      - "the affected-run decision record for disable/remove (degenerate/empty pre-S-07: no Crawls exist; the
+        running-Crawl restriction is applied by S-07 at its checkpoint — no crawl machinery is built here)"
     out_of_scope:
       - any S-07 crawl/scheduler/checkpoint behaviour; scoring/evaluation
       - frozen foundation contract changes, destructive migrations, production deployment, automatic merge

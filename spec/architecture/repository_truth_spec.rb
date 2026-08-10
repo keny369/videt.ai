@@ -6,6 +6,13 @@ require "yaml"
 require "open3"
 require_relative "../../automation/lib/autonomous_build/frozen_contracts"
 require_relative "../../automation/lib/autonomous_build/mutation_harness"
+# Required here rather than inside an example, so a filtered run cannot depend on which
+# example happens to have unshifted the load path first (FU-39).
+require_relative "../../automation/lib/autonomous_build/state_machine"
+require_relative "../../automation/lib/autonomous_build/paths"
+# `Preflight`, `BuildState`, `Git` and `Plan` are the boundary hook itself, run against the real
+# record rather than re-implemented here (FU-39).
+require_relative "../../automation/lib/autonomous_build"
 
 # REPOSITORY TRUTH — facts that must never again depend on a reviewer noticing them.
 #
@@ -404,6 +411,114 @@ RSpec.describe "Repository truth", type: :model do
   #
   # THIS BLOCK BINDS `current_tranche` INSTEAD. It runs whether or not the tranche is accepted, so a
   # false claim is caught by the gate that authored it rather than by the round after it.
+  # ---- FU-47: the field these gates derive their subject from is itself checked -------------------
+  #
+  # THE FAILURE MODE, WHICH IS SILENCE RATHER THAN ERROR. Three checks below derive their subject from
+  # `BUILD_STATE["current_tranche"]`: the in-flight completion report, the acceptance-review record and
+  # `LEDGER_PATH`. Every one of them SKIPS when the derived file does not exist, which is correct for a
+  # tranche whose review has not run — and indistinguishable from a `current_tranche` that names
+  # nothing at all. Write a value that is not a tranche identifier, as `PREREQ-DB-BOOTSTRAP` once
+  # occupied this field, and all three find nothing and PASS.
+  #
+  # SO THE VALUE IS VALIDATED AGAINST THE PLAN, AND THE PLAN IS THE AUTHORITY. `BUILD_PLAN.yml`
+  # enumerates every block this controller may build; a `current_tranche` outside it is not a tranche.
+  # `completed_blocks` is held to the same rule, because a block that was completed must be a block.
+  describe "the fields the gates derive their subject from name something real (FU-47)" do
+    def plan
+      @plan ||= YAML.unsafe_load_file(ROOT.join("specification/automation/BUILD_PLAN.yml").to_s)
+    end
+
+    def plan_block_ids = plan.fetch("blocks").map { |b| b.fetch("id") }
+
+    it "parses as YAML at all, which is what everything below depends on" do
+      # FU-12(b): this file did not parse. `Psych::SyntaxError: could not find expected ':'` at the
+      # first of four sequence items whose plain multi-line scalar begins with a `key: value` shape.
+      # The controller reads `depends_on` from here, so an unparseable plan is a dependency graph
+      # nobody can read — and no check could derive block ids from it either.
+      # Asserted as a non-raise rather than left to blow up, so a regression reads as a failed
+      # expectation naming the syntax error instead of an exception from a memoized helper.
+      expect { YAML.unsafe_load_file(ROOT.join("specification/automation/BUILD_PLAN.yml").to_s) }
+        .not_to raise_error
+      expect(plan).to be_a(Hash)
+      expect(plan_block_ids).not_to be_empty
+      expect(plan_block_ids.uniq).to eq(plan_block_ids), "BUILD_PLAN.yml repeats a block id"
+    end
+
+    it "names a `current_tranche` the plan defines, so a gate cannot derive a subject from nothing" do
+      current = BUILD_STATE.fetch("current_tranche")
+      expect(plan_block_ids).to include(current),
+                                "current_tranche is #{current.inspect}, which BUILD_PLAN.yml does not " \
+                                "define. Every check that derives its subject from this field then " \
+                                "looks for a file that cannot exist and SKIPS, so the tranche under " \
+                                "review is governed by nothing (FU-47)."
+    end
+
+    it "completed only blocks the plan defines" do
+      unknown = Array(BUILD_STATE["completed_blocks"]) - plan_block_ids -
+                plan.fetch("protected_foundations", []).map { |f| f.is_a?(Hash) ? f["id"] : f }
+      expect(unknown).to be_empty,
+                         "completed_blocks names #{unknown.join(', ')}, which BUILD_PLAN.yml does not " \
+                         "define as a block or a protected foundation"
+    end
+
+    # ---- FU-39: the no-working-state policy, run against the REAL record ------------------------
+    #
+    # THE RECORD'S PREMISE IS MEASURABLY FALSE, AND WHAT REMAINED IS NARROWER. FU-39 concluded
+    # "NOTHING APPLIES THE POLICY TO `specification/automation/BUILD_STATE.json`". Measured:
+    # `CLI#cmd_preflight` and `CLI#cmd_run_next` both call `Preflight.check` with
+    # `Paths#build_state_file`, which IS that file. The boundary hook the record recommends building
+    # already exists. What was missing is that NOTHING PROVED IT — every assertion in
+    # `preflight_spec.rb` builds a synthetic `BuildState` in a `Dir.mktmpdir`, so the policy could have
+    # been wired to the wrong record, or unwired entirely, with that file still green.
+    #
+    # AND THE BLANKET ASSERTION REALLY IS WRONG, WHICH THIS TRANCHE CONFIRMED BY WRITING IT. A first
+    # version asserted "the real status is never a WORKING state unless a controller run holds the
+    # lock". It FAILED IMMEDIATELY AND CORRECTLY: `reviewing` is in `StateMachine::WORKING`, the record
+    # is deliberately parked there under ADR-144 awaiting an independent ADR-026 review, and no run
+    # holds the lock. The repository is in exactly the state FU-39's "obvious fix" would have called a
+    # defect. So this asserts the POLICY IS WIRED TO THE REAL RECORD, not that the record is in any
+    # particular state.
+    it "runs Preflight's own working-state limb against the REAL BUILD_STATE, not a synthetic one" do
+      paths = AutonomousBuild::Paths.new(repo_root: ROOT.to_s)
+      expect(paths.build_state_file).to eq(ROOT.join("specification/automation/BUILD_STATE.json").to_s),
+                                        "the boundary hook derives a different file from the one this " \
+                                        "suite governs, so neither one checks the other"
+
+      real = AutonomousBuild::BuildState.load(paths.build_state_file)
+      expect(real["status"]).to eq(BUILD_STATE["status"]), "the CLI and this spec read different records"
+
+      result = AutonomousBuild::Preflight.check(
+        git: AutonomousBuild::Git.new(repo_root: ROOT.to_s), build_state: real,
+        plan: AutonomousBuild::Plan.load(paths.build_plan_file)
+      )
+      working = result.failures.grep(/left in a working state/)
+
+      # THE POLICY AND THE RECORD AGREE, WHICHEVER WAY ROUND THEY ARE. A run may not START from a
+      # working state; being parked in one between runs is legitimate and is what the record does now.
+      # What must never happen is the policy and the record disagreeing about which it is.
+      if AutonomousBuild::StateMachine.working?(real.status)
+        expect(working).not_to be_empty,
+                               "BUILD_STATE is #{real.status.inspect}, a WORKING state, and Preflight " \
+                               "raised no working-state failure for it — the limb is not reaching the " \
+                               "real record (FU-39)"
+      else
+        expect(working).to be_empty,
+                           "Preflight reports a working-state failure for #{real.status.inspect}, " \
+                           "which `StateMachine.working?` says is not one"
+      end
+    end
+
+    it "derives an in-flight report that EXISTS, or says the tranche has not produced one" do
+      # The skip above is legitimate for a review record and NOT for a completion report: a tranche
+      # under review has one by definition. This is what turns "the file is missing" from a silent
+      # skip into a statement someone must make deliberately.
+      path = ROOT.join("#{BUILD_STATE.fetch('current_tranche')}_COMPLETION_REPORT.md")
+      expect(path).to exist,
+                      "#{path.basename} does not exist, so every check in 'the record of the tranche " \
+                      "currently under review' skipped rather than ran"
+    end
+  end
+
   describe "the record of the tranche currently under review" do
     let(:in_flight_path) { ROOT.join("#{BUILD_STATE.fetch('current_tranche')}_COMPLETION_REPORT.md") }
     let(:in_flight) do

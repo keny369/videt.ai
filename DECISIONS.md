@@ -5544,3 +5544,93 @@ Repairs under standing delegation ADR-061. The FU-58 limb follows ADR-132's rule
 read ONCE in Ruby and carried as a value rather than re-derived in SQL. Corrects FU-58's per-actor
 measurement to a per-grant one and FU-53's already-closed mirror half. Allocated the next unused
 number after ADR-146.
+
+---
+
+## ADR-148: FU-12(b), FU-47 And FU-39 — The Plan Parses, The Field Every Gate Derives Its Subject From Is Checked, And The Boundary Policy Is Proved Against The Real Record
+
+Status: Accepted
+Date: 2026-08-10
+Owner: implementation agent under standing delegation ADR-061
+Reversibility: Four quoted YAML scalars and five architecture examples. No production code changed.
+No frozen contract, no migration, no schema change.
+
+Decision:
+
+Three records describe one chain, with an ordering dependency: the plan cannot be the authority for
+what a tranche identifier is until it parses, and the boundary policy cannot be proved against the
+real record until the record's own fields are known to name something.
+
+**FU-12(b) — `BUILD_PLAN.yml` DID NOT PARSE AS YAML, AND NOW DOES.** `Psych::SyntaxError: could not
+find expected ':' while scanning a simple key at line 506`. The cause is four block-sequence items
+whose plain MULTI-LINE scalar begins with a `key: value` shape — YAML reads the first line as a
+mapping key, the key then runs onto the continuation line, and a simple key may not. Each is now a
+double-quoted scalar. The prose is byte-identical apart from the surrounding quotes; no block,
+dependency, scope or acceptance entry changed, and the file yields 29 blocks and 4 protected
+foundations. This is not a convenience edit to a ratified artifact: the file is declared YAML, the
+controller reads `depends_on` out of it, and it could not be read at all.
+
+**FU-47 — AN UNRECOGNISED `current_tranche` MADE THREE GATES PASS BY EXAMINING NOTHING.** The
+in-flight completion report, the acceptance-review record and `LEDGER_PATH` all derive their subject
+from that field, and all three SKIP when the derived file is absent — correct for a tranche whose
+review has not run, and indistinguishable from a field naming nothing at all, which is what
+`PREREQ-DB-BOOTSTRAP` once did to it. Four checks now hold the derivation: the plan parses;
+`current_tranche` names a block the plan defines; `completed_blocks` names only blocks or protected
+foundations it defines; and the in-flight COMPLETION REPORT must exist rather than skipping. That last
+one is the specific repair, and the asymmetry is deliberate — a review record may legitimately be
+absent, a completion report for the tranche under review may not. MEASURED: writing
+`PREREQ-DB-BOOTSTRAP` back into the field fails two examples by name; before the repair it made three
+checks skip and pass.
+
+**FU-39 — THE RECORD'S PREMISE IS FALSE, AND WHAT REMAINED IS NARROWER THAN IT SAID.** FU-39 concluded
+"NOTHING APPLIES THE POLICY TO `specification/automation/BUILD_STATE.json`" and recommended building a
+boundary hook. Measured: `CLI#cmd_preflight` and `CLI#cmd_run_next` BOTH call `Preflight.check` with
+`Paths#build_state_file`, which is that exact path. The hook exists. What was missing is that nothing
+PROVED it — every assertion in `preflight_spec.rb` builds a synthetic `BuildState` in a
+`Dir.mktmpdir`, so the policy could have been wired to the wrong record, or unwired entirely, with
+that file still green.
+
+**AND THE RECORD'S WARNING ABOUT THE OBVIOUS FIX IS CONFIRMED, BY WRITING IT.** A first version of the
+check asserted "the real status is never a WORKING state unless a controller run holds the lock", with
+the controller lock as the boundary signal. It failed immediately AND CORRECTLY: `reviewing` is in
+`StateMachine::WORKING`, this repository is deliberately parked there under ADR-144 awaiting an
+independent ADR-026 review, and no run holds the lock. The repository is in exactly the state that
+"obvious fix" would have called a defect. So the check asserts the POLICY IS WIRED TO THE REAL RECORD
+rather than that the record is in any particular state: it loads the real `BuildState` through
+`Paths`, runs the real `Preflight.check`, and requires the working-state failure to be present exactly
+when `StateMachine.working?` says the status is one — in both directions. MEASURED: deleting that limb
+from `Preflight` fails it, naming `reviewing` and the limb.
+
+**ONE DATA GAP FOUND WHILE DOING IT, RECORDED RATHER THAN SWEPT.** FU-45, FU-46 and FU-47 carry NO
+`status` field, so a reader filtering `open_decisions` by status silently omits them — and a writer
+resolving one of them can address the NEXT record's status instead, which this tranche's first attempt
+did (harmlessly, onto a field already reading `resolved`). FU-47 is given an explicit `resolved`
+because this tranche resolved it. FU-45 and FU-46 are left alone and named, because inventing a status
+for a record nobody has assessed is the same class of false claim these gates exist to catch.
+
+Evidence:
+
+rspec 3013 / 0 / 1 pending before, 3018 / 0 / 1 after. Architecture 271/0 before, 276/0 after. Each
+repair reverted individually and its proof required to fail on its own assertion: unquoting one plan
+scalar fails the parse example with the Psych message; writing `PREREQ-DB-BOOTSTRAP` into
+`current_tranche` fails two; deleting Preflight's working-state limb fails one. brakeman 0; packwerk
+clean with no stale violations; zeitwerk clean; bundler-audit clean; `bin/f1db f1:db:verify_runtime`
+15 checks with RLS intact; no structure drift.
+
+NOT CLAIMED. Only FU-12(b) is closed; (a), (c), (d), (f) and (g) are untouched and FU-12 stays open.
+The FU-39 check proves the policy reaches the real record and agrees with it; it does not assert the
+record is in a startable state, and it would not have caught the working-state parking that FU-39
+describes, because that parking is legitimate.
+
+ZERO calls were made to OpenAI, Anthropic, Google or any model provider.
+
+Consequences:
+
+FU-47 and FU-39 are resolved; FU-12 loses its (b) limb and stays open. `BUILD_PLAN.yml` is readable by
+anything that needs it, which is a precondition for the block-id validation above and for any future
+check that wants the dependency graph. S-07-010 remains `reviewing` and is NOT accepted by this record.
+
+Authority And Precedence:
+Repairs under standing delegation ADR-061. The YAML quoting under the rule that a declared-format file
+that does not parse is a defect rather than a style preference. Corrects FU-39's premise about the
+boundary hook. Allocated the next unused number after ADR-147.
