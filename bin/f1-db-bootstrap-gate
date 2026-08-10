@@ -30,12 +30,21 @@ trap cleanup EXIT
 
 # ---- 1. the documented bootstrap, from a declared initial state --------------------------------
 OUT="$(F1_GATE=1 ./bin/f1-db-bootstrap "$GATE_DB" test 2>&1)" || { echo "$OUT" | tail -20; fail "bootstrap exited non-zero"; }
-echo "$OUT" | grep -q "tables=0, schema_migrations absent" \
+# A HERESTRING, NOT A PIPE, AND THE REASON IS THAT THIS GATE COULD NOT PASS.
+# `echo "$OUT" | grep -q PATTERN` under `set -o pipefail` FAILS whenever the match occurs
+# early and `$OUT` is larger than the pipe buffer: `grep -q` exits on the first match, `echo`
+# is still writing, and SIGPIPE/EPIPE makes the PIPELINE non-zero even though the pattern was
+# found. Measured on this machine: identical output passes at 64000 bytes and fails at 70000,
+# and the real bootstrap emits ~112 KB with `tables=0` on its sixth line. So both checks below
+# reported "the bootstrap did not say X" for output that says X, and the gate reported FAIL for
+# a reason that had nothing to do with the schema it exists to measure. A herestring feeds grep
+# from a temporary file, so there is no writer to signal and no pipeline to fail.
+grep -q "tables=0, schema_migrations absent" <<< "$OUT" \
   || fail "bootstrap did not verify the declared initial state"
 ok "the database began with no application schema objects, verified rather than assumed"
 
 BASE_COUNT="$(ruby -rjson -e 'puts JSON.parse(File.read("db/baseline/BASELINE.json"))["pre_baseline_version_count"]')"
-echo "$OUT" | grep -q "   ${BASE_COUNT} pre-baseline versions recorded" \
+grep -q "   ${BASE_COUNT} pre-baseline versions recorded" <<< "$OUT" \
   || fail "the baseline load did not record ${BASE_COUNT} versions"
 ok "the baseline was loaded and recorded all ${BASE_COUNT} pre-baseline versions"
 
