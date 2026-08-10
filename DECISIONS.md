@@ -5318,3 +5318,101 @@ binding the owner named because the binding alone relocates the hazard onto RLS.
 artifact-naming repair under blocking-defect repair authority ADR-084: it is the reason the decided
 FU-40 writer could not otherwise execute. Corrects FU-40's "six" to the fourteen the review record
 holds. Allocated the next unused number after ADR-144.
+
+---
+
+## ADR-146: FU-33 And FU-67 — The Crawl Events Carry Exactly Their Closed Profile, The Two CAP-007 Counts Are Re-Homed, And The Envelope Is A Bigger Question Than Either Record Knew
+
+Status: Accepted
+Date: 2026-08-10
+Owner: implementation agent under the owner's decision of 2026-08-10: "FU-33 and FU-67 conform to the
+closed event profile. The two CAP-007 observability members are re-homed, not deleted. Record an ADR."
+Reversibility: Five event payload literals and one shared envelope builder. No frozen contract, no
+migration, no schema change. The canonical bytes of five WF-005 event types change.
+
+Decision:
+
+**THE FIVE WF-005 CRAWL-AGGREGATE EVENTS NOW CARRY EXACTLY THEIR PROFILE.** API_CONTRACTS.md :933 is
+unambiguous — a selected profile has "the exact base members below, followed by exactly the members in
+its catalogue-selected extra schema", and "there is no free-form `details`, `metadata`, `attributes` or
+extension object". `CrawlQueued` carried seven members and NOT ONE of them belonged to its profile;
+`CrawlStarted` carried eight of which six did not; the `CompleteCrawl` terminal envelope and
+`CrawlCanceled` were missing both aggregate-version base members and carrying `crawl_id`, which
+duplicates the root `affected_entity_id`; `StartCrawl`'s pre-execution `CrawlFailed` was missing five.
+All five now emit the base members of their profile plus `crawl_terminal`'s three, with the
+contract's own null/zero values before terminal derivation.
+
+**TWO PRODUCERS OF ONE EVENT TYPE WERE BROUGHT INTO AGREEMENT, WHICH NEITHER RECORD ASKED FOR AND BOTH
+IMPLY.** `CrawlFailed` is emitted by `CompleteCrawl` AND by `StartCrawl`, and the two disagreed about
+its members. That is ADR-110's own defect class one event type along, and repairing one producer while
+leaving the other would have recreated it. `CrawlCanceled` is included for the same reason: it is the
+same profile, the same aggregate and the same extra schema, and a corpus that conforms in four events
+out of five is the incoherence FU-33 said should not be carried.
+
+**THE TWO CAP-007 COUNTS ARE RE-HOMED, NOT DELETED, AND THAT IS ASSERTED RATHER THAN CLAIMED.**
+`frontier_root_count` and `excluded_inactive_source_count` were added to `CrawlStarted` deliberately,
+because CAP-007 observability requires them and because they "make a queue-time/execution-time
+Source-set divergence visible". The closed profile has nowhere to put them. They remain in the AUDIT
+RECORD the same commit writes — alongside `pinned_source_count`, which was never in the event — and in
+the command result, and WORKFLOW_SPECIFICATIONS.md :740 puts "per-Source root status" in exactly that
+obligation. One example drives the real chain and requires all three to be readable from the audit
+payload AND absent from the event. The same is true of the five facts dropped from `CrawlQueued`:
+`kind`, `source_count` and the two requested policy versions were already in that command's audit
+record, and `crawl_id` is the aggregate id the event row carries in a column.
+
+**THE GATE DERIVES ITS EXPECTATION FROM THE RATIFIED DOCUMENT AND ITS SUBJECT FROM THE EMITTED BYTES.**
+`spec/acceptance/wf005_event_profile_conformance_spec.rb` parses the root member enumeration and both
+"Closed profile payloads" tables out of API_CONTRACTS.md, drives the production chain, and compares
+against `event_registry.event_bytes` — what a consumer actually receives and what `event_sha256` is
+computed over, rather than a source literal the ledger could reshape. A member added to a profile in
+the contract becomes required with no edit to the spec, which is the whole reason FU-33's
+hand-maintained delta had to be re-measured in two consecutive tranches. The parse is asserted before
+anything depends on it, because a format change that emptied it would make every comparison pass
+vacuously.
+
+**WHAT TAKING THIS MEASURED, WHICH NEITHER RECORD KNEW, AND WHICH IS OPENED AS FU-74 RATHER THAN
+ABSORBED.** API_CONTRACTS.md :703 makes `event_payload: object<EventProfilePayload>` a NESTED member of
+the event root. NO EMITTER IN THIS REPOSITORY NESTS IT — not one of the twenty-odd envelope builders
+across WF-001 to WF-013 — so `event_payload` appears in no emitted byte sequence at all. Every envelope
+instead flattens its profile members into the root and adds root members :703 does not admit
+(`account_id`, `requester_account_id`, `organization_epoch`, `state_version`, and `scheduled_action_id`
+in the S-07-010 builders) while omitting `related_entities`, `governing_versions` and `output_hash`.
+THIS CORRECTS FU-33's CONTROL: "the S-07-010 events were re-read as the control and they conform
+exactly" is true of profile members and false of the envelope. It is not repaired here, and the reason
+is not caution: it is identical in every workflow, it is a question about the contract rather than
+about WF-005, and repairing it would change the canonical bytes and `event_sha256` of every event this
+platform has ever emitted. `ENVELOPE_SURPLUS` in the gate names exactly the five surplus members that
+exist today, so a sixth fails rather than accumulating quietly, and FU-74 carries the decision.
+
+Evidence:
+
+rspec measured serially before and after with no dev worker running. Every behaviour change was
+reverted individually and its proof required to fail, naming the event and the member: re-adding
+`kind` to `CrawlQueued` fails with "carries kind, which is neither a root member nor a member of its
+closed profile"; deleting `accepted_document_count` from `CrawlStarted` fails with "omits
+accepted_document_count"; replacing the terminal envelope's two version members with `crawl_id` fails
+naming both omissions. brakeman 0; packwerk clean with no stale violations; zeitwerk clean;
+bundler-audit clean at json 2.21.2; `bin/f1db f1:db:verify_runtime` 15 checks with RLS intact; no
+structure drift.
+
+NOT CLAIMED. This does not assert that the WF-005 events conform to :703's ROOT object — they do not,
+and neither does any other event in the platform; FU-74 states the delta exactly. It does not touch
+`EvaluationPending` or `CrawlPolicyActivated`, which are different aggregates on different profiles and
+are named by neither record; `CrawlPolicyActivated` in particular is wholesale non-conformant against
+the `policy_activation` profile and is recorded in FU-74's scope rather than repaired in passing.
+
+ZERO calls were made to OpenAI, Anthropic, Google or any model provider.
+
+Consequences:
+
+FU-33 and FU-67 are resolved. FU-74 is opened. The canonical bytes of `CrawlQueued`, `CrawlStarted`,
+`CrawlCanceled`, `CrawlCompleted` and `CrawlFailed` change, which is an owner-visible envelope
+correction to accepted tranches and is why this record exists. S-07-010 remains `reviewing` and is NOT
+accepted by this record.
+
+Authority And Precedence:
+The conformance under the owner's decision of 2026-08-10 and standing delegation ADR-061. The
+inclusion of `CrawlCanceled` and `StartCrawl`'s `CrawlFailed` under ADR-110's precedent that two
+producers of one event type may not disagree about its shape. FU-74 opened under the AUTONOMY_POLICY
+rule that a contract question with more than one materially valid reading is the owner's. Allocated
+the next unused number after ADR-145.

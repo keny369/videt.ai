@@ -230,7 +230,7 @@ module Workflows
           write_event(store, ids[:event], ids[:audit], org, ctx, command, now, new_version, pid,
                       d[:request_sha256], d[:key_digest], event_type(selection), "state_transition",
                       TARGET_TYPE, crawl["id"],
-                      terminal_envelope(selection, crawl, facts))
+                      terminal_envelope(selection, facts, new_version))
           write_result(store, ids, command, ctx, org, now, payload, target_id: crawl["id"])
           write_idempotency(store, ids[:idem], org, command, d[:key_digest], d[:request_sha256],
                             ids[:execution], ids[:result], now)
@@ -254,7 +254,7 @@ module Workflows
         # `CrawlStartStore`'s own comment asserting the machine reason "is retained where the contract
         # puts it — the `CrawlFailed` envelope". `CrawlCompleted` keeps both null: :807 gives it the
         # source `none`, and :938 says a `none` source requires null.
-        def terminal_envelope(selection, crawl, facts)
+        def terminal_envelope(selection, facts, version)
           # `transition_reason_code` IS A BASE MEMBER OF EVERY `state_transition`, INCLUDING THIS ONE
           # (round 4, R4-7). :938 lists it among the base members and says "it is NULL where the
           # catalogue source is `none`" — null, which is a value, not absent. :807 gives `CrawlCompleted`
@@ -264,8 +264,14 @@ module Workflows
           # THE SAME ABSENT-VERSUS-NULL DISTINCTION R3-3 WAS RAISED ON, in the same envelope builder and
           # one member along. :938's consumer rule REJECTS a missing required member and DEFINES a null
           # one, so the two are different bytes and different outcomes for a consumer.
+          # `prior_aggregate_version` / `committed_aggregate_version` ARE BASE MEMBERS TOO, AND WERE
+          # ABSENT (FU-67, ADR-146). :938 lists them among the `state_transition` base members —
+          # "committed version equals root aggregate version and prior is lower" — and this envelope
+          # carried neither, while carrying `crawl_id`, which duplicates the root
+          # `affected_entity_id` and is admitted by no closed schema.
           base = { "from_state" => "running", "to_state" => selection.state,
-                   "crawl_id" => crawl["id"], "completion_reason" => selection.completion_reason,
+                   "prior_aggregate_version" => version - 1, "committed_aggregate_version" => version,
+                   "completion_reason" => selection.completion_reason,
                    "coverage_status" => selection.coverage_status,
                    "accepted_document_count" => facts.documents,
                    "transition_reason_code" => nil }

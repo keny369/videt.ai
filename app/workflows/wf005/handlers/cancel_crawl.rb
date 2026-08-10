@@ -291,8 +291,16 @@ module Workflows
                       # only of `completed` (ADR-097), and a cancelled run's coverage is not a number
                       # anyone should read because the run was STOPPED, not measured. An absent required
                       # member is what :938's consumer rule REJECTS; a null one is what it defines.
-                      { "project_id" => command.project_id, "crawl_id" => crawl["id"],
+                      #
+                      # AND THE TWO AGGREGATE-VERSION BASE MEMBERS WERE ABSENT TOO (FU-67, ADR-146).
+                      # :938 lists `prior_aggregate_version` and `committed_aggregate_version` among the
+                      # `state_transition` base members; `crawl_id` was carried and is admitted by no
+                      # closed schema, duplicating the root `affected_entity_id`. `project_id` and
+                      # `reason_code` stay because :703 puts both on the event ROOT.
+                      { "project_id" => command.project_id,
                         "from_state" => from_state, "to_state" => "canceled",
+                        "prior_aggregate_version" => new_version - 1,
+                        "committed_aggregate_version" => new_version,
                         "completion_reason" => COMPLETION_REASON,
                         "coverage_status" => nil,
                         "accepted_document_count" => 0,

@@ -206,12 +206,32 @@ module Workflows
                                        ids[:crawl], ACTION)
           write_audit(store, ids[:audit], org, ctx, command, ids[:crawl], actor,
                       to_state: "queued", outcome: "success", reason_code: nil, payload:, now:)
+          # THE CLOSED `created` PROFILE PLUS THE `crawl_terminal` EXTRA SCHEMA, EXACTLY (FU-33/FU-67,
+          # ADR-146). This envelope used to carry SEVEN members and not one of them was a member of
+          # either — `kind`, `state` (an ad hoc spelling of `to_state`), `source_count` and the two
+          # requested policy versions are admitted nowhere, and `crawl_id` duplicates the root
+          # `affected_entity_id`. API_CONTRACTS.md :933 is explicit that a profile has "the exact base
+          # members below, followed by exactly the members in its catalogue-selected extra schema" and
+          # that "there is no free-form `details`, `metadata`, `attributes` or extension object".
+          #
+          # `project_id` STAYS AND IS NOT AN EXCEPTION: :703 makes it a member of the event ROOT, and
+          # `CrawlLedger#write_event` reads it out of this hash to populate that root member. It is
+          # envelope, not payload.
+          #
+          # NOTHING IS LOST. The five dropped facts are all in the audit record this same commit
+          # writes, which is where WF-005's Audit and Observability obligation puts them, and in the
+          # command result. The event stream stops carrying a shape the contract prohibits; the record
+          # keeps the facts.
+          #
+          # `crawl_terminal`'s three members are null/null/zero because :956 says so in as many words —
+          # "values are null/zero before terminal derivation" — and a queued Crawl has accepted nothing.
           write_event(store, ids, org, ctx, command, actor, now, 0, ids[:crawl], request_sha256, key_digest,
                       "CrawlQueued", "created",
-                      { "project_id" => command.project_id, "crawl_id" => ids[:crawl], "kind" => "root",
-                        "state" => "queued", "source_count" => sources.size,
-                        "requested_crawl_policy_version" => crawl_policy && crawl_policy["policy_version"],
-                        "requested_entitlement_policy_version" => entitlement["semantic_version"] })
+                      { "project_id" => command.project_id,
+                        "from_state" => nil, "to_state" => "queued",
+                        "prior_aggregate_version" => nil, "committed_aggregate_version" => 0,
+                        "coverage_status" => nil, "completion_reason" => nil,
+                        "accepted_document_count" => 0 })
           write_result_success(store, ids, command, ctx, org, actor, now, payload, ids[:crawl])
           write_idempotency(store, ids[:idem], org, command, command.project_id, key_digest, request_sha256,
                             ids[:execution], ids[:result], now)

@@ -428,14 +428,32 @@ module Workflows
                                              "effective_crawl_policy_bounds" => policy[:bounds]))
           write_event(store, ids[:crawl_event], ids[:audit], org, ctx, command, now, new_version, pid,
                       d[:request_sha256], d[:key_digest], "CrawlStarted", "state_transition", TARGET_TYPE, crawl["id"],
-                      { "from_state" => "queued", "to_state" => "running", "crawl_id" => crawl["id"],
-                        "crawl_policy_version" => policy[:version],
-                        "entitlement_policy_version" => decision.policy_version,
-                        "deadline_at_utc" => deadline.iso8601(6),
-                        # Per-Source root counts, which CAP-007 observability requires and which make
-                        # a queue-time/execution-time Source-set divergence visible in the stream.
-                        "frontier_root_count" => seeded.admitted,
-                        "excluded_inactive_source_count" => seeded.excluded_inactive })
+                      # THE CLOSED `state_transition` PROFILE PLUS `crawl_terminal`, EXACTLY (FU-33/FU-67,
+                      # ADR-146). Six of the eight members this envelope used to carry are admitted by
+                      # neither: `crawl_id` duplicates the root `affected_entity_id`, and the two policy
+                      # versions, `deadline_at_utc` and the two per-Source root counts are not members of
+                      # any closed schema. :933 admits no extension object to put them in.
+                      #
+                      # THE TWO CAP-007 COUNTS ARE RE-HOMED, NOT DELETED, and the owner's decision says
+                      # so. They were added deliberately, because CAP-007 observability requires them and
+                      # because they "make a queue-time/execution-time Source-set divergence visible".
+                      # They remain in the AUDIT RECORD this same commit writes, alongside
+                      # `pinned_source_count`, and in the command result — and the audit record is where
+                      # WF-005's Audit and Observability obligation actually places "per-Source root
+                      # status". Nothing that could be read before can stop being read.
+                      #
+                      # `prior_aggregate_version` IS `new_version - 1` AND NOT A SECOND DERIVATION. :938
+                      # requires "committed version equals root aggregate version and prior is lower";
+                      # `new_version` is the version this transition committed, which the root envelope
+                      # already carries, so the pair is that value and its predecessor.
+                      { "from_state" => "queued", "to_state" => "running",
+                        "prior_aggregate_version" => new_version - 1,
+                        "committed_aggregate_version" => new_version,
+                        # :807 gives `CrawlStarted` the reason source `none`, and :938 says the member is
+                        # null where the source is `none` — null, which is a value, not an omission.
+                        "transition_reason_code" => nil,
+                        "coverage_status" => nil, "completion_reason" => nil,
+                        "accepted_document_count" => 0 })
           write_event(store, ids[:evaluation_event], ids[:audit], org, ctx, command, now, 0, pid,
                       d[:request_sha256], d[:key_digest], "EvaluationPending", "created", "evaluation", ids[:evaluation],
                       { "evaluation_id" => ids[:evaluation], "crawl_id" => crawl["id"], "kind" => EVALUATION_KIND,
@@ -480,7 +498,27 @@ module Workflows
                       reason_code: reason, payload:, now:)
           write_event(store, ids[:event], ids[:audit], org, ctx, command, now, new_version, crawl["project_id"],
                       d[:request_sha256], d[:key_digest], "CrawlFailed", "state_transition", TARGET_TYPE, crawl["id"],
-                      { "from_state" => "queued", "to_state" => "failed", "crawl_id" => crawl["id"],
+                      # WF-005's SECOND PRODUCER OF `CrawlFailed`, BROUGHT TO THE SAME SHAPE AS THE FIRST
+                      # (FU-33/FU-67, ADR-146). `CompleteCrawl` emits this event type too, and until now
+                      # the two producers disagreed about its members — the defect class ADR-110 was
+                      # written about, one event type along. This envelope carried neither the
+                      # `crawl_terminal` members nor `transition_reason_code`, and carried `crawl_id`,
+                      # which duplicates the root `affected_entity_id`.
+                      #
+                      # `reason_code` AND `outcome` ARE ROOT MEMBERS, NOT PAYLOAD, so they stay: :703
+                      # lists both on the event root, and `CrawlLedger#write_event` defaults `outcome` to
+                      # `success`, which a pre-execution failure must override. :808 gives `CrawlFailed`
+                      # the reason source `transition`, so :938 requires root `reason_code` to equal
+                      # `transition_reason_code` exactly — they are set from the one value.
+                      { "from_state" => "queued", "to_state" => "failed",
+                        "prior_aggregate_version" => new_version - 1,
+                        "committed_aggregate_version" => new_version,
+                        "transition_reason_code" => reason,
+                        # The run never started, so no coverage was measured and nothing was accepted.
+                        "coverage_status" => nil,
+                        "completion_reason" =>
+                          IdentityAccess::Infrastructure::CrawlStartStore::COMPLETION_REASON_FAILED,
+                        "accepted_document_count" => 0,
                         "reason_code" => reason, "outcome" => "failure" })
           failure = Platform::ErrorCatalog.failure(reason, support_reference: ctx.correlation_id)
           write_result(store, ids, command, ctx, org, now, {}, failure:)
