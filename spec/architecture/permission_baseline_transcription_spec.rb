@@ -175,9 +175,12 @@ RSpec.describe "Permission Baseline transcription", type: :model do
   # conjunction `permits? && mode_permits?` was written out by hand at six call sites, and the sixth
   # — `Wf013::Handlers::ReactivateOrganization` — wrote only the first half.
   #
-  # MEASURED, because the record called it unreachable: `OrganizationAdmin` + `read_only` is barred by
+  # MEASURED, because the record called it unreachable: `OrganizationAdmin` + `read_only` was barred by
   # `InvitationOffer#valid_tuple?` and by NOTHING IN THE DATABASE, and a `read_only` OrganizationAdmin
-  # reactivated a suspended Organization.
+  # reactivated a suspended Organization. (The database limb was closed on 2026-08-11 by FU-76's
+  # `role_assignments_ratified_role_mode_persona`; that sentence is the state FU-62 was measured in,
+  # kept as the record of what was reachable rather than as current fact. The rule below is unchanged
+  # either way — it is about who may read HALF a baseline row, not about which rows exist.)
   #
   # SO THE CONJUNCTION HAS EXACTLY ONE IMPLEMENTATION AND THIS IS THE RULE THAT KEEPS IT THAT WAY. A
   # production caller wanting the baseline's answer about an assignment calls `assignment_permits?`;

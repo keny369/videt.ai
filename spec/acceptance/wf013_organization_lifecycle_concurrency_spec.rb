@@ -179,7 +179,23 @@ RSpec.describe "WF-013 organization lifecycle concurrency", type: :acceptance,
         expect(DbInspector.count("invitations")).to eq(1)
         expect(DbInspector.count("scheduled_actions")).to eq(1)
       else
-        expect(created.reason_code).to be_in(%w[session_invalid organization_inactive])
+        # THE THIRD REFUSAL WAS REACHABLE AND UNNAMED (measured 2026-08-11, ADR-150).
+        #
+        # This list held two codes and the suspension race produced a third in a whole-suite run:
+        # `stale_authorization_epoch`, which `create_invitation.rb:156` returns when the epoch
+        # advances between authentication and the write — which is EXACTLY what the suspension in
+        # this race does. Under the interleaving where the advance commits inside that window, the
+        # command refuses for that reason, the property this example defends STILL HOLDS (no
+        # Invitation, no timer, nothing half-authorized), and the example failed anyway on an
+        # enumeration rather than on the invariant.
+        #
+        # IT IS NOT A WIDENING TO MAKE A RUN GREEN, and the file's own siblings are the evidence:
+        # `:126` and `:143` each name THREE outcomes for the same shape of race, and `:143` names
+        # this very code. One assertion out of three had been written from a shorter reading of the
+        # handler. The two row counts below are untouched, so a genuinely half-authorized outcome
+        # still fails here whatever reason code it carries.
+        expect(created.reason_code).to be_in(%w[session_invalid organization_inactive
+                                                stale_authorization_epoch])
         expect(DbInspector.count("invitations")).to eq(0)
         expect(DbInspector.count("scheduled_actions")).to eq(0)
       end

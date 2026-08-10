@@ -4352,6 +4352,7 @@ CREATE TABLE public.invitations (
     CONSTRAINT invitations_opaque_reference_sha256_check CHECK ((octet_length(opaque_reference_sha256) = 32)),
     CONSTRAINT invitations_open_uniqueness_sha256_check CHECK (((open_uniqueness_sha256 IS NULL) OR (octet_length(open_uniqueness_sha256) = 32))),
     CONSTRAINT invitations_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
+    CONSTRAINT invitations_ratified_role_mode_persona CHECK ((((((canonical_role || '|'::text) || permission_mode) || '|'::text) || COALESCE(persona, ''::text)) = ANY (ARRAY['BillingOperator|standard|'::text, 'MarketingOperator|read_only|executive_buyer'::text, 'MarketingOperator|standard|'::text, 'MarketingOperator|standard|consultant'::text, 'OrganizationAdmin|standard|'::text, 'OrganizationAdmin|standard|consultant'::text, 'SecurityOperator|standard|'::text, 'TechnicalImplementer|standard|'::text, 'TechnicalImplementer|standard|consultant'::text]))),
     CONSTRAINT invitations_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT invitations_state_check CHECK ((state = ANY (ARRAY['pending_approval'::text, 'active'::text, 'accepted'::text, 'declined'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
     CONSTRAINT invitations_target_email_sha256_check CHECK ((octet_length(target_email_sha256) = 32)),
@@ -4879,6 +4880,7 @@ CREATE TABLE public.role_assignments (
     CONSTRAINT role_assignments_idempotency_key_digest_check CHECK (((idempotency_key_digest IS NULL) OR (octet_length(idempotency_key_digest) = 32))),
     CONSTRAINT role_assignments_permission_mode_check CHECK ((permission_mode = ANY (ARRAY['standard'::text, 'read_only'::text]))),
     CONSTRAINT role_assignments_protected_permission_allowlist_check CHECK ((jsonb_typeof(protected_permission_allowlist) = 'array'::text)),
+    CONSTRAINT role_assignments_ratified_role_mode_persona CHECK ((((((canonical_role || '|'::text) || permission_mode) || '|'::text) || COALESCE(persona, ''::text)) = ANY (ARRAY['BillingOperator|standard|'::text, 'MarketingOperator|read_only|executive_buyer'::text, 'MarketingOperator|standard|'::text, 'MarketingOperator|standard|consultant'::text, 'OrganizationAdmin|standard|'::text, 'OrganizationAdmin|standard|consultant'::text, 'SecurityOperator|standard|'::text, 'TechnicalImplementer|standard|'::text, 'TechnicalImplementer|standard|consultant'::text]))),
     CONSTRAINT role_assignments_reason_check CHECK (((reason IS NULL) OR ((char_length(reason) >= 1) AND (char_length(reason) <= 2000)))),
     CONSTRAINT role_assignments_scope_sha256_check CHECK (((scope_sha256 IS NULL) OR (octet_length(scope_sha256) = 32))),
     CONSTRAINT role_assignments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'active'::text, 'rejected'::text, 'revoked'::text, 'expired'::text]))),
@@ -9605,6 +9607,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260810120000'),
 ('20260810100000'),
 ('20260809100000'),
 ('20260808120000'),

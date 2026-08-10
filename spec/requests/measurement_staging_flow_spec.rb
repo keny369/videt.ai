@@ -34,8 +34,30 @@ RSpec.describe "Measurement set staging", type: :request do
   def measurements_path = "/app/projects/#{project['id']}/measurements"
   def sets = DbInspector.all("SELECT * FROM measurement_sets", [])
 
+  # THE INSTANT IS READ ONCE PER EXAMPLE, NOT ONCE PER CALL.
+  #
+  # WHAT WAS WRONG, MEASURED IN A WHOLE-SUITE RUN ON 2026-08-11. `package` took `Time.now.utc.floor`
+  # FRESH on every call, and "accepts a valid package…" calls it TWICE: once to build the body it
+  # POSTs, and once more to compute the digest it expects on the page. Five members are derived from
+  # that instant — `package_created_at`, `proposed_effective_at`, `observed_at_utc`,
+  # `captured_at_utc`, `fresh_until_utc` — so whenever the two calls straddle a SECOND BOUNDARY the
+  # two packages differ and their digests differ. The example then failed with two perfectly valid
+  # digests that were simply not of the same document.
+  #
+  # IT IS LOAD-SENSITIVE, WHICH IS WHY IT LOOKED LIKE SOMETHING ELSE. Run alone the two calls are
+  # microseconds apart and it never fires; inside a 3055-example run it fired once, and a reader who
+  # re-runs the file sees green and concludes the suite was at fault. That is FU-79's class — an
+  # assertion resting on a real wall clock — by a different mechanism: not arithmetic over a budget,
+  # but two independent clock reads REQUIRED TO AGREE.
+  #
+  # The repair is not a fixed clock. These packages carry a 24-hour freshness rule that a frozen 2026
+  # instant would silently violate, so the instant stays real and is simply read ONCE, which is all
+  # the property needs. Memoising here rather than in the one example fixes the CLASS: a future
+  # caller that builds the same package twice can no longer get two different documents.
+  def observed_at = @observed_at ||= Time.now.utc.floor
+
   def package(overrides = {})
-    observed = Time.now.utc.floor
+    observed = observed_at
     definition = catalog.definition("CHK-AIP-001")
     {
       "package_schema_version" => "measurement-set-package-v1",

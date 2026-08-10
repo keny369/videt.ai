@@ -87,8 +87,10 @@ module Workflows
       # `decision` and `capability` are what FU-48 added: the attestation now carries the CAPABILITY
       # and the granting Assignments the decision relied on, so the write can re-read them for
       # itself instead of trusting that a Ruby branch upstream did.
-      def authority_attestation(auth_store:, actor:, decision:, capability:, required_role: nil)
-        AuthorityAttestation.attest(@connection, auth_store:, actor:, decision:, capability:, required_role:)
+      def authority_attestation(auth_store:, actor:, decision:, capability:, required_role: nil,
+                                required_scope_hex: nil)
+        AuthorityAttestation.attest(@connection, auth_store:, actor:, decision:, capability:,
+                                    required_role:, required_scope_hex:)
       end
     end
   end

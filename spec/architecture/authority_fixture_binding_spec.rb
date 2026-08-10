@@ -46,7 +46,7 @@ RSpec.describe "AuthorityFixture is bound to the production authority", type: :a
   # The actor and decision production would carry for `grants`, built here so the comparison below
   # is against a DIRECT call to the production builder rather than against a second transcription
   # of what it does.
-  def production_authority(capability, grants, required_role: nil)
+  def production_authority(capability, grants, required_role: nil, required_scope_hex: nil)
     actor = IdentityAccess::Authorization::AuthenticatedActor.new(
       account_id: account, organization_id: org,
       authorization_epoch: DbInspector.one("SELECT authorization_epoch FROM organizations WHERE id = $1::uuid",
@@ -56,7 +56,8 @@ RSpec.describe "AuthorityFixture is bound to the production authority", type: :a
       allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
       policy_snapshot_id: nil, role_assignment_versions: [], granting_assignments: grants
     )
-    IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:, required_role:)
+    IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:, required_role:,
+                                                      required_scope_hex:)
   end
 
   # THE STRUCTURAL HALF. The property FU-60 names is "there is no second copy of the derivation",
@@ -113,6 +114,29 @@ RSpec.describe "AuthorityFixture is bound to the production authority", type: :a
 
     expect(built).to eq(production_authority("policy.crawl.manage", grants,
                                              required_role: "OrganizationAdmin"))
+  end
+
+  # AND THE CONTAINMENT OPERAND, FOR THE SAME REASON (FU-2, sited by FU-49). `required_scope_hex` is
+  # the second input a fixture caller passes through rather than derives, and it is the member this
+  # example's own comment above predicted: "a member added to `WriteAuthority` and derived only in
+  # production would satisfy that gate and diverge here". A fixture that silently dropped it would
+  # build every policy case with NO containment claim, so the write's new conjunct would be vacuous
+  # in every fixture-driven proof while production carried it.
+  it "agrees with the production builder when a containment scope is carried" do
+    grants = AuthorityFixture.active_grants(org, account)
+    org_scope = IdentityAccess::Authorization::GrantAuthority::ORGANIZATION_SCOPE_HEX
+
+    built = AuthorityFixture.build(organization_id: org, account_id: account,
+                                   capability: "policy.crawl.manage", grants:,
+                                   required_role: "OrganizationAdmin", required_scope_hex: org_scope)
+
+    expect(built.required_scope_hex).to eq(org_scope),
+                                        "the fixture dropped the containment operand, so every " \
+                                        "fixture-built policy case would drive the write with no " \
+                                        "containment claim while production carries one"
+    expect(built).to eq(production_authority("policy.crawl.manage", grants,
+                                             required_role: "OrganizationAdmin",
+                                             required_scope_hex: org_scope))
   end
 
   # THE OVERRIDE MUST SURVIVE, AND MUST OVERRIDE ONE MEMBER ONLY. The fixture's stated purpose

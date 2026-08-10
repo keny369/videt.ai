@@ -189,6 +189,43 @@ RSpec.describe "WF-005 activate crawl policy", type: :acceptance,
                         project_id: g[:project_id], bounds: bounds)
       expect(result.failure.reason_code).to eq("crawl_policy_unauthorized")
     end
+
+    # FU-2, THROUGH THE PRODUCT RATHER THAN AT THE STORE (sited by FU-49).
+    #
+    # The three cases above all turn on the ROLE. This one turns on the SCOPE THE ROLE IS HELD AT,
+    # which nothing checked: `SCOPE_ROLE["organization"]` demands an OrganizationAdmin and this actor
+    # IS one. Measured before the repair, through this same handler: the activation SUCCEEDED and
+    # `crawl_policies` gained an active Organization-wide row, which ":732 affects queued work
+    # immediately and running work at the next checkpoint" and which `f1_crawl_policies_guard` makes
+    # terminal once superseded.
+    #
+    # `wf005_grant_battery_spec.rb` proves the WRITE refuses whatever the caller does; this proves the
+    # refusal is reachable in production, which is the difference between a defect and a property.
+    it "denies an OrganizationAdmin whose own Assignment is scoped NARROWER than the target (FU-2)" do
+      g = bootstrap
+      # An actor whose ONLY grant is a Project-scoped OrganizationAdmin. The genesis Admin holds
+      # Organization scope, so a narrowly-scoped principal has to be its own account for the decision
+      # to carry the narrow grant and nothing else.
+      narrow = TenantSeeder.seed_authorized_admin(organization_id: g[:organization_id],
+                                                  canonical_role: nil, with_policy: false,
+                                                  issued_at: fixed_now - 300)
+      TenantSeeder.create_role_assignment(organization_id: g[:organization_id],
+                                          account_id: narrow[:account_id],
+                                          canonical_role: "OrganizationAdmin",
+                                          scope_sha256: Digest::SHA256.digest("scope:project:#{g[:project_id]}"))
+
+      result = activate(session: narrow[:session_id], org: g[:organization_id], scope: "organization",
+                        bounds: bounds)
+
+      # THE DECIDING VALUE FIRST, so a regression fails on this assertion rather than on a
+      # `NoMethodError` from reading `failure` off a success — which would be weaker evidence about
+      # a repair that is precisely about whether this activation happens.
+      expect(result.success?).to be(false),
+                                 "a Project-scoped OrganizationAdmin activated an immutable " \
+                                 "Organization-wide crawl policy through the production handler"
+      expect(result.failure.reason_code).to eq("crawl_policy_unauthorized")
+      expect(policies(g[:organization_id])).to be_empty
+    end
   end
 
   describe "idempotency and tenant isolation" do

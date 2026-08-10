@@ -640,6 +640,13 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
           case member
           when :capability then (Platform::PermissionBaseline::CAPABILITIES.keys - [value]).first
           when :required_role then value.nil? ? "OrganizationAdmin" : nil
+          # FU-2's containment operand, perturbed the same way `required_role` is: both are
+          # "the ratified rule, or nil for no rule", so both are driven by flipping between the two.
+          # This member arrived after the sweep was written and the sweep is what said so — it
+          # failed as unperturbable rather than passing over a member nothing compared, which is the
+          # property `WriteAuthority.members` was made the subject for.
+          when :required_scope_hex
+            value.nil? ? IdentityAccess::Authorization::GrantAuthority::ORGANIZATION_SCOPE_HEX : nil
           when :read_only_permitted, :protected_capability then !value
           when :epoch then value.to_i + 1
           when :organization_id, :account_id then SecureRandom.uuid_v7

@@ -160,6 +160,108 @@ RSpec.describe "WF-013 role assignment invariants", type: :acceptance,
       SQL
     end
 
+    # FU-76. FU-62 IS FIXED AT THE DECISION AND NOT AT THE ROW, and this is the row half.
+    #
+    # `PermissionBaseline.assignment_permits?` now reads both baseline cells, so a `read_only`
+    # OrganizationAdmin is REFUSED whatever the row says. What was still true is that the ROW WAS
+    # POSSIBLE: `role_assignments_permission_mode_check` constrains `permission_mode` to a DOMAIN and
+    # says nothing about its pairing with `canonical_role`; the insert guard checks only the
+    # allowlist; `one_active_assignment_per_tuple` is a uniqueness index, not a validity one; and
+    # `canonical_role` carried no CHECK at all. Measured against `f1_test` before the constraint
+    # existed, `OrganizationAdmin` + `read_only` INSERTED CLEANLY — and it had been accepted in the
+    # very fixture that measured FU-62.
+    #
+    # THE POPULATION IS DERIVED, not three tuples somebody chose. Every (role, mode, persona)
+    # combination the two DOMAIN checks admit is enumerated, and each is required to insert exactly
+    # when `ALLOWED_ROLE_MODE_PERSONA` contains it. A tuple added to the ratified set and not to the
+    # constraint fails here, and so does one the constraint admits and the set does not — which a
+    # hand-picked negative could not see.
+    #
+    # Asserted at INSERT for the same reason the two cases above are: `f1_role_assignments_lifecycle_guard`
+    # freezes all three columns on UPDATE, so no UPDATE can reach this constraint at all — which is
+    # also precisely why a CHECK is sufficient here where FU-59 needed a trigger.
+    it "refuses every role/mode/persona tuple the ratified access policy does not allow" do
+      ratified = Platform::BaselineContent::ALLOWED_ROLE_MODE_PERSONA
+                 .map { |t| [t["canonical_role"], t["permission_mode"], t["persona"]] }
+      roles = ratified.map(&:first).uniq
+      modes = %w[standard read_only]
+      personas = [nil, "consultant", "executive_buyer"]
+
+      combinations = roles.product(modes, personas)
+      illegal = combinations.reject { |combo| ratified.include?(combo) }
+      # The count is DERIVED from the two populations rather than pinned to a number somebody wrote
+      # down: every combination is either ratified or swept, and a sweep that silently shed members
+      # would fail here rather than reading as complete.
+      expect(illegal.length).to eq(combinations.length - ratified.length),
+                                "the sweep dropped members: #{combinations.length} combinations, " \
+                                "#{ratified.length} ratified, #{illegal.length} swept"
+      expect(illegal.length).to be >= 20,
+                                "the derived population collapsed to #{illegal.length} tuple(s), so " \
+                                "this sweep is proving almost nothing"
+      expect(illegal).to include(%w[OrganizationAdmin read_only] + [nil]),
+                         "the tuple FU-76 measured is not in the swept population"
+
+      illegal.each do |role, mode, persona|
+        expect { insert_tuple(role:, mode:, persona:) }
+          .to raise_error(PG::CheckViolation, /role_assignments_ratified_role_mode_persona/),
+              "the database accepted #{role}/#{mode}/#{persona.inspect}, which " \
+              "`ALLOWED_ROLE_MODE_PERSONA` does not contain"
+      end
+
+      # THE CONTROL. Without it a constraint that refused EVERYTHING would pass every case above,
+      # and the ratified set would be unreachable rather than enforced.
+      ratified.each do |role, mode, persona|
+        expect { insert_tuple(role:, mode:, persona:) }.not_to raise_error,
+                                                               "the database refused the ratified " \
+                                                               "tuple #{role}/#{mode}/#{persona.inspect}"
+      end
+    end
+
+    # THE SAME RATIFIED SET GOVERNS INVITATIONS, and the two are CHAINED: `AcceptInvitation` copies
+    # `canonical_role`, `permission_mode` and `persona` straight out of the Invitation row into the
+    # Role Assignment it creates and re-validates none of them. Constraining only `role_assignments`
+    # would leave an Invitation able to hold an illegal tuple and fail later, on the invitee.
+    # Measured before the constraint existed: `BillingOperator` + `read_only` + `executive_buyer` —
+    # a role the ratified set never pairs with any persona — inserted cleanly.
+    it "refuses the same tuples on invitations, which is where an illegal grant would enter" do
+      expect { insert_invitation(role: "BillingOperator", mode: "read_only", persona: "executive_buyer") }
+        .to raise_error(PG::CheckViolation, /invitations_ratified_role_mode_persona/)
+      expect { insert_invitation(role: "OrganizationAdmin", mode: "read_only", persona: nil) }
+        .to raise_error(PG::CheckViolation, /invitations_ratified_role_mode_persona/)
+      expect { insert_invitation(role: "TechnicalImplementer", mode: "standard", persona: "executive_buyer") }
+        .to raise_error(PG::CheckViolation, /invitations_ratified_role_mode_persona/)
+
+      expect { insert_invitation(role: "MarketingOperator", mode: "read_only", persona: "executive_buyer") }
+        .not_to raise_error
+    end
+
+    def insert_tuple(role:, mode:, persona:)
+      params = [SecureRandom.uuid_v7, org, account("tuple-#{SecureRandom.hex(4)}"),
+                role, mode, persona, t0.iso8601(6)]
+      owner.exec_params(<<~SQL, params)
+        INSERT INTO role_assignments
+          (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+           account_id, canonical_role, permission_mode, persona, status, effective_at,
+           protected_permission_allowlist)
+        VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2::uuid,$3::uuid,$4,$5,$6,'active',
+                $7::timestamptz,'[]'::jsonb)
+      SQL
+    end
+
+    def insert_invitation(role:, mode:, persona:)
+      reference = SecureRandom.bytes(32)
+      email = "invitee-#{SecureRandom.hex(4)}@example.com"
+      params = [SecureRandom.uuid_v7, org, { value: Digest::SHA256.digest(reference), format: 1 },
+                email, { value: Digest::SHA256.digest(email), format: 1 }, role, mode, persona]
+      owner.exec_params(<<~SQL, params)
+        INSERT INTO invitations
+          (id, state_version, lock_version, created_at, updated_at, correlation_id, organization_id,
+           opaque_reference_sha256, target_email, target_email_sha256, canonical_role, permission_mode,
+           persona, state)
+        VALUES ($1,0,0,now(),now(),gen_random_uuid(),$2::uuid,$3,$4,$5,$6,$7,$8,'active')
+      SQL
+    end
+
     it "closes the permitted transition table at the database" do
       id = grant.payload[:role_assignment_id]
       # active -> pending and active -> rejected are not in the ratified table.

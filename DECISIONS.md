@@ -5712,3 +5712,76 @@ required. Corrects the census in FU-62, the "every other reference" premise in F
 single-table scope of FU-12(d), and the claim in `protected_effect_door.rb` that an unplannable
 statement carries no write. Appends a supersession note to ADR-081 rather than editing it. Allocated the
 next unused number after ADR-148.
+
+## ADR-150: FU-2/FU-49 And FU-76 — Scope Containment Reaches The Write For The Targets It Can Name, And The Ratified Tuple Set Becomes A Constraint Rather Than A Convention
+
+Date: 2026-08-11. Status: Accepted under standing delegation ADR-061.
+
+**FU-2, sited by FU-49 — the containment predicate.** `GrantAuthority#contains_scope?` was the only
+containment predicate in the platform, reached only through `evaluate`, whose `CAPABILITY` is the
+literal `"role.manage"`, plus the revoke path. For every other capability an Assignment's scope was
+carried, compared for EQUALITY with the scope the decision evaluated, and never checked for containment
+against the target. FU-49 recorded where the repair belonged — in the capability CTE beside the bindings
+D7 added, not in a fourth Ruby guard — and that is where it now is: `WriteAuthority` carries
+`required_scope_hex` and all three protected writes bind `$n IS NULL OR ra.scope_sha256 IS NULL OR
+encode(ra.scope_sha256,'hex') = $n`.
+
+**It was exploitable, and that is measured rather than argued.** `SCOPE_ROLE["organization"]` demands an
+OrganizationAdmin and says nothing about the scope that Admin's own Assignment holds. An
+OrganizationAdmin whose grant carries a PROJECT scope digest activated an immutable ORGANIZATION-WIDE
+crawl policy — through the production handler, not only at the store. Proved by execution at both
+levels, and each proof fails on its own assertion when its half is reverted.
+
+**HALF OF FU-2 IS CLOSED AND HALF IS NOT, AND THE REASON IS STRUCTURAL.** `role_assignments` stores the
+grant's `GrantScope` (`API_CONTRACTS.md:373`: `scope_kind`, `project_ids`, `resources`) ONLY as
+`scope_sha256`, a one-way digest. The structure is stored nowhere — measured against the whole of
+`db/structure.sql`. A digest answers exactly two containment questions: "is this Organization scope,
+which contains everything" and "is this the SAME scope". It cannot answer "does this scope, covering
+projects P and Q, contain P", because a scope covering `[P, Q]` legitimately contains P and hashes
+differently from one covering `[P]`. So an Organization-scope target has one nameable containing scope
+and a resource-scope target has none. The operand is NULL at the two crawl writes and at the Project
+policy configuration, the predicate makes no claim there, and FU-2's resource limb REMAINS OPEN. What it
+needs first is a stored or reconstructible normalized scope, which is a schema question and not a
+repair. An example asserts the gap rather than leaving it to prose, so the day it closes, that example
+fails and is deliberately deleted.
+
+**FU-76 — the row FU-62 could not make impossible.** FU-62 was fixed at the decision and not at the row.
+Measured against the running database: `OrganizationAdmin` + `read_only` inserted cleanly into
+`role_assignments`, and `BillingOperator` + `read_only` + `executive_buyer` inserted cleanly into
+`invitations`. Migration `20260810120000` adds a CHECK to both tables admitting exactly
+`BaselineContent::ALLOWED_ROLE_MODE_PERSONA`, and a gate derives BOTH sides — the constant and
+`pg_get_constraintdef` — so neither can drift alone.
+
+**BOTH TABLES, BECAUSE THE TWO ARE CHAINED.** `AcceptInvitation` copies `canonical_role`,
+`permission_mode` and `persona` straight out of the Invitation row into the Role Assignment it creates
+and re-validates none of them, so constraining only `role_assignments` would leave the Invitation able
+to hold the tuple and fail later, on the invitee.
+
+**IT IS A CHECK, WHERE FU-59 NEEDED A TRIGGER, AND THE DIFFERENCE IS ESTABLISHED RATHER THAN ASSUMED.**
+FU-59's subject legitimately CHANGES on the `pending -> active` edge, so a CHECK strong enough to close
+it would forbid a ratified transition. These three columns never change:
+`f1_role_assignments_lifecycle_guard` already raises `role_assignment_grant_content_immutable` for any
+UPDATE that moves them, and no `UPDATE invitations` statement in the repository sets any of the three —
+measured across all seven of them, and asserted by a gate so a future writer that re-roles an Invitation
+fails loudly rather than at runtime.
+
+**FOUR FIXTURE CONSEQUENCES, DISCLOSED RATHER THAN WORKED AROUND.** Three battery configurations and
+`wf013_reactivate_organization_spec.rb` were seeding `OrganizationAdmin` + `read_only` +
+`executive_buyer`, a tuple the ratified policy does not contain — fixtures writing grants the access
+policy forbids. The battery now seeds the policy's ONLY read-only tuple, DERIVED rather than written
+down. At the Organization-scope policy configuration no such row can exist at all, because
+`organization.reactivate` and that configuration's `required_role` are `OrganizationAdmin`-only, so the
+read-only case there is replaced by one proving the state is IMPOSSIBLE — the same trade FU-59 made when
+its guard rendered a `rejected` Assignment carrying protected authority unreachable. FU-62's
+behavioural refusal at `ReactivateOrganization` is therefore replaced by a by-construction proof; the
+mode limb keeps its behavioural binding at `wf005_cancel_crawl_spec.rb`, where the capability's cell
+does admit a MarketingOperator, and that substitution is stated in the file rather than left implicit.
+
+**THREE RECORDS WERE FOUND STALE AND ARE CORRECTED IN PLACE.** FU-76's own "the three creation paths" is
+TWO (`create_invitation.rb:48`, `request_role_assignment.rb:38`); the paths that create a grant WITHOUT
+calling `valid_tuple?` — WF-001's genesis and `AcceptInvitation` — are the ones that mattered. And two
+comments asserting the tuple is "enforced by NOTHING IN THE DATABASE" are kept as the record of what was
+reachable rather than as current fact.
+
+Repairs under standing delegation ADR-061. FU-49 is CLOSED; FU-2 is NOT, and its remaining limb is
+restated above. Allocated the next unused number after ADR-149.

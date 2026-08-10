@@ -57,14 +57,16 @@ module Workflows
       # carry an empty array to a write whose predicate then cannot be satisfied. Refusing here means
       # the handler denies at the same place it always did rather than reaching a write that would
       # refuse it anyway.
-      def self.attest(connection, auth_store:, actor:, decision:, capability:, required_role: nil)
+      def self.attest(connection, auth_store:, actor:, decision:, capability:, required_role: nil,
+                      required_scope_hex: nil)
         return nil unless decision.allowed?
         return nil unless IdentityAccess::Authorization::CommandAuthorizer.authority_current?(
           store: auth_store, actor:
         )
 
         authority = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:,
-                                                                      required_role:)
+                                                                      required_role:,
+                                                                      required_scope_hex:)
         return nil unless authority.grants?
 
         new(authority:, transaction_id: transaction_id_of(connection), connection_id: connection.object_id)

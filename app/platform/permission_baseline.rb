@@ -325,11 +325,26 @@ module Platform
     #
     # AND THE CALLER SET WAS NOT KEEPING IT SAFE. The record said the gap was unreachable because
     # `OrganizationAdmin` + `read_only` is not a ratified tuple. MEASURED 2026-08-10: the tuple is
-    # barred by `Wf013::InvitationOffer#valid_tuple?` at the three creation paths and BY NOTHING IN
-    # THE DATABASE — `role_assignments_permission_mode_check` constrains the mode's domain and never
-    # its pairing with a role — so the row inserts, and a `read_only` OrganizationAdmin holding a
-    # valid reactivation receipt REACTIVATED A SUSPENDED ORGANIZATION. `organization.reactivate` is
-    # not in `READ_ONLY_CAPABILITIES`, so the mode cell denies it outright.
+    # barred by `Wf013::InvitationOffer#valid_tuple?` and BY NOTHING IN THE DATABASE —
+    # `role_assignments_permission_mode_check` constrains the mode's domain and never its pairing
+    # with a role — so the row inserts, and a `read_only` OrganizationAdmin holding a valid
+    # reactivation receipt REACTIVATED A SUSPENDED ORGANIZATION. `organization.reactivate` is not in
+    # `READ_ONLY_CAPABILITIES`, so the mode cell denies it outright.
+    #
+    # THE CENSUS ABOVE READ "at the three creation paths" AND WAS WRONG, WHICH IS THE SAME DEFECT ONE
+    # LEVEL UP (corrected 2026-08-11 while taking FU-76). `valid_tuple?` has TWO production callers,
+    # `wf013/handlers/create_invitation.rb:48` and `wf013/handlers/request_role_assignment.rb:38`.
+    # The paths that create a grant WITHOUT calling it are the ones that mattered: WF-001's genesis
+    # writes its OrganizationAdmin directly, and `Wf001::Handlers::AcceptInvitation` copies
+    # `canonical_role`, `permission_mode` and `persona` STRAIGHT OUT OF THE INVITATION ROW and
+    # re-validates none of them. A miscounted caller set is exactly what "only the caller set keeping
+    # it safe" cannot survive.
+    #
+    # THE DATABASE LIMB IS NOW CLOSED (FU-76, migration 20260810120000).
+    # `role_assignments_ratified_role_mode_persona` and `invitations_ratified_role_mode_persona`
+    # admit exactly `BaselineContent::ALLOWED_ROLE_MODE_PERSONA`, on both tables because the two are
+    # chained through acceptance. This paragraph's "BY NOTHING IN THE DATABASE" is the state that
+    # was measured, and it is kept as the record of what was reachable, not as current fact.
     #
     # A conjunction spelled out at six call sites is six chances to spell five of it. This is one.
     def assignment_permits?(capability, assignment)

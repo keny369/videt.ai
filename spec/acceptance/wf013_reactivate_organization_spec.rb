@@ -152,30 +152,68 @@ RSpec.describe "WF-013 reactivate organization", type: :acceptance,
     # assignments, so a `read_only` OrganizationAdmin answered to OrganizationAdmin's cell.
     #
     # THE RECORD CALLED THIS UNREACHABLE AND IT WAS NOT. The claim rested on `OrganizationAdmin` +
-    # `read_only` not being a ratified tuple — true of `InvitationOffer#valid_tuple?`, and enforced by
-    # NOTHING IN THE DATABASE. Measured before the repair, with exactly this setup: the row inserted,
-    # the handler returned success, and the Organization went back to `active`. Suspension is the
-    # control that stops an Organization issuing new authority, so this restored it on a read-only
-    # actor's say-so.
+    # `read_only` not being a ratified tuple — true of `InvitationOffer#valid_tuple?`, and, AS THE
+    # DATABASE STOOD ON 2026-08-10, enforced by NOTHING IN IT. Measured before the FU-62 repair, with
+    # exactly this setup: the row inserted, the handler returned success, and the Organization went
+    # back to `active`. Suspension is the control that stops an Organization issuing new authority,
+    # so this restored it on a read-only actor's say-so.
+    #
+    # THE CLAIM IS NOW TRUE, AND FU-76 IS WHAT MADE IT TRUE — which is why the example below asserts
+    # the row's IMPOSSIBILITY rather than the handler's refusal. "Not a ratified tuple" was a
+    # statement about a Ruby predicate at two creation paths; it is now a statement about the table.
     #
     # The standard admin does the suspending because the suspend path runs the three-limb
     # `CommandAuthorizer`, which refuses a `read_only` actor — that limb was never broken, and driving
     # the whole scenario through one actor would have measured it instead of this one.
-    it "refuses a READ-ONLY OrganizationAdmin, whose baseline cell denies reactivation (FU-62)" do
+    # AND THE ROW IS NOW IMPOSSIBLE, WHICH REPLACES THE REACHABILITY PROOF (FU-76, 2026-08-11).
+    #
+    # WHAT CHANGED AND WHAT IT COSTS, STATED PLAINLY RATHER THAN QUIETLY ADJUSTED. The example that
+    # stood here seeded `OrganizationAdmin` + `read_only` and drove the handler to a refusal.
+    # `role_assignments_ratified_role_mode_persona` now refuses that INSERT, because
+    # `ALLOWED_ROLE_MODE_PERSONA` does not contain the tuple, so the fixture was writing a grant the
+    # ratified access policy forbids and the seeding itself raises.
+    #
+    # THE PROOF IS NOT WEAKENED BY SUBSTITUTION, BECAUSE NO SUBSTITUTE EXISTS AND THAT IS THE POINT.
+    # `organization.reactivate`'s ratified cell is `OrganizationAdmin` ALONE, and the policy's only
+    # read-only tuple is `MarketingOperator` + `executive_buyer`. So no read-only actor can hold the
+    # role this capability requires: the FU-62 exposure at this call site is now closed BY
+    # CONSTRUCTION rather than by the handler declining to honour a legal-looking row. That is the
+    # same trade FU-59's INSERT guard made when it rendered a `rejected` Assignment carrying
+    # protected authority unreachable, and it is recorded here for the same reason.
+    #
+    # WHAT IS NO LONGER PROVED BEHAVIOURALLY HERE, SO NOBODY LATER ASSUMES IT IS. The mode limb of
+    # `assignment_permits?` is still driven behaviourally at handlers whose capability cell DOES
+    # admit a MarketingOperator — see `wf005_cancel_crawl_spec.rb`, which drives a real Read-Only
+    # Executive Buyer — and structurally by
+    # `permission_baseline_transcription_spec.rb`'s rule that no production caller reads one cell of
+    # the row. At THIS handler it is defended by the database. Drop the constraint and the old
+    # exposure returns.
+    it "cannot hold a READ-ONLY OrganizationAdmin at all, which is what closes FU-62 here" do
       read_only = { issuer_key: identity[:issuer_key], subject: "ro-admin-#{SecureRandom.hex(8)}" }
       org = suspended[:organization_id]
       ro_account = TenantSeeder.create_account(organization_id: org, **read_only)
-      TenantSeeder.create_role_assignment(organization_id: org, account_id: ro_account,
-                                          canonical_role: "OrganizationAdmin",
-                                          permission_mode: "read_only")
-      digest = ReceiptMinter.mint_reactivation_receipt(validated_at: fixed_now, **read_only)[:receipt_digest]
 
-      result = reactivate(org, digest)
+      expect do
+        TenantSeeder.create_role_assignment(organization_id: org, account_id: ro_account,
+                                            canonical_role: "OrganizationAdmin",
+                                            permission_mode: "read_only")
+      end.to raise_error(PG::CheckViolation, /role_assignments_ratified_role_mode_persona/),
+             "a `read_only` OrganizationAdmin can still be created, and this handler applied the " \
+             "role cell alone — which is the row that REACTIVATED A SUSPENDED ORGANIZATION (FU-62)"
 
-      expect(result.reason_code).to eq("organization_admin_unavailable")
-      expect(result).not_to be_success
-      expect(organization(org)["status"]).to eq("suspended"),
-                                             "a read_only OrganizationAdmin reactivated the Organization"
+      # DERIVED, so the claim "no read-only actor can hold this capability" is checked rather than
+      # asserted: if a future policy pairs `read_only` with a role in this capability's cell, the
+      # exposure returns and this example is what says so.
+      read_only_roles = Platform::BaselineContent::ALLOWED_ROLE_MODE_PERSONA
+                        .select { |tuple| tuple["permission_mode"] == "read_only" }
+                        .map { |tuple| tuple["canonical_role"] }
+      expect(read_only_roles).not_to be_empty
+      expect(read_only_roles & Platform::PermissionBaseline::CAPABILITIES.fetch("organization.reactivate"))
+        .to be_empty,
+            "the ratified policy now pairs `read_only` with a role that may reactivate, so FU-62's " \
+            "exposure is reachable again and needs its behavioural refusal back"
+
+      expect(organization(org)["status"]).to eq("suspended")
     end
 
     it "still admits a STANDARD OrganizationAdmin, so the mode limb denies rather than blocks (FU-62)" do

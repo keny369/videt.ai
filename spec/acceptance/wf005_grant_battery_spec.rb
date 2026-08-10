@@ -240,11 +240,17 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
   # are reachable in production only before a grant was ever effective, and the guard admits
   # `active -> {revoked, expired}` alone. INSERT is not guarded, so the seeder is the only way to
   # build each status in the shape production really holds it.
+  # `scope_sha256` is a parameter for FU-2's containment case, which needs a grant whose SCOPE is the
+  # only thing wrong with it. It cannot be moved either — the lifecycle guard freezes `scope_sha256`
+  # after insert alongside the role and mode — so seeding is again the only way to build the row in
+  # the shape production holds it. `one_active_assignment_per_tuple` includes the scope digest, so a
+  # second active grant at the same role and mode with a DIFFERENT scope is a legal row.
   def seed_actor_grant(env, canonical_role:, permission_mode: "standard", persona: nil,
-                       status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil)
+                       status: "active", effective_at: Time.utc(2026, 1, 1), expires_at: nil,
+                       scope_sha256: nil)
     id = TenantSeeder.create_role_assignment(organization_id: env[:org], account_id: actor_account(env),
                                              canonical_role:, permission_mode:, persona:,
-                                             status:, effective_at:, expires_at:)
+                                             status:, effective_at:, expires_at:, scope_sha256:)
     row = grant_row(id)
     raise "the #{canonical_role}/#{permission_mode}/#{status} grant was not seeded" if row.nil?
 
@@ -261,7 +267,12 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
   # production caller of the policy write passes it, and passing `nil` here would drive the
   # production BUILDER at a configuration production never uses — which is how R20-2's
   # `read_only_permitted` derivation stayed unbound at Project scope.
-  def production_authority(env, capability, grant, required_role: nil)
+  # `required_scope_hex` IS THREADED THROUGH FOR THE SAME REASON (FU-2, sited by FU-49). It is the
+  # scope an Assignment must hold to contain the write's target, it differs between the two policy
+  # configurations exactly as `required_role` does, and passing `nil` here would drive the production
+  # builder at a configuration production never uses — which is precisely how R20-2's
+  # `read_only_permitted` derivation stayed unbound at Project scope.
+  def production_authority(env, capability, grant, required_role: nil, required_scope_hex: nil)
     in_org(env[:org]) do |pg|
       auth = IdentityAccess::Authorization::CommandAuthorizer.new(
         IdentityAccess::Infrastructure::AuthorizationStore.new(pg)
@@ -272,7 +283,8 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
         allowed: true, reason: "authorized", organization_epoch: actor.authorization_epoch,
         policy_snapshot_id: nil, role_assignment_versions: [], granting_assignments: [grant]
       )
-      IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:, required_role:)
+      IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:, required_role:,
+                                                        required_scope_hex:)
     end
   end
 
@@ -332,7 +344,8 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
     let(:env) { send(spec.fetch(:setup)) }
     let(:authority) do
       AuthorityFixture.for_session(env[:session], capability: spec.fetch(:capability),
-                                                  required_role: spec.fetch(:required_role))
+                                                  required_role: spec.fetch(:required_role),
+                                                  required_scope_hex: spec.fetch(:required_scope_hex))
     end
 
     def drive(spec, env, authority) = send(spec.fetch(:invoke), env, authority)
@@ -540,35 +553,97 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
     # the same structural answer the principal-conjunct case above uses. Each seeds a grant for the
     # ACTOR'S OWN account — so the principal qual passes — and builds the authority through the
     # PRODUCTION BUILDER for THIS write's real capability.
-    it "refuses a READ-ONLY grant when the authority comes from the PRODUCTION BUILDER (R-ADV-2)" do
-      # `MarketingOperator` is inside every one of the three ratified cells, so the ROLE qual passes and
-      # the sixth column is the only thing that can refuse it. If `read_only_permitted` were derived
-      # permissively for THIS capability, the write would authorise.
+    # THE ROLE A READ-ONLY GRANT CAN ACTUALLY BE HELD AT (FU-76's fixture consequence, disclosed).
+    #
+    # This case used to seed `acting_role(spec)` + `read_only` + `executive_buyer`, and at three of
+    # the four configurations `acting_role` is `OrganizationAdmin` — a tuple
+    # `ALLOWED_ROLE_MODE_PERSONA` DOES NOT CONTAIN. FU-76 added
+    # `role_assignments_ratified_role_mode_persona`, so that row can no longer be inserted at all,
+    # and the fixture that wrote it was writing a grant the ratified access policy forbids.
+    #
+    # THE REPAIR IS THE RATIFIED TUPLE, NOT A WEAKER CONSTRAINT. The policy defines exactly one
+    # read-only tuple — `MarketingOperator` + `read_only` + `executive_buyer` — and it is DERIVED
+    # here rather than written down, so a second read-only tuple entering the policy joins this case
+    # by itself. The grant this now drives is one production could really produce, which is a
+    # stronger fixture than the one it replaces.
+    read_only_role =
+      Platform::BaselineContent::ALLOWED_ROLE_MODE_PERSONA
+      .select { |tuple| tuple["permission_mode"] == "read_only" }
+      .map { |tuple| tuple["canonical_role"] }
+      .find do |candidate|
+        Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)).include?(candidate) &&
+          [nil, candidate].include?(spec.fetch(:required_role))
+      end
+
+    if read_only_role
+      it "refuses a READ-ONLY grant when the authority comes from the PRODUCTION BUILDER (R-ADV-2)" do
+        # `MarketingOperator` is inside every one of the three ratified cells, so the ROLE qual passes
+        # and the sixth column is the only thing that can refuse it. If `read_only_permitted` were
+        # derived permissively for THIS capability, the write would authorise.
+        #
+        # AND IT IS SEEDED AT A ROLE THIS WRITE'S OWN CONFIGURATION ADMITS (FU-63 part 2, closing
+        # R20-2's second survivor). `read_only_permitted` derived as `!required_role.nil?` is FALSE at
+        # every organization-scope configuration and TRUE at Project scope, so the corpus stayed green
+        # while A READ-ONLY EXECUTIVE BUYER ACTIVATED AN IMMUTABLE PROJECT-SCOPE CRAWL POLICY. At the
+        # Project configuration the admitted role IS `MarketingOperator`, so the cell conjunct and the
+        # scope rule both pass and the sixth column is the only thing that can refuse.
+        grant = seed_actor_grant(env, canonical_role: read_only_role,
+                                      permission_mode: "read_only", persona: "executive_buyer")
+        expect(Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)))
+          .to include(read_only_role),
+              "the seeded role is outside this capability's cell, so the ROLE qual would refuse first " \
+              "and this case would not bind the read-only derivation"
+        expect([nil, read_only_role]).to include(spec.fetch(:required_role)),
+                                         "the seeded role is not the one this scope demands, so " \
+                                         "`required_role` would refuse first and the read-only " \
+                                         "derivation would again be unbound"
+
+        outcome = drive(spec, env, production_authority(env, spec.fetch(:capability), grant,
+                                                        required_role: spec.fetch(:required_role),
+                                                        required_scope_hex: spec.fetch(:required_scope_hex)))
+
+        expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+        expect(outcome[:capability_authorized]).to be(false),
+                                                   "a read-only grant spent this capability through the " \
+                                                   "production builder, so the sixth column is not what " \
+                                                   "`WriteAuthority.for` derives for it"
+        expect(spec.fetch(:applied).call(outcome)).to eq(0)
+        expect(send(spec.fetch(:untouched), env)).to be(true)
+      end
+    else
+      # UNREACHABLE BY CONSTRUCTION, AND DERIVED RATHER THAN ASSERTED BY HAND (FU-76).
       #
-      # AND IT IS SEEDED AT THIS WRITE'S OWN ACTING ROLE (FU-63 part 2, closing R20-2's second
-      # survivor). `read_only_permitted` derived as `!required_role.nil?` is FALSE at every
-      # organization-scope configuration and TRUE at Project scope, so the corpus stayed green while
-      # A READ-ONLY EXECUTIVE BUYER ACTIVATED AN IMMUTABLE PROJECT-SCOPE CRAWL POLICY. At the
-      # Project configuration the acting role IS `MarketingOperator`, so the cell conjunct and the
-      # scope rule both pass and the sixth column is the only thing that can refuse.
-      role = acting_role(spec)
-      grant = seed_actor_grant(env, canonical_role: role,
-                                    permission_mode: "read_only", persona: "executive_buyer")
-      expect(Platform::PermissionBaseline::CAPABILITIES.fetch(spec.fetch(:capability)))
-        .to include(role),
-            "the seeded role is outside this capability's cell, so the ROLE qual would refuse first " \
-            "and this case would not bind the read-only derivation"
+      # This is the ORGANIZATION-scope policy configuration, whose `required_role` is
+      # `OrganizationAdmin`, and the ratified policy pairs `read_only` with `MarketingOperator`
+      # ALONE. So no read-only grant can hold the role this configuration demands, and the case
+      # above has no legal row to drive: it is absent because the STATE IS IMPOSSIBLE, not because
+      # anybody chose to skip it.
+      #
+      # That distinction is the whole point of writing this, and it is the same disclosure FU-59's
+      # repair made when its guard rendered a `rejected` Assignment carrying protected authority
+      # unreachable. If a future policy pairs `read_only` with this configuration's role, the branch
+      # above takes over automatically and this example disappears.
+      it "cannot hold a read-only grant at this configuration at all, which is why that case is absent" do
+        read_only_roles = Platform::BaselineContent::ALLOWED_ROLE_MODE_PERSONA
+                          .select { |tuple| tuple["permission_mode"] == "read_only" }
+                          .map { |tuple| tuple["canonical_role"] }
 
-      outcome = drive(spec, env, production_authority(env, spec.fetch(:capability), grant,
-                                                      required_role: spec.fetch(:required_role)))
+        expect(read_only_roles).not_to be_empty,
+                                       "the ratified policy defines NO read-only tuple at all, so the " \
+                                       "sixth-column conjunct is unbound everywhere and the absence " \
+                                       "above is hiding that rather than explaining it"
+        expect(read_only_roles).not_to include(spec.fetch(:required_role)),
+                                       "a read-only grant CAN hold #{spec.fetch(:required_role)}, so " \
+                                       "the read-only case is being skipped at a configuration that " \
+                                       "could drive it"
 
-      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
-      expect(outcome[:capability_authorized]).to be(false),
-                                                 "a read-only grant spent this capability through the " \
-                                                 "production builder, so the sixth column is not what " \
-                                                 "`WriteAuthority.for` derives for it"
-      expect(spec.fetch(:applied).call(outcome)).to eq(0)
-      expect(send(spec.fetch(:untouched), env)).to be(true)
+        # And the database agrees, rather than only the constant: the row this configuration would
+        # need cannot be inserted.
+        expect do
+          seed_actor_grant(env, canonical_role: spec.fetch(:required_role),
+                                permission_mode: "read_only", persona: "executive_buyer")
+        end.to raise_error(PG::CheckViolation, /ratified_role_mode_persona/)
+      end
     end
 
     # EVERY DENIED ROLE, DERIVED FROM THE RATIFIED TABLE (FU-63 part 1, closing R20-2).
@@ -590,7 +665,8 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
 
         grant = seed_actor_grant(env, canonical_role: denied_role)
         authority = production_authority(env, spec.fetch(:capability), grant,
-                                         required_role: spec.fetch(:required_role))
+                                         required_role: spec.fetch(:required_role),
+                                         required_scope_hex: spec.fetch(:required_scope_hex))
 
         outcome = drive(spec, env, authority)
 
@@ -621,7 +697,8 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
 
         grant = seed_actor_grant(env, canonical_role: foil)
         authority = production_authority(env, spec.fetch(:capability), grant,
-                                         required_role: spec.fetch(:required_role))
+                                         required_role: spec.fetch(:required_role),
+                                         required_scope_hex: spec.fetch(:required_scope_hex))
 
         outcome = drive(spec, env, authority)
 
@@ -736,6 +813,157 @@ RSpec.describe "WF-005 protected writes re-read their grants", type: :acceptance
   WRITES.each do |name, spec|
     describe name do
       include_examples "a protected write that re-reads the grants its decision relied on", spec
+    end
+  end
+
+  # ---- FU-2: THE ASSIGNMENT'S SCOPE MUST CONTAIN THE TARGET ------------------------------------
+  #
+  # WHY THIS IS NOT A SHARED EXAMPLE. Every case above is written once and run at all four
+  # configurations, and that is right for a conjunct every configuration binds. THIS conjunct is
+  # decisive at exactly ONE of them: `SCOPE_DIGEST` names a containment scope for an
+  # ORGANIZATION-scope policy and `nil` everywhere else, because `role_assignments` stores the
+  # grant's `GrantScope` only as a one-way digest and a Project-scope target has no single scope an
+  # Assignment must hold. Run as a shared example it would pass at three configurations for the
+  # reason it asserts nothing there — the vacuity this file exists to refuse — so it is written where
+  # it discriminates, and what it does NOT cover is stated rather than implied by a green run.
+  #
+  # WHAT WAS EXPLOITABLE, MEASURED. `required_role` binds the ratified rule that an Organization-
+  # scope policy demands an OrganizationAdmin. It says nothing about the scope that Admin's OWN
+  # Assignment carries. An OrganizationAdmin whose grant is scoped to one Project satisfied every
+  # limb of this CTE and activated an immutable ORGANIZATION-WIDE crawl policy, which ":732 affects
+  # queued work immediately and running work at the next checkpoint".
+  describe "the granting Assignment's scope contains the target (FU-2, sited by FU-49)" do
+    let(:env) { setup_policy }
+    let(:organization_scope) { IdentityAccess::Authorization::GrantAuthority::ORGANIZATION_SCOPE_HEX }
+    # A digest that is a well-formed 32-byte scope and is NOT Organization scope: exactly what a
+    # Project-scoped `GrantScope` hashes to as far as this statement can tell, since the statement
+    # can read the digest and never the structure behind it.
+    let(:project_scope_bytes) { Digest::SHA256.digest("scope:project:#{SecureRandom.uuid_v7}") }
+
+    # The grant the exploit needs: the role the Organization scope demands, held at a scope that
+    # does not contain an Organization-wide target. It is otherwise flawless — active, effective,
+    # unexpired, the actor's own, inside the capability's cell, standard mode.
+    def narrowly_scoped_admin
+      grant = seed_actor_grant(env, canonical_role: "OrganizationAdmin",
+                                    scope_sha256: project_scope_bytes)
+      expect(grant["scope_hex"]).to eq(project_scope_bytes.unpack1("H*")),
+                                    "the grant was not seeded at the narrow scope, so the case below " \
+                                    "would be discriminated by something else"
+      expect(grant["scope_hex"]).not_to eq(organization_scope),
+                                        "the 'narrow' scope IS Organization scope, so the refusal " \
+                                        "asserted below could not be about containment"
+      grant
+    end
+
+    it "refuses an OrganizationAdmin whose own Assignment is scoped NARROWER than the target" do
+      authority = production_authority(env, "policy.crawl.manage", narrowly_scoped_admin,
+                                       required_role: "OrganizationAdmin",
+                                       required_scope_hex: organization_scope)
+
+      outcome = invoke_policy(env, authority)
+
+      expect(outcome[:epoch_authorized]).to be(true), "the epoch was current; only the capability failed"
+      expect(outcome[:capability_authorized]).to be(false),
+                                                 "an Assignment scoped to one Project activated an " \
+                                                 "immutable ORGANIZATION-wide crawl policy: the " \
+                                                 "containment predicate is not a conjunct of this write"
+      expect(outcome[:inserted]).to eq(0)
+      expect(policy_untouched?(env)).to be(true)
+    end
+
+    # THE DISCRIMINATION, WHICH IS WHAT MAKES THE CASE ABOVE ABOUT CONTAINMENT AND NOTHING ELSE.
+    # Same write, same grant, same `required_role`, same everything — only the containment operand
+    # differs, and the outcome flips. This is deliberately a configuration production never passes
+    # (`SCOPE_DIGEST` gives Organization scope wherever `SCOPE_ROLE` gives OrganizationAdmin); its
+    # purpose is to hold the refusal above to ONE cause, and it is exactly the pre-FU-2 behaviour, so
+    # it also records what was reachable before this conjunct existed.
+    it "COMMITS the same grant at the same write when no containment scope is carried" do
+      authority = production_authority(env, "policy.crawl.manage", narrowly_scoped_admin,
+                                       required_role: "OrganizationAdmin", required_scope_hex: nil)
+
+      outcome = invoke_policy(env, authority)
+
+      expect(outcome[:capability_authorized]).to be(true),
+                                                 "the grant is refused even with no containment claim, " \
+                                                 "so the case above is discriminated by some OTHER " \
+                                                 "conjunct and proves nothing about FU-2"
+      expect(outcome[:inserted]).to eq(1)
+    end
+
+    # ORGANIZATION SCOPE CONTAINS AN ORGANIZATION-SCOPE TARGET, IN BOTH REPRESENTATIONS. The platform
+    # spells Organization scope two ways — `GrantAuthority#contains_scope?` treats a NULL
+    # `scope_hex` and `ORGANIZATION_SCOPE_HEX` alike, `TenantSeeder` writes NULL and WF-001's genesis
+    # writes the digest — so a predicate agreeing with only one of them would refuse half the
+    # platform's real grants while passing every case above. Each is driven at its own write.
+    it "admits an Assignment carrying the Organization scope DIGEST" do
+      # WF-001's genesis grant IS this representation — `BootstrapOrganization::ORG_SCOPE` writes the
+      # digest — so the case reads the real production row rather than seeding a second copy of it.
+      # It cannot seed one anyway: `one_active_assignment_per_tuple` includes the scope digest, and
+      # measured here, a duplicate raises `PG::UniqueViolation`. That collision is itself the
+      # evidence that this is the genesis representation and not a fixture's invention.
+      grant = grant_row(DbInspector.one(<<~SQL, [env[:org], actor_account(env)])["id"])
+        SELECT id FROM role_assignments
+        WHERE organization_id = $1::uuid AND account_id = $2::uuid AND status = 'active'
+          AND canonical_role = 'OrganizationAdmin' AND scope_sha256 IS NOT NULL
+        ORDER BY id LIMIT 1
+      SQL
+      expect(grant["scope_hex"]).to eq(organization_scope)
+
+      outcome = invoke_policy(env, production_authority(env, "policy.crawl.manage", grant,
+                                                        required_role: "OrganizationAdmin",
+                                                        required_scope_hex: organization_scope))
+
+      expect(outcome[:capability_authorized]).to be(true),
+                                                 "an Organization-scope grant was refused an " \
+                                                 "Organization-scope target"
+      expect(outcome[:inserted]).to eq(1)
+    end
+
+    it "admits an Assignment carrying a NULL scope, which is Organization scope spelled the other way" do
+      grant = seed_actor_grant(env, canonical_role: "MarketingOperator", scope_sha256: nil)
+      expect(grant["scope_hex"]).to eq(""),
+                                    "the grant was seeded with a scope, so the NULL branch is untested"
+
+      # MarketingOperator at PROJECT scope, whose `SCOPE_DIGEST` entry is `nil` — so this drives the
+      # NULL-scope grant at the configuration that carries no containment claim AND at one that does,
+      # below, rather than at only whichever happens to pass.
+      outcome = invoke_policy(env, production_authority(env, "policy.crawl.manage", grant,
+                                                        required_role: "MarketingOperator",
+                                                        required_scope_hex: organization_scope))
+
+      expect(outcome[:capability_authorized]).to be(true),
+                                                 "a NULL-scope Assignment was refused: the predicate " \
+                                                 "reads NULL as 'no scope' rather than as Organization " \
+                                                 "scope, which would refuse most real grants"
+      expect(outcome[:inserted]).to eq(1)
+    end
+
+    # WHAT THIS CONJUNCT DOES NOT DECIDE, ASSERTED RATHER THAN LEFT TO THE PROSE. FU-2's resource
+    # limb stays open because a digest cannot answer "does this scope contain that project", and the
+    # honest consequence is that a narrowly-scoped grant reaches a PROJECT-scope target unrefused by
+    # this predicate. Asserting it means the day someone can name a Project target's scope, this
+    # example fails and is deleted deliberately — rather than the gap surviving as a green suite.
+    it "does NOT refuse a narrowly-scoped grant at a target whose scope the write cannot name" do
+      env = setup_policy_project
+      grant = TenantSeeder.create_role_assignment(
+        organization_id: env[:org], account_id: actor_account(env),
+        canonical_role: "MarketingOperator", scope_sha256: Digest::SHA256.digest("scope:elsewhere")
+      ).then { |id| grant_row(id) }
+
+      outcome = invoke_policy_project(env, production_authority(
+        env, "policy.crawl.manage", grant,
+        required_role: "MarketingOperator",
+        required_scope_hex: ProtectedWrites::WRITES.fetch(
+          "the policy activation at PROJECT scope (CrawlPolicyStore#activate_version)"
+        ).fetch(:required_scope_hex)
+      ))
+
+      expect(outcome[:capability_authorized]).to be(true),
+                                                 "the Project-scope configuration now refuses on " \
+                                                 "containment, so FU-2's resource limb has been " \
+                                                 "closed and this example must be replaced by the " \
+                                                 "proof that closes it"
+      expect(outcome[:inserted]).to eq(1)
     end
   end
 

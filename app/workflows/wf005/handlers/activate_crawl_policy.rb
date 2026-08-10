@@ -111,7 +111,8 @@ module Workflows
           d = d.merge(now: post_wait.now)
           attestation = post_wait.authority_attestation(auth_store: d[:auth_store], actor:,
                                                         decision: d[:decision], capability: CAPABILITY,
-                                                        required_role: SCOPE_ROLE[command.scope])
+                                                        required_role: SCOPE_ROLE[command.scope],
+                                                        required_scope_hex: SCOPE_DIGEST[command.scope])
           if attestation.nil?
             return deny(**denial_args(d), resource_id: scope_resource(command),
                         outward: "crawl_policy_unauthorized", internal: "crawl_policy_unauthorized")
@@ -127,7 +128,8 @@ module Workflows
           # reach this line with proof of a post-wait recheck it did not perform.
           authority = IdentityAccess::Authorization::WriteAuthority.for(
             actor: d[:actor], decision: d[:decision], capability: CAPABILITY,
-            required_role: SCOPE_ROLE[d[:command].scope]
+            required_role: SCOPE_ROLE[d[:command].scope],
+            required_scope_hex: SCOPE_DIGEST[d[:command].scope]
           )
           Wf005::AuthorityAttestation.require!(attestation, connection: d[:pg], authority:)
           command = d[:command]
@@ -223,6 +225,23 @@ module Workflows
         # Organization version; MarketingOperator with that permission may do so only for a Project."
         # A second copy would be a rule stated twice, which is how it drifts.
         SCOPE_ROLE = { "organization" => "OrganizationAdmin", "project" => "MarketingOperator" }.freeze
+
+        # THE SCOPE THE ACTOR'S OWN ASSIGNMENT MUST HOLD TO CONTAIN THIS TARGET (FU-2, sited by
+        # FU-49). `SCOPE_ROLE` binds the ROLE each policy scope demands; it says nothing about the
+        # scope that role's Assignment carries, and measured on this branch an OrganizationAdmin
+        # holding a PROJECT-scoped Assignment activated an immutable Organization-wide policy.
+        #
+        # An Organization-scope target is contained by exactly one scope, so it can be named. A
+        # Project-scope target cannot: `role_assignments` stores the grant's `GrantScope` only as a
+        # one-way digest, and a grant covering several projects contains this one while hashing
+        # differently. `nil` is therefore "the write cannot name it" and the statement makes no
+        # containment claim, rather than an approximation standing in for one. `project` is spelled
+        # out rather than left to the Hash default so a third scope would read as absent here, not
+        # as deliberately unnameable.
+        SCOPE_DIGEST = {
+          "organization" => IdentityAccess::Authorization::GrantAuthority::ORGANIZATION_SCOPE_HEX,
+          "project" => nil
+        }.freeze
 
         def authorized_for_scope?(scope, decision)
           required = SCOPE_ROLE[scope]

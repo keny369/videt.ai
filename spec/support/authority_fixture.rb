@@ -14,12 +14,12 @@ module AuthorityFixture
   module_function
 
   def for_session(session_id, capability:, epoch: nil, grants: nil, required_role: nil,
-                  allowed_roles: nil)
+                  allowed_roles: nil, required_scope_hex: nil)
     row = DbInspector.one("SELECT account_id, organization_id FROM sessions WHERE id = $1::uuid", [session_id])
     raise "no session #{session_id}" if row.nil?
 
     build(organization_id: row["organization_id"], account_id: row["account_id"], capability:, epoch:,
-          grants:, required_role:, allowed_roles:)
+          grants:, required_role:, allowed_roles:, required_scope_hex:)
   end
 
   # THE DERIVATIONS ARE PRODUCTION'S. THERE IS NO SECOND COPY OF THEM HERE (FU-60).
@@ -46,7 +46,7 @@ module AuthorityFixture
   # real grant with a cell that excludes its role. The override is applied AFTER the production
   # build, so an overriding caller still gets every other member from the production derivation.
   def build(organization_id:, account_id:, capability:, epoch: nil, grants: nil, required_role: nil,
-            allowed_roles: nil)
+            allowed_roles: nil, required_scope_hex: nil)
     actor = IdentityAccess::Authorization::AuthenticatedActor.new(
       account_id:, organization_id:, authorization_epoch: epoch || current_epoch(organization_id)
     )
@@ -58,7 +58,7 @@ module AuthorityFixture
       granting_assignments: grants || active_grants(organization_id, account_id)
     )
     authority = IdentityAccess::Authorization::WriteAuthority.for(actor:, decision:, capability:,
-                                                                  required_role:)
+                                                                  required_role:, required_scope_hex:)
     allowed_roles ? authority.with(allowed_roles:) : authority
   end
 

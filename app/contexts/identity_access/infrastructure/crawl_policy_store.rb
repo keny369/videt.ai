@@ -90,7 +90,8 @@ module IdentityAccess
           row[:expected_state_version], authority.epoch, authority.uuid_array,
           authority.bigint_array, authority.text_array, authority.account_id,
           authority.required_role, authority.allowed_roles_array, authority.read_only_permitted,
-          authority.organization_id, authority.protected_capability, authority.capability
+          authority.organization_id, authority.protected_capability, authority.capability,
+          authority.required_scope_hex
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
@@ -131,6 +132,19 @@ module IdentityAccess
               AND (NOT $22::boolean
                    OR ra.bootstrap_admin_exception
                    OR ra.protected_permission_allowlist @> to_jsonb($23::text))
+              -- ASSIGNMENT-SCOPE CONTAINMENT AGAINST THE TARGET (FU-2, sited by FU-49). `$18` above
+              -- carries the ratified rule that an ORGANIZATION-scope policy demands an
+              -- OrganizationAdmin; it says nothing about the scope that Admin's own Assignment
+              -- holds. Measured: an OrganizationAdmin whose Assignment carries a PROJECT scope
+              -- digest activated an immutable Organization-wide policy, authorized by both limbs.
+              -- `$24` is the scope an Assignment must hold to contain this write's target — exactly
+              -- Organization scope for an Organization-scope policy, and NULL at Project scope,
+              -- where `role_assignments` holds only a one-way digest of the grant's `GrantScope`
+              -- and no single scope answers containment. See `WriteAuthority` for why the resource
+              -- limb of FU-2 stays open rather than being approximated here.
+              AND ($24::text IS NULL
+                   OR ra.scope_sha256 IS NULL
+                   OR encode(ra.scope_sha256, 'hex') = $24::text)
             FOR SHARE OF ra
           ), authority AS (
             SELECT 1 WHERE EXISTS (SELECT 1 FROM epoch_authority)

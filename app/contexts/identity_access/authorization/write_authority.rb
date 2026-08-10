@@ -28,17 +28,17 @@ module IdentityAccess
     # predicate is false and the write applies nothing. The Ruby check remains the DENIAL path, so
     # such an actor is refused politely rather than reaching a write that would refuse it anyway.
     #
-    # THE SCOPE AXIS IS BOUND, AND CONTAINMENT IS NOT INVENTED HERE. `scope_hex` is carried and
-    # compared, so the write refuses if the grant's scope is not the one the decision evaluated.
-    # Whether an Assignment's scope must CONTAIN the target is FU-2 — a pre-existing, platform-wide
-    # deferral recorded in DECISIONS.md for every resource capability, not an S-07-009 question — and
-    # this class deliberately does not decide it. What it does is give that axis a place at the write,
-    # so the containment predicate has one obvious home when FU-2 is taken.
+    # THE SCOPE AXIS IS BOUND, AND CONTAINMENT IS NOW PARTLY DECIDED (FU-2, sited by FU-49).
+    # `scope_hex` is carried and compared, so the write refuses if the grant's scope is not the one
+    # the decision evaluated. FU-49 recorded that the CONTAINMENT predicate belongs in the capability
+    # CTE beside the bindings D7 added rather than in a fourth Ruby guard, and `required_scope_hex`
+    # is the operand that puts it there. What it can and cannot decide is stated at that member.
     #
     # EVERY VALUE COMES FROM THE AUTHENTICATED ACTOR AND ITS OWN DECISION, never from caller input.
     WriteAuthority = Data.define(:organization_id, :account_id, :capability, :epoch,
                                  :grant_ids, :grant_versions, :grant_scopes, :required_role,
-                                 :allowed_roles, :read_only_permitted, :protected_capability) do
+                                 :allowed_roles, :read_only_permitted, :protected_capability,
+                                 :required_scope_hex) do
       # `scope_hex` is NULL for an Organization-scope Assignment. It is normalised to the empty
       # string on both sides rather than carried as a NULL, because a NULL never equals a NULL and a
       # scope comparison that is silently never true is a conjunct that does nothing — the same shape
@@ -117,10 +117,42 @@ module IdentityAccess
       # leaves the SQL still unable to answer the question, so the next protected write inherits the
       # gap, and it makes the defect unprovable by execution: nothing could then drive the statement
       # with a protected capability to show it refuses.
-      def self.for(actor:, decision:, capability:, required_role: nil)
+      # THE CONTAINMENT OPERAND, AND EXACTLY WHAT IT CAN DECIDE (FU-2, sited by FU-49).
+      #
+      # WHAT WAS OPEN. `GrantAuthority#contains_scope?` is the only containment predicate in the
+      # platform and is reached only through `evaluate`, whose `CAPABILITY` is the literal
+      # `"role.manage"`, plus the revoke path. For every OTHER capability an Assignment's scope was
+      # carried, compared for EQUALITY with the scope the decision evaluated, and never checked for
+      # containment against the TARGET. Measured on this branch: an OrganizationAdmin whose
+      # Assignment carries a PROJECT scope digest activated an immutable ORGANIZATION-scope crawl
+      # policy — the grant is live, the role is the one `SCOPE_ROLE["organization"]` demands, and
+      # nothing asked whether a Project scope contains an Organization-wide target.
+      #
+      # WHAT `required_scope_hex` IS. Not "the target's scope" but THE SCOPE AN ASSIGNMENT MUST HOLD
+      # TO CONTAIN THIS TARGET, when that is a single nameable scope — and NULL when it is not. For
+      # an Organization-scope target it is exactly Organization scope, and `GrantAuthority`'s digest
+      # of it is reused rather than transcribed a fourth time.
+      #
+      # WHY THE OTHER HALF OF FU-2 IS NOT DECIDED HERE, STATED SO NOBODY READS MORE INTO IT.
+      # `role_assignments` stores the grant's scope ONLY as `scope_sha256`, a one-way digest of a
+      # `GrantScope` (`API_CONTRACTS.md:373`: `scope_kind`, `project_ids`, `resources`). The
+      # STRUCTURE is stored nowhere — measured against `db/structure.sql`, no column on that table or
+      # any other holds it for an Assignment. A digest answers exactly two containment questions:
+      # "is this Organization scope, which contains everything" and "is this scope THE SAME scope".
+      # It cannot answer "does this scope, covering projects P and Q, contain project P", because a
+      # scope covering `[P, Q]` legitimately contains P and hashes differently from one covering
+      # `[P]`. So a RESOURCE-scope target has no single scope an Assignment must hold, the write
+      # cannot name one, and this carries NULL rather than an approximation. FU-2's resource limb
+      # therefore remains open and is NOT claimed closed; what it needs first is a stored or
+      # reconstructible normalized scope, which is a schema question and not a repair.
+      #
+      # NULL MEANS "NO CONTAINMENT CLAIM", spelled so it cannot silently mean "contained". The
+      # statement's limb is `$n IS NULL OR ...`, the same shape `required_role` already has for the
+      # ratified scope rule: a NULL that means "no rule", never "no check".
+      def self.for(actor:, decision:, capability:, required_role: nil, required_scope_hex: nil)
         grants = decision.granting
         new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,
-            epoch: actor.authorization_epoch, required_role:,
+            epoch: actor.authorization_epoch, required_role:, required_scope_hex:,
             allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
             read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),
             protected_capability: Platform::PermissionBaseline::PROTECTED.key?(capability),
@@ -178,6 +210,7 @@ module IdentityAccess
           other.organization_id == organization_id && other.epoch == epoch &&
           other.capability == capability && other.grant_ids == grant_ids &&
           other.required_role == required_role && other.allowed_roles == allowed_roles &&
+          other.required_scope_hex == required_scope_hex &&
           other.read_only_permitted == read_only_permitted &&
           other.protected_capability == protected_capability &&
           other.grant_versions == grant_versions && other.grant_scopes == grant_scopes

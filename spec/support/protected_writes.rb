@@ -37,11 +37,20 @@ module ProtectedWrites
   # policy configurations differ. Every driver before round 20 passed `nil` — the value the
   # cancellation and the queue insert really use — so the policy write was exercised at a value its
   # production caller can never pass.
+  #
+  # `required_scope_hex` IS PART OF IT FOR THE SAME REASON (FU-2, sited by FU-49). It is the scope an
+  # Assignment must hold to CONTAIN the write's target, and the two policy configurations differ on
+  # it exactly as they differ on `required_role`: `ActivateCrawlPolicy::SCOPE_DIGEST` names
+  # Organization scope at Organization scope and `nil` at Project scope, where `role_assignments`
+  # holds only a one-way digest of the grant's `GrantScope` and no single scope answers containment.
+  # A registry that omitted it would drive the policy write with no containment claim while
+  # production carries one — R20-2's shape, on the axis FU-2 opened.
   WRITES = {
     "the cancellation (CrawlStartStore#cancel)" => {
       write: "IdentityAccess::Infrastructure::CrawlStartStore#cancel",
       capability: "crawl.cancel",
       required_role: nil,
+      required_scope_hex: nil,
       setup: :setup_cancel,
       invoke: :invoke_cancel,
       applied: ->(outcome) { outcome[:moved] },
@@ -51,6 +60,7 @@ module ProtectedWrites
       write: "IdentityAccess::Infrastructure::CrawlStore#insert_crawl",
       capability: "crawl.trigger",
       required_role: nil,
+      required_scope_hex: nil,
       setup: :setup_queue,
       invoke: :invoke_queue,
       applied: ->(outcome) { outcome[:inserted] },
@@ -60,6 +70,8 @@ module ProtectedWrites
       write: "IdentityAccess::Infrastructure::CrawlPolicyStore#activate_version",
       capability: "policy.crawl.manage",
       required_role: "OrganizationAdmin",
+      required_scope_hex: Workflows::Wf005::Handlers::ActivateCrawlPolicy::SCOPE_DIGEST
+        .fetch("organization"),
       setup: :setup_policy,
       invoke: :invoke_policy,
       applied: ->(outcome) { outcome[:inserted] },
@@ -74,6 +86,8 @@ module ProtectedWrites
       write: "IdentityAccess::Infrastructure::CrawlPolicyStore#activate_version",
       capability: "policy.crawl.manage",
       required_role: "MarketingOperator",
+      required_scope_hex: Workflows::Wf005::Handlers::ActivateCrawlPolicy::SCOPE_DIGEST
+        .fetch("project"),
       setup: :setup_policy_project,
       invoke: :invoke_policy_project,
       applied: ->(outcome) { outcome[:inserted] },
@@ -87,5 +101,6 @@ module ProtectedWrites
   # Every member a configuration must carry for the battery to be able to drive it. A registry entry
   # added without one of these would produce a `KeyError` deep inside a shared example, naming a
   # missing hash key rather than an incomplete registration.
-  REQUIRED_MEMBERS = %i[write capability required_role setup invoke applied untouched].freeze
+  REQUIRED_MEMBERS = %i[write capability required_role required_scope_hex setup invoke applied
+                        untouched].freeze
 end
