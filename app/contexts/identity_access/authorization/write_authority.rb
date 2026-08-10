@@ -38,7 +38,7 @@ module IdentityAccess
     # EVERY VALUE COMES FROM THE AUTHENTICATED ACTOR AND ITS OWN DECISION, never from caller input.
     WriteAuthority = Data.define(:organization_id, :account_id, :capability, :epoch,
                                  :grant_ids, :grant_versions, :grant_scopes, :required_role,
-                                 :allowed_roles, :read_only_permitted) do
+                                 :allowed_roles, :read_only_permitted, :protected_capability) do
       # `scope_hex` is NULL for an Organization-scope Assignment. It is normalised to the empty
       # string on both sides rather than carried as a NULL, because a NULL never equals a NULL and a
       # scope comparison that is silently never true is a conjunct that does nothing — the same shape
@@ -91,12 +91,39 @@ module IdentityAccess
       # THE LIFE OF A DEPLOY, read ONCE in Ruby, and handed to the statement as a value — exactly the
       # shape `required_role` already had for the ratified scope rule. What the statement re-reads is
       # still only row state another transaction can move: which role the granting Assignment holds.
+      # THE PROTECTED LIMB, WHICH THE STATEMENT DID NOT CARRY (FU-58).
+      #
+      # WHAT WAS OPEN, AND WHY THE STORES' OWN COMMENT WAS INACCURATE. `CommandAuthorizer#confers?`
+      # is FOUR limbs, not two: the baseline cell, the mode cell, and then — for a capability in
+      # `PROTECTED` — the bootstrap-admin exception or the Assignment's approved
+      # `protected_permission_allowlist`. `return true unless PROTECTED.key?(capability)` is a
+      # property of the RUBY evaluator with no analogue in the CTE, so what the write carried was the
+      # baseline MINUS its protected limb while three stores said "this is the baseline CARRIED".
+      #
+      # MEASURED, AND THE EXPOSED SURFACE IS EXACTLY TWO CAPABILITIES. `CAPABILITIES` materializes 20
+      # keys and `PROTECTED` names 18; their intersection is `role.manage` and `invitation.approve`,
+      # because `CAPABILITIES.fetch` raises for the other 16 and the authority cannot be built at all.
+      # At `CrawlStartStore#cancel`, an ordinary OrganizationAdmin grant and capability `role.manage`
+      # is DENIED by Ruby (`missing_authority`) and was AUTHORIZED by the write, which irreversibly
+      # cancelled a running Crawl.
+      #
+      # IT IS CARRIED AS A DERIVED BOOLEAN, NOT RE-DERIVED IN SQL. `PROTECTED` is immutable for the
+      # life of a deploy and is read once, here — the same shape `read_only_permitted` already has for
+      # the sixth column and `allowed_roles` for the cell. What the statement re-reads is still only
+      # row state another transaction can move: this Assignment's allowlist and its exception flag.
+      #
+      # THE ALTERNATIVE WAS REFUSING AT THE BUILDER, and it was not taken. Raising for a `PROTECTED`
+      # capability would turn the caller census into an enforced invariant, which is smaller — but it
+      # leaves the SQL still unable to answer the question, so the next protected write inherits the
+      # gap, and it makes the defect unprovable by execution: nothing could then drive the statement
+      # with a protected capability to show it refuses.
       def self.for(actor:, decision:, capability:, required_role: nil)
         grants = decision.granting
         new(organization_id: actor.organization_id, account_id: actor.account_id, capability:,
             epoch: actor.authorization_epoch, required_role:,
             allowed_roles: Platform::PermissionBaseline::CAPABILITIES.fetch(capability),
             read_only_permitted: Platform::PermissionBaseline::READ_ONLY_CAPABILITIES.include?(capability),
+            protected_capability: Platform::PermissionBaseline::PROTECTED.key?(capability),
             grant_ids: grants.map { |g| g["id"] },
             grant_versions: grants.map { |g| g["state_version"].to_i },
             grant_scopes: grants.map { |g| g["scope_hex"] || NO_SCOPE })
@@ -152,6 +179,7 @@ module IdentityAccess
           other.capability == capability && other.grant_ids == grant_ids &&
           other.required_role == required_role && other.allowed_roles == allowed_roles &&
           other.read_only_permitted == read_only_permitted &&
+          other.protected_capability == protected_capability &&
           other.grant_versions == grant_versions && other.grant_scopes == grant_scopes
       end
 

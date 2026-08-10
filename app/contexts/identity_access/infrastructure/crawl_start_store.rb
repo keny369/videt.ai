@@ -302,7 +302,8 @@ module IdentityAccess
         params = [id, expected_version, iso(now), authority.epoch, authority.organization_id,
                   authority.uuid_array, authority.bigint_array, authority.text_array,
                   authority.account_id, authority.required_role, authority.allowed_roles_array,
-                  authority.read_only_permitted]
+                  authority.read_only_permitted, authority.protected_capability,
+                  authority.capability]
         row = exec(<<~SQL, params).first
           WITH epoch_authority AS (
             SELECT 1 FROM organizations
@@ -329,12 +330,38 @@ module IdentityAccess
               -- Read-Only Executive Buyer carries a `canonical_role` that IS in the cell above, and
               -- the ratified table denies it this capability; measured, it cancelled a running Crawl.
               AND ($12::boolean OR ra.permission_mode <> 'read_only')
+              -- THE PROTECTED LIMB, WHICH THIS STATEMENT DID NOT CARRY (FU-58). `confers?` is FOUR
+              -- limbs and the CTE bound two: a capability in `PROTECTED` additionally requires the
+              -- Assignment's bootstrap-admin exception or its APPROVED allowlist. Measured, an
+              -- ordinary OrganizationAdmin grant with capability `role.manage` was denied by Ruby
+              -- and authorized here. `PROTECTED` is immutable for the life of a deploy and read once
+              -- in `WriteAuthority.for`; what is re-read here is only row state another transaction
+              -- can move.
+              AND (NOT $13::boolean
+                   OR ra.bootstrap_admin_exception
+                   OR ra.protected_permission_allowlist @> to_jsonb($14::text))
             FOR SHARE OF ra
           ), moved AS (
             UPDATE crawls
             SET state = 'canceled', terminal_at = $3::timestamptz, completion_reason = 'canceled',
                 state_version = state_version + 1, updated_at = $3::timestamptz
             WHERE id = $1::uuid AND state = ANY (ARRAY['queued','running']) AND state_version = $2
+              -- THE TARGET BELONGS TO THE ORGANIZATION THE AUTHORITY IS FOR (FU-53).
+              --
+              -- WHAT WAS OPEN. Both authority limbs above bind `authority.organization_id`, and this
+              -- UPDATE named only `id`, `state` and `state_version` — so the statement asked "may
+              -- this actor cancel in THEIR Organization" and then cancelled WHATEVER row carried
+              -- that id. Driven with an attacker session against a victim Organization's running
+              -- Crawl, both limbs returned authorized and ONLY RLS refused the write. Re-measured on
+              -- a BYPASSRLS connection, which is what proves the point rather than the policy's:
+              -- `moved: 1`, and `f1_crawls_guard` makes a terminal Crawl unrecoverable.
+              --
+              -- IT BINDS THE AUTHORITY'S ORGANIZATION, NOT THE ROW'S, and that is the same answer
+              -- FU-50 settled at the other two writes: the value is derived from the authenticated
+              -- Session and never from caller input. `cancel` takes no row organization to diverge
+              -- from, so there is nothing here for `WriteAuthority#governs!` to refuse — this is the
+              -- containment that write needed instead.
+              AND organization_id = $5::uuid
               AND EXISTS (SELECT 1 FROM epoch_authority)
               AND EXISTS (SELECT 1 FROM capability_authority)
             RETURNING 1

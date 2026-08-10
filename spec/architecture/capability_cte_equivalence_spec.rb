@@ -292,7 +292,8 @@ RSpec.describe "the capability-authority CTE says the same thing at every protec
       expect(set.length).to be >= 8, "#{identity} reduced to #{set.length} conjunct(s): the parse is " \
                                      "returning a fragment and every comparison above is vacuous"
       %w[ra.status ra.effective_at ra.expires_at ra.account_id ra.organization_id
-         ra.canonical_role ra.permission_mode].each do |column|
+         ra.canonical_role ra.permission_mode
+         ra.bootstrap_admin_exception ra.protected_permission_allowlist].each do |column|
         expect(set.join(" ")).to include(column),
                                  "#{identity}'s predicate no longer mentions `#{column}`"
       end

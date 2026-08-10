@@ -5416,3 +5416,131 @@ inclusion of `CrawlCanceled` and `StartCrawl`'s `CrawlFailed` under ADR-110's pr
 producers of one event type may not disagree about its shape. FU-74 opened under the AUTONOMY_POLICY
 rule that a contract question with more than one materially valid reading is the owner's. Allocated
 the next unused number after ADR-145.
+
+---
+
+## ADR-147: FU-58, FU-53 And FU-57 — The Write Carries The Whole Baseline, Writes Only Inside Its Tenant, And Is Measured At Every Instance Rather Than One
+
+Status: Accepted
+Date: 2026-08-10
+Owner: implementation agent under standing delegation ADR-061
+Reversibility: One authority member, one conjunct repeated at three writes, one predicate on one
+UPDATE. No frozen contract, no migration, no schema change, no ratified document edited.
+
+Decision:
+
+Three records describe three residues on the SAME three protected writes, and the two instruments they
+each needed — FU-61's repository-derived `WRITES` registry and FU-50's operand gate — were built in
+the two preceding tranches. They are taken together.
+
+**FU-58 — THE STATEMENT CARRIED THE BASELINE MINUS ITS PROTECTED LIMB, AND NOW CARRIES ALL OF IT.**
+`CommandAuthorizer#confers?` is four limbs: the baseline cell, the mode cell, and then — for a
+capability in `PROTECTED` — the Assignment's bootstrap-admin exception or its approved
+`protected_permission_allowlist`. `return true unless PROTECTED.key?(capability)` is a property of the
+Ruby evaluator with no analogue in SQL, so three stores said "this is the baseline CARRIED" while
+carrying two limbs of four. `WriteAuthority` now derives a `protected_capability` boolean once — the
+same shape `read_only_permitted` already has for the sixth column — and all three capability CTEs bind
+`AND (NOT $n::boolean OR ra.bootstrap_admin_exception OR ra.protected_permission_allowlist @>
+to_jsonb($m::text))`, which is that limb exactly. What the statement re-reads is still only row state
+another transaction can move.
+
+THE OPTION THE RECORD PREFERRED WAS NOT TAKEN, AND THE REASON IS EVIDENCE. FU-58 proposed refusing at
+the builder — `WriteAuthority.for` raising for a `PROTECTED` capability — as "smaller and fails
+closed". It is smaller. It also leaves the SQL unable to answer the question, so the next protected
+write inherits the same gap, and it makes the defect UNPROVABLE BY EXECUTION: nothing could then drive
+the statement with a protected capability to show that it refuses.
+
+**FU-58's OWN MEASUREMENT WAS STALE AND IS CORRECTED.** The record reads "Ruby `authorize` DENIES
+(`missing_authority`, granting=0)". Driven today, `authorize` ALLOWS, because it aggregates over EVERY
+effective Assignment and the WF-001 bootstrap grant carries `bootstrap_admin_exception`, which
+`confers?` accepts. THE DIVERGENCE IS PER GRANT, NOT PER ACTOR — which is the level the write works
+at, since it re-reads the grants the decision relied on. Proved that way: an ordinary OrganizationAdmin
+Assignment with an empty allowlist and no exception, for which `PermissionBaseline.protected_grant?`
+is false, was authorized by the write and cancelled a running Crawl.
+
+THREE EXAMPLES, BECAUSE ONE WOULD HAVE BEEN SATISFIED BY A BLANKET DENIAL. The refusal; the ADMISSION
+once :314's approved allowlist carries the capability, seeded through the only transition
+`f1_role_assignments_lifecycle_guard` permits (`pending -> active`, which refused a first draft that
+edited an active row — the guard working); and a non-protected capability still admitted, without
+which a limb keyed on an empty allowlist would break every production cancellation. The exposed
+surface is DERIVED, not transcribed: `CAPABILITIES ∩ PROTECTED` is required to be exactly
+`role.manage` and `invitation.approve`, and every other `PROTECTED` key is required to raise `KeyError`
+from `CAPABILITIES.fetch`.
+
+**FU-53 — `cancel` JUDGED AUTHORITY AGAINST THE SESSION AND WROTE AGAINST AN UNQUALIFIED ID.** Both
+authority limbs bound `authority.organization_id` and the `UPDATE crawls` named only `id`, `state` and
+`state_version`, so the statement asked "may this actor cancel in THEIR Organization" and then
+cancelled whatever row carried that id. It now carries `AND organization_id = $5::uuid`, bound to the
+AUTHORITY's organization — the same answer ADR-145 settled at the other two writes.
+
+**HALF OF FU-53 WAS ALREADY CLOSED WHEN IT WAS READ, AND THE OTHER HALF IS NOT WHAT FU-50 REPAIRED.**
+The mirror it records at `crawl_store#insert_crawl` was closed by ADR-145. What remained is the half
+it names first, and `governs!` does not reach it: `cancel` takes an id rather than a row, so there is
+no caller-supplied organization to refuse — the containment had to be on the target instead.
+
+PROVED THE WAY THE RECORD'S OWN MEASUREMENT COULD NOT BE. Round 19 drove this through a real session
+and concluded "only RLS stopped the write", which is an observation about the database's policy rather
+than about the statement — and a policy is not the store's contract. `DbInspector`'s connection is a
+BYPASSRLS superuser, which the harness already relies on for cross-principal reads. Driven on it
+against the pre-change code, an attacker with entirely valid authority in their own Organization
+CANCELLED a victim Organization's running Crawl: `epoch_authorized: true, capability_authorized: true,
+moved: 1`, and `f1_crawls_guard` makes that terminal state unrecoverable. With the predicate, `moved:
+0` and the Crawl stays running, while the legitimate same-Organization cancellation on the same
+connection still applies.
+
+**FU-57 — PROOF 264's MEASUREMENT NOW RUNS AT EVERY WRITE INSTEAD OF ONE.** The global lock order is
+`organizations` before `role_assignments`, and the WF-013 half is derived from the WF-005 half holding
+— which was measured at `QueueCrawl` alone. The measurement now runs against every DISTINCT write in
+`ProtectedWrites.covered`, the registry FU-61's completeness gate proves against the repository, so a
+fourth protected write is measured the day it is registered rather than inheriting this proof.
+PROOF 264's advisory-lock scaffolding is gone: it existed to get the HANDLER blocked at a known point,
+and driving the STORE directly needs none. The order HOLDS at all three, including
+`CrawlPolicyStore#activate_version`, whose two `EXISTS` sit in one CTE where `order_qual_clauses` sorts
+by estimated cost — which is worth more now than when the record was written, because FU-58 has just
+added a conjunct to that CTE and the record predicted exactly that kind of change would move the
+estimate.
+
+**TWO OF THIS TRANCHE'S OWN PROOFS WERE WRONG FIRST, AND BOTH FAILURES ARE RECORDED RATHER THAN
+QUIETLY FIXED.** The lock-order measurement first held "the Organization's first active grant" and
+timed out inside the full acceptance run while passing alone: the capability CTE joins `unnest(...)`
+against `role_assignments`, so holding a row the carried grant set does not name blocks NOTHING and
+the write runs straight through. It now holds `authority.grant_ids.first` and asserts the set is
+non-empty, so an unblocked statement fails as an unblocked statement. And `LOCK_TIMEOUT` was declared
+at describe level, where a constant lands on `Object`; `spec_constant_scope_spec` failed on the
+collision with `wf005_authority_lock_concurrency_spec.rb` the moment the file was added, which is that
+gate doing exactly what FU-42 built it for.
+
+Evidence:
+
+rspec measured serially with no dev worker running: 3003 / 0 / 1 pending before, 3013 / 0 / 1 after.
+Architecture 271/0 before and after — no architecture example was added. Each repair reverted
+individually and its proof required to fail on its own assertion: removing `cancel`'s organization
+predicate fails exactly one example with `moved: 1` against a foreign Organization; removing the
+protected limb fails exactly one, and it was re-measured AGAINST THE TRUE PRE-CHANGE CODE — conjunct
+AND both parameters together, because dropping the conjunct alone makes PostgreSQL reject the bind and
+produces a crash rather than a failed expectation, which is weaker evidence. brakeman 0; packwerk
+clean with no stale violations; zeitwerk clean; bundler-audit clean; `bin/f1db f1:db:verify_runtime`
+15 checks with RLS intact; no structure drift.
+
+NOT CLAIMED, AND NAMED RATHER THAN LEFT IMPLICIT. FU-57's measurement is a gate against a future
+reordering; it does not prove the planner cannot reorder. The FU-58 limb is bound at the three writes
+that exist — a fourth inherits the conjunct through the equivalence gate's multiset comparison, not
+through anything that makes it impossible to omit. `wf013_organization_lifecycle_concurrency_spec.rb`
+was seen failing once in an acceptance-only run with `stale_authorization_epoch` where it expects
+`session_invalid` or `organization_inactive`; it passed three consecutive isolated runs and both full
+suite runs with these changes present, so it is recorded as an observed flake and NOT as a repair
+this tranche made or a defect it introduced.
+
+ZERO calls were made to OpenAI, Anthropic, Google or any model provider.
+
+Consequences:
+
+FU-53, FU-57 and FU-58 are resolved, and with FU-49 and FU-50 that closes every residue on the
+protected writes except FU-2 — Assignment-scope containment — which is platform-wide and remains the
+owner's. S-07-010 remains `reviewing` and is NOT accepted by this record.
+
+Authority And Precedence:
+Repairs under standing delegation ADR-061. The FU-58 limb follows ADR-132's rule that the baseline is
+read ONCE in Ruby and carried as a value rather than re-derived in SQL. Corrects FU-58's per-actor
+measurement to a per-grant one and FU-53's already-closed mirror half. Allocated the next unused
+number after ADR-146.

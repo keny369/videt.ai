@@ -640,7 +640,7 @@ RSpec.describe "WF-005 write-level capability authority", type: :acceptance,
           case member
           when :capability then (Platform::PermissionBaseline::CAPABILITIES.keys - [value]).first
           when :required_role then value.nil? ? "OrganizationAdmin" : nil
-          when :read_only_permitted then !value
+          when :read_only_permitted, :protected_capability then !value
           when :epoch then value.to_i + 1
           when :organization_id, :account_id then SecureRandom.uuid_v7
           when :grant_ids then value.empty? ? [SecureRandom.uuid_v7] : [SecureRandom.uuid_v7, *value]

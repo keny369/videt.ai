@@ -119,7 +119,8 @@ module IdentityAccess
           row[:trigger_kind], row[:triggered_by_account_id], bytea(row[:idempotency_key_digest]),
           authority.epoch, authority.uuid_array, authority.bigint_array, authority.text_array,
           authority.account_id, authority.required_role, authority.allowed_roles_array,
-          authority.read_only_permitted, authority.organization_id
+          authority.read_only_permitted, authority.organization_id,
+          authority.protected_capability, authority.capability
         ]
         result = exec(<<~SQL, params).to_a.first
           WITH epoch_authority AS (
@@ -147,6 +148,16 @@ module IdentityAccess
               -- Read-Only Executive Buyer carries a `canonical_role` that IS in the cell above, and
               -- the ratified table denies it this capability; measured, it cancelled a running Crawl.
               AND ($21::boolean OR ra.permission_mode <> 'read_only')
+              -- THE PROTECTED LIMB, WHICH THIS STATEMENT DID NOT CARRY (FU-58). `confers?` is FOUR
+              -- limbs and the CTE bound two: a capability in `PROTECTED` additionally requires the
+              -- Assignment's bootstrap-admin exception or its APPROVED allowlist. Measured, an
+              -- ordinary OrganizationAdmin grant with capability `role.manage` was denied by Ruby
+              -- and authorized here. `PROTECTED` is immutable for the life of a deploy and read once
+              -- in `WriteAuthority.for`; what is re-read here is only row state another transaction
+              -- can move.
+              AND (NOT $23::boolean
+                   OR ra.bootstrap_admin_exception
+                   OR ra.protected_permission_allowlist @> to_jsonb($24::text))
             FOR SHARE OF ra
           ), inserted AS (
             INSERT INTO crawls
