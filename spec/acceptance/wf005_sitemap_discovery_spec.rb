@@ -811,6 +811,60 @@ RSpec.describe "WF-005 sitemap discovery", type: :acceptance,
              canonical_host: ctx[:host], source_id: ctx[:source_id], now: start_now)
     end
 
+    # FU-12(g). AN EXHAUSTED RUN STOPS SPENDING A LIVE HOST'S CONCURRENCY ON CANDIDATES IT CANNOT PAY.
+    #
+    # `fetch_document` claims a real host-gate slot and re-runs `FetchAuthorization` BEFORE it calls
+    # `charge`, so once the run-wide document budget is spent every remaining candidate still took a
+    # slot out of the host's ceiling, paced behind it and released it again, only to be refused. The
+    # slot is the scarce thing: while it is held, other work on that host waits for it.
+    #
+    # OBSERVED ON THE REAL OBJECT — `and_call_original`, so the run below is the real run and the spy
+    # only counts. A balanced claim/release leaves no row behind, so counting the calls is the only
+    # way to see the work that was being done.
+    it "claims no further host-gate slots once the document budget is spent (FU-12(g))" do
+      # IT TAKES TWO HOSTS TO REACH THIS PATH, and the first version of this example did not know
+      # that. :454's ordered retention discards candidates beyond the bound BEFORE any fetch, so a
+      # single host never fetches its way into exhaustion — it simply never offers the surplus. The
+      # budget is RUN-WIDE, so the case that matters is a later host whose own declared set is within
+      # the bound while the run has already spent it elsewhere. That is P8's shape, and it is the
+      # shape FU-12(g) describes.
+      first = with_robots(sitemaps: ["https://shop.acme.example/a1.xml", "https://shop.acme.example/a2.xml"])
+      narrow_documents(first, 2)
+      discover_paced(first, {
+                       "https://shop.acme.example/a1.xml" => { body: urlset("https://shop.acme.example/1") },
+                       "https://shop.acme.example/a2.xml" => { body: urlset("https://shop.acme.example/2") }
+                     })
+      expect(documents_spent(first)).to eq(2), "the run did not spend its budget on the first host"
+
+      second = second_host(first, "docs.acme.example")
+      resolve_robots_for(second, ["https://docs.acme.example/b1.xml", "https://docs.acme.example/b2.xml",
+                                  "https://docs.acme.example/b3.xml"])
+      gate_id = host_gate(second)["id"]
+      service = Workflows::Wf005::DiscoverSitemaps.new(
+        outbound: outbound_map({
+                                 "https://docs.acme.example/b1.xml" => { body: urlset("https://docs.acme.example/1") },
+                                 "https://docs.acme.example/b2.xml" => { body: urlset("https://docs.acme.example/2") },
+                                 "https://docs.acme.example/b3.xml" => { body: urlset("https://docs.acme.example/3") }
+                               }),
+        pacer: ->(_ms) { clear_rate_window(gate_id) }
+      )
+      # OBSERVED ON THE REAL OBJECT — `and_call_original`, so this is the real run and the spy only
+      # counts. A balanced claim/release leaves no row behind, so counting the calls is the only way
+      # to see the work.
+      allow(service).to receive(:claim_slot).and_call_original
+
+      service.call(organization_id: second[:g][:organization_id], crawl_id: second[:crawl_id],
+                   canonical_host: second[:host], source_id: second[:source_id], now: start_now)
+
+      # Nothing more was charged: the run really was exhausted throughout this traversal.
+      expect(documents_spent(first)).to eq(2)
+
+      # ONE claim discovers the refusal. Every candidate after it is refused without touching the
+      # host at all. Before the repair this was one claim PER CANDIDATE, so the cost of an exhausted
+      # run grew with the declared set of every host still to be visited.
+      expect(service).to have_received(:claim_slot).once
+    end
+
     it "holds the RUN-WIDE document bound across hosts with different declared sets (P8)" do
       first = with_robots(sitemaps: ["https://shop.acme.example/a1.xml", "https://shop.acme.example/a2.xml"])
       narrow_documents(first, 4)

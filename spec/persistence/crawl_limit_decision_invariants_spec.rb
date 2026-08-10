@@ -73,12 +73,17 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
 
   def insert_decision(ctx, dimension: "accounted_response_body_bytes_per_run", threshold: "hard",
                       value: nil, reason: nil, versions: '[{"artifact_type":"global_crawl_safety"}]',
-                      configured: 100, observed: 100)
+                      configured: 100, observed: 100,
+                      author: Platform::ServiceIdentity.scheduled_action_executor)
     id = SecureRandom.uuid_v7
     value ||= threshold == "soft" ? "soft_reached" : "hard_reached"
     reason = threshold == "hard" ? (reason || "limit_reached") : reason
+    # THE AUTHOR IS A REGISTERED IDENTITY, AND IT USED TO BE `gen_random_uuid()` (FU-12(a)). The
+    # column is NOT NULL and referenced nothing, so every decision this file wrote named an author
+    # that had never existed — and the specs agreed with the schema precisely because neither
+    # required one. Production passes `ServiceIdentity.scheduled_action_executor`; so does this now.
     params = [id, ctx[:org], ctx[:project], ctx[:crawl], dimension, threshold, value,
-              reason, versions, { value: DIGEST, format: 1 }, configured, observed]
+              reason, versions, { value: DIGEST, format: 1 }, configured, observed, author]
     conn.exec_params(<<~SQL, params)
       INSERT INTO crawl_limit_decisions
         (id, schema_version, created_at, correlation_id, causation_id, organization_id, project_id,
@@ -89,10 +94,31 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
       VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,
               $4::uuid,$5,$6,$11,$12,
               0,0,'crawl_limit_observation',$7,'final',
-              $8,gen_random_uuid(),$9::jsonb,
+              $8,$13::uuid,$9::jsonb,
               $10,$10,now())
     SQL
     id
+  end
+
+  # FU-12(a). `decided_by_service_identity_id` IS `NOT NULL` AND REFERENCED NOTHING.
+  #
+  # The migration that created this table promises "a limit decision has an author", and
+  # `Platform::ServiceIdentity` promises that "existence is guaranteed by the ledger foreign keys".
+  # Neither was true here: no constraint required the named identity to exist, so a decision could
+  # attribute itself to an identity that never had. Every insert in this very file wrote
+  # `gen_random_uuid()` into the column and passed, which is what an unenforced promise looks like.
+  describe "the decision's author (FU-12(a))" do
+    it "rejects an identity that is not registered" do
+      expect { insert_decision(context, author: SecureRandom.uuid_v7) }
+        .to raise_error(PG::ForeignKeyViolation, /crawl_limit_decisions_service_identity_fkey/)
+    end
+
+    it "still admits the reserved executor production actually writes" do
+      # The other side, so the constraint is a narrowing rather than a wall: `LimitDecisions`
+      # defaults its author to `ServiceIdentity.scheduled_action_executor`.
+      expect { insert_decision(context, author: Platform::ServiceIdentity.scheduled_action_executor) }
+        .not_to raise_error
+    end
   end
 
   describe "tenancy and least privilege" do
@@ -174,7 +200,8 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
 
     it "refuses a hard decision with no reason" do
       c = context
-      params = [SecureRandom.uuid_v7, c[:org], c[:project], c[:crawl], { value: DIGEST, format: 1 }]
+      params = [SecureRandom.uuid_v7, c[:org], c[:project], c[:crawl], { value: DIGEST, format: 1 },
+                Platform::ServiceIdentity.scheduled_action_executor]
       expect do
         conn.exec_params(<<~SQL, params)
           INSERT INTO crawl_limit_decisions
@@ -185,7 +212,7 @@ RSpec.describe "Crawl limit-decision invariants", type: :model do
              input_sha256, output_sha256, decided_at)
           VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,
                   $4::uuid,'redirects_per_url','hard',10,11,0,0,'crawl_limit_observation','hard_reached','final',
-                  NULL,gen_random_uuid(),'[{"a":1}]'::jsonb,$5,$5,now())
+                  NULL,$6::uuid,'[{"a":1}]'::jsonb,$5,$5,now())
         SQL
       end.to raise_error(PG::CheckViolation, /threshold_agreement/)
     end

@@ -188,6 +188,59 @@ RSpec.describe "Crawl-start invariants", type: :model do
   # "these constraints, rather than a separate Project lookup or application assertion, prevent a
   # same-Organization cross-Project child link". The 1/n migration made the Evaluation limb
   # two-column, which admitted exactly that link.
+  # FU-12(d). THE CONVENTION, ASKED OF EVERY TABLE THAT KEEPS IT.
+  #
+  # POSTGRESQL_SCHEMA.md :128 requires a Project-owned table to carry `UNIQUE (organization_id,
+  # project_id, id)` so a child can form the three-column tenant-carrying link — that unique is what a
+  # composite foreign key REFERENCES, so a table without one cannot be a parent at all.
+  # `crawl_sitemap_document_charges` carried only `UNIQUE (organization_id, id)` while every sibling
+  # carried all three, and nothing noticed because nothing references it YET: the cost of the omission
+  # is paid by whoever first tries to add a child, not by the tranche that made it.
+  #
+  # DERIVED, so the next table to omit it fails here instead of being found by a reviewer.
+  it "gives every Project-owned crawl table the three-column key :128 requires (FU-12(d))" do
+    missing = DbInspector.all(<<~SQL).map { |r| r["relname"] }
+      SELECT c.relname
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname LIKE 'crawl%'
+        -- PROJECT-OWNED IS `project_id NOT NULL`, WHICH IS WHY `crawl_policies` IS NOT HERE. Its
+        -- `project_id` is nullable because a policy is scoped to an Organization OR a Project, so it
+        -- is not owned by one. The exclusion is a property of the column, not a name on a list.
+        AND EXISTS (SELECT 1 FROM pg_attribute a
+                    WHERE a.attrelid = c.oid AND a.attname = 'project_id'
+                      AND a.attnotnull AND NOT a.attisdropped)
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_constraint k
+          WHERE k.conrelid = c.oid AND k.contype IN ('u', 'p')
+            AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+                 FROM pg_attribute a
+                 WHERE a.attrelid = c.oid AND a.attnum = ANY (k.conkey))
+                = ARRAY['id', 'organization_id', 'project_id']
+        )
+      ORDER BY 1
+    SQL
+
+    expect(missing).to be_empty,
+                       "these are Project-owned and cannot be the parent of a tenant-carrying " \
+                       "composite FK, which :128 requires of them:\n#{missing.join("\n")}"
+  end
+
+  it "is asking about a real set of Project-owned crawl tables, so the rule above is not vacuous" do
+    subjects = DbInspector.all(<<~SQL).map { |r| r["relname"] }
+      SELECT c.relname FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname LIKE 'crawl%'
+        AND EXISTS (SELECT 1 FROM pg_attribute a
+                    WHERE a.attrelid = c.oid AND a.attname = 'project_id'
+                      AND a.attnotnull AND NOT a.attisdropped)
+    SQL
+    expect(subjects).to include("crawl_sitemap_document_charges", "crawl_frontier_occurrences",
+                                "crawl_sources")
+    expect(subjects).not_to include("crawl_policies"), "crawl_policies has a NULLABLE project_id"
+    expect(subjects.length).to be >= 6
+  end
+
   describe "the composite Project foreign keys" do
     it "rejects an orchestration context naming an Evaluation from another Project of the SAME Organization" do
       p1 = draft_project

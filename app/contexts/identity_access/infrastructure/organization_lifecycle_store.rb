@@ -62,8 +62,12 @@ module IdentityAccess
       end
 
       def effective_role_assignments(account_id:, now:)
+        # `permission_mode` IS SELECTED BECAUSE THE BASELINE ROW HAS A CELL FOR IT (FU-62). Without
+        # it the only decision this reader can support is the role limb, which is precisely how
+        # `ReactivateOrganization` came to apply half the baseline: a reader that does not select
+        # what the decision needs makes the partial decision the ONLY one available.
         sql = <<~SQL
-          SELECT id, canonical_role, state_version FROM role_assignments
+          SELECT id, canonical_role, permission_mode, state_version FROM role_assignments
           WHERE account_id = $1::uuid AND status = 'active'
             AND effective_at IS NOT NULL AND effective_at <= $2::timestamptz
             AND (expires_at IS NULL OR $2::timestamptz < expires_at)

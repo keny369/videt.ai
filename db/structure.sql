@@ -5741,6 +5741,14 @@ ALTER TABLE ONLY public.crawl_frontier_occurrences
 
 
 --
+-- Name: crawl_frontier_occurrences crawl_frontier_occurrences_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_frontier_occurrences
+    ADD CONSTRAINT crawl_frontier_occurrences_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
 -- Name: crawl_frontier_occurrences crawl_frontier_occurrences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5837,11 +5845,27 @@ ALTER TABLE ONLY public.crawl_sitemap_document_charges
 
 
 --
+-- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sitemap_document_charges
+    ADD CONSTRAINT crawl_sitemap_document_charges_org_project_id_unique UNIQUE (organization_id, project_id, id);
+
+
+--
 -- Name: crawl_sitemap_document_charges crawl_sitemap_document_charges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.crawl_sitemap_document_charges
     ADD CONSTRAINT crawl_sitemap_document_charges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: crawl_sources crawl_sources_org_project_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_sources
+    ADD CONSTRAINT crawl_sources_org_project_id_unique UNIQUE (organization_id, project_id, id);
 
 
 --
@@ -8027,6 +8051,14 @@ ALTER TABLE ONLY public.crawl_limit_decisions
 
 
 --
+-- Name: crawl_limit_decisions crawl_limit_decisions_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.crawl_limit_decisions
+    ADD CONSTRAINT crawl_limit_decisions_service_identity_fkey FOREIGN KEY (decided_by_service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
 -- Name: crawl_policies crawl_policies_project_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8171,6 +8203,14 @@ ALTER TABLE ONLY public.entitlement_decisions
 
 
 --
+-- Name: entitlement_decisions entitlement_decisions_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_decisions
+    ADD CONSTRAINT entitlement_decisions_service_identity_fkey FOREIGN KEY (service_identity_id) REFERENCES public.service_identities(id);
+
+
+--
 -- Name: entitlement_decisions entitlement_decisions_window_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8184,6 +8224,14 @@ ALTER TABLE ONLY public.entitlement_decisions
 
 ALTER TABLE ONLY public.entitlement_lease_heartbeats
     ADD CONSTRAINT entitlement_lease_heartbeats_reservation_fk FOREIGN KEY (organization_id, entitlement_reservation_id) REFERENCES public.entitlement_reservations(organization_id, id);
+
+
+--
+-- Name: entitlement_lease_heartbeats entitlement_lease_heartbeats_worker_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entitlement_lease_heartbeats
+    ADD CONSTRAINT entitlement_lease_heartbeats_worker_service_identity_fkey FOREIGN KEY (worker_service_identity_id) REFERENCES public.service_identities(id);
 
 
 --
@@ -8344,6 +8392,14 @@ ALTER TABLE ONLY public.fetch_attempts
 
 ALTER TABLE ONLY public.fetch_attempts
     ADD CONSTRAINT fetch_attempts_source_fk FOREIGN KEY (organization_id, project_id, source_id) REFERENCES public.sources(organization_id, project_id, id);
+
+
+--
+-- Name: fingerprint_collision_decisions fingerprint_collision_decisions_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fingerprint_collision_decisions
+    ADD CONSTRAINT fingerprint_collision_decisions_service_identity_fkey FOREIGN KEY (detecting_service_identity_id) REFERENCES public.service_identities(id);
 
 
 --
@@ -8544,6 +8600,14 @@ ALTER TABLE ONLY public.parsing_jobs
 
 ALTER TABLE ONLY public.plan_assignments
     ADD CONSTRAINT plan_assignment_billing_same_org FOREIGN KEY (organization_id, billing_entity_id) REFERENCES public.billing_entities(organization_id, id);
+
+
+--
+-- Name: plan_assignments plan_assignments_assigned_by_service_identity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.plan_assignments
+    ADD CONSTRAINT plan_assignments_assigned_by_service_identity_fkey FOREIGN KEY (assigned_by_service_identity_id) REFERENCES public.service_identities(id);
 
 
 --
@@ -9541,6 +9605,7 @@ CREATE POLICY work_dispatch_bindings_context ON public.work_dispatch_bindings US
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260810100000'),
 ('20260809100000'),
 ('20260808120000'),
 ('20260808110000'),

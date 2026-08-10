@@ -96,8 +96,15 @@ module Workflows
 
         def process(store:, command:, ctx:, org:, now:, row:, receipt:, actor:, key_digest:, request_sha256:)
           assignments = store.effective_role_assignments(account_id: actor["id"], now:)
-          roles = assignments.map { |a| a["canonical_role"] }
-          unless roles.include?(ADMIN_ROLE) && Platform::PermissionBaseline.permits?(CAPABILITY, roles)
+          # THE WHOLE BASELINE ROW, PER ASSIGNMENT, AND IT USED TO BE THE ROLE CELL OVER A FLATTENED
+          # LIST (FU-62). `assignments.map { |a| a["canonical_role"] }` threw away the pairing between
+          # a role and the mode it is held in, so even the mode this store now selects could not have
+          # been applied to the right assignment. MEASURED before the repair: a `read_only`
+          # OrganizationAdmin — a tuple the database accepts — reactivated a suspended Organization.
+          unless assignments.any? { |a|
+                   a["canonical_role"] == ADMIN_ROLE &&
+                     Platform::PermissionBaseline.assignment_permits?(CAPABILITY, a)
+                 }
             return in_memory_failure(command, ctx, "organization_admin_unavailable")
           end
 

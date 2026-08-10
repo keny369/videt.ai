@@ -461,6 +461,39 @@ RSpec.describe "Repository truth", type: :model do
                          "define as a block or a protected foundation"
     end
 
+    # THE PLAN'S OWN `status:` IS A SECOND COPY OF SOMEBODY ELSE'S FACT, AND IT DRIFTED.
+    #
+    # FU-47 held `current_tranche` and `completed_blocks` to the plan, which made the plan the
+    # authority for WHAT A BLOCK IS. Nothing held the plan's statuses to the state, and once the file
+    # parsed those statuses became readable for the first time — at which point `S-07-009` was
+    # `pending` here while `completed_blocks` contained it and ADR-142 had accepted it at `780b1a4`.
+    #
+    # WHICH ONE IS AUTHORITATIVE, AND WHY IT IS NOT THE PLAN. `completed_blocks` is written by the
+    # build controller at the moment a block is accepted and every entry is backed by an ADR;
+    # `status:` in the plan is maintained by hand. So the STATE is the authority for what has been
+    # BUILT, the PLAN is the authority for what a block IS, and this check corrects the plan against
+    # the state rather than the reverse.
+    #
+    # AND THE DIRECTION MATTERS. A gate must never derive "is this block done" from the plan, because
+    # a stale `pending` would make such a gate look at nothing and PASS — the exact silent-skip shape
+    # FU-47 was opened for. Holding the duplicate to the record is what stops the question from being
+    # worth asking of the plan at all.
+    it "carries a `status` for every block that agrees with what the state records as completed" do
+      completed = Array(BUILD_STATE["completed_blocks"]).to_set
+      disagreements = plan.fetch("blocks").filter_map do |block|
+        id = block.fetch("id")
+        done = block["status"].to_s == "completed"
+        next if done == completed.include?(id)
+
+        "#{id}: BUILD_PLAN says #{block['status'].inspect} but completed_blocks " \
+          "#{completed.include?(id) ? 'CONTAINS' : 'does NOT contain'} it"
+      end
+
+      expect(disagreements).to be_empty,
+                               "BUILD_PLAN.yml's statuses disagree with BUILD_STATE.completed_blocks, " \
+                               "which is the authority for what has been built:\n#{disagreements.join("\n")}"
+    end
+
     # ---- FU-39: the no-working-state policy, run against the REAL record ------------------------
     #
     # THE RECORD'S PREMISE IS MEASURABLY FALSE, AND WHAT REMAINED IS NARROWER. FU-39 concluded

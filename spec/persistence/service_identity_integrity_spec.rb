@@ -45,8 +45,58 @@ RSpec.describe "Service Identity integrity", type: :model do
         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
         WHERE c.contype = 'f' AND c.confrelid = 'service_identities'::regclass
       SQL
-      expect(bound).to eq(LEDGER_COLUMNS.merge("scheduled_actions" => "executing_service_identity_id"))
+      expect(bound).to include(LEDGER_COLUMNS.merge("scheduled_actions" => "executing_service_identity_id"))
     end
+
+    # THE RULE, RATHER THAN THE SIX COLUMNS THAT HAPPENED TO HAVE ONE (FU-12(a)).
+    #
+    # The example above enumerates the columns a reviewer knew about, so a NEW attribution column
+    # added with no foreign key does not fail it — it simply is not in the list. That is how five of
+    # them accumulated. `Platform::ServiceIdentity` says existence "is guaranteed by the ledger
+    # foreign keys"; this asks the catalogue whether that sentence is true of EVERY attribution.
+    #
+    # THE SUBJECT IS DERIVED FROM THE NAMING CONVENTION the schema already keeps: a column carrying a
+    # Service Identity is named `%service_identity_id`, all eleven of them. FU-12(a) named one
+    # unbound column and said it was unlike "every other Service-Identity reference in the schema";
+    # measured, there were FIVE, three of them NOT NULL.
+    it "binds EVERY Service Identity attribution column, not merely the ones a reviewer listed" do
+      unbound = DbInspector.all(<<~SQL).map { |r| "#{r['table_name']}.#{r['column_name']}" }
+        SELECT c.relname AS table_name, a.attname AS column_name
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+          AND a.attname LIKE '%service_identity_id'
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint k
+            WHERE k.conrelid = c.oid AND k.contype = 'f'
+              AND k.confrelid = 'service_identities'::regclass
+              AND a.attnum = ANY (k.conkey)
+          )
+        ORDER BY 1, 2
+      SQL
+
+      expect(unbound).to be_empty,
+                         "these name a Service Identity that no constraint requires to exist:\n" \
+                         "#{unbound.join("\n")}"
+    end
+
+    it "is asking about a real and non-trivial set of columns, so the rule above is not vacuous" do
+      # A `LIKE` that matched nothing would make the rule pass forever.
+      count = DbInspector.one(<<~SQL)["n"].to_i
+        SELECT count(*) AS n
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+        WHERE n.nspname = 'public' AND c.relkind = 'r' AND a.attname LIKE '%service_identity_id'
+      SQL
+      expect(count).to be >= 11
+    end
+
+    # The per-table REJECTION for `crawl_limit_decisions` lives in
+    # `spec/persistence/crawl_limit_decision_invariants_spec.rb`, which already builds the
+    # Organization/Project/Crawl chain a decision row needs. Duplicating that chain here would be a
+    # second fixture for one assertion.
 
     it "rejects an unknown Service Identity in command_executions" do
       expect { insert_execution(service_identity_id: unknown) }

@@ -167,6 +167,41 @@ RSpec.describe "Permission Baseline transcription", type: :model do
     end
   end
 
+  # Dimension 2b — THE TWO CELLS ARE READ TOGETHER, EVERYWHERE (FU-62).
+  #
+  # A row of `:135` has a role cell AND a Read-Only cell, and reading only the first is R3-10. The
+  # transcription checks above cannot catch a CALLER that reads half the row: they compare the Ruby
+  # table to the document, and the table was right both times. What was wrong was that the
+  # conjunction `permits? && mode_permits?` was written out by hand at six call sites, and the sixth
+  # — `Wf013::Handlers::ReactivateOrganization` — wrote only the first half.
+  #
+  # MEASURED, because the record called it unreachable: `OrganizationAdmin` + `read_only` is barred by
+  # `InvitationOffer#valid_tuple?` and by NOTHING IN THE DATABASE, and a `read_only` OrganizationAdmin
+  # reactivated a suspended Organization.
+  #
+  # SO THE CONJUNCTION HAS EXACTLY ONE IMPLEMENTATION AND THIS IS THE RULE THAT KEEPS IT THAT WAY. A
+  # production caller wanting the baseline's answer about an assignment calls `assignment_permits?`;
+  # the two limbs are the module's own internals. Spec files are not scanned — the transcription
+  # examples above legitimately drive each limb on its own, which is what makes them able to tell the
+  # two cells apart.
+  it "leaves the role limb and the mode limb with NO production caller outside the module" do
+    sources = (Dir[Rails.root.join("app/**/*.rb")] + Dir[Rails.root.join("lib/**/*.rb")]).sort
+    offenders = sources.reject { |f| f.end_with?("app/platform/permission_baseline.rb") }
+                       .select { |f| File.read(f).match?(/PermissionBaseline\.(?:mode_)?permits\?/) }
+                       .map { |f| Pathname(f).relative_path_from(Rails.root).to_s }
+
+    expect(offenders).to be_empty,
+                         "these read ONE cell of the baseline row directly instead of calling " \
+                         "`assignment_permits?`, which is how FU-62 happened:\n#{offenders.join("\n")}"
+  end
+
+  it "actually scans a tree containing the module it exempts, so the check above is not vacuous" do
+    # A glob that matched nothing would make the rule above pass forever.
+    sources = Dir[Rails.root.join("app/**/*.rb")]
+    expect(sources).to include(Rails.root.join("app/platform/permission_baseline.rb").to_s)
+    expect(sources.length).to be > 100
+  end
+
   # Dimension 3 — `PROTECTED` AGAINST `:333`, THE DIMENSION THAT DID NOT EXIST (FU-54 / R19-SEC-2).
   #
   # Dimensions 1 and 2 check `CAPABILITIES` against `:135`. `PROTECTED` is a transcription of a

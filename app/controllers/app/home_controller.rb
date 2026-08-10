@@ -33,8 +33,7 @@ module App
     # target request will use, but it substitutes for nothing: the target reauthorizes.
     def permitted?(outcome, capability)
       outcome.decision.granting.any? do |assignment|
-        Platform::PermissionBaseline.permits?(capability, [assignment["canonical_role"]]) &&
-          Platform::PermissionBaseline.mode_permits?(capability, assignment["permission_mode"])
+        Platform::PermissionBaseline.assignment_permits?(capability, assignment)
       end
     end
   end

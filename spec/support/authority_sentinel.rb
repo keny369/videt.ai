@@ -194,6 +194,44 @@ module AuthoritySentinel
       effects.nil? ? :unknown : effects
     end
 
+    # THE SECOND ENTRY POINT, AND WHY THE DOOR NEEDED ONE (FU-51).
+    #
+    # Classification happens BEFORE execution — `StatementObserver` plans, then calls `super` — so the
+    # only thing that can answer for a statement PostgreSQL would not plan, the command tag of the
+    # statement that RAN, does not exist yet when `note_statement` is called. The plan verdict is
+    # therefore carried across `super` and resolved here.
+    def note_execution(sql, verdict, tag)
+      verdict = resolve_by_tag(sql, tag) if verdict == ProtectedEffectDoor::NOT_PLANNABLE
+      return if verdict == :outside_subject
+
+      verdict == :unknown ? ProtectedEffectDoor.note_unplannable(sql, tag) : note_effects(verdict)
+    end
+
+    # WHERE THE UNPLANNABLE STATEMENT WAS EXECUTED DECIDES WHAT IT MEANS, and this is the judgement
+    # FU-51 said would be the hard part of the repair.
+    #
+    # The invariant's subject is "a statement a WF-005 command executed". `note_effects` has been
+    # frame-scoped since D5 for exactly that reason, and this limb is scoped the same way. The harness
+    # runs `TRUNCATE ... RESTART IDENTITY CASCADE` over 26 tables after almost every example and would
+    # otherwise report thousands of blind spots for its own reset — turning a repair that closes a
+    # hole into a gate nothing can pass, which is how an instrument gets reverted rather than fixed.
+    #
+    # THE PRE-EXISTING BLIND SPOT KEEPS ITS GLOBAL SCOPE. A statement that executed but could not be
+    # planned for a reason OTHER than "not optimizable" says the instrument itself is broken, not that
+    # a statement was unclassifiable, so it still fails the run wherever it happens. Only the new
+    # tag-decided limb is frame-scoped.
+    def resolve_by_tag(sql, tag)
+      case ProtectedEffectDoor.tag_verdict(tag)
+      when :benign then []
+      when :schema then frame[:depth].positive? ? :unknown : []
+      else
+        return :unknown if frame[:depth].positive?
+
+        ProtectedEffectDoor.note_unclassified(tag)
+        :outside_subject
+      end
+    end
+
     # Called only once the statement has actually executed: a statement PostgreSQL refused never
     # committed anything, and a plan is not an effect.
     #
@@ -210,6 +248,12 @@ module AuthoritySentinel
       @observed_governed_writes = observed_governed_writes + governed
       f[:governed] += governed
       effects.each { |e| f[:relations] << [e.relation, e.operation] }
+    end
+
+    def command_tag(result)
+      result.cmd_status if result.respond_to?(:cmd_status)
+    rescue PG::Error
+      nil
     end
 
     def note_authentication
@@ -254,6 +298,7 @@ module AuthoritySentinel
                          undriven: observed_handlers.map(&:name) - executed_handlers.to_a,
                          unreached: unreached_handlers,
                          unplannable: ProtectedEffectDoor.unplannable,
+                         unclassified: ProtectedEffectDoor.unclassified_tags,
                          mislabelled: lifecycle_but_unguarded)
       if human.zero?
         raise "AuthoritySentinel judged ZERO commands human-authorized across the entire suite; its " \
@@ -294,6 +339,18 @@ module AuthoritySentinel
         raise "#{unplannable.length} statement(s) executed successfully that PostgreSQL could not " \
               "plan, so the door has no answer for them and 'no protected side effect' is a guess:\n" \
               "#{unplannable.keys.join("\n")}"
+      end
+      # THE FU-51 LIMB IS REACHED, NOT MERELY WRITTEN. Before the repair every statement PostgreSQL
+      # refused to plan was returned as `[]` — "no write" — including `TRUNCATE`, which is how the
+      # harness empties 26 governed tables between examples. If this census is EMPTY across a whole
+      # suite then no unplannable statement was ever resolved by its command tag, which means either
+      # the tag path is unreachable or the allowlist swallowed everything, and in both cases the
+      # repair is decorative. The suite executes thousands of `TRUNCATE`s, so an empty census here is
+      # a broken instrument rather than a quiet one.
+      if unclassified.empty?
+        raise "AuthoritySentinel resolved ZERO unplannable statements by command tag across the " \
+              "entire suite, so the limb that stopped the door reading 'no plan' as 'no write' was " \
+              "never reached and cannot be shown to work"
       end
       return if mislabelled.empty?
 
@@ -367,13 +424,24 @@ module AuthoritySentinel
   # carries every store statement; `exec` carries `txid_current()` and `clock_timestamp()`. Planning
   # first and counting after means a statement PostgreSQL REFUSED is never counted as an effect,
   # while a statement it could not plan at all is recorded as a blind spot rather than as a read.
+  # THE PLAN IS TAKEN BEFORE THE STATEMENT RUNS AND THE TAG IS READ AFTER IT (FU-51). Planning first
+  # and counting after means a statement PostgreSQL REFUSED is never counted as an effect; reading the
+  # tag after means a statement PostgreSQL would not PLAN is still answered, by the statement itself,
+  # instead of being assumed to be a read.
+  #
+  # `cmd_status` IS READ DEFENSIVELY AND ITS ABSENCE IS LOUD. `PG::Connection#exec` returns the
+  # BLOCK's value when handed one, so a caller using the block form would leave no `PG::Result` here.
+  # No caller in this repository does, and rather than wrap a block — which would change when PG
+  # clears the result, an instrument altering what it observes — a value that cannot report a tag
+  # yields `nil`, which `tag_verdict` calls `:unknown`. That is the fail-safe direction: a blind spot
+  # inside a command frame, never a silent "no write".
   module StatementObserver
     def exec_params(sql, *, &)
       return super if ProtectedEffectDoor.classifying?
 
       effects = AuthoritySentinel.note_statement(sql)
       result = super
-      effects == :unknown ? ProtectedEffectDoor.note_unplannable(sql) : AuthoritySentinel.note_effects(effects)
+      AuthoritySentinel.note_execution(sql, effects, AuthoritySentinel.command_tag(result))
       result
     end
 
@@ -382,7 +450,7 @@ module AuthoritySentinel
 
       effects = AuthoritySentinel.note_statement(sql)
       result = super
-      effects == :unknown ? ProtectedEffectDoor.note_unplannable(sql) : AuthoritySentinel.note_effects(effects)
+      AuthoritySentinel.note_execution(sql, effects, AuthoritySentinel.command_tag(result))
       result
     end
   end

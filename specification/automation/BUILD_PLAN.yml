@@ -1024,7 +1024,15 @@ blocks:
     # `state='failed'` with a completion reason and no coverage — a failed run has no coverage to
     # report. Reconcile the catalogue's nullable declaration with the same rule. See FU-11.
     type: product
-    status: pending
+    status: completed   # 2026-08-06: accepted (DECISIONS.md ADR-142) at 780b1a4; recorded in
+                        # BUILD_STATE.completed_blocks the same day. THIS FIELD SAID `pending` UNTIL
+                        # 2026-08-10 and was corrected against the state, not the other way round:
+                        # BUILD_STATE.completed_blocks is the authority for what has been BUILT
+                        # (the controller writes it at acceptance and an ADR backs every entry),
+                        # while this file is the authority for what a block IS — its identity, type
+                        # and dependencies. `status:` here is a second copy of somebody else's fact,
+                        # and it is the copy that drifted. `repository_truth_spec` now holds the two
+                        # together so it cannot drift silently again.
     depends_on:
       - S-07-007
       - S-07-008

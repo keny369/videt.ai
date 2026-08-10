@@ -91,7 +91,11 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
   end
 
   def insert_limit_decision(pg, f, organization_id: org)
-    pg.exec_params(<<~SQL, [SecureRandom.uuid_v7, organization_id, f[:pid], f[:crawl]])
+    # FU-12(a): a REGISTERED author, where this was `gen_random_uuid()` against a column that
+    # referenced nothing.
+    params = [SecureRandom.uuid_v7, organization_id, f[:pid], f[:crawl],
+              Platform::ServiceIdentity.scheduled_action_executor]
+    pg.exec_params(<<~SQL, params)
       INSERT INTO crawl_limit_decisions
         (id, schema_version, created_at, correlation_id, causation_id, organization_id, project_id,
          crawl_id, limit_dimension, threshold_kind, configured_value, observed_value,
@@ -100,7 +104,7 @@ RSpec.describe "Crawl terminal fact closure", type: :model do
          output_sha256, decided_at)
       VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,
               'wall_clock_run_duration','hard',60,60,1,1,'crawl_limit_observation','hard_reached','final',
-              'limit_reached',gen_random_uuid(),'["v1"]'::jsonb,sha256(''::bytea),sha256(''::bytea),now())
+              'limit_reached',$5::uuid,'["v1"]'::jsonb,sha256(''::bytea),sha256(''::bytea),now())
     SQL
   end
 

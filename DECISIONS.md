@@ -2160,6 +2160,8 @@ Test quality was itself blocking, and the finding was correct. The outbound stub
 
 Non-blocking, recorded and NOT fixed here: the `Traversal`/service dependency is bidirectional and `Traversal` has no unit test (FU-8); `crawl_host_gates_sitemap_outcome_reason` is one-directional, consistent with the accepted robots precedent; both guards are UPDATE-only so an INSERT can seed a state, inherited and pre-existing; `normalize` over-rejects a trailing-dot host and an uppercase scheme; and sustained gate contention can still terminalize a host `unavailable` with zero attempts if no scheduler re-entry exists — that re-entry is S-07-008's, and is registered as a dependency rather than assumed.
 
+**SUPERSEDED IN PART, 2026-08-10 (FU-12(c)).** The last clause above — "that re-entry is S-07-008's" — no longer names the block that owns the work. The scheduler re-entry was **reassigned to S-07-012**, and this paragraph was never updated, so a reader tracing the dependency from here is sent to a block that does not carry it and finds nothing. Nothing else in ADR-081 is affected: the finding, the reason it is non-blocking, and the requirement that the re-entry be registered as a dependency rather than assumed all stand exactly as written. Recorded here rather than by editing the sentence, because ADR-081 is a ratified record of what was decided on the day and the correction is a later decision about ownership, not a claim that the original said something else.
+
 Acceptance:
 Every mandatory gate green: whole-repo suite **1678/0**; Brakeman clean (the store's private `exec` wrapper is renamed `query` — shadowing `Kernel#exec` made every fragment-interpolating statement read as command injection); Packwerk, Zeitwerk and bundler-audit clean; architecture fitness **31/0**; `verify_runtime` OK, 15 checks, RLS intact; the schema builds from genuinely empty and the dump is BYTE-IDENTICAL to the committed `structure.sql`; all three migrations round-trip down and up with no residue. S-07-006 is ACCEPTED on the COMPLETE five-lens outcome, per ADR-080. `main` untouched. Next: **S-07-007** (content fetch, redirect and scope validation, byte accounting, retry).
 
@@ -5634,3 +5636,79 @@ Authority And Precedence:
 Repairs under standing delegation ADR-061. The YAML quoting under the rule that a declared-format file
 that does not parse is a defect rather than a style preference. Corrects FU-39's premise about the
 boundary hook. Allocated the next unused number after ADR-147.
+
+## ADR-149: FU-51, FU-62 And The FU-12 Remainder — The Door Stops Reading "No Plan" As "No Write", A Baseline Row Is Read Whole Everywhere, And Four Schema Conventions Become Rules
+
+Date: 2026-08-10. Status: Accepted under standing delegation ADR-061.
+
+**FU-51 — the instrument.** `ProtectedEffectDoor.plan` returned `[]` — the module's own value for
+"modifies nothing" — for every statement PostgreSQL refuses to plan with SQLSTATE 42601, and the
+comment above it argued that this was "the correct answer rather than a blind spot". `EXPLAIN` accepts
+only `ExplainableStmt`, and `TRUNCATE`, `COPY … FROM STDIN`, `DO` and `CALL` all sit outside it and all
+modify rows. The limb is now a third answer, `NOT_PLANNABLE`, resolved after execution from the command
+tag of the statement that actually ran — the second entry point the record said the door would need,
+because classification happens before execution. The benign set is an ALLOWLIST, because the direction
+that survives being wrong is a loud blind spot on a harmless statement rather than a silent swallow of a
+write. As the record predicted, `cmd_status` names the verb and never the relation, so a TRUNCATE can
+only ever be an instrument blind spot and never an `Effect`; that is stated in the code.
+
+Two judgements the record did not anticipate, both recorded because both are choices. The tag-decided
+blind spot is FRAME-SCOPED: `ReceiptMinter#truncate_all` TRUNCATEs 26 tables after almost every example,
+so a globally fatal limb would have failed the suite thousands of times over the harness's own reset.
+It fails the run for a statement executed inside a WF-005 command frame, which is the invariant's
+subject; the pre-existing non-syntax limb keeps its global scope untouched; and statements outside a
+frame are counted, with `assert_observed!` requiring that census to be NON-EMPTY so the new limb cannot
+be quietly unreachable. And DDL is benign outside a command and a blind spot inside one, because
+`DROP TABLE` destroys governed rows and the tag cannot attribute them.
+
+Proved by execution, not by a green suite: a TRUNCATE inside a command frame empties a table of two rows
+and the door records `[TRUNCATE TABLE]`; a COPY inserts two rows and is recorded; transaction control
+stays silent; both sides of the DDL split hold. Reverting the 42601 limb fails five proofs on their own
+assertions.
+
+**The second instance is not closed, and the repair that closed the first provably cannot reach it.**
+Measured: the plan for `SELECT f1_settle_scheduled_action(…)` succeeds and yields a bare `Result` node
+that does not name the function, and its tag is `SELECT 1`. The plan is EMPTY rather than absent, so
+`[]` is a real answer and the tag path is never entered. DML inside `SECURITY DEFINER` plpgsql is
+invisible to both mechanisms. Carried forward as **FU-75** rather than half-built.
+
+**FU-62 — and the record's "unreachable today" is false.** The note reasons from `OrganizationAdmin` +
+`read_only` not being a ratified tuple, and states in the same breath that the tuple is barred "by
+NOTHING IN THE DATABASE". The second fact defeats the first. Measured before any repair: the row
+inserts, and a `read_only` OrganizationAdmin holding a valid reactivation receipt REACTIVATED A
+SUSPENDED ORGANIZATION — success, nil reason code, status back to `active` — for a capability whose
+Read-Only cell reads deny. This is FU-58's pattern exactly: unreachable by argument, measurable at the
+write. The measurement is what justified the structural repair over the local one:
+`PermissionBaseline.assignment_permits?` is now the single two-limb entry point and all six production
+callers go through it, `effective_role_assignments` selects the `permission_mode` the decision needs,
+and an architecture rule leaves both limbs with no production caller outside the module so the next
+hand-written half-conjunction fails the gate. What is NOT claimed: the database still admits the row.
+That residue is **FU-76**.
+
+**FU-12 (a), (c), (d), (f), (g).** (f) `EffectiveLimits.resolve`'s method-wide rescue meant one
+unparseable stored policy discarded EVERY valid narrowing policy and the run fell back to the global
+ceiling — bad data bought a wider crawl. The rescue is now per row. Both pre-existing examples passed a
+single row, which is why it survived them: with one row, "ignored" and "abandoned the resolution" give
+the same answer. (a) and (d) were each recorded as one table and each measured as more: FIVE Service
+Identity attribution columns were unbound, three of them NOT NULL, and THREE Project-owned crawl tables
+lacked `:128`'s three-column key. All are bound, and both conventions are now RULES derived from the
+catalogue with vacuity checks, because a rule that needs a hand-maintained exemption list is the
+enumeration-one-case-short shape this repository keeps rejecting. `crawl_policies` is excluded from the
+second by a property — its `project_id` is nullable, so it is not Project-OWNED — and not by name.
+(g) an exhausted run no longer claims a real host-gate slot and re-runs `FetchAuthorization` for every
+remaining candidate merely to be refused: measured at 3 slot claims before and 1 after.
+
+**Four spec fixtures were writing fabricated authors** — `gen_random_uuid()` and `SecureRandom.uuid_v7`
+into Service Identity columns — and passed for as long as they did precisely because nothing required
+the identity to exist. They now pass what production passes.
+
+Acceptance: rspec **3040/0/1 pending**; architecture **286/0**; Brakeman 0; Packwerk, Zeitwerk and
+bundler-audit clean; `verify_runtime` 15 checks, RLS intact; `db:schema:dump` byte-identical to the
+committed `structure.sql`; the migration round-trips down and up. Zero model-provider calls were made.
+
+Authority And Precedence:
+Repairs under standing delegation ADR-061. FU-51 is taken as its own tranche, as its record twice
+required. Corrects the census in FU-62, the "every other reference" premise in FU-12(a), the
+single-table scope of FU-12(d), and the claim in `protected_effect_door.rb` that an unplannable
+statement carries no write. Appends a supersession note to ADR-081 rather than editing it. Allocated the
+next unused number after ADR-148.

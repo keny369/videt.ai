@@ -143,7 +143,48 @@ RSpec.describe "WF-013 reactivate organization", type: :acceptance,
                                                          issuer_key: identity[:issuer_key],
                                                          subject: "stranger-#{SecureRandom.hex(6)}")
       expect(reactivate(org, stranger[:receipt_digest]).reason_code).to eq("organization_admin_unavailable")
-      expect(organization(org)["status"]).to eq("suspended")
+    end
+
+    # FU-62. THE SIXTH COLUMN, AT THE ONE CALL SITE THAT WAS NOT READING IT.
+    #
+    # `organization.reactivate` is not in `READ_ONLY_CAPABILITIES`, so the baseline's Read-Only cell
+    # DENIES it. This handler applied the role cell alone, over a role list flattened out of the
+    # assignments, so a `read_only` OrganizationAdmin answered to OrganizationAdmin's cell.
+    #
+    # THE RECORD CALLED THIS UNREACHABLE AND IT WAS NOT. The claim rested on `OrganizationAdmin` +
+    # `read_only` not being a ratified tuple — true of `InvitationOffer#valid_tuple?`, and enforced by
+    # NOTHING IN THE DATABASE. Measured before the repair, with exactly this setup: the row inserted,
+    # the handler returned success, and the Organization went back to `active`. Suspension is the
+    # control that stops an Organization issuing new authority, so this restored it on a read-only
+    # actor's say-so.
+    #
+    # The standard admin does the suspending because the suspend path runs the three-limb
+    # `CommandAuthorizer`, which refuses a `read_only` actor — that limb was never broken, and driving
+    # the whole scenario through one actor would have measured it instead of this one.
+    it "refuses a READ-ONLY OrganizationAdmin, whose baseline cell denies reactivation (FU-62)" do
+      read_only = { issuer_key: identity[:issuer_key], subject: "ro-admin-#{SecureRandom.hex(8)}" }
+      org = suspended[:organization_id]
+      ro_account = TenantSeeder.create_account(organization_id: org, **read_only)
+      TenantSeeder.create_role_assignment(organization_id: org, account_id: ro_account,
+                                          canonical_role: "OrganizationAdmin",
+                                          permission_mode: "read_only")
+      digest = ReceiptMinter.mint_reactivation_receipt(validated_at: fixed_now, **read_only)[:receipt_digest]
+
+      result = reactivate(org, digest)
+
+      expect(result.reason_code).to eq("organization_admin_unavailable")
+      expect(result).not_to be_success
+      expect(organization(org)["status"]).to eq("suspended"),
+                                             "a read_only OrganizationAdmin reactivated the Organization"
+    end
+
+    it "still admits a STANDARD OrganizationAdmin, so the mode limb denies rather than blocks (FU-62)" do
+      # THE OTHER SIDE OF THE SAME LIMB. A mode check that refused everyone would pass the example
+      # above while breaking the workflow, and the two together are what make it a narrowing.
+      org = suspended[:organization_id]
+
+      expect(reactivate(org, receipt[:receipt_digest])).to be_success
+      expect(organization(org)["status"]).to eq("active")
     end
 
     it "refuses when the Organization has no single active Access Policy" do

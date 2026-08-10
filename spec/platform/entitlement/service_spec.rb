@@ -95,7 +95,7 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
       reserve(reservation_id: rid)
       expect(run { |s| s.start_execution(organization_id: org, reservation_id: rid, now: t0 + 60) }).to eq(:executing)
       hb = run { |s| s.heartbeat(organization_id: org, reservation_id: rid, worker_process_identity: "worker-1",
-                                 worker_service_identity_id: SecureRandom.uuid_v7, now: t0 + 360,
+                                 worker_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor, now: t0 + 360,
                                  ids: { heartbeat: SecureRandom.uuid_v7 }) }
       expect(hb[:heartbeat_generation]).to eq(1)
       expect(reservation(rid)["lease_generation"]).to eq("1")
@@ -228,13 +228,13 @@ RSpec.describe Platform::Entitlement::Service, type: :model do
       # Heartbeat every 5 minutes while under the 65-min ceiling — each is accepted.
       (1..12).each do |i|
         hb = run { |s| s.heartbeat(organization_id: org, reservation_id: rid, worker_process_identity: "w",
-                                   worker_service_identity_id: SecureRandom.uuid_v7, now: t0 + 60 + (i * 300),
+                                   worker_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor, now: t0 + 60 + (i * 300),
                                    ids: { heartbeat: SecureRandom.uuid_v7 }) }
         expect(hb).to be_a(Hash), "heartbeat #{i} at #{i * 5}min should be accepted, got #{hb.inspect}"
       end
       # A heartbeat AT the 65-min max-execution instant loses to expiry even though the 15-min lease is open.
       expect(run { |s| s.heartbeat(organization_id: org, reservation_id: rid, worker_process_identity: "w",
-                                   worker_service_identity_id: SecureRandom.uuid_v7, now: t0 + 60 + 3900,
+                                   worker_service_identity_id: Platform::ServiceIdentity.scheduled_action_executor, now: t0 + 60 + 3900,
                                    ids: { heartbeat: SecureRandom.uuid_v7 }) }).to eq(:lease_expired)
       # And expire() at that instant releases it.
       expect(run { |s| s.expire(organization_id: org, reservation_id: rid, now: t0 + 60 + 3900) }).to eq(:released)

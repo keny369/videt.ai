@@ -44,6 +44,49 @@ RSpec.describe Workflows::Wf005::EffectiveLimits do
       row = policy_row(id: SecureRandom.uuid_v7, version: "org-1", bounds: {}).merge("normalized_bounds" => "{oops")
       expect(limits.resolve([row]).bounds).to eq(global)
     end
+
+    # FU-12(f). THE TWO TESTS ABOVE BOTH PASS ONE ROW, WHICH IS WHY THIS DEFECT SURVIVED THEM.
+    #
+    # `resolve`'s rescue was METHOD-WIDE, so an unparseable row did not merely fail to contribute —
+    # it abandoned the whole resolution and returned the GLOBAL CEILING, discarding every valid
+    # narrowing policy that had already been read or was still to come. With one row in the corpus
+    # "ignored" and "abandoned the resolution" produce the same answer, and no example held more
+    # than one.
+    #
+    # THE DIRECTION IS WHAT MAKES IT WORTH A PROOF: a malformed row belonging to one scope made the
+    # limits of ANOTHER scope WIDER, and the event then named the global clamp as the only governing
+    # version. Bad data must not buy a bigger crawl.
+    context "when one stored policy is unreadable and another is valid (FU-12(f))" do
+      let(:unparseable) do
+        policy_row(id: SecureRandom.uuid_v7, version: "org-broken", bounds: {})
+          .merge("normalized_bounds" => "{oops")
+      end
+      let(:valid) do
+        policy_row(id: SecureRandom.uuid_v7, version: "proj-1",
+                   bounds: narrowed("crawl_depth", soft: 2, hard: 3), digest: "cd" * 32)
+      end
+
+      it "keeps the valid narrowing when the unreadable policy is read FIRST" do
+        resolution = limits.resolve([unparseable, valid])
+
+        expect(resolution.bounds["crawl_depth"]).to eq({ "soft" => 2, "hard" => 3 })
+        expect(resolution.versions).to include("proj-1")
+      end
+
+      it "keeps the valid narrowing when the unreadable policy is read LAST" do
+        # BOTH ORDERS, because a method-wide rescue is order-blind and a per-row one must be too.
+        resolution = limits.resolve([valid, unparseable])
+
+        expect(resolution.bounds["crawl_depth"]).to eq({ "soft" => 2, "hard" => 3 })
+        expect(resolution.versions).to include("proj-1")
+      end
+
+      it "still refuses to NAME the policy it could not read" do
+        # The contributing set and the named set are the same set — the module's own rule, which the
+        # per-row skip must not quietly break.
+        expect(limits.resolve([unparseable, valid]).versions).not_to include("org-broken")
+      end
+    end
   end
 
   describe "definition_versions (API_CONTRACTS.md :713 EventGoverningVersion)" do

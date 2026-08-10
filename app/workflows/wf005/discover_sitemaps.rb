@@ -766,6 +766,9 @@ module Workflows
           # Candidates the gate never released, so they stay candidates across re-entry. (The
           # charge ledger is durable and lives in the database — see `charge_for`.)
           @deferred = {}
+          # The run-wide document budget refused a charge during THIS traversal. Monotonic within a
+          # run and deliberately not durable — see `fetch_once` (FU-12(g)).
+          @documents_exhausted = false
           @default_url = service.default_url(canonical_host)
           # nil until the default has been attempted; then true only if it answered 404/410.
           @default_absent = nil
@@ -859,11 +862,30 @@ module Workflows
         end
 
         def fetch_once(candidate)
+          # ONCE THE RUN-WIDE BUDGET IS SPENT IT CANNOT UNSPEND (FU-12(g)).
+          #
+          # `fetch_document` claims a REAL host-gate slot and re-runs `FetchAuthorization` before it
+          # ever calls `charge`, so every remaining candidate of an exhausted run took a slot out of
+          # a live host's concurrency ceiling, paced behind it, and released it again purely to be
+          # told the run could not pay. With 50 documents spent and candidates still queued that is
+          # real capacity spent on a foregone conclusion.
+          #
+          # WHY A MEMO IS SAFE HERE AND IS NOT SAFE FOR THE CHARGE ITSELF. `charge_for` deliberately
+          # refuses an in-memory memo, because "already charged" is a fact about a URL that must
+          # survive a `Traversal` being rebuilt on scheduler re-entry — memoizing it re-charged every
+          # URL on re-entry. This memo carries the opposite kind of fact: `reserve_sitemap_document`
+          # only ever INCREMENTS, so exhaustion is MONOTONIC within a run, and a memo of it can only
+          # ever skip work the database was going to refuse. A rebuilt `Traversal` starts with it
+          # false and pays exactly one slot claim to rediscover it — which is what happens today for
+          # every candidate.
+          return DiscoverSitemaps::DOCUMENTS_EXHAUSTED if @documents_exhausted
+
           DiscoverSitemaps::MAX_DEFERRALS_PER_CANDIDATE.times do
             attempt = @service.fetch_document(**@context.slice(:organization_id, :crawl_id, :canonical_host,
                                                                :source_id, :gate_id, :now),
                                               url: candidate.canonical_url,
                                               charge: charge_for(candidate))
+            @documents_exhausted = true if attempt == DiscoverSitemaps::DOCUMENTS_EXHAUSTED
             return attempt unless attempt.is_a?(::Array) && attempt.first == DiscoverSitemaps::DEFERRED
 
             # Wait the length the GATE reports, not a fixed constant: the interval is

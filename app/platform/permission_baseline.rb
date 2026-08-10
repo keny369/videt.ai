@@ -312,5 +312,29 @@ module Platform
 
       READ_ONLY_CAPABILITIES.include?(capability)
     end
+
+    # THE WHOLE BASELINE ROW FOR ONE ASSIGNMENT: the role cell AND the mode cell (FU-62).
+    #
+    # WHY THIS EXISTS AS ONE METHOD. `permits?` reads the role cell and `mode_permits?` reads the
+    # sixth column, and answering the real question needs BOTH. Five call sites wrote the conjunction
+    # out by hand and agreed; the sixth — `Wf013::Handlers::ReactivateOrganization` — applied the role
+    # limb ALONE, on a role list flattened out of the assignments so the mode could not be recovered
+    # even if someone had wanted it. That is R3-10's exact shape surviving outside the class R3-10
+    # repaired: an authorization control implemented once properly and once partially, with only the
+    # caller set keeping the partial one safe.
+    #
+    # AND THE CALLER SET WAS NOT KEEPING IT SAFE. The record said the gap was unreachable because
+    # `OrganizationAdmin` + `read_only` is not a ratified tuple. MEASURED 2026-08-10: the tuple is
+    # barred by `Wf013::InvitationOffer#valid_tuple?` at the three creation paths and BY NOTHING IN
+    # THE DATABASE — `role_assignments_permission_mode_check` constrains the mode's domain and never
+    # its pairing with a role — so the row inserts, and a `read_only` OrganizationAdmin holding a
+    # valid reactivation receipt REACTIVATED A SUSPENDED ORGANIZATION. `organization.reactivate` is
+    # not in `READ_ONLY_CAPABILITIES`, so the mode cell denies it outright.
+    #
+    # A conjunction spelled out at six call sites is six chances to spell five of it. This is one.
+    def assignment_permits?(capability, assignment)
+      permits?(capability, [assignment["canonical_role"]]) &&
+        mode_permits?(capability, assignment["permission_mode"])
+    end
   end
 end

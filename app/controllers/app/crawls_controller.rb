@@ -137,8 +137,7 @@ module App
 
     def permitted?(outcome, capability)
       outcome.decision.granting.any? do |assignment|
-        Platform::PermissionBaseline.permits?(capability, [assignment["canonical_role"]]) &&
-          Platform::PermissionBaseline.mode_permits?(capability, assignment["permission_mode"])
+        Platform::PermissionBaseline.assignment_permits?(capability, assignment)
       end
     end
   end

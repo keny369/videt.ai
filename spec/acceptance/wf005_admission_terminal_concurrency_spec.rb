@@ -432,7 +432,10 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
     pg.exec("BEGIN")
     pg.exec_params("SELECT f1_enter_org_context($1::uuid, $2::uuid)",
                    [ctx[:g][:organization_id], SecureRandom.uuid_v7])
-    pg.exec_params(<<~SQL, [SecureRandom.uuid_v7, ctx[:g][:organization_id], ctx[:g][:project_id], ctx[:crawl_id]])
+    # FU-12(a): a REGISTERED author, where this was `gen_random_uuid()`.
+    params = [SecureRandom.uuid_v7, ctx[:g][:organization_id], ctx[:g][:project_id],
+              ctx[:crawl_id], Platform::ServiceIdentity.scheduled_action_executor]
+    pg.exec_params(<<~SQL, params)
       INSERT INTO crawl_limit_decisions
         (id, schema_version, created_at, correlation_id, causation_id, organization_id, project_id,
          crawl_id, limit_dimension, threshold_kind, configured_value, observed_value,
@@ -441,7 +444,7 @@ RSpec.describe "WF-005 Admission versus terminal handlers", type: :acceptance,
          output_sha256, decided_at)
       VALUES ($1,'1.0',now(),gen_random_uuid(),gen_random_uuid(),$2::uuid,$3::uuid,$4::uuid,
               'accepted_pages_per_run','hard',10,10,1,1,'crawl_limit_observation','hard_reached','final',
-              'limit_reached',gen_random_uuid(),'["v1"]'::jsonb,sha256(''::bytea),sha256(''::bytea),now())
+              'limit_reached',$5::uuid,'["v1"]'::jsonb,sha256(''::bytea),sha256(''::bytea),now())
     SQL
     pg.exec("COMMIT")
     :inserted

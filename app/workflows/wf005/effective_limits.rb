@@ -74,20 +74,39 @@ module Workflows
           next unless CrawlPolicy.complete?(bounds)
 
           [bounds, governing_version(row)]
+        rescue JSON::ParserError, TypeError
+          # THE RESCUE IS PER ROW, AND IT USED TO BE PER METHOD (FU-12(f)). Wrapped around the whole
+          # resolution, ONE unparseable stored policy discarded EVERY VALID NARROWING POLICY and the
+          # Crawl ran on the global ceiling alone — the loosest possible answer, produced by the
+          # malformed row of a DIFFERENT Organization or Project. That is the dangerous direction:
+          # bad data made the limits WIDER, and the wider limits were then recorded in the event's
+          # `definition_versions` as though the global clamp were the only policy in force.
+          #
+          # Ignoring the unreadable row alone is what the comment above already promised — "a stored
+          # policy whose bounds are malformed is ignored rather than guessed at" — and it is strictly
+          # more restrictive than the fallback it replaces, because every readable narrowing policy
+          # still applies. The behaviour was inherited unchanged from the three copies this module
+          # replaced, which is why it was recorded rather than swept.
+          nil
         end
         Resolution.new(
           bounds: CrawlPolicy.most_restrictive(CrawlPolicy::GLOBAL_CEILING, *contributing.map(&:first)),
           definition_versions: sorted_unique([GLOBAL_VERSION, *contributing.map(&:last)])
         )
-      rescue JSON::ParserError, TypeError
-        GLOBAL
       end
 
       # NOTE the rescue above catches a MALFORMED STORED POLICY and nothing else. `KeyError` was in
       # the copies this replaced, and carrying it here would have been a silent trap: a caller
       # whose query forgot `content_sha256` would raise inside `governing_version`, be swallowed, and
       # every Crawl would quietly fall back to the global clamp with no Organization or Project
-      # policy applied. A reader that does not select what an event needs must fail loudly.
+      # policy applied. A reader that does not select what an event needs must fail loudly. Narrowing
+      # the rescue to the row PRESERVES that: `governing_version` still raises `KeyError` out of
+      # `resolve`, because `KeyError` is not in the list and never was.
+      #
+      # A ROW THAT IS NOT A ROW STILL YIELDS THE GLOBAL CLAMP. `rows` handed something whose members
+      # do not answer `[]` by name raises `TypeError` per member, every member is skipped,
+      # `contributing` is empty, and `most_restrictive(GLOBAL_CEILING)` is `GLOBAL_CEILING` with
+      # `[GLOBAL_VERSION]` beside it — the same value the method-wide rescue returned.
 
       def governing_version(row)
         { "artifact_type" => POLICY_ARTIFACT_TYPE, "artifact_id" => row.fetch("id"),
